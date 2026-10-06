@@ -95,7 +95,7 @@ describe("AgentTemplateSchema rejections", () => {
 
   it("rejects malformed TOML with its position", () => {
     expect(parseError(() => parseAgentFile('name = "x"\nhidden = '))).toBe(
-      "Invalid TOML document: incomplete declaration: value expected (line 2, column 10)",
+      "Invalid TOML document: invalid value (line 2, column 10)",
     );
   });
 });
