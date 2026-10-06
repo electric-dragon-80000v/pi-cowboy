@@ -1,6 +1,6 @@
 {
   "name": "pi-cowboy",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Agent orchestrator for pi: each subagent runs as its own pi process in a background Herdr pane, isolated by a copy-on-write git worktree.",
   "keywords": [
