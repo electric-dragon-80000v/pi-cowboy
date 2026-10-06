@@ -4,7 +4,7 @@
     "noEmit": false,
     "outDir": "dist",
     "rootDir": "src",
-    "declaration": true,
+    "declaration": false,
     "incremental": true,
     "tsBuildInfoFile": "dist/tsconfig.build.tsbuildinfo"
   },

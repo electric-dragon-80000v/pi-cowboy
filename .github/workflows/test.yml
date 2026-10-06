@@ -55,9 +55,11 @@ jobs:
           for required in \
             package.json \
             dist/index.js \
-            dist/index.d.ts \
             agents/explore.toml \
             orchestrators/with-code-review.toml \
+            docs/assets/logo-transparent.png \
+            docs/assets/grazing.png \
+            docs/assets/herdr-containers.png \
             README.md \
             LICENSE; do
             printf '%s\n' "$entries" | grep -qxF "$required" || {
@@ -65,10 +67,20 @@ jobs:
               exit 1
             }
           done
-          # `src/` is the point of the change; the tsbuildinfo is the incremental
-          # cache `!dist/**/*.tsbuildinfo` exists to drop; the 932 kB logo is a
-          # source image nothing references, kept out by the last `files` negation.
-          for forbidden in '^src/' '\.tsbuildinfo$' '^docs/assets/logo\.png$'; do
+          # Each pattern names the `files` exclusion that keeps it out: `src/` is
+          # the point of shipping `dist/`; the tsbuildinfo is the incremental
+          # cache; declarations are not part of a runtime-only package; the docs
+          # markdown stays reachable through the README's GitHub links; and the
+          # two logos are size guards — `logo.png` is a 932 kB source image
+          # nothing references, and `logo-pi-package.png` is served from its raw
+          # GitHub URL rather than read from the tarball.
+          for forbidden in \
+            '^src/' \
+            '\.tsbuildinfo$' \
+            '\.d\.ts$' \
+            '^docs/.*\.md$' \
+            '^docs/assets/logo\.png$' \
+            '^docs/assets/logo-pi-package\.png$'; do
             if printf '%s\n' "$entries" | grep -qE "$forbidden"; then
               echo "tarball should not contain: $(printf '%s\n' "$entries" | grep -E "$forbidden" | head -1)"
               exit 1
