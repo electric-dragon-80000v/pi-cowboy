@@ -22,14 +22,16 @@ jobs:
           # branch it diffs from has to be in the local history.
           fetch-depth: 0
 
-      - name: Use Node.js 24
-        uses: actions/setup-node@v7
+      - name: Set up pnpm and Node.js 22
+        uses: pnpm/setup@v3
         with:
-          node-version: "24"
-          cache: "npm"
+          runtime: node@22
+          cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
 
       - name: Install dependencies
-        run: HUSKY=0 npm ci
+        run: HUSKY=0 pnpm install --frozen-lockfile
 
       # The commit-msg hook only guards commits made where husky is installed,
       # and `git commit --no-verify` bypasses it. This checks the range a pull
@@ -37,31 +39,32 @@ jobs:
       # workflow cannot turn into a version.
       - name: Check commit messages
         if: github.event_name == 'pull_request'
-        run: npm run commitlint -- --from "origin/${{ github.event.pull_request.base.ref }}" --to HEAD
+        run: pnpm run commitlint -- --from "origin/${{ github.event.pull_request.base.ref }}" --to HEAD
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Check formatting
-        run: npm run format:check
+        run: pnpm run format:check
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       # The published artifact is what users load, and the manifest points pi at
       # `dist/index.js`; pi drops a manifest entry whose file is missing instead
       # of failing, so an unpacked `dist/` ships as an extension that never
       # loads. Assert the tarball itself, including the assets the runtime reads
-      # from the package root by path. Read the tarball rather than `npm pack`
-      # JSON: lifecycle scripts write to stdout and would corrupt the pipe.
+      # from the package root by path. Read the tarball rather than the packing
+      # command's stdout: lifecycle scripts write there too, and would corrupt
+      # the pipe.
       - name: Verify the packed tarball
         env:
           HUSKY: 0
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP" > /dev/null
+          pnpm pack --pack-destination "$RUNNER_TEMP" > /dev/null
           tarball="$(ls "$RUNNER_TEMP"/pi-cowboy-*.tgz)"
           entries="$(tar -tzf "$tarball" | sed 's|^package/||')"
           for required in \
@@ -101,7 +104,7 @@ jobs:
           echo "tarball ok: $(printf '%s\n' "$entries" | wc -l) entries"
 
       - name: Run unit tests
-        run: npm run test:unit
+        run: pnpm run test:unit
 
   # The filesystem-independent integration set needs real git, a real `herdr`
   # binary on PATH, and the repo's own `pi` reachable by herdr's panes
@@ -116,14 +119,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Use Node.js 24
-        uses: actions/setup-node@v7
+      - name: Set up pnpm and Node.js 22
+        uses: pnpm/setup@v3
         with:
-          node-version: "24"
-          cache: "npm"
+          runtime: node@22
+          cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
 
       - name: Install dependencies
-        run: HUSKY=0 npm ci
+        run: HUSKY=0 pnpm install --frozen-lockfile
 
       - name: Put the repo's pi and herdr on PATH
         run: |
@@ -151,7 +156,7 @@ jobs:
           echo "no ext4 mount found; using the runner's default temp dir"
 
       - name: Run integration tests
-        run: npm run test:integration-no-cow
+        run: pnpm run test:integration-no-cow
 
   # Both integration projects on a btrfs loop device, so the clone path actually
   # clones. The tests' temp repos land on the volume through TMPDIR
@@ -164,14 +169,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Use Node.js 24
-        uses: actions/setup-node@v7
+      - name: Set up pnpm and Node.js 22
+        uses: pnpm/setup@v3
         with:
-          node-version: "24"
-          cache: "npm"
+          runtime: node@22
+          cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
 
       - name: Install dependencies
-        run: HUSKY=0 npm ci
+        run: HUSKY=0 pnpm install --frozen-lockfile
 
       - name: Put the repo's pi and herdr on PATH
         run: |
@@ -209,4 +216,4 @@ jobs:
       - name: Run integration tests
         env:
           TMPDIR: /mnt/cow
-        run: npm run test:integration
+        run: pnpm run test:integration

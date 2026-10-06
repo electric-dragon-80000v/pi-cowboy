@@ -102,7 +102,7 @@ const BUILT_EXTENSION_ENTRY = join(REPO_ROOT, "dist", "index.js");
 export function installLocalExtension(ctx: ScenarioContext): void {
   if (!existsSync(BUILT_EXTENSION_ENTRY)) {
     throw new Error(
-      `installLocalExtension: built extension entry missing at ${BUILT_EXTENSION_ENTRY} — run npm run build (or npm run test:integration, which builds first) before the step-integration tests`,
+      `installLocalExtension: built extension entry missing at ${BUILT_EXTENSION_ENTRY} — run pnpm run build (or pnpm run test:integration, which builds first) before the step-integration tests`,
     );
   }
   const extensionsDir = join(ctx.agentDir, "extensions");

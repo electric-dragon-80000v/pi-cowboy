@@ -16,7 +16,7 @@ name: Publish
 # approving it with 2FA, through `npm stage approve <stage-id>` or the Staged
 # Packages tab on npmjs.com, so nothing this workflow does can put a version in
 # front of installers on its own. Re-staging a tag whose staging failed is a
-# local operation: `npm run release:stage` from a checkout of the tag.
+# local operation: `pnpm run release:stage` from a checkout of the tag.
 on:
   workflow_run:
     workflows: [CI]
@@ -53,12 +53,19 @@ jobs:
           # needed; a shallow clone has neither.
           fetch-depth: 0
 
-      # No npm cache: this job's build is what reaches the registry, and a
-      # restored cache is one more input to it that nobody reviewed.
-      - name: Use Node.js 24
-        uses: actions/setup-node@v7
+      # No pnpm store cache: this job's build is what reaches the registry, and
+      # a restored cache is one more input to it that nobody reviewed.
+      #
+      # Node 24, not the 22 the CI workflow runs: staging below needs the npm CLI
+      # in the checkout, `npm stage` needs npm >= 11.15.0, and the Node 22 line
+      # bundles npm 10.9.x while Node 24 bundles 11.19.0. Nothing here runs the
+      # test suite, so this job's Node is not the version CI tests on.
+      - name: Set up pnpm and Node.js 24
+        uses: pnpm/setup@v3
         with:
-          node-version: "24"
+          runtime: node@24
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
 
       # Staging uses npm's trusted publishing: the workflow's OIDC token is
       # exchanged for a short-lived registry token, so no NPM_TOKEN secret is
@@ -82,17 +89,17 @@ jobs:
       # `release.config.ts` is transpiled at load time with the `typescript`
       # devDependency, so an `--omit=dev` install cannot read the config.
       - name: Install dependencies
-        run: HUSKY=0 npm ci
+        run: HUSKY=0 pnpm install --frozen-lockfile
 
       # `prepack` builds `dist/`, which is what the tarball is made of; building
       # up front keeps the release working even if a plugin packs differently.
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       # semantic-release makes the release commit itself and never sets an
       # identity, so CI states one here instead of inheriting whatever the runner
       # happens to have. The author line is the only part of a release that
-      # differs from `npm run release` on a developer's machine.
+      # differs from `pnpm run release` on a developer's machine.
       - name: Identify the release commit's author
         run: |
           git config user.name "github-actions[bot]"
@@ -101,6 +108,6 @@ jobs:
       # HUSKY=0 matters on this step too: staging packs the package, which re-runs
       # its `prepare` script.
       - name: Release
-        run: HUSKY=0 npm run release
+        run: HUSKY=0 pnpm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

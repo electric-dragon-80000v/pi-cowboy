@@ -2,6 +2,7 @@
   "name": "pi-cowboy",
   "version": "0.2.0",
   "type": "module",
+  "packageManager": "pnpm@12.9.1",
   "description": "Agent orchestrator for pi: each subagent runs as its own pi process in a background Herdr pane, isolated by a copy-on-write git worktree.",
   "keywords": [
     "pi-package",
@@ -25,7 +26,8 @@
     "url": "https://github.com/electric-dragon-80000v/pi-cowboy/issues"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.19.0",
+    "pnpm": ">=12"
   },
   "main": "./dist/index.js",
   "files": [
@@ -47,19 +49,15 @@
   "scripts": {
     "format": "prettier --write src/ test/ scripts/ lint/ docs/",
     "format:check": "prettier --check src/ test/ scripts/ lint/ docs/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc6 --noEmit",
     "find-unused": "node --disable-warning=ExperimentalWarning scripts/find-unused.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build",
-    "pretest:integration": "npm run build",
-    "pretest:integration-no-cow": "npm run build",
-    "pretest:integration-cow": "npm run build",
-    "pretest": "npm run build",
-    "test": "vitest run",
+    "build": "tsc6 -p tsconfig.build.json",
+    "prepack": "pnpm run build",
+    "test": "pnpm run build && vitest run",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration-no-cow --project integration-cow",
-    "test:integration-no-cow": "vitest run --project integration-no-cow",
-    "test:integration-cow": "vitest run --project integration-cow",
+    "test:integration": "pnpm run build && vitest run --project integration-no-cow --project integration-cow",
+    "test:integration-no-cow": "pnpm run build && vitest run --project integration-no-cow",
+    "test:integration-cow": "pnpm run build && vitest run --project integration-cow",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "commitlint": "commitlint",
@@ -82,6 +80,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.3",
+    "@commitlint/types": "^21.2.3",
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/exec": "^7.1.0",
@@ -89,6 +88,7 @@
     "@semantic-release/github": "^12.0.10",
     "@semantic-release/npm": "^13.2.0",
     "@semantic-release/release-notes-generator": "^14.1.1",
+    "@types/estree": "^1.0.9",
     "@types/mustache": "^4.2.6",
     "@types/node": "^26.6.4",
     "@vitest/ui": "^5.0.3",

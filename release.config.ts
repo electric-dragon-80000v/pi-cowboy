@@ -21,7 +21,7 @@ const commitGrammar = {
 //
 // semantic-release loads this through cosmiconfig's TypeScript loader, which
 // transpiles it with `typescript.transpileModule` and imports the result, so the
-// file is never type-checked at load time; `npm run typecheck` is what checks it.
+// file is never type-checked at load time; `pnpm run typecheck` is what checks it.
 const config: Options = {
   branches: ["main"],
   plugins: [
@@ -35,10 +35,10 @@ const config: Options = {
       "@semantic-release/npm",
       {
         // This plugin's part is the version bump: `npmPublish: false` writes the
-        // new version into package.json and package-lock.json (both are in the
-        // release commit below) and stops there. It cannot stage the release
-        // instead, because the `npm publish` it runs is refused by a stage-only
-        // trusted publisher — staging is the plugin below.
+        // new version into package.json (which is in the release commit below)
+        // and stops there. It cannot stage the release instead, because the
+        // `npm publish` it runs is refused by a stage-only trusted publisher —
+        // staging is the plugin below.
         npmPublish: false,
       },
     ],
@@ -56,9 +56,12 @@ const config: Options = {
     [
       "@semantic-release/git",
       {
-        // `npm version` writes the new version into both files, so both belong
-        // in the release commit along with the changelog it generated.
-        assets: ["package.json", "package-lock.json", "CHANGELOG.md"],
+        // The version bump rewrites package.json, and the changelog is
+        // generated; those two are the release commit. pnpm-lock.yaml is not in
+        // it because the lockfile records no version for the root project, so
+        // the bump leaves it byte-identical (verified with
+        // `pnpm install --frozen-lockfile` against a bumped manifest).
+        assets: ["package.json", "CHANGELOG.md"],
         message:
           "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}",
       },

@@ -25,7 +25,7 @@
  * test in a plain `*.integration.test.ts` file.
  *
  * Both integration projects are declared here, so a bare `vitest run`
- * (`npm test`) still runs the whole suite; `--project unit`,
+ * (`pnpm test`) still runs the whole suite; `--project unit`,
  * `--project integration-no-cow` and `--project integration-cow` (the
  * `test:unit` / `test:integration-no-cow` / `test:integration-cow` scripts)
  * narrow it, and `test:integration` runs both integration projects together.

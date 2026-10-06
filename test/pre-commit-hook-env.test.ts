@@ -91,7 +91,7 @@ describe("pre-commit hook git environment", () => {
     );
     expect(
       missing,
-      "git exports the outer commit's identity/date into the hook; leaving these set makes fixture commits differ from a plain `npm test` run",
+      "git exports the outer commit's identity/date into the hook; leaving these set makes fixture commits differ from a plain `pnpm test` run",
     ).toEqual([]);
   });
 

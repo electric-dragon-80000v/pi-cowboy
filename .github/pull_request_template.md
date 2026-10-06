@@ -4,8 +4,8 @@
 
 ## Checklist
 
-- [ ] `npm run typecheck` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run format:check` passes
-- [ ] `npm run test:unit` passes
-- [ ] `npm run test:integration` passes
+- [ ] `pnpm run typecheck` passes
+- [ ] `pnpm run lint` passes
+- [ ] `pnpm run format:check` passes
+- [ ] `pnpm run test:unit` passes
+- [ ] `pnpm run test:integration` passes
