@@ -616,6 +616,39 @@ describe.each(CHECKOUT_ONLY)(
       expect(existsSync(join(wt, "node_modules", "dep.txt"))).toBe(false);
       expect(existsSync(join(wt, ".env"))).toBe(false);
     });
+
+    it("carries a dirty parent's tracked work into the checkout under the dirty policy", async () => {
+      tmp = mkdtempSync(join(tmpdir(), `herdr-create-${strategy}-dirty-`));
+      const repo = await makeRepoWithIgnoredState(tmp);
+      writeFileSync(join(repo, "tracked.txt"), "changed in main\n");
+      writeFileSync(join(repo, "brand-new.txt"), "untracked\n");
+      const wt = join(tmp, "wt");
+      const before = await gitStatus(repo);
+      const herdrCalls: string[][] = [];
+      const pi = hybridPi(herdrOpenResponse(wt, "cow-feature"), herdrCalls);
+
+      await createWorktreeCheckout(pi, {
+        repoCwd: repo,
+        path: wt,
+        branch: "cow-feature",
+        materialization: strategy,
+        dirtyCheckout: "dirty",
+      });
+
+      // The parent's tracked edit rode along; its untracked and ignored state did not.
+      expect(readFileSync(join(wt, "tracked.txt"), "utf8")).toBe(
+        "changed in main\n",
+      );
+      // `gitStatus` trims, so the porcelain status code loses its leading space.
+      expect(await gitStatus(wt)).toBe("M tracked.txt");
+      expect(existsSync(join(wt, "brand-new.txt"))).toBe(false);
+      expect(existsSync(join(wt, "node_modules", "dep.txt"))).toBe(false);
+      expect(existsSync(join(wt, ".env"))).toBe(false);
+      // The parent is never touched on the way through.
+      expect(before).not.toBe("");
+      expect(await gitStatus(repo)).toBe(before);
+      expect(herdrCalls).toEqual([]);
+    });
   },
 );
 

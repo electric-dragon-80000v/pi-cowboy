@@ -1,28 +1,21 @@
 /**
  * git-materializer.cow.integration.test.ts — Layer 3 copy-on-write
  * materialization (src/infrastructure/git/git-materializer.ts) on a volume that
- * really clones. Runs only in the `integration-cow` project; the checkout
- * strategy, the guard cases, and the injected-fake fallback stay in
- * git-materializer.integration.test.ts.
+ * really clones. Runs only in the `integration-cow` project, and holds only what
+ * a clone-capable volume can show: the clone itself and the seeding a clean
+ * policy does. Everything that holds for whichever materialization the volume
+ * supports — the parametrized suite, the guard cases, the injected-fake fallback
+ * — is in git-materializer.integration.test.ts, which runs everywhere.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   cowCloneWorktree,
-  materializeWorktree,
-  worktreeAddArgs,
   type CowCloneResult,
   type WorktreeMaterializationOutcome,
 } from "../../src/infrastructure/git/git-materializer.js";
-import type { WorktreeMaterialization } from "../../src/spawn/worktree-policy.js";
 import {
   addWorktree,
   cleanupTmpDirs,
@@ -264,46 +257,5 @@ describe("cowCloneWorktree", () => {
     expect(cloned(result).mode).toBe("seeded");
     expect(cloned(result).reason).toContain("uncommitted changes");
     expect(await git(["status", "--porcelain"], wt)).toBe("");
-  });
-});
-
-/** The clone strategy, whose outcome is asserted against a real cloned volume. */
-const MATERIALIZATIONS: readonly WorktreeMaterialization[] = ["copy-on-write"];
-
-describe.each(MATERIALIZATIONS)("materializeWorktree (%s)", (strategy) => {
-  it("populates the worktree per the strategy and reports a tagged outcome", async () => {
-    const t = freshTmp();
-    const repo = await makeRepo(t);
-    writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
-    await git(["add", "-A"], repo);
-    await git(["commit", "-qm", "ignore node_modules"], repo);
-    mkdirSync(join(repo, "node_modules"));
-    writeFileSync(join(repo, "node_modules", "dep.txt"), "dep\n");
-
-    const branch = `cow-${strategy}-00000000`;
-    const wt = join(t, `wt-${strategy}-00000000`);
-    // Same add-argument pairing production uses.
-    await execFileAsync(
-      resolvedBin("git"),
-      ["worktree", "add", ...worktreeAddArgs(strategy), "-b", branch, wt],
-      { cwd: repo },
-    );
-
-    const calls: string[][] = [];
-    const result = await materializeWorktree(realPi(calls), wt, strategy);
-
-    expect(await git(["status", "--porcelain"], wt)).toBe("");
-    expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], wt)).toBe(branch);
-    expect(readFileSync(join(wt, "base.txt"), "utf8")).toBe("base\n");
-    expect(await git(["status", "--porcelain"], repo)).toBe("");
-
-    expect(result).toEqual({ kind: "cow", clone: { mode: "cow" } });
-    // The clone ran through pi.exec, as the file-copy helpers it uses are not git.
-    expect(
-      calls.some(([cmd]) => cmd.endsWith("/python3") || cmd.endsWith("/cp")),
-    ).toBe(true);
-    expect(readFileSync(join(wt, "node_modules", "dep.txt"), "utf8")).toBe(
-      "dep\n",
-    );
   });
 });

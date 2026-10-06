@@ -11,12 +11,15 @@
  *
  * One `WorktreeMaterialization` strategy drives both `worktreeAddArgs` and this
  * step, so the add and the materialization can never disagree. The separate
- * `WorktreeCheckoutType` policy picks what a dirty main checkout contributes:
- * the whole cloned tree ("dirty") or tracked-from-HEAD plus seeded ignored
- * state ("clean"). A clean main checkout is always cloned whole.
+ * `WorktreeCheckoutType` policy picks what a dirty main checkout contributes: a
+ * clone takes the whole tree ("dirty") or tracked-files-from-HEAD plus seeded
+ * ignored state ("clean"), while a classic checkout has the parent's tracked
+ * diff applied ("dirty") or stays as git's checkout of HEAD ("clean"). A clean
+ * main checkout always materializes as HEAD, either way.
  */
 
 import * as fs from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
@@ -93,10 +96,7 @@ export type WorktreeMaterializationOutcome =
  */
 type MaterializationExpectation =
   | { readonly kind: "clean-parent" }
-  | {
-      readonly kind: "dirty-parent";
-      readonly policy: WorktreeCheckoutType;
-    };
+  | { readonly kind: "dirty-parent"; readonly policy: WorktreeCheckoutType };
 
 /**
  * `git worktree add` arguments per strategy. Copy-on-write populates the tree
@@ -136,16 +136,17 @@ export class CowCloneMaterializer {
   ) {}
 
   /**
-   * Populate a fresh worktree. "checkout" is already complete (git laid the tree
-   * down during `git worktree add`); "copy-on-write" delegates to `clone`.
+   * Populate a fresh worktree per strategy: `checkout` and `copy-on-write` each
+   * decide what a dirty main checkout contributes.
    */
   async materialize(
     wtPath: string,
     strategy: WorktreeMaterialization,
     dirtyCheckout: WorktreeCheckoutType,
   ): Promise<WorktreeMaterializationOutcome> {
-    if (strategy === "checkout") return { kind: "checkout" };
-    return this.clone(wtPath, dirtyCheckout);
+    return strategy === "checkout"
+      ? this.checkout(wtPath, dirtyCheckout)
+      : this.clone(wtPath, dirtyCheckout);
   }
 
   /**
@@ -201,6 +202,63 @@ export class CowCloneMaterializer {
         ? { mode: "cow", reason: CLONED_WIP_REASON }
         : { mode: "seeded", reason: SEEDED_REASON },
     };
+  }
+
+  /**
+   * Complete a classic checkout: the add already laid the tracked files down, so
+   * the policy decides only whether a dirty main checkout's tracked changes are
+   * applied on top of them. Untracked and ignored state is never carried: there
+   * is no clone to share it with, and inventing one would mean copying a tree
+   * that may hold a `node_modules` of its own.
+   */
+  private async checkout(
+    wtPath: string,
+    dirtyCheckout: WorktreeCheckoutType,
+  ): Promise<WorktreeMaterializationOutcome> {
+    if (dirtyCheckout === "dirty") {
+      const wt = path.resolve(wtPath);
+      await this.applyUncommitted(await this.mainCheckoutOf(wt), wt);
+    }
+    return { kind: "checkout" };
+  }
+
+  /**
+   * Apply the main checkout's tracked changes to the worktree. git writes the
+   * patch straight into a file — `--no-renames` so a rename arrives as a plain
+   * delete plus add, and `--binary` so a binary file survives the trip — and the
+   * file is removed again whether the apply lands or not.
+   */
+  private async applyUncommitted(mainRoot: string, wt: string): Promise<void> {
+    const dir = fs.mkdtempSync(path.join(tmpdir(), "pi-cowboy-wip-"));
+    const patch = path.join(dir, "wip.patch");
+    try {
+      const read = await this.runner.test(
+        ["diff", "HEAD", "--binary", "--no-renames", `--output=${patch}`],
+        mainRoot,
+        GIT_WORKTREE_TIMEOUT_MS,
+      );
+      if (!read) {
+        throw new GitError(
+          `checkout worktree materialization failed: could not read the main checkout's tracked changes`,
+        );
+      }
+      // git writes an empty file for an empty diff, and nothing at all when it
+      // could not write; both mean there is no tracked work to carry.
+      if (!fs.existsSync(patch) || fs.statSync(patch).size === 0) return;
+
+      const applied = await this.runner.test(
+        ["apply", "--whitespace=nowarn", patch],
+        wt,
+        GIT_WORKTREE_TIMEOUT_MS,
+      );
+      if (!applied) {
+        throw new GitError(
+          `checkout worktree materialization failed: could not apply the main checkout's tracked changes to the worktree`,
+        );
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }
 
   /**

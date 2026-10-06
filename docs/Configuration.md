@@ -122,18 +122,18 @@ An unset value uses `<agent dir>/pi-cowboy/worktrees`. A relative path resolves 
 ### `agent.worktreeMaterialization`
 
 - `copy-on-write` clones the parent working tree and shares the ignored files.
-- `checkout` keeps git's classic checkout. It shares no files with the parent.
+- `checkout` keeps git's classic checkout. It shares no files with the parent — no cloned inodes — though it can still take over the parent's tracked changes as a diff applied on top. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).
 
 When `copy-on-write` is selected, pi-cowboy first probes the target filesystem. A filesystem without copy-on-write support, such as ext4, falls back to `checkout` instead of failing. Both at session start and whenever you change `agent.worktreeRoot`, the probe runs.
 
 ### `agent.worktreeCheckoutType`
 
-Sets whether a new worktree carries over the uncommitted work of a dirty parent working tree, and applies only when `worktreeMaterialization` is `copy-on-write`.
+Sets what a new worktree takes over from a dirty parent working tree. Both materializations honor it; they differ in how much a dirty parent can hand over.
 
-- With `clean`, pi-cowboy checks out the tracked files from HEAD and copies only the ignored files.
-- With `dirty`, pi-cowboy clones the whole parent working tree, including the edits and the untracked files.
+- With `clean`, the worktree starts at HEAD. `copy-on-write` checks out the tracked files from HEAD and copies only the ignored files; `checkout` is git's plain checkout of HEAD.
+- With `dirty`, a `copy-on-write` worktree clones the whole parent working tree, so its edits and its untracked files ride along; a `checkout` worktree has the parent's tracked changes applied on top, while its untracked and ignored state stays behind.
 
-A clean parent is cloned whole in both cases.
+A clean parent has no uncommitted work to carry, so both materializations start the worktree at HEAD.
 
 ### `agent.harnessType`
 

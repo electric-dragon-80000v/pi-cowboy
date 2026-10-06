@@ -180,7 +180,7 @@ export async function showSpawnOptionsMenu(
         currentValue: store.agent.worktreeCheckoutType,
         values: [...VALID_WORKTREE_CHECKOUT_TYPES],
         description:
-          "Where a new worktree's checkout starts when the parent has uncommitted work. clean = tracked files come from HEAD and only ignored files like node_modules and .env are copied, leaving the parent's edits and untracked files out. dirty = the whole parent working tree is cloned, so its edits and untracked files ride along. A clean parent is always cloned whole, whichever value is set.",
+          "Where a new worktree's checkout starts when the parent has uncommitted work. clean = the worktree starts at HEAD: under copy-on-write, only ignored files like node_modules and .env are copied in; under checkout, it is git's plain checkout. dirty = the parent's work rides along: copy-on-write clones its edits and untracked files too, while checkout applies only its tracked changes, leaving untracked files behind. A clean parent starts at HEAD either way.",
       },
       { id: SEPARATOR_ID, label: " ", currentValue: "" },
       headerItem(theme, "Tools"),
