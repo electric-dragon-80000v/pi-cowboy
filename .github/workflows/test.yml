@@ -39,6 +39,43 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The published artifact is what users load, and the manifest points pi at
+      # `dist/index.js`; pi drops a manifest entry whose file is missing instead
+      # of failing, so an unpacked `dist/` ships as an extension that never
+      # loads. Assert the tarball itself, including the assets the runtime reads
+      # from the package root by path. Read the tarball rather than `npm pack`
+      # JSON: lifecycle scripts write to stdout and would corrupt the pipe.
+      - name: Verify the packed tarball
+        env:
+          HUSKY: 0
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP" > /dev/null
+          tarball="$(ls "$RUNNER_TEMP"/pi-cowboy-*.tgz)"
+          entries="$(tar -tzf "$tarball" | sed 's|^package/||')"
+          for required in \
+            package.json \
+            dist/index.js \
+            dist/index.d.ts \
+            agents/explore.toml \
+            orchestrators/with-code-review.toml \
+            README.md \
+            LICENSE; do
+            printf '%s\n' "$entries" | grep -qxF "$required" || {
+              echo "tarball is missing $required"
+              exit 1
+            }
+          done
+          # `src/` is the point of the change; the tsbuildinfo is the incremental
+          # cache `!dist/**/*.tsbuildinfo` exists to drop; the 932 kB logo is a
+          # source image nothing references, kept out by the last `files` negation.
+          for forbidden in '^src/' '\.tsbuildinfo$' '^docs/assets/logo\.png$'; do
+            if printf '%s\n' "$entries" | grep -qE "$forbidden"; then
+              echo "tarball should not contain: $(printf '%s\n' "$entries" | grep -E "$forbidden" | head -1)"
+              exit 1
+            fi
+          done
+          echo "tarball ok: $(printf '%s\n' "$entries" | wc -l) entries"
+
       - name: Run unit tests
         run: npm run test:unit
 
