@@ -68,6 +68,7 @@
     "prepare": "husky"
   },
   "pi": {
+    "image": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-pi-package.png",
     "extensions": [
       "./dist/index.js"
     ]
