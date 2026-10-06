@@ -44,7 +44,7 @@ description = "Prepares release notes for this repository."
 # (optional) Hide this agent from the `agent_type` list. The name still resolves a call. default = false
 hidden = false
 
-# (optional) "clean" or "dirty". Sets if this agent's worktree carries the uncommitted work of a dirty parent working tree. default = the global `agent.worktreeCheckoutType`. The field applies only when the materialization is "copy-on-write".
+# (optional) "clean" or "dirty". Sets what this agent's worktree takes over from a dirty parent working tree: "dirty" carries the parent's tracked changes (plus its untracked files under copy-on-write), "clean" starts the worktree at HEAD. default = the global `agent.worktreeCheckoutType`
 worktree_checkout_type = "clean"
 
 # (optional) The agent's system prompt. If omitted, the agent inherits an earlier layer's prompt. An empty string clears it.

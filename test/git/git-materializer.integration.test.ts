@@ -1,13 +1,20 @@
 /**
  * git-materializer.integration.test.ts — Layer 3 worktree materialization
  * (src/infrastructure/git/git-materializer.ts) that holds on any volume: the
- * add-argument pairing, the ignored-seed parsing, the checkout strategy, the
- * guard cases, and the fallback a non-clone volume takes. The copy-on-write
- * strategy's clone is asserted on a clone-capable volume in
+ * add-argument pairing, the ignored-seed parsing, the guard cases, the fallback
+ * a non-clone volume takes, and the strategy-parametrized suite below, which runs
+ * whichever materialization this volume can honor. What only a clone can show —
+ * the clone itself, and the seeding a clean policy does — stays in
  * git-materializer.cow.integration.test.ts.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -15,8 +22,11 @@ import {
   ignoredSeedPaths,
   materializeWorktree,
   worktreeAddArgs,
+  type CowCloneResult,
+  type WorktreeMaterializationOutcome,
 } from "../../src/infrastructure/git/git-materializer.js";
 import { GitError } from "../../src/infrastructure/git/git-runner.js";
+import { detectCowAvailability } from "../../src/spawn/cow-support.js";
 import type { WorktreeMaterialization } from "../../src/spawn/worktree-policy.js";
 import {
   cleanupTmpDirs,
@@ -100,8 +110,35 @@ describe("cowCloneWorktree", () => {
   });
 });
 
-/** The strategy whose outcome needs no clone-capable volume. */
-const MATERIALIZATIONS: readonly WorktreeMaterialization[] = ["checkout"];
+/**
+ * The materializations this volume can honor, from the project's own probe. The
+ * suite below runs whichever branch the filesystem supports, so one place covers
+ * both: a volume that really clones (the btrfs CI job) runs the copy-on-write
+ * branch, and every other volume — the ext4 CI job included — runs the checkout
+ * branch, which is what makes that job exercise checkout for real.
+ */
+async function materializationsThisVolumeSupports(): Promise<
+  readonly WorktreeMaterialization[]
+> {
+  const availability = await detectCowAvailability(
+    (command, args, options) => realPi().exec(command, args, options),
+    freshTmp("materializer-probe-"),
+  );
+  const clones =
+    availability.status === "known" &&
+    availability.available.has("copy-on-write");
+  return clones ? ["copy-on-write"] : ["checkout"];
+}
+
+/** The clone result of a materialization that cloned; any other outcome is a failure. */
+function cloneResult(result: WorktreeMaterializationOutcome): CowCloneResult {
+  if (result.kind !== "cow") {
+    throw new Error(`expected a copy-on-write clone, got "${result.kind}"`);
+  }
+  return result.clone;
+}
+
+const MATERIALIZATIONS = await materializationsThisVolumeSupports();
 
 describe.each(MATERIALIZATIONS)("materializeWorktree (%s)", (strategy) => {
   it("populates the worktree per the strategy and reports a tagged outcome", async () => {
@@ -125,17 +162,164 @@ describe.each(MATERIALIZATIONS)("materializeWorktree (%s)", (strategy) => {
     const calls: string[][] = [];
     const result = await materializeWorktree(realPi(calls), wt, strategy);
 
+    // Kind-agnostic: a worktree at the requested branch, its tracked files at
+    // HEAD, and a parent nobody touched.
     expect(await git(["status", "--porcelain"], wt)).toBe("");
     expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], wt)).toBe(branch);
     expect(readFileSync(join(wt, "base.txt"), "utf8")).toBe("base\n");
     expect(await git(["status", "--porcelain"], repo)).toBe("");
 
+    if (strategy === "copy-on-write") {
+      // The clone ran through pi.exec, as the file-copy helpers it uses are not git.
+      expect(cloneResult(result)).toEqual({ mode: "cow" });
+      expect(
+        calls.some(([cmd]) => cmd.endsWith("/python3") || cmd.endsWith("/cp")),
+      ).toBe(true);
+      expect(readFileSync(join(wt, "node_modules", "dep.txt"), "utf8")).toBe(
+        "dep\n",
+      );
+    } else {
+      expect(result).toEqual({ kind: "checkout" });
+      // A plain checkout runs no file-copy helpers, and shares no ignored state.
+      expect(
+        calls.some(([cmd]) => cmd.endsWith("/python3") || cmd.endsWith("/cp")),
+      ).toBe(false);
+      expect(existsSync(join(wt, "node_modules", "dep.txt"))).toBe(false);
+    }
+  });
+
+  it("carries the main checkout's tracked work under the dirty policy", async () => {
+    const t = freshTmp();
+    const repo = await makeRepo(t);
+    // One tracked file modified, one deleted, one untracked: the three shapes
+    // the policy has to rule on.
+    writeFileSync(join(repo, "extra.txt"), "extra\n");
+    await git(["add", "extra.txt"], repo);
+    await git(["commit", "-qm", "add extra"], repo);
+    writeFileSync(join(repo, "base.txt"), "changed in main\n");
+    rmSync(join(repo, "extra.txt"));
+    writeFileSync(join(repo, "brand-new.txt"), "untracked\n");
+
+    const branch = `cow-${strategy}-dirty`;
+    const wt = join(t, `wt-${strategy}-dirty`);
+    await execFileAsync(
+      resolvedBin("git"),
+      ["worktree", "add", ...worktreeAddArgs(strategy), "-b", branch, wt],
+      { cwd: repo },
+    );
+
+    const before = await gitStatus(repo);
+    const result = await materializeWorktree(realPi(), wt, strategy, "dirty");
+
+    // Kind-agnostic: the tracked side arrives whole — the modification and the
+    // deletion alike — and the parent is never touched on the way through.
+    expect(readFileSync(join(wt, "base.txt"), "utf8")).toBe(
+      "changed in main\n",
+    );
+    expect(existsSync(join(wt, "extra.txt"))).toBe(false);
+    expect(await git(["diff", "HEAD", "--name-only"], wt)).toBe(
+      await git(["diff", "HEAD", "--name-only"], repo),
+    );
+    expect(before).not.toBe("");
+    expect(await gitStatus(repo)).toBe(before);
+
+    if (strategy === "copy-on-write") {
+      // The whole working tree was cloned, so the untracked file rode along.
+      expect(readFileSync(join(wt, "brand-new.txt"), "utf8")).toBe(
+        "untracked\n",
+      );
+      expect(cloneResult(result).mode).toBe("cow");
+      expect(cloneResult(result).reason).toContain("uncommitted changes");
+    } else {
+      // The checkout materialization carries tracked changes only, so nothing
+      // untracked may appear in the worktree.
+      expect(existsSync(join(wt, "brand-new.txt"))).toBe(false);
+      expect(result).toEqual({ kind: "checkout" });
+      const wtStatus = await gitStatus(wt);
+      expect(wtStatus).toContain("M base.txt");
+      expect(wtStatus).toContain("D extra.txt");
+      expect(wtStatus).not.toContain("brand-new");
+    }
+  });
+
+  it("leaves the main checkout's work out under the clean policy", async () => {
+    const t = freshTmp();
+    const repo = await makeRepo(t);
+    writeFileSync(join(repo, "base.txt"), "changed in main\n");
+    writeFileSync(join(repo, "brand-new.txt"), "untracked\n");
+
+    const branch = `cow-${strategy}-clean`;
+    const wt = join(t, `wt-${strategy}-clean`);
+    await execFileAsync(
+      resolvedBin("git"),
+      ["worktree", "add", ...worktreeAddArgs(strategy), "-b", branch, wt],
+      { cwd: repo },
+    );
+
+    const result = await materializeWorktree(realPi(), wt, strategy, "clean");
+
+    // Kind-agnostic: a worktree sitting clean at HEAD, with the parent's edits
+    // left where they are, and nothing untracked copied in.
+    expect(await gitStatus(wt)).toBe("");
+    expect(readFileSync(join(wt, "base.txt"), "utf8")).toBe("base\n");
+    expect(existsSync(join(wt, "brand-new.txt"))).toBe(false);
+
+    if (strategy === "copy-on-write") {
+      expect(cloneResult(result).mode).toBe("seeded");
+      expect(cloneResult(result).reason).toContain('"clean"');
+    } else {
+      expect(result).toEqual({ kind: "checkout" });
+    }
+  });
+});
+
+/**
+ * The checkout strategy takes its path on every volume, so these run everywhere
+ * rather than under the volume probe: neither one clones.
+ */
+describe("materializeWorktree (checkout)", () => {
+  it("carries nothing when the dirty parent's changes are all untracked", async () => {
+    const t = freshTmp();
+    const repo = await makeRepo(t);
+    // Nothing tracked differs from HEAD, so there is no patch to apply.
+    writeFileSync(join(repo, "brand-new.txt"), "untracked\n");
+
+    const wt = join(t, "wt-untracked-only");
+    await execFileAsync(
+      resolvedBin("git"),
+      ["worktree", "add", "-b", "cow-untracked-only", wt],
+      { cwd: repo },
+    );
+
+    const result = await materializeWorktree(realPi(), wt, "checkout", "dirty");
+
     expect(result).toEqual({ kind: "checkout" });
-    // A plain checkout runs no file-copy helpers.
-    expect(
-      calls.some(([cmd]) => cmd.endsWith("/python3") || cmd.endsWith("/cp")),
-    ).toBe(false);
-    expect(existsSync(join(wt, "node_modules", "dep.txt"))).toBe(false);
+    expect(existsSync(join(wt, "brand-new.txt"))).toBe(false);
+    expect(await gitStatus(wt)).toBe("");
+  });
+
+  it("fails the materialization when the parent's tracked changes cannot be applied", async () => {
+    const t = freshTmp();
+    const repo = await makeRepo(t);
+    writeFileSync(join(repo, "base.txt"), "changed in main\n");
+
+    const wt = join(t, "wt-conflict");
+    await execFileAsync(
+      resolvedBin("git"),
+      ["worktree", "add", "-b", "cow-conflict", wt],
+      { cwd: repo },
+    );
+    // Something already wrote to the worktree, so the parent's patch no longer
+    // applies: a half-applied tree is the failure mode, and it fails instead.
+    writeFileSync(join(wt, "base.txt"), "conflicting\n");
+
+    await expect(
+      materializeWorktree(realPi(), wt, "checkout", "dirty"),
+    ).rejects.toThrow(/checkout worktree materialization failed/);
+    // The parent is never touched on the way through.
+    expect(readFileSync(join(repo, "base.txt"), "utf8")).toBe(
+      "changed in main\n",
+    );
   });
 });
 
