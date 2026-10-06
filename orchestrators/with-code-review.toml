@@ -1,0 +1,20 @@
+name = "with code review"
+display_name = "with code review"
+guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. (This applies even if the task prompt says not to commit — commits stay on that branch and are needed for merging.)"
+
+[cues]
+spawned = '''
+Success! You delegated to an agent. A notification will arrive when done - USER: do not poll, don't check status and don't duplicate the delegated work!{{#has_worktree}}
+(Worktree: {{worktree_path}} (branch {{worktree_branch}}) — the agent's commits land on that branch, never on main. Merge it with the merge_cowboy_branch tool when done, then remove the worktree with cleanup_cowboy_agent.){{/has_worktree}}
+
+Agent ID: {{agent_id}}'''
+queued = '''
+Agent QUEUED — the concurrency limit is reached ({{queue_running}} {{queue_running_label}} already spawned), so this task is waiting for a slot. It is NOT spawned yet: the process has not started. It will start automatically when another agent settles; you'll get a message when it starts and when it settles. Do NOT re-delegate — this task IS in flight.{{#has_worktree}}
+(Worktree: {{worktree_path}} (branch {{worktree_branch}}) — the agent's commits land on that branch, never on main. Merge it with the merge_cowboy_branch tool when done, then remove the worktree with cleanup_cowboy_agent.){{/has_worktree}}
+
+Agent ID: {{agent_id}}'''
+settled = '''
+{{result}}{{#error}}
+
+Error: {{error}}{{/error}}{{#has_worktree}}
+(Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its herdr pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}'''

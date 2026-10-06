@@ -1,0 +1,14 @@
+# Unused-symbol ignore list, maintained by scripts/find-unused.ts.
+# One signature per line: file::[Class.]name(paramTypes): returnType
+# Records what `--ignore` and `--ignore-all` were given, not line numbers.
+lint/noDateNowForDuration.ts::BinaryExpression(BinaryExpression & NodeParentExtension): void
+test/git/git-merger.test.ts::ScriptedRunner.probe(readonly string[]): Promise<string | undefined>
+test/git/git-merger.test.ts::ScriptedRunner.run(readonly string[]): Promise<GitRunResult | undefined>
+test/git/git-merger.test.ts::ScriptedRunner.test(): Promise<boolean>
+test/ui/shell-mock.ts::getCoordinator(): unknown
+test/ui/shell-mock.ts::getManager(): unknown
+test/ui/shell-mock.ts::getPiInstance(): unknown
+test/ui/shell-mock.ts::getRuntime(): unknown
+test/ui/shell-mock.ts::getSessionCtx(): ExtensionContext | undefined
+test/ui/shell-mock.ts::getSessionTemplates(): SessionTemplates
+test/ui/shell-mock.ts::getStore(): ConfigStore
