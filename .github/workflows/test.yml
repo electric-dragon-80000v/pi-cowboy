@@ -22,10 +22,10 @@ jobs:
           # branch it diffs from has to be in the local history.
           fetch-depth: 0
 
-      - name: Set up pnpm and Node.js 22
+      - name: Set up pnpm and Node.js 24.20.0
         uses: pnpm/setup@v3
         with:
-          runtime: node@22
+          runtime: node@24.20.0
           cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
           # pnpm and Node only; installing is the explicit step below.
           install: false
@@ -37,9 +37,15 @@ jobs:
       # and `git commit --no-verify` bypasses it. This checks the range a pull
       # request would merge, so no message reaches `main` that the release
       # workflow cannot turn into a version.
+      #
+      # The flags are passed without a `--` separator: pnpm forwards that
+      # separator to the script verbatim (npm stripped it), and commitlint reads
+      # it as end-of-options, which turns `--from`/`--to` into positionals it
+      # ignores. The whole history is then linted from the first commit, and
+      # `init` fails it.
       - name: Check commit messages
         if: github.event_name == 'pull_request'
-        run: pnpm run commitlint -- --from "origin/${{ github.event.pull_request.base.ref }}" --to HEAD
+        run: pnpm run commitlint --from "origin/${{ github.event.pull_request.base.ref }}" --to HEAD
 
       - name: Typecheck
         run: pnpm run typecheck
@@ -119,10 +125,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up pnpm and Node.js 22
+      - name: Set up pnpm and Node.js 24.20.0
         uses: pnpm/setup@v3
         with:
-          runtime: node@22
+          runtime: node@24.20.0
           cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
           # pnpm and Node only; installing is the explicit step below.
           install: false
@@ -169,10 +175,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up pnpm and Node.js 22
+      - name: Set up pnpm and Node.js 24.20.0
         uses: pnpm/setup@v3
         with:
-          runtime: node@22
+          runtime: node@24.20.0
           cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
           # pnpm and Node only; installing is the explicit step below.
           install: false
