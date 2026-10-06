@@ -52,7 +52,7 @@ describe("describeParseError", () => {
     })();
 
     expect(describeParseError(err)).toBe(
-      "Invalid TOML document: incomplete declaration: value expected (line 2, column 8)",
+      "Invalid TOML document: invalid value (line 2, column 8)",
     );
   });
 
