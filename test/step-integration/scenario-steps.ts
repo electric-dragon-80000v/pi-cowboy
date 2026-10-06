@@ -16,7 +16,6 @@ import {
   mkdtempSync,
   rmSync,
   symlinkSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -82,17 +81,19 @@ export function initialize(stub: FakeOpenAI, testId: string): ScenarioContext {
 }
 
 /**
- * Compiled extension entry the test boots pi against — compiled JS loads with
- * no per-boot transpile, and the production manifest stays untouched.
+ * The built entry the manifest names, so a forgotten build is reported here
+ * rather than later as an extension that silently never loaded.
  */
 const BUILT_EXTENSION_ENTRY = join(REPO_ROOT, "dist", "index.js");
 
 /**
- * Make this test's `pi` runs load THIS repo's extension — compiled, from `dist/`.
+ * Make this test's `pi` runs load THIS repo's extension: the repo root is
+ * linked into the agent dir's `extensions/`, so pi reads the same manifest and
+ * the same built entry an installed copy would.
  *
- * Instead of linking the repo root (whose manifest points at `./src/index.ts`),
- * the step links a tiny shim package pointing at the built entry. Fails LOUDLY
- * when `dist/index.js` is missing — never silently falls back to `src/`.
+ * Checking the built entry is load-bearing — pi drops a manifest extension
+ * whose file is missing instead of failing, so a forgotten build would surface
+ * as an extension that never loaded rather than as this error.
  *
  * The run is still marked herdr-shaped (`HERDR_ENV=1`): the extension activates
  * only inside a herdr pane, and this temp run has no herdr. Loadability is
@@ -104,22 +105,9 @@ export function installLocalExtension(ctx: ScenarioContext): void {
       `installLocalExtension: built extension entry missing at ${BUILT_EXTENSION_ENTRY} — run npm run build (or npm run test:integration, which builds first) before the step-integration tests`,
     );
   }
-  const shimDir = mkdtempSync(join(tmpdir(), "step-integration-extension-"));
-  writeFileSync(
-    join(shimDir, "package.json"),
-    JSON.stringify({
-      name: "pi-cowboy-step-integration-shim",
-      version: "0.0.0",
-      type: "module",
-      pi: { extensions: [BUILT_EXTENSION_ENTRY] },
-    }),
-  );
-  onTestFinished(() => {
-    rmSync(shimDir, { recursive: true, force: true });
-  });
   const extensionsDir = join(ctx.agentDir, "extensions");
   mkdirSync(extensionsDir, { recursive: true });
-  symlinkSync(shimDir, join(extensionsDir, LOCAL_EXTENSION_DIR_NAME), "dir");
+  symlinkSync(REPO_ROOT, join(extensionsDir, LOCAL_EXTENSION_DIR_NAME), "dir");
   ctx.runEnv.HERDR_ENV = "1";
 }
 
