@@ -11,13 +11,13 @@ pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for 
 - **Improved code understanding:** Give each agent a smaller, isolated subtask. Smaller tasks improve code quality and yield results that are easier to review: each agent commits to its own branch, so a subtask is reviewed and merged on its own, separately from the others.
 
 - **Parallel work with minimal disk overhead:** Multiple agents can edit, build, and run tests concurrently without interfering with each other. Copy-on-write unlocks more parallelism by reducing the disk overhead of the worktrees.
-The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MB, while the repository is 27 GB in total, including untracked files.
+  The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MB, while the repository is 27 GB in total, including untracked files.
 
-  | Method                         | Including untracked | Size on disk    |
-  | --------------------------     | ---------------     | --------------- |
-  | Pi-cowboy's copy-on-write      | yes                 | 75 MiB          |
-  | Classic `git worktree add`     | no                  | 479 MiB         |
-  | Classic wt + copy of untracked | yes                 | 27 GiB          |
+  | Method                         | Including untracked | Size on disk |
+  | ------------------------------ | ------------------- | ------------ |
+  | Pi-cowboy's copy-on-write      | yes                 | 75 MiB       |
+  | Classic `git worktree add`     | no                  | 479 MiB      |
+  | Classic wt + copy of untracked | yes                 | 27 GiB       |
 
 - **Herdr integration:** Each task gets its own shell, a visible pane, and notifications when an agent needs your attention.
 
@@ -270,8 +270,6 @@ To avoid the overhead, pi-cowboy has support for [pig](https://github.com/Michae
 ### I don't like the emojis, can I turn them off?
 
 I don't understand who in their right mind would ever want to do such a thing... but yes. You can disable both the cowboy and the grazing in settings. See [Configuration](docs/Configuration.md).
-
-
 
 ## References
 
