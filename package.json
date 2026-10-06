@@ -66,6 +66,7 @@
   },
   "pi": {
     "image": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-pi-package.png",
+    "video": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/pi-cowboy-ad-trimmed.mp4",
     "extensions": [
       "./dist/index.js"
     ]
