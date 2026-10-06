@@ -95,7 +95,7 @@
     "eslint": "^10.12.0",
     "eslint-plugin-import-x": "^4.17.1",
     "husky": "^9.1.7",
-    "oxlint": "1.83.0",
+    "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2002",
     "prettier": "^3.9.6",
     "semantic-release": "^25.0.9",
