@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+#
+# pre-commit: validate the STAGED snapshot — exactly what this commit will contain.
+#
+# `desktop/` monorepo prefix dropped (this repo has package.json and node_modules
+# at the repo root) and the check chain widened to this repo's full gate set.
+#
+# Why this shape: the checks run against the INDEX exported to a scratch dir, not
+# against the working tree. Uncommitted work-in-progress therefore cannot mask a
+# broken commit, and it cannot block a good one either.
+#
+#   1. attach a ramdisk (macOS) and mount it at <repo>/.ram_disk;
+#   2. export the index into a random dir on it (`git checkout-index -a --prefix=…`);
+#   3. symlink node_modules from the real repo into the copy;
+#   4. run the check chain in the copy;
+#   5. a trap unmounts/detaches and removes the temp dir — on success AND failure.
+#
+# macOS only: the ramdisk is built with hdiutil/newfs_hfs/`mount -t hfs`. On any
+# other host the hook FAILS LOUDLY instead of skipping the checks — silently
+# passing is worse than having no hook at all.
+#
+# The chain runs with the git environment sanitized (see below) so the checks can
+# never be pointed at this repository's real git dir.
+
+set -e
+
+# ─── Sanitize the git environment ────────────────────────────────────────────
+# `git commit` exports its whole git environment into the hook, and every
+# variable below would leak into the `git` commands the checks run. This repo's
+# test suite creates throwaway repositories of its own; with GIT_DIR set they were
+# pointed at THIS repository's git dir instead — observed: the suite moved this
+# worktree's HEAD onto a test branch and created fixture branches here. Unset them
+# so every git command below (the checkout-index export included) resolves the
+# repository from the cwd. git runs hooks from the worktree root, so that
+# resolution is exact.
+#
+# Three groups, one per class of leak:
+#   1. repo pointers — any of these repoints a fixture's git at THIS repo (12 of
+#      the 15 `git rev-parse --local-env-vars`; the other 3 are group 2);
+#   2. config injection — `git -c k=v …` exports these, so every fixture command
+#      would run with the outer invocation's config (observed: `core.hooksPath`
+#      pointing fixture repos at a foreign hook dir). GIT_CONFIG_COUNT gates the
+#      GIT_CONFIG_KEY_n/VALUE_n family — without it those are inert;
+#   3. identity — git exports the identity/date it resolved for THIS commit, which
+#      overrides the fixture repos' own user.name/user.email and freezes their
+#      dates. Author and committer are cleared as a pair, so they cannot disagree.
+#
+# Deliberately NOT unset — GIT_EDITOR: git sets it to `:` here, and clearing it
+# would let a fixture `git commit` without -m open a real editor and hang the
+# suite; GIT_EXEC_PATH: git's own helper dir, the same for every git command the
+# checks run.
+unset GIT_DIR GIT_WORK_TREE GIT_IMPLICIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX \
+  GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+  GIT_SHALLOW_FILE GIT_GRAFT_FILE GIT_REPLACE_REF_BASE GIT_NO_REPLACE_OBJECTS \
+  GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_AUTHOR_DATE \
+  GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL GIT_COMMITTER_DATE
+
+# ─── Check chain ─────────────────────────────────────────────────────────────
+# The gates this hook enforces, run in the exported staged copy, in order.
+# Trim or extend THIS list (plus its matching step_* function below) to change
+# what the hook enforces — nothing else needs to change.
+CHECK_STEPS=(
+  step_typecheck
+  step_lint
+  step_format
+  step_test
+)
+
+step_typecheck() { npm run typecheck; }
+# The lint step names its files (collected below) instead of passing `.`: oxlint
+# filters DIRECTORY roots through the .gitignore of their parent directories, and
+# this snapshot sits under the gitignored ramdisk mount point — so `oxlint .` in
+# here reports "No files found to lint" and exits 1. Explicitly named files are
+# exempt from that filter, while the config's own ignorePatterns (lint/**,
+# **/*.config.ts) still exclude them from linting.
+step_lint() { npm run lint -- "${staged_lint_files[@]}"; }
+step_format() { npm run format:check; }
+step_test() { npm run test:unit; }
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+BLOCKS=1048576  # 1048576 × 512-byte sectors = 512 MiB (ram:// counts 512-byte sectors)
+
+HOST_OS="$(uname -s)"
+repo_root="$(git rev-parse --show-toplevel)"
+project_name="$(basename "${repo_root}")"
+# The scratch area sits inside the checkout, under a gitignored mount point. That is
+# one mount per checkout by construction — repo_root is this worktree's own root —
+# so concurrent commits in different worktrees never contend for one mount.
+DISK_PATH=".ram_disk"
+disk_path="${repo_root}/${DISK_PATH}"
+
+TEMP_RUN_DIR=""     # this run's exported staged snapshot
+RUN_ROOT=""         # where TEMP_RUN_DIR lives (the ramdisk mount point)
+ATTACHED_DEVICE=""  # set only if THIS run attached a ramdisk — cleanup detaches only this
+
+# ─── Cleanup (always runs: success, failure, INT, TERM) ──────────────────────
+cleanup() {
+  local status=$?
+
+  # Remove this run's temp dir first so the ramdisk is not busy for umount.
+  if [ -n "${TEMP_RUN_DIR}" ] && [ -d "${TEMP_RUN_DIR}" ]; then
+    rm -rf "${TEMP_RUN_DIR}" || true
+  fi
+
+  # Detach ONLY a device this run attached.
+  if [ -n "${ATTACHED_DEVICE}" ]; then
+    echo "pre-commit: unmounting and detaching ramdisk ${ATTACHED_DEVICE}" >&2
+    umount "${disk_path}" 2>/dev/null || true
+    if ! hdiutil detach "${ATTACHED_DEVICE}" >/dev/null 2>&1; then
+      echo "pre-commit: ⚠️  could not detach ${ATTACHED_DEVICE}; run: hdiutil detach ${ATTACHED_DEVICE}" >&2
+    fi
+
+    # Drop our mount point if its underlying directory is now empty.
+    if [ -d "${disk_path}" ]; then
+      if [ -z "$(ls -A "${disk_path}")" ]; then
+        rmdir "${disk_path}" 2>/dev/null || true
+      else
+        echo "pre-commit: ramdisk mount point ${disk_path} is not empty, skipping rmdir." >&2
+      fi
+    fi
+  fi
+
+  exit "${status}"
+}
+
+trap cleanup EXIT INT TERM
+
+# ─── Provision the scratch area ──────────────────────────────────────────────
+if [ "${HOST_OS}" = "Darwin" ]; then
+  # macOS: a ramdisk, structurally as in the source hook (hdiutil/newfs_hfs/mount -t hfs).
+  mkdir -p "${disk_path}"
+
+  # Detect a ramdisk already mounted at our mount point from the mount table.
+  # (The source hook used `hdiutil info | grep "file://${disk_path}"`, which never
+  # matches a `ram://` ramdisk attached this way — verified 0 matches on a mounted
+  # probe — so its reuse branch was dead and a stale mount went undetected.)
+  # A run killed with SIGKILL bypasses the trap and leaks its mount; recover the
+  # leaked device instead of mounting a second one over it.
+  stale_device="$(mount | grep -F " on ${disk_path} " | head -n 1 | awk '{print $1}')"
+  if [ -n "${stale_device}" ]; then
+    echo "pre-commit: ⚠️  stale ramdisk still mounted at ${disk_path} (device: ${stale_device}) — recovering it." >&2
+    umount "${disk_path}" 2>/dev/null || true
+    hdiutil detach "${stale_device}" >/dev/null 2>&1 || true
+    if mount | grep -qF " on ${disk_path} "; then
+      echo "pre-commit: ❌ could not unmount stale ramdisk at ${disk_path}; unmount it manually and retry." >&2
+      exit 1
+    fi
+  fi
+
+  echo "pre-commit: attaching new ramdisk (size: ${BLOCKS} blocks)" >&2
+  device="$(hdiutil attach -nomount "ram://${BLOCKS}" 2>&1 | head -n 1 | awk '{print $1}')"
+  if [ -z "${device}" ]; then
+    echo "pre-commit: ❌ failed to attach ramdisk." >&2
+    exit 1
+  fi
+  ATTACHED_DEVICE="${device}"
+
+  echo "pre-commit: formatting ramdisk: ${device}" >&2
+  newfs_hfs -v "precommit" "${device}" >/dev/null 2>&1 || {
+    echo "pre-commit: ❌ failed to format ramdisk." >&2
+    exit 1
+  }
+
+  echo "pre-commit: mounting ramdisk: ${device} to ${disk_path}" >&2
+  mount -t hfs "${device}" "${disk_path}" || {
+    echo "pre-commit: ❌ failed to mount ramdisk." >&2
+    exit 1
+  }
+
+  # Disable fseventsd logging on the ramdisk volume.
+  mkdir -p "${disk_path}/.fseventsd"
+  touch "${disk_path}/.fseventsd/no_log"
+
+  RUN_ROOT="${disk_path}"
+else
+  # hdiutil/newfs_hfs/`mount -t hfs` are Darwin-only. Fail loudly rather than
+  # quietly running the chain somewhere else (or not at all): a hook that reports
+  # success without checking is worse than no hook.
+  echo "pre-commit: ❌ this hook requires macOS (host: ${HOST_OS}): the staged snapshot is exported onto a ramdisk via hdiutil/newfs_hfs." >&2
+  echo "pre-commit: ❌ no checks were run — the commit is blocked. Use --no-verify to bypass, knowingly." >&2
+  exit 1
+fi
+
+# ─── Export the staged snapshot ──────────────────────────────────────────────
+# Random 6-char suffix for the temporary directory.
+# (`LC_ALL=C` is required: with a UTF-8 locale macOS `tr` dies with "Illegal byte
+# sequence" on the raw urandom bytes and the name comes out truncated.)
+RANDOM_HASH=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 6)
+TEMP_RUN_DIR="${RUN_ROOT}/${project_name}-${RANDOM_HASH}"
+mkdir -p "${TEMP_RUN_DIR}"
+
+echo "pre-commit: checking the STAGED snapshot (exactly what this commit will contain) in ${TEMP_RUN_DIR}" >&2
+
+# Export the INDEX — what is staged — and not the working tree.
+git checkout-index -a --prefix="${TEMP_RUN_DIR}/"
+
+# The snapshot's lintable files, named explicitly (see step_lint). The paths are
+# checkout-relative, so they resolve identically from inside the snapshot. husky
+# runs this file with `sh -e`, which has no process substitution — hence the
+# heredoc — and `IFS= read -r` keeps paths containing spaces intact.
+staged_lint_files=()
+while IFS= read -r staged_lint_file; do
+  staged_lint_files+=("${staged_lint_file}")
+done <<EOF
+$(git ls-files -- '*.ts' '*.tsx')
+EOF
+if [ "${#staged_lint_files[@]}" -eq 0 ]; then
+  echo "pre-commit: ❌ the staged snapshot has no lintable files — refusing to report a vacuous lint pass." >&2
+  exit 1
+fi
+
+# Symlink node_modules from the original repo (deps are not, and must not be, committed).
+node_modules_orig="${repo_root}/node_modules"
+node_modules_target="${TEMP_RUN_DIR}/node_modules"
+if [ -d "${node_modules_orig}" ]; then
+  ln -s "${node_modules_orig}" "${node_modules_target}"
+else
+  echo "pre-commit: ⚠️  node_modules not found at ${node_modules_orig}." >&2
+  echo "pre-commit: ⚠️  checks can fail (or pass vacuously) without installed deps; run: npm install" >&2
+fi
+
+# ─── Run the chain in the exported copy ──────────────────────────────────────
+# Each step is named as it runs, so a failure is attributable to a gate.
+run_checks() {
+  local index=0 total=${#CHECK_STEPS[@]} fn status
+  for fn in "${CHECK_STEPS[@]}"; do
+    index=$((index + 1))
+    printf 'pre-commit: ▶ [%d/%d] %s\n' "${index}" "${total}" "${fn#step_}" >&2
+    if "${fn}"; then
+      printf 'pre-commit: ✔ %s\n' "${fn#step_}" >&2
+    else
+      status=$?
+      printf 'pre-commit: ❌ Checks failed at [%d/%d] %s (exit %d).\n' "${index}" "${total}" "${fn#step_}" "${status}" >&2
+      return "${status}"
+    fi
+  done
+  echo "pre-commit: ✅ All checks passed." >&2
+  return 0
+}
+
+# `set -e` semantics: the failure status is captured here, reported above, and
+# re-exited below, so the trap still fires and the commit is still blocked.
+initial_exit_status=0
+if (
+  cd "${TEMP_RUN_DIR}" || exit 1
+  run_checks
+); then
+  initial_exit_status=0
+else
+  initial_exit_status=$?
+fi
+
+exit "${initial_exit_status}"
