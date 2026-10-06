@@ -17,7 +17,7 @@ pnpm run format:check           # prettier check
 pnpm run format                 # prettier write
 ```
 
-Dependencies are managed with pnpm, pinned by `packageManager` in `package.json`. pnpm runs npm's built-in lifecycle scripts (`prepare`, `prepack`, `postpack`) but not user-defined `prefoo`/`postfoo` hooks, so a script that needs a step to run first names it inline — `test` builds before `vitest run` rather than relying on a `pretest` hook.
+Dependencies are managed with pnpm, pinned by `packageManager` in `package.json`. pnpm runs npm's built-in lifecycle scripts (`prepare`, `prepack`, `postpack`) but not user-defined `prefoo`/`postfoo` hooks, so a script that needs a step to run first names it inline — `test` builds before `vitest run` rather than relying on a `pretest` hook. pnpm also forwards a literal `--` to the script where npm stripped it, so a script's own flags are passed without that separator — a CLI that reads `--` as end-of-options ignores them.
 
 ## Core Architectural Invariants
 

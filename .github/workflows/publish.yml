@@ -53,18 +53,28 @@ jobs:
           # needed; a shallow clone has neither.
           fetch-depth: 0
 
-      # No pnpm store cache: this job's build is what reaches the registry, and
+      # No cache of any kind: this job's build is what reaches the registry, and
       # a restored cache is one more input to it that nobody reviewed.
       #
-      # Node 24, not the 22 the CI workflow runs: staging below needs the npm CLI
-      # in the checkout, `npm stage` needs npm >= 11.15.0, and the Node 22 line
-      # bundles npm 10.9.x while Node 24 bundles 11.19.0. Nothing here runs the
-      # test suite, so this job's Node is not the version CI tests on.
-      - name: Set up pnpm and Node.js 24
+      # Node comes from `actions/setup-node` and not from `pnpm/setup`: this job
+      # stages with the npm CLI — the gateway check below, the `npm version`
+      # semantic-release bumps with, `npm whoami`, and `npm stage publish` — and
+      # `pnpm runtime set`, which is how `pnpm/setup` installs a Node, does not
+      # extract the npm a Node archive bundles. The pinned Node 24.20.0 ships npm
+      # 11.19.0, above the 11.15.0 `npm stage` floor; the Node 22 line ships only
+      # 10.9.x. pnpm itself is installed by the step below.
+      - name: Use Node.js 24.20.0
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.20.0"
+
+      - name: Set up pnpm
         uses: pnpm/setup@v3
         with:
-          runtime: node@24
-          # pnpm and Node only; installing is the explicit step below.
+          # pnpm only: Node is the step above, and installing is the explicit
+          # step below. Version-file detection is off so that a Node version file
+          # added later cannot install a second Node over the pinned one.
+          node-version-file: false
           install: false
 
       # Staging uses npm's trusted publishing: the workflow's OIDC token is
