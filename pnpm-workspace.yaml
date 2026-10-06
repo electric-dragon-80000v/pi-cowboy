@@ -1,0 +1,7 @@
+allowBuilds:
+  '@google/genai': false
+  esbuild: false
+  protobufjs: false
+  unrs-resolver: false
+minimumReleaseAgeExclude:
+  - vite@8.3.3

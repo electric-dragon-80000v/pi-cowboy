@@ -67,16 +67,16 @@ CHECK_STEPS=(
   step_test
 )
 
-step_typecheck() { npm run typecheck; }
+step_typecheck() { pnpm run typecheck; }
 # The lint step names its files (collected below) instead of passing `.`: oxlint
 # filters DIRECTORY roots through the .gitignore of their parent directories, and
 # this snapshot sits under the gitignored ramdisk mount point — so `oxlint .` in
 # here reports "No files found to lint" and exits 1. Explicitly named files are
 # exempt from that filter, while the config's own ignorePatterns (lint/**,
 # **/*.config.ts) still exclude them from linting.
-step_lint() { npm run lint -- "${staged_lint_files[@]}"; }
-step_format() { npm run format:check; }
-step_test() { npm run test:unit; }
+step_lint() { pnpm run lint -- "${staged_lint_files[@]}"; }
+step_format() { pnpm run format:check; }
+step_test() { pnpm run test:unit; }
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 BLOCKS=1048576  # 1048576 × 512-byte sectors = 512 MiB (ram:// counts 512-byte sectors)
@@ -217,8 +217,16 @@ if [ -d "${node_modules_orig}" ]; then
   ln -s "${node_modules_orig}" "${node_modules_target}"
 else
   echo "pre-commit: ⚠️  node_modules not found at ${node_modules_orig}." >&2
-  echo "pre-commit: ⚠️  checks can fail (or pass vacuously) without installed deps; run: npm install" >&2
+  echo "pre-commit: ⚠️  checks can fail (or pass vacuously) without installed deps; run: pnpm install" >&2
 fi
+
+# pnpm verifies node_modules against the lockfile before every script and, when
+# it judges them out of sync, installs first. In here that install can only fail:
+# the snapshot's node_modules is the symlink above, which pnpm rejects with
+# "workspace hoist directory is not a real directory", so each step would report a
+# dependency error it does not have. The snapshot's dependencies ARE that symlink
+# — the developer's own install — and the warning above covers a missing one.
+export PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 
 # ─── Run the chain in the exported copy ──────────────────────────────────────
 # Each step is named as it runs, so a failure is attributable to a gate.

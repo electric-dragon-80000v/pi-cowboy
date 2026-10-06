@@ -7,15 +7,17 @@
 ## Essential Commands
 
 ```bash
-npm run typecheck             # tsc --noEmit (must pass cleanly)
-npm test                      # vitest run — the FULL suite (unit + both integration projects)
-npm run test:unit             # vitest run --project unit (fast, hermetic; the pre-commit gate)
-npm run test:integration      # both integration projects (real git, real `pi` processes)
-npm run test:integration-no-cow # the filesystem-independent integration tests
-npm run test:integration-cow  # the copy-on-write tests (need a clone-capable volume)
-npm run format:check          # prettier check
-npm run format                # prettier write
+pnpm run typecheck              # tsc6 --noEmit (must pass cleanly)
+pnpm test                       # vitest run — the FULL suite (unit + both integration projects)
+pnpm run test:unit              # vitest run --project unit (fast, hermetic; the pre-commit gate)
+pnpm run test:integration       # both integration projects (real git, real `pi` processes)
+pnpm run test:integration-no-cow # the filesystem-independent integration tests
+pnpm run test:integration-cow   # the copy-on-write tests (need a clone-capable volume)
+pnpm run format:check           # prettier check
+pnpm run format                 # prettier write
 ```
+
+Dependencies are managed with pnpm, pinned by `packageManager` in `package.json`. pnpm runs npm's built-in lifecycle scripts (`prepare`, `prepack`, `postpack`) but not user-defined `prefoo`/`postfoo` hooks, so a script that needs a step to run first names it inline — `test` builds before `vitest run` rather than relying on a `pretest` hook.
 
 ## Core Architectural Invariants
 
@@ -23,7 +25,7 @@ npm run format                # prettier write
 - **Copy-on-Write Worktrees**: A worktree's working tree is materialized by the `WorktreeMaterialization` strategy (`agent.worktreeMaterialization`, default `"copy-on-write"`). Copy-on-write clones the parent working tree through the Node materializer (`src/infrastructure/git/cow-clone.ts`, which calls `clonefile(2)` through an embedded `python3` snippet on macOS and `cp --reflink=always -R` on Linux); `checkout` leaves git's classic checkout in place. Copy-on-write is an optimization, not a requirement: the worktree volume is probed at launch (`src/spawn/cow-support.ts`), and where it cannot clone every spawn falls back to `checkout` and the setting offers `checkout` alone. A spawn that still meets an unclonable volume mid-run falls back again (`CowCloneMaterializer.fallbackToCheckout`), so a clone never degrades to a silent byte copy. The strategy drives both the `git worktree add` arguments and the materialization step—no other code branches on it. A separate `WorktreeCheckoutType` policy (`agent.worktreeCheckoutType`, default `"clean"`, overridable per agent template) drives the materialization's dirty-parent branch under both strategies: a clean parent is materialized as HEAD; under `"dirty"` a dirty parent's **tracked** changes are carried (`copy-on-write` also clones its untracked files whole, `checkout` applies the parent's tracked diff on top of git's checkout), while under `"clean"` copy-on-write gets tracked-files-from-HEAD plus CoW-seeded ignored state and `checkout` applies nothing (untracked and ignored state is never carried under `checkout`).
 - **One Agent Per Task**: Exactly one live agent per `taskSlug` across the in-memory spawn store and the herdr pane registry.
 - **Composition Root (`src/shell.ts`)**: State lives in per-session shell getters/setters. No mutable module-level globals.
-- **Test Projects**: The suite is split by FILE NAME, not by a list. `vitest.config.ts` declares three projects: `unit` takes every `*.test.ts` file except the integration ones; `integration-no-cow` takes every `*.integration.test.ts` file except the `*.cow.integration.test.ts` ones and runs on any filesystem; `integration-cow` takes exactly the `*.cow.integration.test.ts` files and runs only where the volume really clones (btrfs in CI). A test that needs real git repositories, real `pi` processes/panes, or a real localhost server is named `*.integration.test.ts`; a test that additionally asserts a real copy-on-write clone must live in a `*.cow.integration.test.ts` file. A bare `vitest run` runs all three; `npm run test:integration` runs both integration projects.
+- **Test Projects**: The suite is split by FILE NAME, not by a list. `vitest.config.ts` declares three projects: `unit` takes every `*.test.ts` file except the integration ones; `integration-no-cow` takes every `*.integration.test.ts` file except the `*.cow.integration.test.ts` ones and runs on any filesystem; `integration-cow` takes exactly the `*.cow.integration.test.ts` files and runs only where the volume really clones (btrfs in CI). A test that needs real git repositories, real `pi` processes/panes, or a real localhost server is named `*.integration.test.ts`; a test that additionally asserts a real copy-on-write clone must live in a `*.cow.integration.test.ts` file. A bare `vitest run` runs all three; `pnpm run test:integration` runs both integration projects.
 - **Worktree Retention**: Never auto-delete a worktree that holds uncommitted changes (`dirty`) or commits that are unmerged into `HEAD`. Always state the retention reason.
 
 ## Architecture

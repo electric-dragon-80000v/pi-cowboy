@@ -2,7 +2,7 @@ import { defineConfig } from "oxlint";
 
 // Single lint configuration for the whole repo (oxlint auto-discovers this
 // file). Type-aware rules run through the `oxlint-tsgolint` sidecar, which
-// resolves from this project's node_modules; `tsc --noEmit` remains the type
+// resolves from this project's node_modules; `tsc6 --noEmit` remains the type
 // gate (`options.typeCheck` is deliberately off — oxlint is the linter, not the
 // type checker).
 export default defineConfig({
