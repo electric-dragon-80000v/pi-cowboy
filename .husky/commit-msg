@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# husky runs this file with `sh -e` and node_modules/.bin on PATH (see
+# .husky/_/h), and passes the path of the message file git is about to record.
+#
+# A message that is not a Conventional Commit is rejected rather than recorded:
+# semantic-release reads the version bump out of these messages, so an
+# unparseable one would reach `main` as "no release" instead of as a version.
+commitlint --edit "$1"

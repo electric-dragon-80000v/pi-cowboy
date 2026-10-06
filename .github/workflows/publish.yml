@@ -1,0 +1,106 @@
+name: Publish
+
+# The whole release lives in this one file, including the part that talks to
+# npm: semantic-release cuts the version here, pushes its commit and tag, opens
+# the GitHub release, and stages the version on the registry through the
+# `@semantic-release/exec` plugin in `release.config.ts`.
+#
+# A release is cut only for a revision the CI workflow has already accepted:
+# `workflow_run` fires when a CI run finishes, and the job below refuses
+# anything but a successful push run on `main`. Checking out
+# `workflow_run.head_sha` instead of `main` releases exactly the revision CI
+# tested; if `main` has moved on in the meantime, semantic-release refuses to
+# release and says so rather than shipping untested commits.
+#
+# Staging is not publishing. A maintainer releases the staged version by
+# approving it with 2FA, through `npm stage approve <stage-id>` or the Staged
+# Packages tab on npmjs.com, so nothing this workflow does can put a version in
+# front of installers on its own. Re-staging a tag whose staging failed is a
+# local operation: `npm run release:stage` from a checkout of the tag.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# One release at a time. semantic-release pushes a commit and a tag, so two runs
+# interleaved could compute the same next version from the same history.
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push the release commit, its tag and the GitHub release
+  issues: write # comment on issues the release closes
+  pull-requests: write # comment on pull requests the release includes
+  id-token: write # GitHub OIDC token, exchanged for a short-lived registry token
+
+jobs:
+  release:
+    name: Cut the release and stage it on npm
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+
+    steps:
+      - name: Check out the revision CI validated
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # semantic-release reads the tags reachable from the branch to find
+          # the last release, so the tags and the history behind them are
+          # needed; a shallow clone has neither.
+          fetch-depth: 0
+
+      # No npm cache: this job's build is what reaches the registry, and a
+      # restored cache is one more input to it that nobody reviewed.
+      - name: Use Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      # Staging uses npm's trusted publishing: the workflow's OIDC token is
+      # exchanged for a short-lived registry token, so no NPM_TOKEN secret is
+      # stored. That exchange needs npm 11.5.1 or newer and `npm stage` needs
+      # 11.15.0, so 11.15.0 is the floor this job depends on. The trusted
+      # publisher for `pi-cowboy` is configured on npmjs.com against this file
+      # (`publish.yml`, no environment); until it is, the exchange fails here,
+      # before anything is tagged, committed or staged.
+      - name: Check the npm CLI can stage a publish
+        run: |
+          version="$(npm --version)"
+          echo "npm $version"
+          if [ "$(printf '%s\n' 11.15.0 "$version" | sort -V | head -n1)" != "11.15.0" ]; then
+            echo "npm $version cannot stage a publish; npm stage needs >= 11.15.0"
+            exit 1
+          fi
+
+      # HUSKY=0 keeps the hook install out of the checkout: the hooks belong to
+      # a developer's machine, and the release commit is made by semantic-release
+      # (see .husky) rather than by a person. devDependencies stay installed:
+      # `release.config.ts` is transpiled at load time with the `typescript`
+      # devDependency, so an `--omit=dev` install cannot read the config.
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+
+      # `prepack` builds `dist/`, which is what the tarball is made of; building
+      # up front keeps the release working even if a plugin packs differently.
+      - name: Build
+        run: npm run build
+
+      # semantic-release makes the release commit itself and never sets an
+      # identity, so CI states one here instead of inheriting whatever the runner
+      # happens to have. The author line is the only part of a release that
+      # differs from `npm run release` on a developer's machine.
+      - name: Identify the release commit's author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # HUSKY=0 matters on this step too: staging packs the package, which re-runs
+      # its `prepare` script.
+      - name: Release
+        run: HUSKY=0 npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
