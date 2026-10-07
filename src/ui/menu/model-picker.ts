@@ -10,9 +10,10 @@
  * the picker falls back to SearchableSelectDialog.
  */
 
-import type {
-  ExtensionCommandContext,
-  ModelRuntime,
+import {
+  ModelSelectorComponent,
+  type ExtensionCommandContext,
+  type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter, type AutocompleteItem } from "@earendil-works/pi-tui";
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -77,9 +78,6 @@ export async function openSubagentModelPicker(
   const store = getStore();
   const runtime = sessionModelRuntime(ctx);
   const scoped = ctx.scopedModels;
-  // Value import deferred so the barrel stays off the module graph.
-  const { ModelSelectorComponent } =
-    await import("@earendil-works/pi-coding-agent");
 
   await new ScreenHost(ctx).open<void>(({ tui, theme, close }) => {
     const current = currentSubagentModel(ctx);

@@ -9,9 +9,10 @@
  */
 
 import fs from "node:fs";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  loadProjectContextFiles,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { errorMessage, GIT_EXEC_TIMEOUT_MS } from "../utils.js";
 import { agentDir } from "../paths.js";
@@ -121,9 +122,6 @@ async function resolveSystemPromptSources(
 
   if (includeContextFiles) {
     try {
-      // Deferred import keeps pi's barrel off the boot-time import graph.
-      const { loadProjectContextFiles } =
-        await import("@earendil-works/pi-coding-agent");
       extras.contextFiles = loadProjectContextFiles({
         cwd,
         agentDir: agentDir(),

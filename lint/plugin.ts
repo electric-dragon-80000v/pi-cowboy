@@ -2,6 +2,7 @@
 // carry explicit `.ts` extensions.
 import noDateNowForDuration from "./noDateNowForDuration.ts";
 import noExpectInLoops from "./noExpectInLoops.ts";
+import noHostPackageDynamicImport from "./noHostPackageDynamicImport.ts";
 import noInvariantComment from "./noInvariantComment.ts";
 import noLoggerAssertions from "./noLoggerAssertions.ts";
 import todoRequiresContext from "./todoRequiresContext.ts";
@@ -13,6 +14,7 @@ const plugin = {
   rules: {
     "no-date-now-for-duration": noDateNowForDuration,
     "no-expect-in-loops": noExpectInLoops,
+    "no-host-package-dynamic-import": noHostPackageDynamicImport,
     "no-invariant-comment": noInvariantComment,
     "no-logger-assertions": noLoggerAssertions,
     "todo-requires-context": todoRequiresContext,

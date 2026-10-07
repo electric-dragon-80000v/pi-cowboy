@@ -1,8 +1,5 @@
-/**
- * pi-settings.ts — pi's `defaultThinkingLevel` setting, read without pi's barrel.
- * The barrel is resolved lazily so it stays off the boot-time import graph;
- * `agentDir` stays injectable for tests.
- */
+/** pi-settings.ts — pi's `defaultThinkingLevel` setting. `agentDir` is injectable for tests. */
+import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "./types.js";
 import { agentDir as resolveAgentDir } from "./paths.js";
 
@@ -11,8 +8,6 @@ export async function getPiDefaultThinkingLevel(
   cwd: string,
   agentDir?: string,
 ): Promise<ThinkingLevel | undefined> {
-  // Deferred value import: keeps the barrel off the boot-time import graph.
-  const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
   return SettingsManager.create(
     cwd,
     agentDir ?? resolveAgentDir(),

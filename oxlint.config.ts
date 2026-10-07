@@ -187,6 +187,7 @@ export default defineConfig({
         ],
         "lite/no-date-now-for-duration": "error",
         "lite/no-expect-in-loops": "error",
+        "lite/no-host-package-dynamic-import": "error",
         "lite/no-invariant-comment": "warn",
         "lite/no-logger-assertions": "error",
         "lite/todo-requires-context": "error",
