@@ -1,3 +1,10 @@
+## [0.3.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.1...v0.3.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* switch host packages to static imports and add linter rule ([72bdbd5](https://github.com/electric-dragon-80000v/pi-cowboy/commit/72bdbd53046d8fd254a0dedeb5e39a0f8527d2a1))
+
 ## [0.3.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.0...v0.3.1) (2026-10-07)
 
 
