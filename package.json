@@ -36,9 +36,9 @@
     "!dist/**/*.d.ts",
     "agents/",
     "orchestrators/",
-    "docs/assets/*.png",
-    "!docs/assets/logo.png",
-    "!docs/assets/logo-pi-package.png",
+    "docs/assets/logo-labeled-readme.png",
+    "docs/assets/grazing.png",
+    "docs/assets/herdr-containers.png",
     "README.md",
     "LICENSE"
   ],
@@ -66,7 +66,7 @@
     "prepare": "husky"
   },
   "pi": {
-    "image": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-pi-package.png",
+    "image": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-pi-package-landscape.png",
     "video": "https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/pi-cowboy-ad-trimmed.mp4",
     "extensions": [
       "./dist/index.js"
