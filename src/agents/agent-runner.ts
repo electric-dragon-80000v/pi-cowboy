@@ -9,9 +9,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {
+  SettingsManager,
+  type ExtensionAPI,
+  type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "../utils.js";
 import { agentDir } from "../paths.js";
@@ -268,9 +269,6 @@ export async function buildLaunchPlan(
       extMode = { kind: "none" };
     } else {
       try {
-        // Deferred: keeps pi's barrel off the boot-time import graph.
-        const { SettingsManager } =
-          await import("@earendil-works/pi-coding-agent");
         const settingsManager = SettingsManager.create(
           effectiveCwd,
           agentDir(),

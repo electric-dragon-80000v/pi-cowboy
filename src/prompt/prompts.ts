@@ -1,6 +1,10 @@
 /** prompts.ts — System prompt builder for agents. Every agent gets a fresh context — no inherited parent identity. */
 
-import type { Skill, SourceInfo } from "@earendil-works/pi-coding-agent";
+import {
+  formatSkillsForPrompt,
+  type Skill,
+  type SourceInfo,
+} from "@earendil-works/pi-coding-agent";
 import type { EnvInfo } from "../types.js";
 import type { AgentConfig, SystemPromptMode } from "../agents/types.js";
 import type { SkillMeta, InlinedSkill } from "./skill-loader.js";
@@ -94,9 +98,6 @@ export async function buildAgentPrompt(
         sourceInfo: {} as SourceInfo,
         disableModelInvocation: m.disableModelInvocation,
       }));
-      // Deferred import keeps pi's barrel off the boot-time import graph.
-      const { formatSkillsForPrompt } =
-        await import("@earendil-works/pi-coding-agent");
       const formatted = formatSkillsForPrompt(piSkills);
       const skillElements = formatted.match(/<skill>[\s\S]*?<\/skill>/g);
       if (skillElements) skillLines.push(...skillElements);

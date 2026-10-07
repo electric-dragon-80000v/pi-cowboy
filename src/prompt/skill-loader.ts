@@ -15,7 +15,11 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { Skill } from "@earendil-works/pi-coding-agent";
+import {
+  loadSkills,
+  loadSkillsFromDir,
+  type Skill,
+} from "@earendil-works/pi-coding-agent";
 import { isUnsafeName } from "../utils.js";
 
 export interface InlinedSkill {
@@ -32,11 +36,10 @@ export interface SkillMeta {
   disableModelInvocation: boolean;
 }
 
-async function loadAllSkills(cwd: string): Promise<Skill[]> {
+type LoadSkillsFromDir = typeof loadSkillsFromDir;
+
+function loadAllSkills(cwd: string): Skill[] {
   const resolvedCwd = resolve(cwd);
-  // Deferred import keeps pi's barrel off the boot-time graph.
-  const { loadSkills, loadSkillsFromDir } =
-    await import("@earendil-works/pi-coding-agent");
 
   const ancestorsSkills = loadAncestorAgentsSkills(
     resolvedCwd,
@@ -81,7 +84,7 @@ async function loadAllSkills(cwd: string): Promise<Skill[]> {
 /** Walk cwd → git root, loading each `.agents/skills` dir. Root .md files are filtered: the exported API has no "agents" mode. */
 function loadAncestorAgentsSkills(
   resolvedCwd: string,
-  loadSkillsFromDir: typeof import("@earendil-works/pi-coding-agent").loadSkillsFromDir,
+  loadSkillsFromDir: LoadSkillsFromDir,
 ): Skill[] {
   const gitRoot = findGitRoot(resolvedCwd);
   const result: Skill[] = [];
@@ -136,7 +139,7 @@ export async function inlineSkills(
   skillNames: string[],
   cwd: string,
 ): Promise<InlinedSkill[]> {
-  const skills = await loadAllSkills(cwd);
+  const skills = loadAllSkills(cwd);
   return skillNames.map((name) => {
     if (isUnsafeName(name)) {
       return {
@@ -174,7 +177,7 @@ export async function loadSkillMeta(
   skillNames: string[],
   cwd: string,
 ): Promise<SkillMeta[]> {
-  const skills = await loadAllSkills(cwd);
+  const skills = loadAllSkills(cwd);
   return skillNames.map((name) => {
     const match = skills.find((s) => s.name === name);
     if (!match) {
