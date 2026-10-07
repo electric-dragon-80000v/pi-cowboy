@@ -13,7 +13,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawn } from "../types.js";
-import type { BranchCleanupResult } from "../infrastructure/git-client.js";
+import type {
+  BranchCleanupResult,
+  DeleteBranchOptions,
+} from "../infrastructure/git-client.js";
 import {
   deleteWorktreeBranch,
   isWorktreeDirty,
@@ -63,10 +66,8 @@ export interface CleanupDeps {
     worktreePath: string,
     repoCwd: string,
   ) => Promise<boolean>;
-  deleteBranch: (
-    worktreePath: string,
-    repoCwd: string,
-  ) => Promise<BranchCleanupResult>;
+  /** Delete the branch a removed worktree carried once it is merged and unattached. */
+  deleteBranch: (options: DeleteBranchOptions) => Promise<BranchCleanupResult>;
   /** Close a self-created placement. */
   closePane: (ref: AgentHostRef) => Promise<void>;
 }
@@ -425,9 +426,9 @@ export function createHerdrAgentAssets(pi: ExtensionAPI): AgentAssets {
       await removeGitWorktree(pi, repoCwd, worktreePath);
       return !fs.existsSync(worktreePath);
     },
-    deleteBranch: (worktreePath, repoCwd) =>
-      deleteWorktreeBranch(pi, worktreePath, repoCwd, (candidate) =>
-        host.isAttached(candidate, { repoCwd }),
+    deleteBranch: (options) =>
+      deleteWorktreeBranch(pi, options, (candidate) =>
+        host.isAttached(candidate, { repoCwd: options.repoCwd }),
       ),
     closePane: async (ref) => {
       await host.release(ref, "placement");

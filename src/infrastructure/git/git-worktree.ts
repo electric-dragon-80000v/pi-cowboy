@@ -3,12 +3,14 @@
  * of them.
  *
  * Binds path (and branch, when known) to the transport. No policy here: dirty
- * worktrees are interpreted in git-retention.ts, branches in git-merger.ts.
+ * worktrees are interpreted in git-retention.ts, branch deletion policy in
+ * git-merger.ts.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GIT_EXEC_TIMEOUT_MS } from "../../utils.js";
 import {
+  GitError,
   GitCommandRunner,
   GIT_WORKTREE_TIMEOUT_MS,
   type GitProbeOptions,
@@ -25,6 +27,20 @@ export interface GitWorktreeEntry {
   branch: string | null;
   isDetached: boolean;
 }
+
+/**
+ * Outcome of deleting a branch ref. Worktree removal is gated separately;
+ * results never carry the branch ref (the caller reports it once as
+ * `CleanupReport.branchName`).
+ */
+export type BranchCleanupResult =
+  | { kind: "deleted" }
+  /** Not a branch this code may delete, or the branch is already gone. */
+  | { kind: "not-applicable" }
+  /** Kept: "unmerged" (commits not in parent HEAD) or "checked-out" (still in use by a worktree). */
+  | { kind: "kept"; reason: "unmerged" | "checked-out" }
+  /** The delete itself failed. */
+  | { kind: "delete-failed"; detail: string };
 
 /** One linked worktree checkout on disk. */
 export class GitWorktree {
@@ -73,6 +89,74 @@ export async function removeGitWorktree(
   wtPath: string,
 ): Promise<void> {
   await new GitWorktree(new GitCommandRunner(pi), wtPath).remove(true, repoCwd);
+}
+
+/**
+ * Whether `branch` resolves to a ref in `repoCwd`. A question that cannot be
+ * asked throws: an unanswered probe must not read as "no such branch".
+ */
+export async function refExists(
+  runner: GitCommandRunner,
+  branch: string,
+  repoCwd: string,
+): Promise<boolean> {
+  const verify = await runner.run(
+    ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`],
+    repoCwd,
+  );
+  if (verify === undefined) {
+    throw new GitError(
+      `git rev-parse --verify refs/heads/${branch} could not run in ${repoCwd}`,
+    );
+  }
+  return verify.code === 0;
+}
+
+/** Run `branch -D` and shape its outcome; whether the ref should be deleted is the caller's question. */
+export async function deleteBranchRef(
+  runner: GitCommandRunner,
+  branch: string,
+  repoCwd: string,
+): Promise<BranchCleanupResult> {
+  const del = await runner.run(["branch", "-D", "--", branch], repoCwd);
+  if (del === undefined) {
+    throw new GitError(`git branch -D ${branch} could not run in ${repoCwd}`);
+  }
+  if (del.code !== 0) {
+    return {
+      kind: "delete-failed",
+      detail: (del.stderr || del.stdout || `git branch -D exited ${del.code}`)
+        .trim()
+        .slice(0, 200),
+    };
+  }
+  return { kind: "deleted" };
+}
+
+/**
+ * Delete a branch by name — the undo of a `git worktree add` that minted it,
+ * and the policy-free counterpart of git-merger.ts's `deleteWorktreeBranch`.
+ * The only question asked is whether the ref is there: nothing has committed on
+ * a branch this fresh, and git refuses the deletion itself while a checkout
+ * still holds it.
+ */
+export async function deleteCreatedBranch(
+  pi: ExtensionAPI,
+  branch: string,
+  repoCwd: string,
+): Promise<BranchCleanupResult> {
+  const runner = new GitCommandRunner(pi);
+  try {
+    if (!(await refExists(runner, branch, repoCwd))) {
+      return { kind: "not-applicable" };
+    }
+    return await deleteBranchRef(runner, branch, repoCwd);
+  } catch (err) {
+    return {
+      kind: "delete-failed",
+      detail: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /**

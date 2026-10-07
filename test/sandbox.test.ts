@@ -21,6 +21,7 @@ const {
   createWorktreeCheckoutMock,
   removeGitWorktreeMock,
   deleteWorktreeBranchMock,
+  deleteCreatedBranchMock,
   isWorktreeDirtyMock,
   hostAtMock,
   isAttachedMock,
@@ -31,6 +32,7 @@ const {
   createWorktreeCheckoutMock: vi.fn(),
   removeGitWorktreeMock: vi.fn(),
   deleteWorktreeBranchMock: vi.fn(),
+  deleteCreatedBranchMock: vi.fn(),
   isWorktreeDirtyMock: vi.fn(),
   hostAtMock: vi.fn(),
   isAttachedMock: vi.fn(),
@@ -45,6 +47,7 @@ vi.mock("../src/infrastructure/git-client.js", async (importOriginal) => ({
   resolveMainCheckout: resolveMainCheckoutMock,
   removeGitWorktree: removeGitWorktreeMock,
   deleteWorktreeBranch: deleteWorktreeBranchMock,
+  deleteCreatedBranch: deleteCreatedBranchMock,
   isWorktreeDirty: isWorktreeDirtyMock,
 }));
 
@@ -74,6 +77,8 @@ beforeEach(() => {
   removeGitWorktreeMock.mockReset();
   deleteWorktreeBranchMock.mockReset();
   deleteWorktreeBranchMock.mockResolvedValue({ kind: "deleted" });
+  deleteCreatedBranchMock.mockReset();
+  deleteCreatedBranchMock.mockResolvedValue({ kind: "deleted" });
   isWorktreeDirtyMock.mockReset();
   isWorktreeDirtyMock.mockResolvedValue(false);
   hostAtMock.mockReset();
@@ -90,7 +95,12 @@ function created(
   pathname: string,
   branch = "cow-fix-login-abc12345",
 ): WorktreeCheckout {
-  return { path: pathname, branch, repoCwd: "/work/repo" };
+  return {
+    path: pathname,
+    branch,
+    repoCwd: "/work/repo",
+    materialization: { kind: "cow", clone: { mode: "cow" } },
+  };
 }
 
 function host() {
@@ -369,9 +379,15 @@ describe("AgentSandbox.allocate", () => {
     expect(error.message).toContain(
       "could not create the herdr worktree: branch exists",
     );
+    const attempted = createWorktreeCheckoutMock.mock.calls[0]![1] as {
+      path: string;
+    };
     expect(error.message).toContain(
-      "Launch-failure cleanup: no worktree residue was left behind.",
+      `Launch-failure cleanup: worktree ${attempted.path} removed.`,
     );
+    // The create's own failure paths prune the branch they minted; a rollback
+    // must never delete a name it cannot prove it created.
+    expect(deleteCreatedBranchMock).not.toHaveBeenCalled();
     expect(hostAtMock).not.toHaveBeenCalled();
   });
 
@@ -391,28 +407,20 @@ describe("AgentSandbox.allocate", () => {
       "could not create the herdr worktree: herdr worktree open failed",
     );
     expect(error.message).toContain(
-      "Launch-failure cleanup: no worktree residue was left behind.",
+      `Launch-failure cleanup: worktree ${worktreePath} removed. branch cow-fix-login-abc12345 deleted.`,
     );
     expect(removeGitWorktreeMock).toHaveBeenCalledWith(
       pi,
       "/work/repo",
       worktreePath,
     );
-    expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
+    // The branch goes by name: the create minted it, and its name need not be `cow-`.
+    expect(deleteCreatedBranchMock).toHaveBeenCalledWith(
       pi,
-      worktreePath,
+      "cow-fix-login-abc12345",
       "/work/repo",
-      expect.any(Function),
     );
-    // The git plane's probe is the host's attachment answer.
-    const probe = deleteWorktreeBranchMock.mock.calls[0]![3] as (
-      candidate: string,
-    ) => Promise<boolean>;
-    isAttachedMock.mockResolvedValue(true);
-    await expect(probe(worktreePath)).resolves.toBe(true);
-    expect(isAttachedMock).toHaveBeenCalledWith(worktreePath, {
-      repoCwd: "/work/repo",
-    });
+    expect(deleteWorktreeBranchMock).not.toHaveBeenCalled();
   });
 
   it("serializes checkouts for one repository reached through two spellings", async () => {
@@ -559,8 +567,11 @@ describe("AgentSandbox.teardown", () => {
     expect(releaseMock).toHaveBeenCalledWith(REF, "worktree-association");
     expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
       pi,
-      worktreePath,
-      "/work/repo",
+      {
+        branch: "cow-fix-login-abc12345",
+        worktreePath,
+        repoCwd: "/work/repo",
+      },
       expect.any(Function),
     );
     // A second teardown of a destroyed sandbox is a no-op report.

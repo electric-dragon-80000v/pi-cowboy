@@ -174,7 +174,11 @@ async function removeResources(
         ref,
       ),
       worktree: outcome,
-      branch: await deps.deleteBranch(worktree.worktreePath, worktree.repoCwd),
+      branch: await deps.deleteBranch({
+        branch: worktree.branchName,
+        worktreePath: worktree.worktreePath,
+        repoCwd: worktree.repoCwd,
+      }),
     };
   }
   return {
@@ -283,10 +287,11 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
         const mechanism = removalMechanismOf(worktree);
         // Pane closes before branch cleanup so a git-owned pane only closes after confirmed checkout removal.
         await paneOutcomeFor(deps, pane, mechanism, true, ref);
-        const branch = await deps.deleteBranch(
-          worktree.worktreePath,
-          worktree.repoCwd,
-        );
+        const branch = await deps.deleteBranch({
+          branch: worktree.branchName,
+          worktreePath: worktree.worktreePath,
+          repoCwd: worktree.repoCwd,
+        });
         return {
           kind: "removed",
           path: worktree.worktreePath,

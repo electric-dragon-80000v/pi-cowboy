@@ -240,16 +240,14 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
   // Named cowboy so it never clashes with other subagent extensions' /agents.
   pi.registerCommand("cowboy", {
     description:
-      "Manage agents: status, spawn, settings. `status` lists spawned, queued and settled agents; `spawn` opens the spawn wizard. `enable`/`disable` load or unload the cowboy tools. Pass `model` (optionally a provider/model-id) to set the model agents use for this session — opens pi's model picker.",
+      "Manage agents: status, spawn, settings. `status` lists spawned, queued and settled agents; `spawn` opens the spawn wizard; `worktree` creates one git worktree with no agent attached to it. `enable`/`disable` load or unload the cowboy tools. Pass `model` (optionally a provider/model-id) to set the model agents use for this session — opens pi's model picker.",
     getArgumentCompletions: async (prefix: string) =>
       (await import("./ui/menu/model-picker.js")).cowboyCompletions(prefix),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       const subcommand = args.trim();
-      if (subcommand === "model" || subcommand.startsWith("model ")) {
-        const { handleModelArg } = await import("./ui/menu/model-picker.js");
-        await handleModelArg(subcommand.slice("model".length).trim(), ctx);
-        return;
-      }
+      // The first word names the subcommand and the rest is its inline argument,
+      // so a tab or a run of spaces separates them exactly as one space does.
+      const [word, ...inline] = subcommand.split(/\s+/);
       if (subcommand === "enable" || subcommand === "disable") {
         const enable = subcommand === "enable";
         if (isExtensionEnabled() === enable) {
@@ -266,23 +264,38 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
         );
         return;
       }
+      if (word === "worktree") {
+        // Off, the switch is the whole menu — but a worktree is a git artifact
+        // that needs none of the cowboy tools, so this one still runs.
+        const { showWorktreeCommandMenu } =
+          await import("./ui/menu/menu-worktree-command.js");
+        await showWorktreeCommandMenu(ctx, inline.join(" "));
+        return;
+      }
+      // Off, the switch is the whole menu: the rows these three open are
+      // unreachable, so the subcommands that open them are refused the same way.
+      const opensAHiddenRow =
+        word === "model" || subcommand === "spawn" || subcommand === "status";
+      if (opensAHiddenRow && !isExtensionEnabled()) {
+        ctx.ui.notify(
+          "pi-cowboy is disabled. Run /cowboy enable first.",
+          "warning",
+        );
+        return;
+      }
+      if (word === "model") {
+        const { handleModelArg } = await import("./ui/menu/model-picker.js");
+        await handleModelArg(inline.join(" "), ctx);
+        return;
+      }
       if (subcommand === "spawn" || subcommand === "status") {
-        // Off, the switch is the whole menu: its rows are unreachable, so the
-        // subcommands that open them are refused the same way.
-        if (!isExtensionEnabled()) {
-          ctx.ui.notify(
-            "pi-cowboy is disabled. Run /cowboy enable first.",
-            "warning",
-          );
-          return;
-        }
         const { showAgentsActionMenu } = await import("./ui/menu/menus.js");
         await showAgentsActionMenu(ctx, subcommand, subagentModelOptions(ctx));
         return;
       }
       if (subcommand !== "") {
         ctx.ui.notify(
-          `Unknown option "${subcommand.split(/\s+/)[0]}". Usage: /cowboy [status | spawn | model [<provider/model-id>|clear] | enable | disable]`,
+          `Unknown option "${word}". Usage: /cowboy [status | spawn | worktree [<name>] | model [<provider/model-id>|clear] | enable | disable]`,
           "warning",
         );
         return;

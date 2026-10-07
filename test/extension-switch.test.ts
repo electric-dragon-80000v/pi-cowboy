@@ -3,7 +3,7 @@
  * Pins: the tool-name set against the tools registration actually registers,
  * the flag read, both halves of the switch (register the agent tool's type list
  * and move the names in and out of the active set), the global-layer write, and
- * the `/cowboy` dispatch of `spawn`/`status`, `enable`/`disable` and its
+ * the `/cowboy` dispatch of `spawn`/`status`/`model`, `enable`/`disable` and its
  * fall-through to the main menu.
  */
 
@@ -54,6 +54,11 @@ const menus = vi.hoisted(() => ({
   showAgentsActionMenu: vi.fn(async () => {}),
 }));
 vi.mock("../src/ui/menu/menus.js", () => menus);
+
+const worktreeCommand = vi.hoisted(() => ({
+  showWorktreeCommandMenu: vi.fn(async () => {}),
+}));
+vi.mock("../src/ui/menu/menu-worktree-command.js", () => worktreeCommand);
 
 const {
   COWBOY_TOOLS,
@@ -149,6 +154,7 @@ function commandContext(notify: ReturnType<typeof vi.fn>) {
 beforeEach(() => {
   menus.showAgentsMainMenu.mockClear();
   menus.showAgentsActionMenu.mockClear();
+  worktreeCommand.showWorktreeCommandMenu.mockClear();
   shell.active = [];
   shell.registeredTools = [];
 });
@@ -419,7 +425,7 @@ describe("/cowboy dispatch", () => {
     await captureCommand().handler("bogus", commandContext(notify));
 
     expect(notify).toHaveBeenCalledWith(
-      'Unknown option "bogus". Usage: /cowboy [status | spawn | model [<provider/model-id>|clear] | enable | disable]',
+      'Unknown option "bogus". Usage: /cowboy [status | spawn | worktree [<name>] | model [<provider/model-id>|clear] | enable | disable]',
       "warning",
     );
     expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
@@ -445,7 +451,7 @@ describe("/cowboy dispatch", () => {
     },
   );
 
-  it.each(["spawn", "status"] as const)(
+  it.each(["spawn", "status", "model"] as const)(
     "refuses `/cowboy %s` while the extension is off",
     async (subcommand) => {
       install({ agent: { extensionEnabled: false } });
@@ -460,6 +466,78 @@ describe("/cowboy dispatch", () => {
       expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
     },
   );
+
+  it("runs `/cowboy model` while the extension is on", async () => {
+    install({});
+    const notify = vi.fn();
+
+    await captureCommand().handler("model clear", commandContext(notify));
+
+    expect(notify).toHaveBeenCalledWith(
+      "Subagent model override cleared (session) — inherits parent/configured default",
+      "info",
+    );
+  });
+
+  it("runs `/cowboy worktree` while the extension is off, on the inline name", async () => {
+    install({ agent: { extensionEnabled: false } });
+    const notify = vi.fn();
+    const ctx = commandContext(notify);
+
+    await captureCommand().handler("worktree my-branch", ctx);
+
+    expect(worktreeCommand.showWorktreeCommandMenu).toHaveBeenCalledWith(
+      ctx,
+      "my-branch",
+    );
+    // A worktree needs none of the cowboy tools, so the switch refuses nothing.
+    expect(notify).not.toHaveBeenCalled();
+    expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
+  });
+
+  it("opens the name field empty for a bare `/cowboy worktree`", async () => {
+    install({ agent: { extensionEnabled: false } });
+    const ctx = commandContext(vi.fn());
+
+    await captureCommand().handler("worktree", ctx);
+
+    expect(worktreeCommand.showWorktreeCommandMenu).toHaveBeenCalledWith(
+      ctx,
+      "",
+    );
+  });
+
+  it("treats a tab or a run of spaces as the separator before the inline name", async () => {
+    install({ agent: { extensionEnabled: false } });
+    const ctx = commandContext(vi.fn());
+    const { handler } = captureCommand();
+
+    await handler("worktree\tmy-branch", ctx);
+    await handler("worktree   my-branch", ctx);
+
+    expect(worktreeCommand.showWorktreeCommandMenu).toHaveBeenNthCalledWith(
+      1,
+      ctx,
+      "my-branch",
+    );
+    expect(worktreeCommand.showWorktreeCommandMenu).toHaveBeenNthCalledWith(
+      2,
+      ctx,
+      "my-branch",
+    );
+  });
+
+  it("names only the first word of an unrecognized argument", async () => {
+    install({});
+    const notify = vi.fn();
+
+    await captureCommand().handler("bogus\tthing", commandContext(notify));
+
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown option "bogus". Usage: /cowboy'),
+      "warning",
+    );
+  });
 
   it("opens the main menu on the registry's models when no argument is given", async () => {
     install({});
@@ -477,10 +555,11 @@ describe("/cowboy dispatch", () => {
     expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
   });
 
-  it("offers status, spawn, model, enable and disable as completions", () => {
+  it("offers status, spawn, worktree, model, enable and disable as completions", () => {
     expect(cowboyCompletions("")?.map((item) => item.value)).toEqual([
       "status",
       "spawn",
+      "worktree",
       "model",
       "enable",
       "disable",

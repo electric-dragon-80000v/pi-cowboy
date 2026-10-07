@@ -8,9 +8,10 @@
  * instead of completing on a rejected name.
  */
 
-import { Input } from "@earendil-works/pi-tui";
+import type { Input } from "@earendil-works/pi-tui";
 import type { Notify } from "../helpers.js";
 import { HERDR_AGENT_NAME_MAX_LENGTH } from "../../../spawn/worktree-policy.js";
+import { createNameField } from "./name-field.js";
 
 /** Prefix every worktree name carries; the field is prefilled with it. */
 export const WORKTREE_BRANCH_PREFIX = "cow-";
@@ -68,20 +69,12 @@ export interface WorktreeNameInputOptions {
 export function createWorktreeNameInput(
   options: WorktreeNameInputOptions,
 ): Input {
-  const input = new Input();
-  input.focused = true;
-  // `setValue` leaves the caret at position 0; typing the prefix lands it after,
-  // where the user continues the name.
-  for (const char of WORKTREE_BRANCH_PREFIX) input.handleInput(char);
-  input.onSubmit = (value) => {
-    const trimmed = value.trim();
-    const problem = validateWorktreeBranchName(trimmed);
-    if (problem) {
-      options.notify(describeWorktreeNameProblem(problem), "error");
-      return;
-    }
-    options.onDone(trimmed);
-  };
-  input.onEscape = () => options.onCancel();
-  return input;
+  return createNameField({
+    prefill: WORKTREE_BRANCH_PREFIX,
+    notify: options.notify,
+    validate: validateWorktreeBranchName,
+    describeProblem: describeWorktreeNameProblem,
+    onDone: options.onDone,
+    onCancel: options.onCancel,
+  });
 }

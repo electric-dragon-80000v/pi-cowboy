@@ -8,7 +8,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // Git HOW lives in git-client.ts; orchestration stays here.
 import {
   GitError,
-  deleteWorktreeBranch,
+  deleteCreatedBranch,
   gitProbe,
   gitRun,
   materializeWorktree,
@@ -48,6 +48,8 @@ export interface WorktreeCheckout {
   branch: string;
   /** Main checkout: adoption source and removal cwd. */
   repoCwd: string;
+  /** How the working tree was populated; `copy-on-write` can degrade to a classic checkout. */
+  materialization: WorktreeMaterializationOutcome;
 }
 
 // --- Worktree checkout creation (pre-adoption) ---
@@ -56,7 +58,7 @@ export interface CreateWorktreeOptions {
   /** Any path inside the parent repo; the main checkout is resolved from it. */
   repoCwd: string;
   path: string;
-  /** Pinned `cow-<task>-<id>` branch; always a valid git branch name by construction. */
+  /** Branch to create and check out; the caller owns its grammar, git refuses an unusable one. */
   branch: string;
   /** Base ref the new branch starts from; default "HEAD". */
   base?: string;
@@ -74,9 +76,7 @@ export async function createWorktreeCheckout(
 ): Promise<WorktreeCheckout> {
   const branch = options.branch.trim();
   if (branch === "") {
-    throw new GitError(
-      "worktree checkout requires a branch name (`cow-<task>-<id>`)",
-    );
+    throw new GitError("worktree checkout requires a branch name");
   }
   // Herdr rejects a linked worktree as the adoption source: start from the main checkout.
   const mainRoot = await resolveMainCheckout(pi, options.repoCwd);
@@ -107,7 +107,7 @@ export async function createWorktreeCheckout(
     // prune it unconditionally; this one prunes only a branch it created, so a
     // collision with a caller's branch leaves that branch alone.
     if (!existedBefore) {
-      await deleteWorktreeBranch(pi, wtPath, mainRoot);
+      await deleteCreatedBranch(pi, branch, mainRoot);
     }
     throw new GitError(
       add === undefined
@@ -119,8 +119,9 @@ export async function createWorktreeCheckout(
   const actualBranch = await gitProbe(pi, ["branch", "--show-current"], wtPath);
   if (actualBranch !== branch) {
     await removeGitWorktree(pi, mainRoot, wtPath);
-    // No attachment probe: the host has not seen the tree yet, so it is detached by construction.
-    await deleteWorktreeBranch(pi, wtPath, mainRoot);
+    // The branch is this call's own — the add minted it under the requested name —
+    // and no host has seen the checkout, so no attachment can hold it.
+    await deleteCreatedBranch(pi, branch, mainRoot);
     throw new GitError(
       actualBranch === undefined
         ? `worktree created at ${wtPath} but its branch could not be verified (worktree removed)`
@@ -138,7 +139,7 @@ export async function createWorktreeCheckout(
     );
   } catch (err) {
     await removeGitWorktree(pi, mainRoot, wtPath);
-    await deleteWorktreeBranch(pi, wtPath, mainRoot);
+    await deleteCreatedBranch(pi, branch, mainRoot);
     const msg = err instanceof Error ? err.message : String(err);
     throw new GitError(
       `worktree created but ${materializationStrategy} materialization failed (worktree removed): ${msg}`,
@@ -156,5 +157,5 @@ export async function createWorktreeCheckout(
       "warning",
     );
   }
-  return { path: wtPath, branch, repoCwd: mainRoot };
+  return { path: wtPath, branch, repoCwd: mainRoot, materialization: outcome };
 }

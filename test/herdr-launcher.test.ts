@@ -9,12 +9,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  deleteWorktreeBranchMock,
+  deleteCreatedBranchMock,
   gitRunMock,
   materializeWorktreeMock,
   removeGitWorktreeMock,
 } = vi.hoisted(() => ({
-  deleteWorktreeBranchMock: vi.fn(),
+  deleteCreatedBranchMock: vi.fn(),
   gitRunMock: vi.fn(),
   materializeWorktreeMock: vi.fn(),
   removeGitWorktreeMock: vi.fn(),
@@ -24,7 +24,7 @@ vi.mock("../src/infrastructure/git-client.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../src/infrastructure/git-client.js")
   >()),
-  deleteWorktreeBranch: deleteWorktreeBranchMock,
+  deleteCreatedBranch: deleteCreatedBranchMock,
   gitRun: gitRunMock,
   materializeWorktree: materializeWorktreeMock,
   removeGitWorktree: removeGitWorktreeMock,
@@ -55,7 +55,7 @@ function cannedAddFailure(branchExisted: boolean): void {
 describe("createWorktreeCheckout when the add fails", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    deleteWorktreeBranchMock.mockResolvedValue({ kind: "deleted" });
+    deleteCreatedBranchMock.mockResolvedValue({ kind: "deleted" });
   });
 
   it("prunes a branch this call created, so a half-made add leaves no ref", async () => {
@@ -70,7 +70,12 @@ describe("createWorktreeCheckout when the add fails", () => {
     ).rejects.toThrow(/worktree removed/);
 
     expect(removeGitWorktreeMock).toHaveBeenCalledWith(pi, "/repo", "/wt");
-    expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(pi, "/wt", "/repo");
+    // By name: the branch is whatever the caller asked for, `cow-` or not.
+    expect(deleteCreatedBranchMock).toHaveBeenCalledWith(
+      pi,
+      "cow-feature",
+      "/repo",
+    );
   });
 
   it("leaves a pre-existing branch alone when the add collides with it", async () => {
@@ -85,7 +90,7 @@ describe("createWorktreeCheckout when the add fails", () => {
     ).rejects.toThrow(/already exists/);
 
     expect(removeGitWorktreeMock).toHaveBeenCalledWith(pi, "/repo", "/wt");
-    expect(deleteWorktreeBranchMock).not.toHaveBeenCalled();
+    expect(deleteCreatedBranchMock).not.toHaveBeenCalled();
   });
 
   it("leaves the branch alone when the pre-add probe could not run", async () => {
@@ -104,6 +109,6 @@ describe("createWorktreeCheckout when the add fails", () => {
       }),
     ).rejects.toThrow(/worktree removed/);
 
-    expect(deleteWorktreeBranchMock).not.toHaveBeenCalled();
+    expect(deleteCreatedBranchMock).not.toHaveBeenCalled();
   });
 });

@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -810,6 +810,43 @@ describe("createWorktreeCheckout rollback", () => {
     expect(herdrCalls).toEqual([]);
   });
 
+  // A name is the branch and the directory, and `/cowboy worktree` accepts any
+  // valid branch name: the rollback cannot key on the path basename or on `cow-`.
+  it.each(["render-page", "feat/login"])(
+    "removes a free-form branch it created when the checkout cannot be completed (%s)",
+    async (branch) => {
+      tmp = mkdtempSync(join(tmpdir(), "herdr-free-form-rollback-"));
+      const repo = await makeRepoWithIgnoredState(tmp);
+      writeFileSync(join(repo, "tracked.txt"), "changed in main\n");
+      const wt = join(tmp, "worktrees", branch);
+      mkdirSync(dirname(wt), { recursive: true });
+      const herdrCalls: string[][] = [];
+      const pi = hybridPi(
+        herdrOpenResponse(wt, branch),
+        herdrCalls,
+        undefined,
+        (cmd, args) =>
+          cmd === "git" && args[0] === "apply"
+            ? { code: 1, stdout: "", stderr: "patch does not apply" }
+            : undefined,
+      );
+
+      await expect(
+        createWorktreeCheckout(pi, {
+          repoCwd: repo,
+          path: wt,
+          branch,
+          materialization: "checkout",
+          dirtyCheckout: "dirty",
+        }),
+      ).rejects.toThrow(/materialization failed/);
+
+      expect(existsSync(wt)).toBe(false);
+      expect(await branchExists(repo, branch)).toBe(false);
+      expect(herdrCalls).toEqual([]);
+    },
+  );
+
   it("removes the branch after rejecting a worktree whose branch cannot be verified", async () => {
     tmp = mkdtempSync(join(tmpdir(), "herdr-branch-rollback-"));
     const repo = await makeRepoWithIgnoredState(tmp);
@@ -973,25 +1010,41 @@ describe("deleteWorktreeBranch", () => {
     });
   }
 
-  it("reports not-applicable for a non-cow- basename without touching git", async () => {
+  it("reports not-applicable for a branch that is not an extension branch, without touching git", async () => {
     const pi = mockPi(() => {
       throw new Error("no git calls expected");
     });
     expect(
-      await deleteWorktreeBranch(pi, "/work/repo/some-other-dir", CWD),
+      await deleteWorktreeBranch(pi, {
+        branch: "some-other-dir",
+        worktreePath: "/work/repo/some-other-dir",
+        repoCwd: CWD,
+      }),
     ).toEqual({ kind: "not-applicable" });
   });
 
   it("reports not-applicable when the branch ref does not exist", async () => {
     const pi = branchPi({ refExists: false });
-    expect(await deleteWorktreeBranch(pi, WORKTREE, CWD)).toEqual({
+    expect(
+      await deleteWorktreeBranch(pi, {
+        branch: BRANCH,
+        worktreePath: WORKTREE,
+        repoCwd: CWD,
+      }),
+    ).toEqual({
       kind: "not-applicable",
     });
   });
 
   it("keeps an unmerged branch (merge-base is not an ancestor)", async () => {
     const pi = branchPi({ merged: false });
-    expect(await deleteWorktreeBranch(pi, WORKTREE, CWD)).toEqual({
+    expect(
+      await deleteWorktreeBranch(pi, {
+        branch: BRANCH,
+        worktreePath: WORKTREE,
+        repoCwd: CWD,
+      }),
+    ).toEqual({
       kind: "kept",
       reason: "unmerged",
     });
@@ -1000,7 +1053,11 @@ describe("deleteWorktreeBranch", () => {
   it("keeps a branch whose checkout the backend still has attached", async () => {
     const pi = branchPi({});
     expect(
-      await deleteWorktreeBranch(pi, WORKTREE, CWD, async () => true),
+      await deleteWorktreeBranch(
+        pi,
+        { branch: BRANCH, worktreePath: WORKTREE, repoCwd: CWD },
+        async () => true,
+      ),
     ).toEqual({
       kind: "kept",
       reason: "checked-out",
@@ -1009,7 +1066,13 @@ describe("deleteWorktreeBranch", () => {
 
   it("deletes a merged, no-longer-checked-out branch", async () => {
     const pi = branchPi({});
-    expect(await deleteWorktreeBranch(pi, WORKTREE, CWD)).toEqual({
+    expect(
+      await deleteWorktreeBranch(pi, {
+        branch: BRANCH,
+        worktreePath: WORKTREE,
+        repoCwd: CWD,
+      }),
+    ).toEqual({
       kind: "deleted",
     });
   });
@@ -1019,7 +1082,13 @@ describe("deleteWorktreeBranch", () => {
       deleteExit: 128,
       deleteStderr: `error: branch '${BRANCH}' not found.`,
     });
-    expect(await deleteWorktreeBranch(pi, WORKTREE, CWD)).toEqual({
+    expect(
+      await deleteWorktreeBranch(pi, {
+        branch: BRANCH,
+        worktreePath: WORKTREE,
+        repoCwd: CWD,
+      }),
+    ).toEqual({
       kind: "delete-failed",
       detail: `error: branch '${BRANCH}' not found.`,
     });
