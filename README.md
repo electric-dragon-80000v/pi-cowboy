@@ -8,7 +8,7 @@ pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for 
 
 ## Why should I use it?
 
-- **Improved code understanding:** Give each agent a smaller, isolated subtask. Smaller tasks improve code quality and yield results that are easier to review: each agent commits to its own branch, so a subtask is reviewed and merged on its own, separately from the others.
+- **Improved code understanding:** Give each agent a smaller, isolated subtask. A single focused task with clear guidance leaves little room for error; a long list of tasks and expectations creates more room for drift and over-engineering. Smaller tasks therefore improve code quality and yield results that are easier to review: each agent commits to its own branch, so a subtask is reviewed and merged on its own, separately from the others.
 
 - **Parallel work with minimal disk overhead:** Multiple agents can edit, build, and run tests concurrently without interfering with each other. Copy-on-write unlocks more parallelism by reducing the disk overhead of the worktrees.
   The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MB, while the repository is 27 GB in total, including untracked files.
