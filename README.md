@@ -117,11 +117,12 @@ If pi-cowboy cannot remove one of them, it reports the failure and completes the
 
 ## Commands
 
-`/cowboy` opens a menu. [Menu](docs/Menu.md) lists every row in every screen it opens.
+`/cowboy` opens a menu. See [Menu](docs/Menu.md).
 
 <code>/cowboy                         # pi-cowboy menu</code><br>
 <code>/cowboy status                  # List spawned, queued, and settled agents</code><br>
 <code>/cowboy spawn                   # Spawn an agent manually</code><br>
+<code>/cowboy worktree [<name>]       # Create a git worktree with no agent attached</code><br>
 <code>/cowboy model                   # Model selection for the agents</code><br>
 <code>/cowboy model provider/model-id # Set the model for this session</code><br>
 <code>/cowboy model clear             # Clear the model set for this session</code><br>

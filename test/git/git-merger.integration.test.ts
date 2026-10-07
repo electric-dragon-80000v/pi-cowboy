@@ -437,14 +437,18 @@ describe("deleteWorktreeBranch", () => {
   const attached: AttachmentProbe = async (worktreePath) =>
     worktreePath === checkoutHeldByBackend;
 
-  it("reports not-applicable for a non-cow- basename", async () => {
+  it("reports not-applicable for a branch that is not an extension branch", async () => {
     const repo = await makeRepo(freshTmp());
     await execFileAsync(resolvedBin("git"), ["branch", "feature"], {
       cwd: repo,
     });
 
     expect(
-      await deleteWorktreeBranch(realPi(), join(repo, "..", "feature"), repo),
+      await deleteWorktreeBranch(realPi(), {
+        branch: "feature",
+        worktreePath: join(repo, "..", "feature"),
+        repoCwd: repo,
+      }),
     ).toEqual({ kind: "not-applicable" });
     expect(await git(["branch", "--list", "feature"], repo)).toBe("feature");
   });
@@ -473,7 +477,13 @@ describe("deleteWorktreeBranch", () => {
       },
     );
 
-    expect(await deleteWorktreeBranch(realPi(), wt, repo, attached)).toEqual({
+    expect(
+      await deleteWorktreeBranch(
+        realPi(),
+        { branch: "cow-merged-00000000", worktreePath: wt, repoCwd: repo },
+        attached,
+      ),
+    ).toEqual({
       kind: "deleted",
     });
     expect(await git(["branch", "--list", "cow-merged-00000000"], repo)).toBe(
@@ -498,7 +508,13 @@ describe("deleteWorktreeBranch", () => {
       },
     );
 
-    expect(await deleteWorktreeBranch(realPi(), wt, repo, attached)).toEqual({
+    expect(
+      await deleteWorktreeBranch(
+        realPi(),
+        { branch: "cow-unmerged-00000000", worktreePath: wt, repoCwd: repo },
+        attached,
+      ),
+    ).toEqual({
       kind: "kept",
       reason: "unmerged",
     });
@@ -513,7 +529,13 @@ describe("deleteWorktreeBranch", () => {
     await addWorktree(repo, wt, "cow-live-00000000");
     checkoutHeldByBackend = wt;
 
-    expect(await deleteWorktreeBranch(realPi(), wt, repo, attached)).toEqual({
+    expect(
+      await deleteWorktreeBranch(
+        realPi(),
+        { branch: "cow-live-00000000", worktreePath: wt, repoCwd: repo },
+        attached,
+      ),
+    ).toEqual({
       kind: "kept",
       reason: "checked-out",
     });
@@ -527,8 +549,11 @@ describe("deleteWorktreeBranch", () => {
     expect(
       await deleteWorktreeBranch(
         realPi(),
-        join(freshTmp(), "wt-cow-ghost-00000000"),
-        repo,
+        {
+          branch: "cow-ghost-00000000",
+          worktreePath: join(freshTmp(), "wt-cow-ghost-00000000"),
+          repoCwd: repo,
+        },
         attached,
       ),
     ).toEqual({ kind: "not-applicable" });

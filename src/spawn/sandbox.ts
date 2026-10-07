@@ -1,6 +1,7 @@
 /**
  * sandbox.ts — all-or-nothing execution-environment transaction.
- * allocate: git worktree create, then host adoption; either returns fully provisioned or throws unwound.
+ * createAdoptedWorktree: git worktree create, then host adoption; either returns an adopted checkout or throws unwound.
+ * allocate: that unit plus the spawn's own naming, repo fallback, and sandbox state around it.
  * teardown: binds agent-cleanup.ts over cleanupDeps; retention rules live in cleanup-policy.ts / git-client.ts.
  * Never shells out directly — see herdr-launcher.ts and git-client.ts.
  */
@@ -11,12 +12,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { WorktreeRetentionReason } from "../types.js";
 import {
+  deleteCreatedBranch,
   deleteWorktreeBranch,
   formatRetentionClause,
   isWorktreeDirty,
   removeGitWorktree,
   resolveMainCheckout,
   type BranchCleanupResult,
+  type WorktreeMaterializationOutcome,
 } from "../infrastructure/git-client.js";
 import type {
   AgentHost,
@@ -28,11 +31,7 @@ import {
   type CleanupDeps,
   type WorktreeTeardownOutcome,
 } from "../agents/agent-cleanup.js";
-import type {
-  CleanupOptions,
-  PaneTarget,
-  WorktreeTarget,
-} from "../agents/cleanup-policy.js";
+import type { CleanupOptions, PaneTarget } from "../agents/cleanup-policy.js";
 import { errorMessage } from "../utils.js";
 import { getRepoLock } from "../shell.js";
 import {
@@ -74,15 +73,33 @@ export interface SandboxRequest {
   host: AgentHost;
 }
 
-/** A resolved checkout request: the repo and worktree paths are known, so provisioning can run under the repo lock. */
-interface ProvisionRequest {
-  repoRoot: string;
-  requestedPath: string;
+/** A git worktree checkout adopted by the host, with no agent attached. */
+export interface AdoptedWorktree {
+  path: string;
+  /** Branch the checkout is on; the name is also its directory under the root. */
+  branch: string;
+  /** Main checkout the worktree was created from. */
+  repoCwd: string;
+  /** How the working tree was actually populated; `copy-on-write` can degrade to a classic checkout. */
+  materialization: WorktreeMaterializationOutcome;
+  /** The adopted host address. */
+  ref: AgentHostRef;
+}
+
+/** Everything one worktree creation and adoption needs; shell-free, like `SandboxRequest`. */
+export interface AdoptWorktreeRequest {
+  /** Main checkout: the adoption source and the removal cwd. */
+  repoCwd: string;
+  /** Absolute path the worktree occupies; the caller resolved it under the worktree root. */
+  path: string;
   branch: string;
   materialization: WorktreeMaterialization;
+  /** Whether the new checkout starts dirty with a dirty parent's WIP; the caller resolves it. */
   dirtyCheckout: WorktreeCheckoutType;
   /** Same warning hook as `SandboxRequest`, passed through to the materializer's fallback. */
   notify?: (message: string, kind: "warning") => void;
+  /** Execution backend that adopts the checkout (tests inject a fake). */
+  host: AgentHost;
 }
 
 // --- State model ---
@@ -149,8 +166,8 @@ export class AgentSandbox {
   }
 
   /**
-   * Provision a sandbox: git create (phase 1), then host adoption (phase 2). Either phase
-   * failing unwinds inside this boundary, so the caller never sees a half-provisioned sandbox.
+   * Provision a sandbox: git create (phase 1), then host adoption (phase 2), both inside
+   * `createAdoptedWorktree`'s boundary, so the caller never sees a half-provisioned sandbox.
    * Outside a git repository, falls back to the parent cwd with a warning.
    */
   static async allocate(
@@ -189,98 +206,26 @@ export class AgentSandbox {
       return new AgentSandbox(host, { kind: "parent-cwd" }, branch, true);
     }
 
-    const root = resolveWorktreeRoot(worktreeRoot, repoRoot);
-    // Both roots are created: a configured root that is missing is a first-run setup
-    // state, and the mkdir makes it. Creating it is the only side effect here.
-    fs.mkdirSync(root, { recursive: true });
-
-    const requestedPath = path.join(root, branch);
-    // Creating and adopting a checkout is serialized per repository: concurrent
-    // `git worktree add`s race on `.git/worktrees/<id>/commondir`, and the loser dies
-    // (see RepoLock). Nothing else is serialized, so a spawn whose checkout is ready
-    // goes on to launch while the next checkout is being created.
-    return getRepoLock().run(canonicalRepoKey(repoRoot), () =>
-      AgentSandbox.provision(pi, host, {
-        repoRoot,
-        requestedPath,
-        branch,
-        materialization,
-        dirtyCheckout,
-        notify,
-      }),
-    );
-  }
-
-  /** Phases 1 and 2 of provisioning: create the checkout, then adopt it. Both unwind inside this boundary. */
-  private static async provision(
-    pi: ExtensionAPI,
-    host: AgentHost,
-    request: ProvisionRequest,
-  ): Promise<AgentSandbox> {
-    const { repoRoot, requestedPath, branch, materialization, dirtyCheckout } =
-      request;
-    // Phase 1: git worktree add on the pinned branch plus materialization.
-    let created: WorktreeCheckout;
-    try {
-      created = await createWorktreeCheckout(pi, {
-        repoCwd: repoRoot,
-        path: requestedPath,
-        branch,
-        materialization,
-        dirtyCheckout,
-        notify: request.notify,
-      });
-    } catch (err: unknown) {
-      throw await allocationError(
-        pi,
-        host,
-        { worktreePath: requestedPath, branchName: branch, repoCwd: repoRoot },
-        `could not create the herdr worktree: ${errorMessage(err)}`,
-      );
-    }
-
-    // Phase 2: adoption. The host never destroys filesystem state, so a failed adoption rolls back here.
-    let ref: AgentHostRef;
-    try {
-      ref = await host.hostAt({
-        unit: "pane",
-        cwd: created.path,
-        // Herdr's echoed label (the repo name) is identical across parallel spawns — name by branch instead.
-        label: branch,
-        name: branch,
-        checkout: {
-          path: created.path,
-          repoCwd: repoRoot,
-          branch: created.branch,
-        },
-      });
-    } catch (err: unknown) {
-      await removeGitWorktree(pi, repoRoot, created.path);
-      await deleteWorktreeBranch(pi, created.path, repoRoot, (candidate) =>
-        host.isAttached(candidate, { repoCwd: repoRoot }),
-      );
-      throw await allocationError(
-        pi,
-        host,
-        {
-          worktreePath: created.path,
-          branchName: created.branch,
-          repoCwd: repoRoot,
-        },
-        `could not create the herdr worktree: ${errorMessage(err)}`,
-      );
-    }
+    const worktree = await createAdoptedWorktree(pi, {
+      repoCwd: repoRoot,
+      path: path.join(resolveWorktreeRoot(worktreeRoot, repoRoot), branch),
+      branch,
+      materialization,
+      dirtyCheckout,
+      notify,
+      host,
+    });
 
     return new AgentSandbox(
       host,
       {
         kind: "worktree",
         checkout: {
-          path: created.path,
-          branch: created.branch,
-          repoCwd: repoRoot,
+          path: worktree.path,
+          branch: worktree.branch,
+          repoCwd: worktree.repoCwd,
         },
-        ref,
+        ref: worktree.ref,
       },
       branch,
       true,
@@ -361,6 +306,102 @@ function stateAfterTeardown(outcome: WorktreeTeardownOutcome): SandboxState {
   }
 }
 
+// --- Worktree creation and adoption ---
+
+/**
+ * Create a git worktree and adopt it in the host — the half a spawn and the
+ * `/cowboy worktree` command share. The two phases unwind inside this boundary:
+ * a failed adoption removes the worktree and its branch, so no caller is left
+ * with a worktree the host does not know about. Creating and adopting is
+ * serialized per repository (concurrent `git worktree add`s race on
+ * `.git/worktrees/<id>/commondir`, and the loser dies — see RepoLock); nothing
+ * else is, so a spawn whose checkout is ready goes on to launch while the next
+ * checkout is being created.
+ */
+export async function createAdoptedWorktree(
+  pi: ExtensionAPI,
+  request: AdoptWorktreeRequest,
+): Promise<AdoptedWorktree> {
+  const target = path.resolve(request.path);
+  // Both directories are created: a configured root that is missing is a
+  // first-run setup state, and a branch name may add a level of its own.
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+
+  return getRepoLock().run(canonicalRepoKey(request.repoCwd), () =>
+    adoptWorktree(pi, request.host, { ...request, path: target }),
+  );
+}
+
+/** Phases 1 and 2: create the checkout, then adopt it. Both unwind inside this boundary. */
+async function adoptWorktree(
+  pi: ExtensionAPI,
+  host: AgentHost,
+  request: AdoptWorktreeRequest,
+): Promise<AdoptedWorktree> {
+  const {
+    repoCwd,
+    path: target,
+    branch,
+    materialization,
+    dirtyCheckout,
+    notify,
+  } = request;
+  // Phase 1: git worktree add on the branch plus materialization.
+  let created: WorktreeCheckout;
+  try {
+    created = await createWorktreeCheckout(pi, {
+      repoCwd,
+      path: target,
+      branch,
+      materialization,
+      dirtyCheckout,
+      notify,
+    });
+  } catch (err: unknown) {
+    // The create's own failure paths prune the branch they minted; the checkout
+    // they may have left behind is this boundary's to remove.
+    throw createFailureMessage(
+      err,
+      await removeFailedCheckout(pi, repoCwd, target),
+    );
+  }
+
+  // Phase 2: adoption. The host never destroys filesystem state, so a failed adoption rolls back here.
+  let ref: AgentHostRef;
+  try {
+    ref = await host.hostAt({
+      unit: "pane",
+      cwd: created.path,
+      // Herdr's echoed label (the repo name) is identical across parallel spawns — name by branch instead.
+      label: branch,
+      name: branch,
+      checkout: {
+        path: created.path,
+        repoCwd,
+        branch: created.branch,
+      },
+    });
+  } catch (err: unknown) {
+    const checkout = await removeFailedCheckout(pi, repoCwd, created.path);
+    // The branch is this create's own — the add minted it moments ago and nothing
+    // has committed on it — so it goes by name, without the guards that keep a
+    // caller's branch or an unmerged one.
+    const branch = await deleteCreatedBranch(pi, created.branch, repoCwd);
+    throw createFailureMessage(
+      err,
+      `${checkout}. ${formatLaunchedBranchOutcome(created.branch, branch)}`,
+    );
+  }
+
+  return {
+    path: created.path,
+    branch: created.branch,
+    repoCwd,
+    materialization: created.materialization,
+    ref,
+  };
+}
+
 // --- Allocation failure ---
 
 /** Bind direct herdr and git functions to the teardown orchestrator; the host never destroys filesystem state. */
@@ -373,9 +414,9 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
       await removeGitWorktree(pi, repoCwd, worktreePath);
       return !fs.existsSync(worktreePath);
     },
-    deleteBranch: (worktreePath, repoCwd) =>
-      deleteWorktreeBranch(pi, worktreePath, repoCwd, (candidate) =>
-        host.isAttached(candidate, { repoCwd }),
+    deleteBranch: (options) =>
+      deleteWorktreeBranch(pi, options, (candidate) =>
+        host.isAttached(candidate, { repoCwd: options.repoCwd }),
       ),
     closePane: async (ref) => {
       await host.release(ref, "placement");
@@ -383,18 +424,27 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
   };
 }
 
-/** Probe-remove a never-live worktree after an allocation failure and report failure plus cleanup. */
-async function allocationError(
+/**
+ * Remove the checkout a failed create may have left behind, and report what
+ * became of it. Nothing in such a checkout is anyone's work: under `dirty` it holds
+ * a copy of the parent's, which the parent still has.
+ */
+async function removeFailedCheckout(
   pi: ExtensionAPI,
-  host: AgentHost,
-  attempted: Pick<WorktreeTarget, "worktreePath" | "branchName" | "repoCwd">,
-  error: string,
-): Promise<Error> {
-  // Nothing was adopted, so no ref rides along.
-  const outcome = await createWorktreeTeardown(
-    cleanupDeps(pi, host),
-  ).removeWorktree({ kind: "detached", worktree: attempted, pane: null });
-  return new Error(`${error}\n\n${formatLaunchCleanupNote(outcome)}`);
+  repoCwd: string,
+  worktreePath: string,
+): Promise<string> {
+  await removeGitWorktree(pi, repoCwd, worktreePath);
+  return fs.existsSync(worktreePath)
+    ? `worktree ${worktreePath} NOT removed — inspect it manually`
+    : `worktree ${worktreePath} removed`;
+}
+
+/** The error a failed create is reported with, plus the cleanup that ran with it. */
+function createFailureMessage(reason: unknown, cleanup: string): Error {
+  return new Error(
+    `could not create the herdr worktree: ${errorMessage(reason)}\n\nLaunch-failure cleanup: ${cleanup}.`,
+  );
 }
 
 /** Branch verdict for the launch-failure cleanup note. */

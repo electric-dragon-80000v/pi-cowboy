@@ -46,7 +46,10 @@ import type {
 } from "../src/agents/agent-assets.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
-import type { BranchCleanupResult } from "../src/infrastructure/git-client.js";
+import type {
+  BranchCleanupResult,
+  DeleteBranchOptions,
+} from "../src/infrastructure/git-client.js";
 import type {
   AgentHostRef,
   HostObservation,
@@ -246,8 +249,7 @@ type TreeState = "clean" | "dirty-pre" | "unverifiable" | "force-dirty";
 type DirtyProbe = (path: string) => Promise<boolean | undefined>;
 type RemoveWorktree = (ref: AgentHostRef) => Promise<boolean>;
 type DeleteBranch = (
-  worktreePath: string,
-  repoCwd: string,
+  options: DeleteBranchOptions,
 ) => Promise<BranchCleanupResult>;
 type ClosePane = (ref: AgentHostRef) => Promise<void>;
 
@@ -1735,11 +1737,10 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     expect(removeHerdrWorktreeMock).toHaveBeenCalledWith({}, "w1");
     // No stop in the teardown plane: the pane goes with the workspace.
     expect(closePaneMock).not.toHaveBeenCalled();
-    // The branch delete carries the host's attachment probe (4th arg).
+    // The branch delete carries the branch by name, plus the host's attachment probe.
     expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
       {},
-      WT_PATH,
-      "/work/repo",
+      { branch: BRANCH, worktreePath: WT_PATH, repoCwd: "/work/repo" },
       expect.any(Function),
     );
     expect(manager.getSpawn(ID)).toBeUndefined();
@@ -1847,8 +1848,7 @@ describe("AgentManager.clear — teardown ordering", () => {
     expect(removeHerdrWorktreeMock).toHaveBeenCalledWith({}, "w1");
     expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
       {},
-      checkout,
-      "/work/repo",
+      { branch: BRANCH, worktreePath: checkout, repoCwd: "/work/repo" },
       expect.any(Function),
     );
     expect(manager.getSpawn(ID)).toBeUndefined();

@@ -15,6 +15,7 @@ import {
   type WorktreeMaterialization,
 } from "../../src/spawn/worktree-policy.js";
 import { unprobed, type Availability } from "../../src/availability.js";
+import { RepoLock } from "../../src/spawn/repo-lock.js";
 import type { PresenceMarker } from "../../src/ui/indicator.js";
 
 /** Empty template registries — the state a fresh shell starts from. */
@@ -42,6 +43,7 @@ export const shellState = {
   sessionTemplates: emptyTemplates(),
   agentSpawns: new AgentSpawnStore(),
   indicatorMarker: null as PresenceMarker | null,
+  repoLock: new RepoLock(),
   cowAvailability: unprobed() as Availability<WorktreeMaterialization>,
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed() as Availability<HarnessId>,
@@ -81,6 +83,7 @@ export function resetShell(): void {
   shellState.sessionTemplates = emptyTemplates();
   shellState.agentSpawns = new AgentSpawnStore();
   shellState.indicatorMarker = null;
+  shellState.repoLock = new RepoLock();
   // A session teardown invalidates any probe still in flight, exactly as a new
   // probe does: a verdict from the previous test must not land in this one.
   shellState.cowAvailabilityClaim += 1;
@@ -106,6 +109,7 @@ export const getIndicatorMarker = (): PresenceMarker | null =>
 export const setIndicatorMarker = (marker: PresenceMarker | null): void => {
   shellState.indicatorMarker = marker;
 };
+export const getRepoLock = (): RepoLock => shellState.repoLock;
 export const getCowAvailability = (): Availability<WorktreeMaterialization> =>
   shellState.cowAvailability;
 export const beginCowAvailabilityProbe = (): CowAvailabilityClaim => {

@@ -33,9 +33,7 @@ Opens from the `Model overrides` row on the main screen.
 
 `/cowboy disable` unloads the tools. Agents that already run keep working.
 
-While the extension is off, the `Enabled` row is the whole main menu. Every other row is hidden. `/cowboy status` and `/cowboy spawn` also refuse to run, and they tell you to run `/cowboy enable` first.
-
-Run `/cowboy enable`, or flip the `Enabled` row, to turn the extension back on. The choice saves and survives a restart.
+Run `/cowboy enable`, or flip the `Enabled` row, to turn the extension back on.
 
 ## `/cowboy` > `Settings`
 
@@ -98,6 +96,10 @@ Each limit offers a level: session, global, or project. A value that comes from 
 | `Include context files`      | Loads pi's context files from the project and from `~/.pi/agent` as shared context. See [`agent.includeContextFiles`](Configuration.md#agentincludecontextfiles). |
 | `Load skills implicitly`     | Gives new agents every skill when their template omits the field. See [`agent.loadSkillsImplicitly`](Configuration.md#agentloadskillsimplicitly).                 |
 | `Load extensions implicitly` | Gives new agents every pi extension when their template omits the field. See [`agent.loadExtensionsImplicitly`](Configuration.md#agentloadextensionsimplicitly).  |
+
+## `/cowboy worktree`
+
+Creates one worktree under the configured `agent.worktreeRoot`, adopts it in herdr with a workspace, tab, and pane of its own. This worktree is not tracked by pi-cowboy.
 
 ## `/cowboy status` — Status
 

@@ -439,9 +439,13 @@ describe("assets members", () => {
 
     expect(removeWorktree).toHaveBeenCalledWith(ref);
     expect(closePane).toHaveBeenCalledWith(ref);
-    await expect(assets.deleteBranch(WT_PATH, "/work/repo")).resolves.toEqual({
-      kind: "deleted",
-    });
+    await expect(
+      assets.deleteBranch({
+        branch: BRANCH,
+        worktreePath: WT_PATH,
+        repoCwd: "/work/repo",
+      }),
+    ).resolves.toEqual({ kind: "deleted" });
   });
 });
 

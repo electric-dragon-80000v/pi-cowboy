@@ -2,7 +2,9 @@
  * git-merger.ts — Layer 3: branch lifecycle against the main checkout.
  *
  * - `BranchMerger`: merge a settled agent branch into the target.
- * - `BranchCleaner`: delete the branch a worktree carried once its commits are merged.
+ * - `BranchCleaner`: delete the branch a worktree carried once its commits are
+ *   merged. The branch a failed create minted is not this module's to remove:
+ *   see git-worktree.ts's `deleteCreatedBranch`.
  */
 
 import * as fs from "node:fs";
@@ -14,6 +16,11 @@ import {
   GitCommandRunner,
   locateMainCheckout,
 } from "./git-runner.js";
+import {
+  deleteBranchRef,
+  refExists,
+  type BranchCleanupResult,
+} from "./git-worktree.js";
 
 // --- Constants ---
 
@@ -62,20 +69,6 @@ export interface MergeBranchResult {
  * throws counts as attached: never delete on an unanswered question.
  */
 export type AttachmentProbe = (worktreePath: string) => Promise<boolean>;
-
-/**
- * Outcome of cleaning up the `cow-` branch a worktree carried. Worktree
- * removal is gated separately; results never carry the branch ref (the
- * caller reports it once as `CleanupReport.branchName`).
- */
-export type BranchCleanupResult =
-  | { kind: "deleted" }
-  /** Not an extension branch, or the branch is already gone. */
-  | { kind: "not-applicable" }
-  /** Kept: "unmerged" (commits not in parent HEAD) or "checked-out" (still in use by a worktree). */
-  | { kind: "kept"; reason: "unmerged" | "checked-out" }
-  /** The delete itself failed. */
-  | { kind: "delete-failed"; detail: string };
 
 // --- Ref validation ---
 
@@ -307,43 +300,49 @@ function conflictMessage(
 // --- Branch cleanup ---
 
 /**
- * Deletes the `cow-` branch a worktree carried, once the worktree is gone.
+ * What the guarded cleanup needs: the branch to delete by name, the checkout
+ * that carried it, and the repo its refs live in.
+ */
+export interface DeleteBranchOptions {
+  /** The branch's name — the guard and the delete both read this, never the path. */
+  branch: string;
+  /** Checkout that carried the branch; the attachment probe's subject only. */
+  worktreePath: string;
+  /** Main checkout whose refs the branch lives in, and the cwd git runs in. */
+  repoCwd: string;
+}
+
+/**
+ * Deletes the branch a worktree carried, once the worktree is gone: a `cow-`
+ * branch that is merged and unattached. A branch a failed create minted is not
+ * this class's to judge — `deleteCreatedBranch` removes it unconditionally.
  */
 export class BranchCleaner {
   constructor(private readonly runner: GitCommandRunner) {}
 
   /**
-   * Deletes the branch named by the worktree path basename (the label pinned
-   * at create time), and only it: a `cow-` branch that exists, is merged
-   * into HEAD, and whose checkout is not attached. An unmerged branch is
-   * kept — deleting it would orphan its commits. Omit `isAttached` only for
-   * a checkout the host never saw.
+   * Deletes the branch the caller names, and only it: a `cow-` branch that
+   * exists, is merged into HEAD, and whose checkout is not attached. An unmerged
+   * branch is kept — deleting it would orphan its commits. Omit `isAttached`
+   * only for a checkout the host never saw.
    */
   async delete(
-    worktreePath: string,
-    repoCwd: string,
+    options: DeleteBranchOptions,
     isAttached?: AttachmentProbe,
   ): Promise<BranchCleanupResult> {
-    const base = path.basename(worktreePath);
-    if (!base.startsWith("cow-")) return { kind: "not-applicable" };
+    const { branch, worktreePath, repoCwd } = options;
+    if (!branch.startsWith("cow-")) return { kind: "not-applicable" };
     try {
-      const verify = await this.runner.run(
-        ["rev-parse", "--verify", "--quiet", `refs/heads/${base}`],
-        repoCwd,
-      );
-      if (verify === undefined) {
-        throw new GitError(
-          `git rev-parse --verify refs/heads/${base} could not run in ${repoCwd}`,
-        );
+      if (!(await refExists(this.runner, branch, repoCwd))) {
+        return { kind: "not-applicable" };
       }
-      if (verify.code !== 0) return { kind: "not-applicable" };
       const merged = await this.runner.run(
-        ["merge-base", "--is-ancestor", "--", base, "HEAD"],
+        ["merge-base", "--is-ancestor", "--", branch, "HEAD"],
         repoCwd,
       );
       if (merged === undefined) {
         throw new GitError(
-          `git merge-base --is-ancestor -- ${base} HEAD could not run in ${repoCwd}`,
+          `git merge-base --is-ancestor -- ${branch} HEAD could not run in ${repoCwd}`,
         );
       }
       if (merged.code !== 0) return { kind: "kept", reason: "unmerged" };
@@ -351,23 +350,7 @@ export class BranchCleaner {
       if (isAttached && (await isAttached(worktreePath))) {
         return { kind: "kept", reason: "checked-out" };
       }
-      const del = await this.runner.run(["branch", "-D", "--", base], repoCwd);
-      if (del === undefined) {
-        throw new GitError(`git branch -D ${base} could not run in ${repoCwd}`);
-      }
-      if (del.code !== 0) {
-        return {
-          kind: "delete-failed",
-          detail: (
-            del.stderr ||
-            del.stdout ||
-            `git branch -D exited ${del.code}`
-          )
-            .trim()
-            .slice(0, 200),
-        };
-      }
-      return { kind: "deleted" };
+      return await deleteBranchRef(this.runner, branch, repoCwd);
     } catch (err) {
       return {
         kind: "delete-failed",
@@ -391,18 +374,16 @@ export async function mergeBranchIntoTarget(
 }
 
 /**
- * Delete the git branch created for a worktree once the worktree is gone.
+ * Delete the git branch a worktree carried, once the worktree is gone.
  * See `BranchCleaner.delete` for the guards.
  */
 export async function deleteWorktreeBranch(
   pi: ExtensionAPI,
-  worktreePath: string,
-  repoCwd: string,
+  options: DeleteBranchOptions,
   isAttached?: AttachmentProbe,
 ): Promise<BranchCleanupResult> {
   return new BranchCleaner(new GitCommandRunner(pi)).delete(
-    worktreePath,
-    repoCwd,
+    options,
     isAttached,
   );
 }

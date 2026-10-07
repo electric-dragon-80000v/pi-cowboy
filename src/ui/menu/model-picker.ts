@@ -2,7 +2,7 @@
  * Subagent model selection via pi's own model picker.
  *
  * openSubagentModelPicker: opens the /model dialog; a pick sets the SESSION default override.
- * cowboyCompletions: `/cowboy` subcommand completions (`status`, `spawn`, `model`, `enable`, `disable`), the `model` ones carrying full argument text.
+ * cowboyCompletions: `/cowboy` subcommand completions (`status`, `spawn`, `worktree`, `model`, `enable`, `disable`), the `model` ones carrying full argument text.
  * handleModelArg: `clear` clears the session default, an exact key sets it, else the picker opens.
  *
  * A per-call cowboy_agent `model` wins for one spawn at the tool boundary without touching stored state.
@@ -162,6 +162,11 @@ export function cowboyCompletions(prefix: string): AutocompleteItem[] | null {
       value: "spawn",
       label: "spawn",
       description: "Open the spawn wizard",
+    },
+    {
+      value: "worktree",
+      label: "worktree",
+      description: "Create a git worktree with no agent attached",
     },
     {
       value: "model",
