@@ -1,3 +1,11 @@
+## [0.3.4](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.3...v0.3.4) (2026-10-07)
+
+
+### Bug Fixes
+
+* **ci:** update test workflow asset path ([2d39932](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2d39932fa63f19fd967b00311a476cf12b0e2b7a))
+* **ci:** use release token for publishing ([72c0254](https://github.com/electric-dragon-80000v/pi-cowboy/commit/72c025406dbae14adbcaa77960044fbe2fd250ae))
+
 ## [0.3.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.2...v0.3.3) (2026-10-07)
 
 
