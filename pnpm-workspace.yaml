@@ -5,3 +5,5 @@ allowBuilds:
   unrs-resolver: false
 minimumReleaseAgeExclude:
   - vite@8.3.3
+overrides:
+  brace-expansion@>=4.0.0 <5.0.12: ^5.0.12
