@@ -1,3 +1,10 @@
+## [0.3.5](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.4...v0.3.5) (2026-10-07)
+
+
+### Bug Fixes
+
+* **ci:** use release token for checkout so git push bypasses ruleset ([af82828](https://github.com/electric-dragon-80000v/pi-cowboy/commit/af82828f595b8925ab39ca93e4cef95b812c3894))
+
 ## [0.3.4](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.3...v0.3.4) (2026-10-07)
 
 
