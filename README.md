@@ -1,4 +1,4 @@
-<img src="./docs/assets/logo-transparent.png" alt="logo" style="zoom:33%;" />
+![logo-labeled-readme](./docs/assets/logo-labeled-readme.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
