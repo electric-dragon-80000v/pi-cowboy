@@ -37,10 +37,10 @@ describe("logger", () => {
     }
     tickOnce();
     expect(output.mock.calls[0][1]).toContain(
-      "2026-09-16T14:53:01.259Z INFO  [supervisor] tickOnce at ",
+      "2026-09-16T14:53:01.259Z INFO  [supervisor] full ",
     );
     expect(output.mock.calls[0][1]).toContain(
-      '() full paneId="w1:p2" missingTicks=2\n',
+      'full paneId="w1:p2" missingTicks=2\n',
     );
   });
 

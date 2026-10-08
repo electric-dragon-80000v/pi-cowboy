@@ -6,7 +6,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
-import { getDetailedString } from "caller-id";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -57,9 +56,8 @@ function write(
   loggerMethod: (...args: never[]) => void,
 ): void {
   if (LEVELS.indexOf(level) < LEVELS.indexOf(minimumLevel)) return;
-  const caller = getDetailedString(loggerMethod);
   const suffix = data === undefined ? "" : serializeData(data);
-  const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${module}] ${caller}() ${msg}${suffix}\n`;
+  const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${module}] ${msg}${suffix}\n`;
   try {
     mkdirSync(logDir, { recursive: true });
     appendFileSync(logFile, line, "utf8");

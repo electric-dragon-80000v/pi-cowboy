@@ -178,9 +178,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: '*'
         version: 1.0.1
-      caller-id:
-        specifier: ^0.1.0
-        version: 0.1.0
       crockford-base32:
         specifier: ^2.1.0
         version: 2.1.0
@@ -1504,11 +1501,6 @@ packages:
 
   cacheable@2.5.0:
     resolution: {integrity: sha512-60cyAOytib/OzBw1JNSoSV/boK1AtHryDIjvVBk7XbN4ugfkM3+Sry7fEjNgPMGgOjuaZPAp8ruZ0Cxafwyq9g==}
-
-  caller-id@0.1.0:
-    resolution: {integrity: sha512-2+PpV7vh8FktS9XVW1hgO8xLJ0T6ctGRx7bNDnpWfSp+/bCg453Pz+moXTiU0tCndX6ssqMz9n3mJ05P+h/g2A==}
-    engines: {node: '>=0.8'}
-    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
   callsites@3.1.0:
     resolution: {integrity: sha512-P8BjAsXvZS+VIDUI11hHCQEv74YT67YUi5JJFNWIqL235sBmjX4+qx9Muvls5ivyNENctx46xQLQ3aTuE7ssaQ==}
@@ -2871,9 +2863,6 @@ packages:
   stable-hash-x@0.2.0:
     resolution: {integrity: sha512-o3yWv49B/o4QZk5ZcsALc6t0+eCelPc44zZsLtCQnZPDwFpDYSWcDnrv2TtMmMbQ7uKo3J0HTURCqckw23czNQ==}
     engines: {node: '>=12.0.0'}
-
-  stack-trace@0.0.10:
-    resolution: {integrity: sha512-KGzahc7puUKkzyMt+IqAep+TVNbKP+k2Lmwhub39m1AsTSkaDutx56aDCo+HLDzf/D26BIHTJWNiTG1KAJiQCg==}
 
   standardwebhooks@1.1.1:
     resolution: {integrity: sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ==}
@@ -4506,10 +4495,6 @@ snapshots:
       keyv: 5.6.0
       qified: 0.10.1
 
-  caller-id@0.1.0:
-    dependencies:
-      stack-trace: 0.0.10
-
   callsites@3.1.0: {}
 
   chai@6.3.0: {}
@@ -5798,8 +5783,6 @@ snapshots:
       through2: 2.0.5
 
   stable-hash-x@0.2.0: {}
-
-  stack-trace@0.0.10: {}
 
   standardwebhooks@1.1.1:
     dependencies:
