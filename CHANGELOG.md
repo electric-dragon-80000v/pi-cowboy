@@ -1,3 +1,10 @@
+## [0.3.7](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.6...v0.3.7) (2026-10-08)
+
+
+### Bug Fixes
+
+* trigger release ([42b3202](https://github.com/electric-dragon-80000v/pi-cowboy/commit/42b32021294763cd39bf8641788e483d8c175273))
+
 ## [0.3.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.5...v0.3.6) (2026-10-08)
 
 
