@@ -27,16 +27,16 @@ export function setLogLevel(level: LogLevel): void {
 
 export function createLogger(module: string): Logger {
   function debug(msg: string, data?: Record<string, unknown>): void {
-    write("debug", module, msg, data, debug);
+    write("debug", module, msg, data);
   }
   function info(msg: string, data?: Record<string, unknown>): void {
-    write("info", module, msg, data, info);
+    write("info", module, msg, data);
   }
   function warn(msg: string, data?: Record<string, unknown>): void {
-    write("warn", module, msg, data, warn);
+    write("warn", module, msg, data);
   }
   function error(msg: string, data?: Record<string, unknown>): void {
-    write("error", module, msg, data, error);
+    write("error", module, msg, data);
   }
   return { debug, info, warn, error };
 }
@@ -53,7 +53,6 @@ function write(
   module: string,
   msg: string,
   data: Record<string, unknown> | undefined,
-  loggerMethod: (...args: never[]) => void,
 ): void {
   if (LEVELS.indexOf(level) < LEVELS.indexOf(minimumLevel)) return;
   const suffix = data === undefined ? "" : serializeData(data);
