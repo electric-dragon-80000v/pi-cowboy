@@ -178,9 +178,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: '*'
         version: 1.0.1
-      crockford-base32:
-        specifier: ^2.1.0
-        version: 2.1.0
       mustache:
         specifier: ^4.2.0
         version: 4.2.0
@@ -1228,9 +1225,6 @@ packages:
   '@types/mustache@4.2.6':
     resolution: {integrity: sha512-t+8/QWTAhOFlrF1IVZqKnMRJi84EgkIK5Kh0p2JV4OLywUvCwJPFxbJAl7XAow7DVIHsF+xW9f1MVzg0L6Szjw==}
 
-  '@types/node@14.18.63':
-    resolution: {integrity: sha512-fAtCfv4jJg+ExtXhvCkCqUKZ+4ok/JQk01qDKhL5BDDoS3AxKXhV5/MAVUZyQnSEd2GT92fkgZl0pz0Q0AzcIQ==}
-
   '@types/node@26.6.4':
     resolution: {integrity: sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg==}
 
@@ -1638,9 +1632,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  crockford-base32@2.1.0:
-    resolution: {integrity: sha512-vadAEK4CkOKWaIkf0oWr3XMaYpXCyAwwE8N6rCUye6/QsVXn7cuJQXp2Yuy9BKgsCoXlkixTu+o3PXUoW1s5lw==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -4284,8 +4275,6 @@ snapshots:
 
   '@types/mustache@4.2.6': {}
 
-  '@types/node@14.18.63': {}
-
   '@types/node@26.6.4':
     dependencies:
       undici-types: 8.9.0
@@ -4628,10 +4617,6 @@ snapshots:
       parse-json: 5.2.0
     optionalDependencies:
       typescript: '@typescript/typescript6@6.0.2'
-
-  crockford-base32@2.1.0:
-    dependencies:
-      '@types/node': 14.18.63
 
   cross-spawn@7.0.6:
     dependencies:

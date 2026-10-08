@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { CrockfordBase32 } from "crockford-base32";
+import { CrockfordBase32 } from "../src/spawn/crockford-base32.js";
 import {
   SPAWN_ID_ALPHABET,
   SPAWN_ID_LENGTH,

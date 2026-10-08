@@ -6,7 +6,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { CrockfordBase32 } from "crockford-base32";
+import { CrockfordBase32 } from "./crockford-base32.js";
 
 /** Spawn-id alphabet (lowercase Crockford base32); src/predicates.ts derives its pattern from this. */
 export const SPAWN_ID_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
