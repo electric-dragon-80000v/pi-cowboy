@@ -1,3 +1,10 @@
+## [0.3.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.5...v0.3.6) (2026-10-08)
+
+
+### Bug Fixes
+
+* **logger:** remove unused logger method parameter from write function ([73e69f4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/73e69f45fba0cb0962de1d42fec322230130bf1a))
+
 ## [0.3.5](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.4...v0.3.5) (2026-10-07)
 
 
