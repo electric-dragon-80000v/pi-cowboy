@@ -26,7 +26,7 @@ import {
 import type { CowboyAgents } from "./schemas/cowboy-agents.schema.js";
 import type { StopBatchParams } from "./schemas/stop-batch.schema.js";
 import { getAgentConfig } from "./agent-types.js";
-import { resolveAgentTypeParam } from "./spawn-defaults.js";
+import { resolveAgentTypeParam, resolveHarnessType } from "./spawn-defaults.js";
 import { runBatch } from "./batch.js";
 import { successResult, type ToolResult } from "./tool-result.js";
 
@@ -162,13 +162,21 @@ export async function toolCallListener(
     // Look up the type the spawn will actually resolve.
     const subagentType = resolveAgentTypeParam(calledType);
     const agentConfig = getAgentConfig(subagentType);
+    // Resolved the way the launch resolves it — post-availability-fallback —
+    // because the harness names which default the chain below consults.
+    const harnessType = resolveHarnessType(subagentType);
 
     // The configured default travels in its own key so a caller-supplied model
     // is never mistaken for the injected default across repeated hook runs.
     const calledModel = readModelKey(item.model);
     const effectiveModel =
       calledModel ??
-      getStore().modelFor(subagentType, parentModelId, agentConfig);
+      getStore().modelFor(
+        subagentType,
+        parentModelId,
+        agentConfig,
+        harnessType,
+      );
     if (effectiveModel && !calledModel) {
       item[CONFIGURED_MODEL_KEY] = effectiveModel;
     }

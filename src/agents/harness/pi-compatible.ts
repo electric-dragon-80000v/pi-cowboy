@@ -22,7 +22,9 @@ import type {
   Harness,
   HarnessId,
   HarnessLaunchRequest,
+  HarnessListModels,
   HarnessPrepareRequest,
+  ModelEntry,
 } from "../harness.js";
 
 /**
@@ -66,6 +68,16 @@ export function buildPiLaunchArgs(request: HarnessLaunchRequest): string[] {
   args.push(`@${request.taskFile}`);
   return args;
 }
+
+/**
+ * The pi family's model list: pi's own catalog, read in the order the registry
+ * returns it. pig and pi-bolt run the pi binary, so they answer from this one
+ * catalog — a second list for a second binary name could only disagree with it.
+ */
+export const piFamilyListModels: HarnessListModels = async ({ modelCatalog }) =>
+  modelCatalog
+    .getAvailable()
+    .map((model): ModelEntry => ({ key: `${model.provider}/${model.id}` }));
 
 /** Bounded prepare attempts: a `pane run` before the shell is at its prompt is silently lost. */
 const PREPARE_MAX_ATTEMPTS = 5;
@@ -128,6 +140,7 @@ export function createPiCompatibleHarness(spec: PiCompatibleSpec): Harness {
     // the launcher dies with the pane and the staged files belong to the
     // result-dir artifacts the session owns.
     buildArgs: buildPiLaunchArgs,
+    listModels: piFamilyListModels,
     teardown: async () => {},
     async prepare({ pi, paneId }: HarnessPrepareRequest): Promise<void> {
       for (let attempt = 1; attempt <= PREPARE_MAX_ATTEMPTS; attempt++) {

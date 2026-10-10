@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isAvailable,
+  isProven,
   probed,
   selectable,
   unprobed,
@@ -54,5 +55,19 @@ describe("isAvailable", () => {
 
     expect(isAvailable("apple", availability)).toBe(true);
     expect(isAvailable("pear", availability)).toBe(false);
+  });
+});
+
+describe("isProven", () => {
+  it("is not satisfied by an unanswered probe", () => {
+    expect(isProven("apple", unprobed<Fruit>())).toBe(false);
+  });
+
+  it("is satisfied only by a verdict that names the value", () => {
+    const availability = probed<Fruit>(["apple"]);
+
+    expect(isProven("apple", availability)).toBe(true);
+    expect(isProven("pear", availability)).toBe(false);
+    expect(isProven("apple", probed<Fruit>([]))).toBe(false);
   });
 });

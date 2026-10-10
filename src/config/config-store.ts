@@ -11,7 +11,10 @@ import type {
   SubagentsConfig,
   SessionModelOverrides,
 } from "../models/model-precedence.js";
-import { resolveModel } from "../models/model-precedence.js";
+import {
+  harnessDefaultModel,
+  resolveModel,
+} from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
 import {
   DEFAULT_HARNESS,
@@ -84,6 +87,20 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/**
+ * The per-harness defaults of one raw agent slice, however a hand-edited file
+ * left them. Structural rather than cast-then-trust: a value that is not an
+ * object reads as an empty map, which every reader below already handles.
+ */
+function rawHarnessDefaults(
+  agent: Record<string, unknown>,
+): Record<string, string | null> {
+  const entries = agent["defaultModelByHarness"];
+  return entries !== null && typeof entries === "object"
+    ? (entries as Record<string, string | null>)
+    : {};
+}
+
 interface ResolvedAgentSettings {
   /** Null = inherit parent. */
   readonly defaultModel: string | null;
@@ -123,6 +140,9 @@ interface ConfigStoreDeps {
 export class ConfigStore {
   private readonly layers: LayeredConfig;
   private sessionOverrides: SessionModelOverrides = { default: null };
+  /** Per-harness defaults set for this session only; cleared at session_start. */
+  private sessionHarnessDefaults: Partial<Record<HarnessId, string | null>> =
+    {};
   private sessionConcurrencyLayer: RawConcurrency = {};
   private manager?: AgentManager;
 
@@ -198,6 +218,45 @@ export class ConfigStore {
     return this.sessionOverrides[type] ?? null;
   }
 
+  /**
+   * One harness's default model, session over project over global. The pi
+   * family's own `default` key answers for it; every other harness reads its
+   * entry in `defaultModelByHarness`. Null when that harness has no default,
+   * which leaves the chain to the parent.
+   *
+   * A session entry set to null (the picker's "inherits parent") reads as no
+   * session entry, exactly as the session default model does: it unpins the
+   * session, leaving the configured layers to answer.
+   */
+  defaultModelForHarness(harness: HarnessId): string | null {
+    const session = nonEmptyString(this.sessionHarnessDefaults[harness]);
+    return session ?? harnessDefaultModel(this.layers.effective.agent, harness);
+  }
+
+  hasSessionHarnessDefaultModel(harness: HarnessId): boolean {
+    return nonEmptyString(this.sessionHarnessDefaults[harness]) !== undefined;
+  }
+
+  hasGlobalHarnessDefaultModel(harness: HarnessId): boolean {
+    return this.harnessDefaultAt(this.layers.global, harness);
+  }
+
+  hasProjectHarnessDefaultModel(harness: HarnessId): boolean {
+    return this.harnessDefaultAt(this.layers.project, harness);
+  }
+
+  /** A layer carries the harness's entry when the key is present, even when null. */
+  private harnessDefaultAt(
+    layer: RawConfig | null,
+    harness: HarnessId,
+  ): boolean {
+    if (!layer?.agent) return false;
+    return Object.prototype.hasOwnProperty.call(
+      rawHarnessDefaults(layer.agent),
+      harness,
+    );
+  }
+
   hasGlobalModelKey(key: string): boolean {
     return layerHasAgentKey(this.layers.global, key);
   }
@@ -207,7 +266,10 @@ export class ConfigStore {
   }
 
   get hasSessionModelSettings(): boolean {
-    return sessionOverridesHasModelSettings(this.sessionOverrides);
+    return (
+      sessionOverridesHasModelSettings(this.sessionOverrides) ||
+      Object.keys(this.sessionHarnessDefaults).length > 0
+    );
   }
 
   get hasGlobalModelSettings(): boolean {
@@ -249,18 +311,22 @@ export class ConfigStore {
 
   /**
    * Precedence: session per-type → config per-type → agent template →
-   * session default → config default → parentModelId. Null when the whole
-   * chain is unset and the parent has no model to inherit.
+   * session default → the launching harness's default → parentModelId. Null
+   * when the whole chain is unset and the parent has no model to inherit.
+   * `harnessId` must be the harness the launch resolves, because it names which
+   * default the chain reads.
    */
   modelFor(
     type: string,
     parentModelId: string | null,
-    agentConfig?: { model?: string },
+    agentConfig: { model?: string } | undefined,
+    harnessId: HarnessId,
   ): string | null {
     return resolveModel({
       subagentType: type,
       agentConfig,
       config: this.layers.effective,
+      harnessDefault: this.defaultModelForHarness(harnessId),
       parentModelId,
       sessionOverrides: this.sessionOverrides,
     });
@@ -307,6 +373,7 @@ export class ConfigStore {
           (raw) => this.clearAgentModelKeys(raw),
           () => {
             this.sessionOverrides = { default: null };
+            this.sessionHarnessDefaults = {};
           },
         );
       },
@@ -351,6 +418,50 @@ export class ConfigStore {
         this.setAgentLayerEntry("worktreeCheckoutType", policy, "global"),
       setHarnessType: (harnessType: HarnessId) =>
         this.setAgentLayerEntry("harnessType", harnessType, "global"),
+      /**
+       * One harness's default, written entry-wise: the map is a whole value in
+       * the file, so writing it whole would drop every other harness's entry.
+       * `null` is a real answer — that harness inherits the parent — and is
+       * written as such rather than deleting the key.
+       */
+      setHarnessDefaultModel: (
+        harness: HarnessId,
+        value: string | null,
+        target: ConfigTarget = "global",
+      ): void => {
+        if (target === "session") {
+          this.sessionHarnessDefaults[harness] = value;
+          return;
+        }
+        this.layers.mutate(target, (raw) => {
+          raw.agent ??= {};
+          raw.agent.defaultModelByHarness = {
+            ...rawHarnessDefaults(raw.agent),
+            [harness]: value,
+          };
+        });
+      },
+      clearHarnessDefaultModel: (
+        harness: HarnessId,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.layers.clear(
+          target,
+          (raw) => {
+            if (!raw.agent) return;
+            const entries = rawHarnessDefaults(raw.agent);
+            delete entries[harness];
+            if (Object.keys(entries).length === 0) {
+              delete raw.agent.defaultModelByHarness;
+            } else {
+              raw.agent.defaultModelByHarness = entries;
+            }
+          },
+          () => {
+            delete this.sessionHarnessDefaults[harness];
+          },
+        );
+      },
     },
     concurrency: {
       setDefault: (n: number, target: ConfigTarget = "global"): void => {
@@ -423,6 +534,7 @@ export class ConfigStore {
   reload(): void {
     this.layers.reload();
     this.sessionOverrides = { default: null };
+    this.sessionHarnessDefaults = {};
     this.sessionConcurrencyLayer = {};
     this.applyConcurrency();
   }

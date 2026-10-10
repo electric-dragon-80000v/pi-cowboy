@@ -9,10 +9,16 @@ import { registerAgents } from "../../src/agents/agent-types.js";
 import { registerOrchestrators } from "../../src/orchestrators/orchestrator-types.js";
 import { DEFAULT_ORCHESTRATORS } from "../../src/orchestrators/default-orchestrators.js";
 import { showExtensionIndicator } from "../../src/ui/indicator.js";
+import { probed } from "../../src/availability.js";
 import type { ThinkingLevel } from "../../src/types.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { reasoningModel, registryOver } from "./models.js";
-import { resetShell, setPi, setSession } from "./shell-mock.js";
+import {
+  resetShell,
+  setHarnessAvailability,
+  setPi,
+  setSession,
+} from "./shell-mock.js";
 import {
   createMemoryStore,
   type MemoryStore,
@@ -63,6 +69,8 @@ async function openMain(width = 100): Promise<MenuSession> {
 
 beforeEach(() => {
   resetShell();
+  // This machine has no opencode, so no OpenCode row appears on the model screen.
+  setHarnessAvailability(probed(["pi"]));
   // The menus run from a /cowboy command, so a session context is always there.
   setSession({
     cwd: "/repo",
@@ -162,10 +170,10 @@ describe("Agents menu — the Model overrides row", () => {
     // Hosted in place: still one ctx.ui.custom screen.
     expect(session.screenCount).toBe(1);
     expect(session.text()).toContain("Model Settings");
-    expect(session.text()).toContain("Global default model");
+    expect(session.text()).toContain("Pi Default Model");
     expect(session.text()).toContain("Override another type...");
     expect(session.walkRows().map((row) => row.label)).toEqual([
-      "Global default model",
+      "Pi Default Model",
       "Override another type...",
     ]);
   });
@@ -176,7 +184,7 @@ describe("Agents menu — the Model overrides row", () => {
       session,
       [
         { open: "Model overrides" },
-        { open: "Global default model" },
+        { open: "Pi Default Model" },
         {
           expect: {
             rows: [
@@ -201,7 +209,7 @@ describe("Agents menu — the Model overrides row", () => {
         { open: "gpt-4 [openai]" },
         {
           expect: {
-            active: "Global default model",
+            active: "Pi Default Model",
             activeValue: "openai/gpt-4",
             notified: ["default model set to openai/gpt-4 (global)"],
             store: (store) =>
@@ -230,14 +238,14 @@ describe("Agents menu — the Model overrides row", () => {
       session,
       [
         { open: "Model overrides" },
-        { open: "Global default model" },
+        { open: "Pi Default Model" },
         { focus: "Session" },
         { expect: { shows: ["Not saved"], active: "Session" } },
         { enter: true },
         { open: "gpt-4o [openai]" },
         {
           expect: {
-            active: "Global default model",
+            active: "Pi Default Model",
             activeValue: "gpt-4o [session]",
             notified: ["default model set to openai/gpt-4o (session)"],
             store: (store) =>
@@ -269,7 +277,7 @@ describe("Agents menu — the Model overrides row", () => {
     installStore({ projectStatus: "untrusted" });
     const session = await openMain();
     session.open("Model overrides");
-    session.open("Global default model");
+    session.open("Pi Default Model");
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Session",
@@ -282,7 +290,7 @@ describe("Agents menu — the Model overrides row", () => {
     const session = await openMain();
 
     session.open("Model overrides");
-    session.open("Global default model");
+    session.open("Pi Default Model");
     session.open("Global");
     session.open("(inherits parent)");
     await session.settle();
@@ -296,7 +304,7 @@ describe("Agents menu — the Model overrides row", () => {
     // Inherit unwinds the chain: the library forwards only a DEFINED value,
     // so the level picker completes itself and rebuilds the row behind it.
     expect(session.activeRow()).toEqual({
-      label: "Global default model",
+      label: "Pi Default Model",
       value: "(no model)",
     });
 

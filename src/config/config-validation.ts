@@ -5,8 +5,9 @@
  */
 import { Type, type TSchema } from "typebox";
 import { Check } from "typebox/value";
-import { HARNESS_IDS } from "../agents/harness.js";
+import { HARNESS_IDS, parseHarnessId } from "../agents/harness.js";
 import { isRecord } from "../predicates.js";
+import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
 import type { RawConfig } from "./config-io.js";
 
 interface KeySpec {
@@ -57,6 +58,12 @@ const HARNESS: KeySpec = {
   schema: Type.Union(HARNESS_IDS.map((id) => Type.Literal(id))),
   expected: HARNESS_IDS.map((id) => `"${id}"`).join(" | "),
 };
+/**
+ * The per-harness default models. Validated per entry rather than as one value:
+ * a harness key outside `HARNESS_IDS` is dropped with a warning while every
+ * other harness's entry survives, the way a concurrency map is cleaned.
+ */
+const HARNESS_DEFAULT_MODELS_EXPECTED = `an object keyed by ${HARNESS.expected}, with string or null values`;
 /** Empty strings are dropped so read-time fallback applies. */
 const NON_EMPTY_STRING: KeySpec = {
   schema: Type.String({ minLength: 1 }),
@@ -155,11 +162,54 @@ function cleanAgentEntries(
   const kept: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(agent)) {
     if (value === undefined) continue;
+    if (key === DEFAULT_MODEL_BY_HARNESS_KEY) {
+      const entries = cleanHarnessDefaultModels(value, filePath);
+      if (entries !== undefined) kept[key] = entries;
+      continue;
+    }
     const spec = AGENT_KEY_SPECS[key] ?? MODEL_KEY;
     if (isValidValue(spec, value)) kept[key] = value;
     else warnIncompatible(filePath, `agent.${key}`, value, spec.expected);
   }
   return kept;
+}
+
+/**
+ * Per-entry validation of the harness map: an unknown harness key or a value
+ * that is not a model key warns and is dropped, and an empty result reads as
+ * absent so the built-in default applies. Never throws.
+ */
+function cleanHarnessDefaultModels(
+  value: unknown,
+  filePath: string,
+): Record<string, string | null> | undefined {
+  const keyPath = `agent.${DEFAULT_MODEL_BY_HARNESS_KEY}`;
+  if (!isRecord(value)) {
+    warnIncompatible(filePath, keyPath, value, HARNESS_DEFAULT_MODELS_EXPECTED);
+    return undefined;
+  }
+  const kept: Record<string, string | null> = {};
+  for (const [harness, model] of Object.entries(value)) {
+    if (model === undefined) continue;
+    if (parseHarnessId(harness) === undefined) {
+      warnIncompatible(
+        filePath,
+        `${keyPath}.${harness}`,
+        harness,
+        HARNESS.expected,
+      );
+      continue;
+    }
+    if (typeof model === "string" || model === null) kept[harness] = model;
+    else
+      warnIncompatible(
+        filePath,
+        `${keyPath}.${harness}`,
+        model,
+        MODEL_KEY.expected,
+      );
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
 }
 
 /** Plain typeof checks: every value here is a bare number. */

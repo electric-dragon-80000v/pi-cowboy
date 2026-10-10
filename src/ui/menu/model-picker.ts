@@ -17,8 +17,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter, type AutocompleteItem } from "@earendil-works/pi-tui";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getSessionCtx, getStore } from "../../shell.js";
-import { findModelInRegistry } from "../../utils.js";
+import { getPiInstance, getSessionCtx, getStore } from "../../shell.js";
+import { findModelInRegistry, parseModelKey } from "../../utils.js";
+import type { ModelCatalog, ModelEntry } from "../../agents/harness.js";
+import { harnessFor } from "../../agents/harness/registry.js";
 import { SearchableSelectDialog } from "../searchable-select.js";
 import { buildModelOptions } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
@@ -78,14 +80,16 @@ export async function openSubagentModelPicker(
   const store = getStore();
   const runtime = sessionModelRuntime(ctx);
   const scoped = ctx.scopedModels;
+  // The fallback list is read before the screen opens, because the screen's
+  // builder is synchronous. The runtime branch reads its own catalog instead.
+  const entries = runtime ? [] : await piHarnessModels(ctx.modelRegistry);
 
   await new ScreenHost(ctx).open<void>(({ tui, theme, close }) => {
     const current = currentSubagentModel(ctx);
 
     if (!runtime) {
-      const session = getSessionCtx();
-      const registry = session.modelRegistry;
-      const keys = registry.getAvailable().map((m) => `${m.provider}/${m.id}`);
+      const registry = getSessionCtx().modelRegistry;
+      const keys = entries.map((entry) => entry.key);
       const items = buildModelOptions(keys, current?.id ?? null, []).filter(
         (o) => o.value != null,
       );
@@ -122,13 +126,15 @@ export async function openSubagentModelPicker(
 }
 
 /** `model` subcommand completions. Values carry full argument text, matching pi's prefix replacement. */
-export function cowboyCompletions(prefix: string): AutocompleteItem[] | null {
+export async function cowboyCompletions(
+  prefix: string,
+): Promise<AutocompleteItem[] | null> {
   const text = prefix;
   const trimmed = text.trim();
 
   if (trimmed === "model" || trimmed.startsWith("model ")) {
     const rest = trimmed.slice("model".length).trim();
-    const models = availableModelsForCompletion();
+    const models = await availableModelsForCompletion();
     const items: AutocompleteItem[] = [
       {
         value: "model clear",
@@ -136,11 +142,14 @@ export function cowboyCompletions(prefix: string): AutocompleteItem[] | null {
         description:
           "Clear the session model override (inherit parent/configured default)",
       },
-      ...models.map((m) => ({
-        value: `model ${m.provider}/${m.id}`,
-        label: m.id,
-        description: m.provider,
-      })),
+      ...models.map((entry) => {
+        const parsed = parseModelKey(entry.key);
+        return {
+          value: `model ${entry.key}`,
+          label: parsed?.modelId ?? entry.key,
+          description: parsed?.provider ?? "",
+        };
+      }),
     ];
     const filtered = fuzzyFilter(
       items,
@@ -186,17 +195,34 @@ export function cowboyCompletions(prefix: string): AutocompleteItem[] | null {
   return filtered.length > 0 ? filtered : null;
 }
 
-function availableModelsForCompletion(): Model<Api>[] {
-  const session = getSessionCtx();
-  const scoped = session.scopedModels;
-  if (scoped.length > 0) {
-    return scoped.map((s) => s.model);
-  }
+/**
+ * The pi family's model list, read through the harness the spawns run under
+ * rather than from the registry directly, so every pi-catalog reader shares one
+ * source. A catalog that cannot answer reads as no models: this picker is a
+ * convenience, and it must still open.
+ */
+async function piHarnessModels(
+  modelCatalog: ModelCatalog,
+): Promise<readonly ModelEntry[]> {
   try {
-    return session.modelRegistry.getAvailable();
+    return await harnessFor("pi").listModels({
+      pi: getPiInstance(),
+      modelCatalog,
+    });
   } catch {
     return [];
   }
+}
+
+async function availableModelsForCompletion(): Promise<readonly ModelEntry[]> {
+  const session = getSessionCtx();
+  const scoped = session.scopedModels;
+  if (scoped.length > 0) {
+    return scoped.map((s) => ({
+      key: `${s.model.provider}/${s.model.id}`,
+    }));
+  }
+  return await piHarnessModels(session.modelRegistry);
 }
 
 export async function handleModelArg(

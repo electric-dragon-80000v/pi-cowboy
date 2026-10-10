@@ -9,9 +9,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
 import type { ConfigStore } from "../../src/config/config-store.js";
+import { probed, unprobed } from "../../src/availability.js";
 import type { ThinkingLevel } from "../../src/types.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
-import { resetShell, setPi, setSession } from "./shell-mock.js";
+import {
+  resetShell,
+  setHarnessAvailability,
+  setPi,
+  setSession,
+} from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
 import { reasoningModel, registryOver } from "./models.js";
 import { each, walk, type TraversalInput } from "./walk.js";
@@ -68,6 +74,8 @@ async function openModelSettings(width = 100): Promise<MenuSession> {
 
 beforeEach(() => {
   resetShell();
+  // This machine has no opencode, so no OpenCode row appears on the model screen.
+  setHarnessAvailability(probed(["pi"]));
   piSettings.thinking = undefined;
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
   installStore();
@@ -98,7 +106,7 @@ describe("Model Settings — structure on a fresh config", () => {
 
     expect(session.title()).toBe("Agents");
     expect(session.text()).toContain("Model Settings");
-    expect(session.text()).toContain("Global default model");
+    expect(session.text()).toContain("Pi Default Model");
     expect(session.text()).not.toContain("Agent model");
     expect(session.text()).toContain("Override another type...");
     // Nothing to clear: no layer carries a model setting.
@@ -106,7 +114,7 @@ describe("Model Settings — structure on a fresh config", () => {
   });
 
   const rowTable = [
-    ["Global default model", "(no model)"],
+    ["Pi Default Model", "(no model)"],
     ["Override another type...", ""],
   ] as const;
 
@@ -130,7 +138,7 @@ describe("Model Settings — structure on a fresh config", () => {
     const session = await openModelSettings();
 
     expect(session.activeRow()).toEqual({
-      label: "Global default model",
+      label: "Pi Default Model",
       value: "(inherits parent)",
     });
   });
@@ -146,7 +154,7 @@ describe("Model Settings — the listing rule", () => {
     const session = await openModelSettings();
 
     expect(session.activeRow()).toEqual({
-      label: "Global default model",
+      label: "Pi Default Model",
       value: "openai/gpt-4",
     });
     expect(session.text()).toContain("anthropic/claude-3");
@@ -165,7 +173,7 @@ describe("Model Settings — the listing rule", () => {
     const labels = session.walkRows().map((row) => row.label);
 
     expect(labels).toEqual([
-      "Global default model",
+      "Pi Default Model",
       "• auditor",
       "Override another type...",
       "Clear all model overrides...",
@@ -237,7 +245,7 @@ describe("Model Settings — provenance tags", () => {
     });
 
     expect((await openModelSettings()).rows()).toContainEqual({
-      label: "Global default model",
+      label: "Pi Default Model",
       value: "anthropic/claude-3 [project]",
     });
   });
@@ -251,7 +259,7 @@ describe("Model Settings — provenance tags", () => {
     );
 
     expect((await openModelSettings()).rows()).toContainEqual({
-      label: "Global default model",
+      label: "Pi Default Model",
       value: "openai/gpt-4o [session]",
     });
   });
@@ -481,12 +489,207 @@ describe("Model Settings — clear all overrides", () => {
   });
 });
 
+describe("Model Settings — per-harness default rows", () => {
+  /** A plausible `opencode models`: one bare key per line, with a comment line. */
+  const OPENCODE_MODELS = [
+    "# Models available to opencode",
+    "anthropic/claude-opus-4",
+    "openai/gpt-4o",
+  ].join("\n");
+
+  /** This machine has opencode, and its CLI answers for itself. */
+  function installOpencode(): void {
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    setPi({
+      exec: async () => ({ code: 0, stdout: OPENCODE_MODELS, stderr: "" }),
+    });
+  }
+
+  /** The raw agent slice of the last write, for asserting the persisted shape. */
+  function lastAgentWrite(): Record<string, unknown> | undefined {
+    return memory.writes.at(-1)?.config.agent;
+  }
+
+  it("hides the harness row while opencode is unproven", async () => {
+    // The default shell state: no probe has answered for opencode.
+    setHarnessAvailability(unprobed());
+
+    expect((await openModelSettings()).text()).not.toContain(
+      "OpenCode Default Model",
+    );
+  });
+
+  it("hides the harness row on a machine that cannot launch it", async () => {
+    expect((await openModelSettings()).text()).not.toContain(
+      "OpenCode Default Model",
+    );
+  });
+
+  it("gives pig and pi-bolt no row of their own", async () => {
+    setHarnessAvailability(probed(["pi", "pig", "pi-bolt"]));
+
+    const text = (await openModelSettings()).text();
+    expect(text).not.toContain("PiG Default Model");
+    expect(text).not.toContain("Pi-Bolt Default Model");
+  });
+
+  it("offers opencode's own models under its row and persists the pick", async () => {
+    installOpencode();
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        {
+          expect: {
+            rows: [
+              ["Pi Default Model", "(no model)"],
+              ["OpenCode Default Model", "(no model)"],
+            ],
+          },
+        },
+        { open: "OpenCode Default Model" },
+        {
+          expect: {
+            rows: [
+              ["Session", ""],
+              ["Global", ""],
+              ["Project", ""],
+              ["Clear...", ""],
+            ],
+          },
+        },
+        { open: "Global" },
+        // Only the entries its own CLI answered with: the pi catalog's models
+        // are not on offer under a harness that does not run them.
+        {
+          expect: {
+            shows: ["claude-opus-4 [anthropic]", "gpt-4o [openai]"],
+            hides: ["claude-3"],
+          },
+        },
+        { open: "gpt-4o [openai]" },
+        {
+          expect: {
+            active: "OpenCode Default Model",
+            activeValue: "openai/gpt-4o",
+            notified: ["OpenCode Default Model set to openai/gpt-4o (global)"],
+            store: (store) =>
+              expect(store.defaultModelForHarness("opencode")).toBe(
+                "openai/gpt-4o",
+              ),
+          },
+        },
+      ],
+      memory.store,
+      "opencode default at global",
+    );
+
+    expect(memory.lastLayer()).toBe("global");
+    expect(lastAgentWrite()?.defaultModelByHarness).toEqual({
+      opencode: "openai/gpt-4o",
+    });
+  });
+
+  it("tags a project-layer harness default and keeps the global one above it", async () => {
+    installStore({
+      projectStatus: "loaded",
+      global: {
+        agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
+      },
+      project: {
+        agent: {
+          defaultModelByHarness: { opencode: "anthropic/claude-opus-4" },
+        },
+      },
+    });
+    installOpencode();
+
+    expect((await openModelSettings()).rows()).toContainEqual({
+      label: "OpenCode Default Model",
+      value: "anthropic/claude-opus-4 [project]",
+    });
+  });
+
+  it("persists an inherit pick as a real null entry", async () => {
+    installStore({
+      global: {
+        agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
+      },
+    });
+    installOpencode();
+    // A parent model, so the inherit row has something to name.
+    setSession({
+      cwd: "/repo",
+      model: reasoningModel("anthropic", "claude-3"),
+      modelRegistry: REGISTRY,
+    } as unknown as Parameters<typeof setSession>[0]);
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "OpenCode Default Model" },
+        { open: "Global" },
+        { open: "(inherits parent)" },
+        {
+          expect: {
+            active: "OpenCode Default Model",
+            activeValue: "(inherits parent)",
+            notified: ["OpenCode Default Model inherits parent model"],
+            store: (store) =>
+              expect(store.defaultModelForHarness("opencode")).toBeNull(),
+          },
+        },
+      ],
+      memory.store,
+      "opencode inherits parent at global",
+    );
+
+    // Null is an answer the file carries, not an absent key.
+    expect(memory.writes.at(-1)?.config.agent?.defaultModelByHarness).toEqual({
+      opencode: null,
+    });
+  });
+
+  it("clears a harness default at the picked layer", async () => {
+    installStore({
+      projectStatus: "loaded",
+      global: {
+        agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
+      },
+    });
+    installOpencode();
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "OpenCode Default Model" },
+        { open: "Clear..." },
+        { expect: { rows: [["Global", ""]] } },
+        { open: "Global" },
+        {
+          expect: {
+            // Without the entry the harness has no default of its own.
+            notified: ["OpenCode Default Model cleared (global)"],
+            store: (store) =>
+              expect(store.defaultModelForHarness("opencode")).toBeNull(),
+          },
+        },
+      ],
+      memory.store,
+      "clear opencode default",
+    );
+  });
+});
+
 describe("Model Settings — keyboard navigation", () => {
   it("skips the group header above the first listed type and the rule row", async () => {
     installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
     const session = await openModelSettings();
 
-    expect(session.activeRow()?.label).toBe("Global default model");
+    expect(session.activeRow()?.label).toBe("Pi Default Model");
 
     session.press(KEY.down);
     // The spacer and the group header between them are skipped.

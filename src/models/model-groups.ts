@@ -30,6 +30,8 @@ interface ModelGroupsInput {
   /** Merged config.agent (project over global). */
   config: SubagentsConfig["agent"];
   sessionOverrides: SessionModelOverrides;
+  /** The launching harness's default for one type, flattened across its layers. */
+  harnessDefaultFor: (type: string) => string | null;
   /** Provenance for [project] tags. */
   hasProjectModelKey: (key: string) => boolean;
   /** Null when the parent session has no model: nothing further to inherit. */
@@ -65,6 +67,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
     agentConfigs,
     config,
     sessionOverrides,
+    harnessDefaultFor,
     hasProjectModelKey,
     parentModelId,
   } = input;
@@ -76,6 +79,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
       subagentType: type,
       agentConfig: cfg,
       config: { agent: config },
+      harnessDefault: harnessDefaultFor(type),
       parentModelId,
       sessionOverrides,
     });

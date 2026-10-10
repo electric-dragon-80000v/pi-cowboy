@@ -19,7 +19,10 @@ import {
 } from "../spawn/worktree-policy.js";
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
 import { errorMessage } from "../utils.js";
-import { CONFIG_AGENT_NON_MODEL_KEYS } from "./types.js";
+import {
+  CONFIG_AGENT_NON_MODEL_KEYS,
+  DEFAULT_MODEL_BY_HARNESS_KEY,
+} from "./types.js";
 import { validateRawLayer } from "./config-validation.js";
 
 /** File name of the config in the extension dir and a project's `.pi/<extension>` dir. */
@@ -97,7 +100,11 @@ export interface ConfigIO {
 }
 
 /** Agent keys a project file may set: the model family plus per-type overrides. */
-export const MODEL_FAMILY_KEYS = new Set(["default", "defaultThinking"]);
+export const MODEL_FAMILY_KEYS = new Set([
+  "default",
+  "defaultThinking",
+  DEFAULT_MODEL_BY_HARNESS_KEY,
+]);
 
 /** True when a project file may carry this agent key (model keys only). */
 export function isProjectAllowedAgentKey(key: string): boolean {
@@ -185,7 +192,18 @@ export function mergeLayers(
   const agent = { ...global.agent };
   if (project?.agent) {
     for (const [key, value] of Object.entries(project.agent)) {
-      if (isProjectAllowedAgentKey(key)) agent[key] = value;
+      if (!isProjectAllowedAgentKey(key)) continue;
+      // The per-harness default models merge per entry, so a project entry for
+      // one harness never drops the global layer's entries for the others.
+      if (
+        key === DEFAULT_MODEL_BY_HARNESS_KEY &&
+        isRecord(agent[key]) &&
+        isRecord(value)
+      ) {
+        agent[key] = { ...agent[key], ...value };
+        continue;
+      }
+      agent[key] = value;
     }
   }
   return {

@@ -19,7 +19,7 @@ import {
   type RawConfig,
 } from "../src/config/config-store.js";
 import type { LoadedConfig } from "../src/config/config-io.js";
-import { getStore } from "../src/shell.js";
+import { getStore, setSessionCtx } from "../src/shell.js";
 import {
   recordOverlayMount,
   type OverlayCallOptions,
@@ -147,7 +147,9 @@ function commandContext(notify: ReturnType<typeof vi.fn>) {
   return {
     ui,
     markers,
-    modelRegistry: { getAvailable: () => [] },
+    modelRegistry: {
+      getAvailable: (): Array<{ provider: string; id: string }> => [],
+    },
     scopedModels: [],
   };
 }
@@ -588,8 +590,8 @@ describe("/cowboy dispatch", () => {
     expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
   });
 
-  it("offers status, spawn, worktree, model, enable and disable as completions", () => {
-    expect(cowboyCompletions("")?.map((item) => item.value)).toEqual([
+  it("offers status, spawn, worktree, model, enable and disable as completions", async () => {
+    expect((await cowboyCompletions(""))?.map((item) => item.value)).toEqual([
       "status",
       "spawn",
       "worktree",
@@ -597,5 +599,20 @@ describe("/cowboy dispatch", () => {
       "enable",
       "disable",
     ]);
+  });
+
+  it("offers the pi catalog's models as `model` completions", async () => {
+    const ctx = commandContext(vi.fn());
+    ctx.modelRegistry = {
+      getAvailable: () => [
+        { provider: "openai", id: "gpt" },
+        { provider: "anthropic", id: "claude-3" },
+      ],
+    };
+    setSessionCtx(ctx as never);
+
+    expect(
+      (await cowboyCompletions("model "))?.map((item) => item.value),
+    ).toEqual(["model clear", "model openai/gpt", "model anthropic/claude-3"]);
   });
 });

@@ -23,6 +23,7 @@ import { getAgentConfig, getAvailableTypes } from "../../agents/agent-types.js";
 import {
   resolveDefaultAgentType,
   resolveDefaultOrchestrator,
+  resolveHarnessType,
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
 import { findModelInRegistry } from "../../utils.js";
@@ -150,7 +151,12 @@ export async function showSpawnAgentMenu(
 
   /** Effective model for a type, resolved per call so a type change re-derives it. */
   const modelForType = (type: string): string =>
-    store.modelFor(type, parentModelId, getAgentConfig(type)) ?? "";
+    store.modelFor(
+      type,
+      parentModelId,
+      getAgentConfig(type),
+      resolveHarnessType(type),
+    ) ?? "";
 
   let currentModelStr = modelForType(selectedType);
   let currentThinking: ThinkingLevel | undefined =

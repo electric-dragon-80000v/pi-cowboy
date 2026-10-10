@@ -53,3 +53,16 @@ export function selectable<Id extends string>(
 ): readonly Id[] {
   return all.filter((id) => isAvailable(id, availability));
 }
+
+/**
+ * Whether a probe has proven one value usable. Unlike `isAvailable`, "unknown"
+ * is not a yes: a caller that cannot do anything without the value itself — a
+ * row whose list can only come from that program — asks this instead, so it is
+ * never offered something the machine has not shown it has.
+ */
+export function isProven<Id extends string>(
+  id: NoInfer<Id>,
+  availability: Availability<Id>,
+): boolean {
+  return availability.status === "known" && availability.available.has(id);
+}

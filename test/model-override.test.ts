@@ -17,8 +17,11 @@ import type {
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSpawn } from "../src/types.js";
+import { probed, unprobed } from "../src/availability.js";
+import { ConfigStore } from "../src/config/config-store.js";
+import { setHarnessAvailability } from "../src/shell.js";
 
 import {
   executeAgentTool,
@@ -262,6 +265,112 @@ async function runTool(
   await executeAgentTool("", input, undefined, undefined, ctx);
   return spawnMock.mock.calls[0]![1] as Record<string, unknown>;
 }
+
+describe("cowboy_agent — the launching harness reaches model resolution", () => {
+  const AGENT_HARNESS = "pig";
+
+  afterEach(() => {
+    setHarnessAvailability(unprobed());
+  });
+
+  it("passes the harness the launch resolves, not the configured one", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: AGENT_HARNESS });
+    setHarnessAvailability(probed(["pi", AGENT_HARNESS]));
+
+    await runTool();
+
+    // The harness is the resolved one (post-availability-fallback) so the
+    // resolved default and the launched binary can never disagree.
+    expect(configuredModelMock).toHaveBeenCalledWith(
+      "general-purpose",
+      "parent/parent-1",
+      { harnessType: AGENT_HARNESS },
+      AGENT_HARNESS,
+    );
+  });
+
+  it("passes pi when the template names a harness this machine cannot launch", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: "pi-bolt" });
+    setHarnessAvailability(probed(["pi"]));
+
+    await runTool();
+
+    expect(configuredModelMock).toHaveBeenCalledWith(
+      "general-purpose",
+      "parent/parent-1",
+      { harnessType: "pi-bolt" },
+      "pi",
+    );
+  });
+});
+
+/**
+ * The same listener over a REAL store, so which layer answers is the store's
+ * own resolution rather than a mock's answer.
+ */
+describe("cowboy_agent — the harness default at the global default's position", () => {
+  const OPENCODE_DEFAULT = "override/special-model";
+
+  /** A store over one in-memory global layer, with no project target. */
+  function realStore(agent: Record<string, unknown>): ConfigStore {
+    return new ConfigStore({
+      load: () => ({
+        global: { agent },
+        project: null,
+        projectStatus: "untrusted",
+      }),
+      isGlobalWritable: () => true,
+      saveGlobal: () => {},
+      saveProject: () => {},
+    });
+  }
+
+  beforeEach(() => {
+    setHarnessAvailability(probed(["pi", "opencode"]));
+  });
+
+  afterEach(() => {
+    setHarnessAvailability(unprobed());
+  });
+
+  it("resolves the harness default with nothing else set", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: "opencode" });
+    getStoreMock.mockReturnValue(
+      realStore({ defaultModelByHarness: { opencode: OPENCODE_DEFAULT } }),
+    );
+
+    await expect(runTool()).resolves.toMatchObject({
+      modelSelection: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
+    });
+  });
+
+  it("leaves a pi spawn on pi's own default", async () => {
+    getStoreMock.mockReturnValue(
+      realStore({
+        default: CONFIGURED_KEY,
+        defaultModelByHarness: { opencode: OPENCODE_DEFAULT },
+      }),
+    );
+
+    await expect(runTool()).resolves.toMatchObject({
+      modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+    });
+  });
+
+  it("keeps an agent template's model above the harness default", async () => {
+    getAgentConfigMock.mockReturnValue({
+      harnessType: "opencode",
+      model: CONFIGURED_KEY,
+    });
+    getStoreMock.mockReturnValue(
+      realStore({ defaultModelByHarness: { opencode: OPENCODE_DEFAULT } }),
+    );
+
+    await expect(runTool()).resolves.toMatchObject({
+      modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+    });
+  });
+});
 
 describe("cowboy_agent per-call model override", () => {
   it("runs the caller-supplied model and never clobbers it", async () => {

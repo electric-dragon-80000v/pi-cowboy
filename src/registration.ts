@@ -29,6 +29,7 @@ import {
   syncExtensionIndicator,
 } from "./extension-toggle.js";
 import { getPiInstance, getStore } from "./shell.js";
+import { harnessFor } from "./agents/harness/registry.js";
 
 /** The one place a tool name is spelled; the tools below are named from these. */
 export const COWBOY_TOOLS = {
@@ -218,9 +219,13 @@ export function registerTools(pi: ExtensionAPI): void {
 
 /**
  * The model keys a spawn can be given: the session's scoped models when any are
- * scoped, otherwise every model the registry offers.
+ * scoped, otherwise every model the pi harness's catalog offers — the same
+ * interface method the Model settings menu reads, so the two never disagree.
  */
-function subagentModelOptions(ctx: ExtensionCommandContext): string[] {
+async function subagentModelOptions(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+): Promise<string[]> {
   // Empty array means no scoping. Cast through unknown: the field is
   // absent from older ExtensionCommandContext typings.
   const scoped = (
@@ -230,9 +235,14 @@ function subagentModelOptions(ctx: ExtensionCommandContext): string[] {
       }>;
     }
   ).scopedModels;
-  return scoped?.length
-    ? scoped.map((s) => `${s.model.provider}/${s.model.id}`)
-    : ctx.modelRegistry.getAvailable().map((m) => `${m.provider}/${m.id}`);
+  if (scoped?.length) {
+    return scoped.map((s) => `${s.model.provider}/${s.model.id}`);
+  }
+  const models = await harnessFor("pi").listModels({
+    pi,
+    modelCatalog: ctx.modelRegistry,
+  });
+  return models.map((entry) => entry.key);
 }
 
 /** The one place the command name is spelled. */
@@ -311,7 +321,11 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
       }
       if (subcommand === "spawn" || subcommand === "status") {
         const { showAgentsActionMenu } = await import("./ui/menu/menus.js");
-        await showAgentsActionMenu(ctx, subcommand, subagentModelOptions(ctx));
+        await showAgentsActionMenu(
+          ctx,
+          subcommand,
+          await subagentModelOptions(pi, ctx),
+        );
         return;
       }
       if (subcommand !== "") {
@@ -322,7 +336,7 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
         return;
       }
       const { showAgentsMainMenu } = await import("./ui/menu/menus.js");
-      await showAgentsMainMenu(ctx, subagentModelOptions(ctx));
+      await showAgentsMainMenu(ctx, await subagentModelOptions(pi, ctx));
     },
   });
 }

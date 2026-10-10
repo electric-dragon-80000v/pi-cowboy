@@ -1,8 +1,8 @@
 /**
- * harness.test.ts — the harness contract: its id vocabulary and the pane
- * preparation shared by the pi-compatible harnesses (the shell tricks that point
- * the pane's `pi` at pig or pi-bolt), plus the detection-only opencode
- * placeholder.
+ * harness.test.ts — the harness contract: its id vocabulary, the model list
+ * every harness answers, and the pane preparation shared by the pi-compatible
+ * harnesses (the shell tricks that point the pane's `pi` at pig or pi-bolt),
+ * plus the detection-only opencode placeholder.
  */
 
 import {
@@ -407,6 +407,107 @@ describe("buildArgs", () => {
     const args = harnessFor("pi").buildArgs(request());
 
     expect(args.at(-1)).toBe("@/spawn/esp02hpw/task.md");
+  });
+});
+
+describe("listModels", () => {
+  /** A pi registry: the catalog the family's list reads, in its own order. */
+  const CATALOG = {
+    getAvailable: () => [
+      { provider: "anthropic", id: "claude-3" },
+      { provider: "openai", id: "gpt-4o" },
+    ],
+  };
+
+  it.each(["pi", "pig", "pi-bolt"] as const)(
+    "%s lists the pi catalog's models in the catalog's order",
+    async (id) => {
+      const entries = await harnessFor(id).listModels({
+        pi: PI,
+        modelCatalog: CATALOG,
+      });
+
+      expect(entries).toEqual([
+        { key: "anthropic/claude-3" },
+        { key: "openai/gpt-4o" },
+      ]);
+    },
+  );
+
+  /** The opencode harness's own list, over a `pi.exec` the test supplies. */
+  function opencodeListModels(
+    exec: unknown,
+  ): Promise<readonly { key: string; label?: string }[]> {
+    return harnessFor("opencode").listModels({
+      pi: { exec } as unknown as ExtensionAPI,
+      modelCatalog: CATALOG,
+    });
+  }
+
+  it("answers an empty catalog with no entries rather than an error", async () => {
+    await expect(
+      harnessFor("pi").listModels({
+        pi: PI,
+        modelCatalog: { getAvailable: () => [] },
+      }),
+    ).resolves.toEqual([]);
+  });
+
+  it("parses opencode's own output into entries", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: "# Models\nanthropic/claude-opus-4\n\nopenai/gpt-4o\n",
+      stderr: "",
+    }));
+
+    const entries = await opencodeListModels(exec);
+
+    expect(exec).toHaveBeenCalledWith("opencode", ["models"], {
+      timeout: expect.any(Number),
+    });
+    expect(entries).toEqual([
+      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
+      { key: "openai/gpt-4o", label: "gpt-4o" },
+    ]);
+  });
+
+  it("resolves an empty list and warns when the CLI fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+
+    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("opencode");
+    warn.mockRestore();
+  });
+
+  it("resolves an empty list and warns on output whose shape is unrecognized", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: "PROVIDER        MODEL\nanthropic       claude-3\n",
+      stderr: "",
+    }));
+
+    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("unrecognized");
+    warn.mockRestore();
+  });
+
+  it("resolves an empty list and warns when the child could not be started at all", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = vi.fn(async () => {
+      throw new Error("ENOENT: opencode not found");
+    });
+
+    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("ENOENT");
+    warn.mockRestore();
   });
 });
 

@@ -191,7 +191,13 @@ export function buildModelOptions(
 export function extractConfiguredModels(
   agentConfig: Readonly<{
     default: string | null;
-    [agentType: string]: string | null | undefined | boolean | number;
+    [agentType: string]:
+      | string
+      | null
+      | undefined
+      | boolean
+      | number
+      | Record<string, string | null>;
   }>,
 ): string[] {
   const models: string[] = [];

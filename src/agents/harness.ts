@@ -16,6 +16,11 @@
  * Which harnesses a machine can launch only narrows what the setting offers and
  * which harness a spawn ends up using.
  *
+ * Model lists belong to the harness too (`listModels`): one interface method
+ * answers "what can this harness run" for the pi family's catalog and for a
+ * foreign CLI alike, so a settings menu enumerates harness rows instead of
+ * knowing each family's source.
+ *
  * Evolution rule: a new harness family is added by growing `HARNESS_IDS`, one
  * harness implementation, and — where that family needs them — a member on
  * `HarnessLaunchRequest` and a strict schema for its slice of the template's
@@ -42,6 +47,31 @@ export type HarnessId = (typeof HARNESS_IDS)[number];
 
 /** A template that omits `harness_type` launches under pi. */
 export const DEFAULT_HARNESS: HarnessId = "pi";
+
+/**
+ * The harnesses that run the pi binary behind the pane: one model catalog and
+ * one default model serve the whole family, so pig and pi-bolt are configured
+ * through pi's row rather than rows of their own.
+ */
+export const PI_FAMILY_HARNESS_IDS = ["pi", "pig", "pi-bolt"] as const;
+
+/** Whether this harness runs the pi binary (see PI_FAMILY_HARNESS_IDS). */
+export function isPiFamilyHarness(id: HarnessId): boolean {
+  return PI_FAMILY_HARNESS_IDS.some((family) => family === id);
+}
+
+/** How a harness's own settings row is labeled. */
+const HARNESS_DISPLAY_NAMES: Record<HarnessId, string> = {
+  pi: "Pi",
+  pig: "PiG",
+  "pi-bolt": "Pi-Bolt",
+  opencode: "OpenCode",
+};
+
+/** The display form of one harness, for the rows that configure it. */
+export function harnessDisplayName(id: HarnessId): string {
+  return HARNESS_DISPLAY_NAMES[id];
+}
 
 /** Narrow untrusted input (config, menu) to a canonical harness; invalid values fall back at the config boundary. */
 export function parseHarnessId(value: unknown): HarnessId | undefined {
@@ -145,6 +175,44 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
   readonly pi: ExtensionAPI;
 }
 
+/**
+ * One model a harness can run. `key` is the bare `"provider/model"` every layer
+ * stores and every CLI flag carries; `label` is the optional display form a
+ * picker shows in place of the key.
+ */
+export interface ModelEntry {
+  readonly key: string;
+  readonly label?: string;
+}
+
+/**
+ * The slice of pi's model registry a harness reads to list what it can run:
+ * which models are available, in the registry's own order. Structural, so the
+ * harness layer never imports pi's registry type — and it is deliberately the
+ * whole of what the pi family's list reads, nothing more.
+ */
+export interface ModelCatalog {
+  getAvailable(): readonly { readonly provider: string; readonly id: string }[];
+}
+
+/**
+ * What a harness's on-demand model list needs. The registry lives on the
+ * extension context (`ctx.modelRegistry`) rather than on the `ExtensionAPI`, so
+ * it is injected here instead of read from the shell.
+ */
+export interface HarnessListModelsRequest {
+  readonly pi: ExtensionAPI;
+  readonly modelCatalog: ModelCatalog;
+}
+
+/**
+ * Lists the models one harness can run. Never throws: a list that could not be
+ * produced is an empty one with a logged reason, so a menu always opens.
+ */
+export type HarnessListModels = (
+  request: HarnessListModelsRequest,
+) => Promise<readonly ModelEntry[]>;
+
 /** One harness implementation. */
 export interface Harness {
   readonly id: HarnessId;
@@ -173,4 +241,10 @@ export interface Harness {
    * probe — never invoked from synchronous code.
    */
   teardown(request: HarnessTeardownRequest): Promise<void>;
+  /**
+   * The models this harness can run, listed on demand — when a menu opens, and
+   * when the spawn wizard opens — rather than cached, because a catalog or a
+   * foreign CLI can change under a live session.
+   */
+  listModels(request: HarnessListModelsRequest): Promise<readonly ModelEntry[]>;
 }

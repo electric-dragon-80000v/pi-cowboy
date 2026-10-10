@@ -6,7 +6,7 @@
  */
 
 import type { Harness, HarnessId } from "../harness.js";
-import { buildPiLaunchArgs } from "./pi-compatible.js";
+import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
 import { opencodeHarness } from "./opencode.js";
@@ -14,13 +14,15 @@ import { opencodeHarness } from "./opencode.js";
 /**
  * Real pi is already the pane shell's `pi`: it is always launchable, and there
  * is nothing to prepare or tear down. Its argv is the family's shared
- * assembly — pi is the family's namesake.
+ * assembly — pi is the family's namesake — and its model list is the family's
+ * shared catalog.
  */
 const piHarness: Harness = {
   id: "pi",
   available: () => true,
   prepare: async () => {},
   buildArgs: buildPiLaunchArgs,
+  listModels: piFamilyListModels,
   teardown: async () => {},
 };
 

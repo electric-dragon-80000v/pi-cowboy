@@ -5,8 +5,9 @@
  *   1. sessionOverrides[subagentType]  (session per-type override)
  *   2. config.agent[subagentType]      (config per-type override)
  *   3. agentConfig?.model              (agent config / agent template)
- *   4. sessionOverrides["default"]     (session global default)
- *   5. config.agent["default"]         (config global default)
+ *   4. sessionOverrides["default"]     (session default)
+ *   5. the launching harness's default (pi's family: agent.default at any layer;
+ *      any other harness: agent.defaultModelByHarness[harness], session first)
  *   6. parentModelId                   (inherit from parent; null when the parent has no model)
  *
  * The tool's per-call `model` parameter sits above this chain: when set, the
@@ -14,7 +15,7 @@
  */
 
 import type { ThinkingLevel } from "../types.js";
-import type { HarnessId } from "../agents/harness.js";
+import { isPiFamilyHarness, type HarnessId } from "../agents/harness.js";
 import type { SystemPromptMode } from "../agents/types.js";
 import type {
   WorktreeCheckoutType,
@@ -52,7 +53,19 @@ export interface SubagentsConfig {
     worktreeCheckoutType?: WorktreeCheckoutType;
     /** Harness that agents launch under unless their template sets `harness_type`. Default: "pi". Global config only. */
     harnessType?: HarnessId;
-    [agentType: string]: string | null | undefined | boolean | number;
+    /**
+     * The default model per harness, keyed by harness id: the pi family reads
+     * `default` instead (one binary, one default), so only a non-pi harness has
+     * an entry. A missing or null entry means that harness has no default.
+     */
+    defaultModelByHarness?: Record<string, string | null>;
+    [agentType: string]:
+      | string
+      | null
+      | undefined
+      | boolean
+      | number
+      | Record<string, string | null>;
   };
   concurrency: {
     default: number;
@@ -71,6 +84,13 @@ interface ResolveModelOptions {
   subagentType: string;
   agentConfig?: { model?: string };
   config: Pick<SubagentsConfig, "agent">;
+  /**
+   * The launching harness's default, flattened across the layers that carry one
+   * (session over project over global). The caller flattens it because which
+   * harness launches — and therefore which key is read — is resolved the way
+   * the launch resolves it, post-availability-fallback.
+   */
+  harnessDefault: string | null;
   /** Null when the parent session has no model: nothing further to inherit. */
   parentModelId: string | null;
   sessionOverrides?: SessionModelOverrides;
@@ -80,9 +100,24 @@ type ModelSource =
   | "session-per-type"
   | "session-default"
   | "config-per-type"
-  | "config-default"
+  | "harness-default"
   | "agent-template"
   | "parent";
+
+/**
+ * The default model one harness's spawns use. The pi family runs one binary, so
+ * it reads the one default every layer already writes; any other harness reads
+ * its own key, and an absent or null entry means it has no default. The session
+ * layer sits above the merged file layers and is the caller's to apply.
+ */
+export function harnessDefaultModel(
+  agent: Pick<SubagentsConfig["agent"], "default" | "defaultModelByHarness">,
+  harnessId: HarnessId,
+): string | null {
+  if (isPiFamilyHarness(harnessId)) return agent.default ?? null;
+  const configured = agent.defaultModelByHarness?.[harnessId];
+  return isValidModelValue(configured) ? configured : null;
+}
 
 /**
  * Reports which chain position won, for callers that need the winning layer
@@ -94,8 +129,14 @@ export function resolveModelSource(options: ResolveModelOptions): {
   model: string | null;
   source: ModelSource;
 } {
-  const { subagentType, agentConfig, config, parentModelId, sessionOverrides } =
-    options;
+  const {
+    subagentType,
+    agentConfig,
+    config,
+    harnessDefault,
+    parentModelId,
+    sessionOverrides,
+  } = options;
 
   // Models are always strings; the index signature also admits the scalar keys.
   // A model pinned for this agent type (session, config, or template) beats
@@ -109,7 +150,7 @@ export function resolveModelSource(options: ResolveModelOptions): {
     ],
     ["agent-template", agentConfig?.model],
     ["session-default", sessionOverrides?.["default"]],
-    ["config-default", config.agent["default"]],
+    ["harness-default", harnessDefault],
   ];
   for (const [source, value] of candidates) {
     if (isValidModelValue(value)) return { model: value, source };

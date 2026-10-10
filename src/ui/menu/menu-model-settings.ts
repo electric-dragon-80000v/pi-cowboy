@@ -1,5 +1,6 @@
 /**
- * Model settings screen: global default row, per-type override rows, and clear entries.
+ * Model settings screen: pi's default row, one row per other harness's default,
+ * per-type override rows, and clear entries.
  *
  * buildModelSettingsScreen: the screen as a Component (a submenu returns a Component, so it runs inside the caller's screen).
  * buildModelOverridesRow: the topmost menu's "Model overrides" row hosting that screen in place.
@@ -16,9 +17,22 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
+import { resolveHarnessType } from "../../agents/spawn-defaults.js";
+import {
+  HARNESS_IDS,
+  harnessDisplayName,
+  isPiFamilyHarness,
+  type HarnessId,
+} from "../../agents/harness.js";
+import { harnessFor } from "../../agents/harness/registry.js";
 import type { Theme } from "../types.js";
 import { agentBulletPrefix } from "../format.js";
-import { getSessionCtx, getStore } from "../../shell.js";
+import {
+  getPiInstance,
+  getSessionCtx,
+  getStore,
+  getHarnessAvailability,
+} from "../../shell.js";
 import {
   buildModelGroups,
   hasExplicitPerTypeOverride,
@@ -26,8 +40,9 @@ import {
 } from "../../models/model-groups.js";
 import { findModelInRegistry } from "../../utils.js";
 import type { SessionModelOverrides } from "../../models/model-precedence.js";
+import { isProven, type Availability } from "../../availability.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { asSubmenuComponent } from "./screen-host.js";
+import { asSubmenuComponent, SwappableView } from "./screen-host.js";
 import {
   createClearAllSubmenu,
   type AvailableLevels,
@@ -156,6 +171,98 @@ function createModelOverridePlumbing(
   };
 }
 
+/**
+ * The non-pi harnesses that get a default-model row, in `HARNESS_IDS` order.
+ *
+ * A row needs the probe to have PROVEN the harness available, where the harness
+ * setting itself keeps every value on offer until a verdict lands: a row exists
+ * to list that harness's models, and only the harness can answer, so an unproven
+ * one would open a picker that could never fill.
+ *
+ * The pi family is absent by construction rather than by a second list: pig and
+ * pi-bolt run the pi binary, so they share pi's catalog and pi's default, and a
+ * row of their own could only disagree with the one above it.
+ */
+function harnessDefaultRowIds(
+  availability: Availability<HarnessId>,
+): HarnessId[] {
+  return HARNESS_IDS.filter(
+    (id) => !isPiFamilyHarness(id) && isProven(id, availability),
+  );
+}
+
+/** What one harness's default-model row needs from the screen hosting it. */
+interface HarnessDefaultRowOptions {
+  harnessId: HarnessId;
+  /** Model keys that harness's `listModels` answered. */
+  modelOptions: readonly string[];
+  ctx: ExtensionCommandContext;
+  store: ReturnType<typeof getStore>;
+  theme: Theme;
+  parentModelId: string | null;
+  /**
+   * Repaint the hosting list. Needed for inherit picks, which complete with no
+   * value (SettingsList only rebuilds on a DEFINED value, and the picked value
+   * is what the row shows).
+   */
+  refresh: () => void;
+}
+
+/**
+ * One harness's default model, below the pi row. The value and its layer tags
+ * read exactly like the pi row's, so the two rows differ only in which harness
+ * they configure and which list their picker offers.
+ */
+function buildHarnessDefaultRow(
+  options: HarnessDefaultRowOptions,
+): SettingItem {
+  const { harnessId, modelOptions, ctx, store, theme, parentModelId, refresh } =
+    options;
+  const label = `${harnessDisplayName(harnessId)} Default Model`;
+  const notify: Notify = (message, type) => ctx.ui.notify(message, type);
+  const sessionValue = store.hasSessionHarnessDefaultModel(harnessId);
+  const effective = store.defaultModelForHarness(harnessId);
+  const harnessLevels = {
+    session: sessionValue,
+    global: store.hasGlobalHarnessDefaultModel(harnessId),
+    project: store.hasProjectHarnessDefaultModel(harnessId),
+  };
+
+  return {
+    id: `harness:${harnessId}`,
+    label,
+    currentValue: defaultRowValue(
+      sessionValue ? effective : null,
+      effective,
+      harnessLevels.project,
+      parentModelId,
+    ),
+    description: `Model used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
+    submenu: createModelSelectSubmenu({
+      modelOptions: [...modelOptions],
+      showClear: true,
+      projectOffered: store.isProjectWritable,
+      theme,
+      currentModel: effective,
+      availableLevels: harnessLevels,
+      onSet: (target, model) => {
+        store.mutate.agent.setHarnessDefaultModel(harnessId, model, target);
+        notify(
+          model === null
+            ? `${label} inherits parent model`
+            : `${label} set to ${model} (${target})`,
+          "info",
+        );
+        if (model === null) refresh();
+      },
+      onClear: (target) => {
+        store.mutate.agent.clearHarnessDefaultModel(harnessId, target);
+        notify(`${label} cleared (${target})`, "info");
+      },
+    }),
+  };
+}
+
 /** What the "Model Settings" screen reads from the row hosting it. */
 interface ModelSettingsScreenOptions {
   /** Command context the screen reads its parent model and registry from. */
@@ -169,9 +276,82 @@ interface ModelSettingsScreenOptions {
   close: () => void;
 }
 
-/** The "Model Settings" screen as a Component a submenu can host in place. */
+/** Model keys per harness that gets a row, each listed when the screen opened. */
+type HarnessModelOptions = ReadonlyMap<HarnessId, readonly string[]>;
+
+/**
+ * The "Model Settings" screen as a Component a submenu can host in place.
+ *
+ * A non-pi harness's model list comes from that harness's own CLI, which
+ * answers asynchronously, so the screen opens on a holding body and swaps in
+ * the real one once the lists land. With no such harness there is nothing to
+ * wait for and the list is built directly.
+ */
 function buildModelSettingsScreen(
   options: ModelSettingsScreenOptions,
+): Component {
+  const { theme, close } = options;
+  const harnessIds = harnessDefaultRowIds(getHarnessAvailability());
+  if (harnessIds.length === 0) {
+    return asSubmenuComponent(
+      buildModelSettingsList(options, harnessIds, new Map()),
+    );
+  }
+
+  const holding = new SettingsList(
+    [
+      {
+        id: "loading",
+        label: "Loading models…",
+        currentValue: "",
+        description: "Reading the model lists the rows below offer.",
+      },
+    ],
+    1,
+    buildSettingsListTheme(theme),
+    () => {},
+    close,
+  );
+  const view = new SwappableView(
+    new SettingsListWrapper(holding, {
+      title: "Model Settings",
+      theme,
+      onCancel: close,
+    }),
+  );
+  void listHarnessModelOptions(options, harnessIds).then((lists) =>
+    view.activate(
+      asSubmenuComponent(buildModelSettingsList(options, harnessIds, lists)),
+    ),
+  );
+  // SwappableView owns its keys through the body showing, so it is hosted as it
+  // stands: wrapping it would pin `focused` and freeze that delegation.
+  return view;
+}
+
+/** Each row's own list, read on demand. A harness that fails answers empty. */
+async function listHarnessModelOptions(
+  options: ModelSettingsScreenOptions,
+  harnessIds: readonly HarnessId[],
+): Promise<HarnessModelOptions> {
+  const { ctx } = options;
+  const entries = await Promise.all(
+    harnessIds.map(async (id) => {
+      const models = await harnessFor(id).listModels({
+        pi: getPiInstance(),
+        modelCatalog: ctx.modelRegistry,
+      });
+      return [id, models.map((entry) => entry.key)] as const;
+    }),
+  );
+  return new Map(entries);
+}
+
+/** The framed screen, built once the model lists its rows offer are in hand. */
+function buildModelSettingsList(
+  options: ModelSettingsScreenOptions,
+  harnessIds: readonly HarnessId[],
+  harnessModelOptions: HarnessModelOptions,
 ): Component {
   const { ctx, store, theme, modelOptions, piDefaultThinking, close } = options;
   let rebuild: ((items: SettingItem[]) => void) | undefined;
@@ -206,7 +386,7 @@ function buildModelSettingsScreen(
 
     items.push({
       id: "defaultModel",
-      label: "Global default model",
+      label: "Pi Default Model",
       currentValue: globalDisplayValue,
       description:
         "Model used when no session default, per-type override, or agent-template model applies.",
@@ -217,6 +397,20 @@ function buildModelSettingsScreen(
         defaultLevels,
       ),
     });
+
+    for (const harnessId of harnessIds) {
+      items.push(
+        buildHarnessDefaultRow({
+          harnessId,
+          modelOptions: harnessModelOptions.get(harnessId) ?? [],
+          ctx,
+          store,
+          theme,
+          parentModelId,
+          refresh: () => rebuild?.(buildItems(theme)),
+        }),
+      );
+    }
 
     // One group per resolved model with a listed row, alphabetical by model id.
     const registry = session.modelRegistry;
@@ -237,6 +431,8 @@ function buildModelSettingsScreen(
       agentConfigs,
       config: agentConfigSnapshot,
       sessionOverrides,
+      harnessDefaultFor: (type) =>
+        store.defaultModelForHarness(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
       parentModelId,
       piDefaultThinking,
@@ -297,6 +493,7 @@ function buildModelSettingsScreen(
                   typeName,
                   parentModelId,
                   getAgentConfig(typeName),
+                  resolveHarnessType(typeName),
                 );
                 return modelSubmenuFor(
                   typeName,
@@ -398,7 +595,7 @@ export function buildModelOverridesRow(
     label: "Model overrides",
     currentValue: defaultDisplay(),
     description:
-      "Global default model plus per-type model overrides; opens the model settings screen.",
+      "Pi's default model plus per-harness and per-type model overrides; opens the model settings screen.",
     submenu: (_currentValue, done) =>
       buildModelSettingsScreen({
         ctx,
