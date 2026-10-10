@@ -1,3 +1,11 @@
+# [0.4.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.7...v0.4.0) (2026-10-10)
+
+
+### Features
+
+* **protocol:** include settled headline in blocking agent results ([bafd1b0](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bafd1b0601e5ca153995583229de8b98759d2014))
+* **subagent:** replace IPC with file deliverable and clean paths ([329a3d3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/329a3d3909efb3eeda0de90650a9d36ca7e26591))
+
 ## [0.3.7](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.6...v0.3.7) (2026-10-08)
 
 
