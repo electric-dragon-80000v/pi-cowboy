@@ -74,10 +74,9 @@ export interface CleanupDeps {
   /** Close a self-created placement. */
   closePane: (ref: AgentHostRef) => Promise<void>;
   /**
-   * Best-effort teardown of the harness state one ended run's pane was
-   * prepared with, ordered before any worktree dirty probe so harness-written
-   * files never hold a clean tree hostage to retention. The bound actuator
-   * resolves the recorded harness and supplies the pi instance.
+   * Teardown of the harness state one ended run's pane was prepared with —
+   * ordered before any worktree dirty probe, see Harness.teardown. The bound
+   * actuator resolves the recorded harness and supplies the pi instance.
    */
   harnessTeardown: (
     harness: HarnessId,

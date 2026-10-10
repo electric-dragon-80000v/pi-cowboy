@@ -527,7 +527,7 @@ export class SubagentSession {
       if (!this.isLaunching()) return;
       this.spawn.execution.host = ref;
       // Recorded before prepare: cleanup and a failed launch read it to tear
-      // this harness's pane state down, whatever the config says by then.
+      // this harness's pane state down, regardless of later config changes.
       this.spawn.execution.harness = plan.harness;
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({ pi, paneId: ref.paneId, cwd: plan.cwd });

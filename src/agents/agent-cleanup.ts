@@ -427,10 +427,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       );
     }
 
-    // Harness state must leave the checkout before the dirty probe reads it:
-    // a harness that embeds launch state in the worktree would hold a clean
-    // tree hostage to retention. Best-effort — a failed teardown is logged
-    // and never blocks or masks the cleanup sequence.
+    // Ordered before the dirty probe — see Harness.teardown.
     const harness = hint?.execution.harness;
     if (harness !== undefined) {
       try {
@@ -441,7 +438,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
         });
       } catch (err: unknown) {
         log.warn("harness teardown failed during cleanup", {
-          agentId,
+          spawnId: agentId,
           harness,
           error: errorMessage(err),
         });

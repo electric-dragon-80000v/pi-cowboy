@@ -209,7 +209,7 @@ export interface SubagentLaunchPlan {
    * herdr's single-line shell encoder.
    */
   systemPromptFile?: string;
-  /** The complete argv the pane runs (task included — the harness decides how it rides). */
+  /** Legacy name: the complete argv the harness built, whatever binary it launches — the supervisor and herdr seams both spell it `piArgs`. */
   piArgs: string[];
 
   resultFile?: string;

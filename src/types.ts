@@ -293,7 +293,7 @@ export interface AgentExecutionState {
    * The harness that owns this run's pane state, recorded before prepare runs.
    * Absent means the run never reached its launch plan, so there is no harness
    * state to tear down. Cleanup reads it so the harness that prepared a pane
-   * is the one that tears it down, whatever the config says by then.
+   * is the one that tears it down, regardless of later config changes.
    */
   harness?: HarnessId;
   /** Opened exactly once at the terminal transition; never the run's own promise. */

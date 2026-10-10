@@ -314,9 +314,9 @@ export class AgentManager {
     // The first teardown's verdict is the answer for every clear that arrives
     // while it runs; a second removal of the same checkout would race the first.
     if (this.teardowns.has(id)) return { kind: "refused", reason: "in-flight" };
-    // Claimed in the same turn as the check — before the removal's first await
-    // (the harness teardown below) — so a clear that arrives while one runs
-    // still reads the claim instead of racing the removal it would duplicate.
+    // Claimed in the same turn as the check: the invoked removal runs only
+    // its synchronous prefix and returns a pending promise, so a clear
+    // arriving while one runs still reads the claim instead of duplicating it.
     const removal = this.runClearRemoval(spawn);
     this.teardowns.set(id, removal);
     try {
@@ -430,11 +430,9 @@ export class AgentManager {
   }
 
   /**
-   * Best-effort teardown of the harness state a run's pane was prepared
-   * with, before the run's checkout is probed or removed. Uses the harness
-   * recorded at launch, never a re-resolution — the harness that prepared
-   * the pane is the one that undoes its state. A failure is logged and
-   * never blocks the removal that follows.
+   * Tear down the harness recorded at launch — never a re-resolution: the
+   * harness that prepared the pane is the one that undoes its state.
+   * Best-effort and ordered before the dirty probe — see Harness.teardown.
    */
   private async teardownHarnessState(spawn: AgentSpawn): Promise<void> {
     const harnessId = spawn.execution.harness;

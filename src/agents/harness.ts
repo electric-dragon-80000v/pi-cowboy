@@ -83,7 +83,7 @@ export type SkillLaunchMode = { kind: "default" } | { kind: "none" };
  * never an absent field. The subagent token is not among them: it is a pure
  * function of the subagent id (`subagentTokenFor`), so a harness derives it
  * rather than receives it — two fields where one derives from the other can
- * only ever be redundant or wrong.
+ * only be redundant or wrong.
  */
 export interface SubagentLaunchInputs {
   readonly subagentId: string;
