@@ -29,7 +29,10 @@ import {
   syncExtensionIndicator,
 } from "./extension-toggle.js";
 import { getHarnessAvailability, getPiInstance, getStore } from "./shell.js";
-import { listHarnessModels } from "./agents/harness/registry.js";
+import {
+  listHarnessModelOptions,
+  type HarnessModelOptions,
+} from "./agents/harness/registry.js";
 
 /** The one place a tool name is spelled; the tools below are named from these. */
 export const COWBOY_TOOLS = {
@@ -218,18 +221,18 @@ export function registerTools(pi: ExtensionAPI): void {
 }
 
 /**
- * The model keys a spawn can be given, straight from the harnesses: each
- * launchable one lists what it can run from the catalogue this session holds.
+ * The models a spawn can be given, one list per harness this machine can run,
+ * read once when the menu tree opens. Every picker under the menu selects the
+ * list of the harness it configures, so no picker can offer another's models.
  */
-async function subagentModelOptions(
+async function harnessModelOptions(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
-): Promise<string[]> {
-  const models = await listHarnessModels(
+): Promise<HarnessModelOptions> {
+  return await listHarnessModelOptions(
     { pi, modelCatalog: ctx.modelRegistry },
     getHarnessAvailability(),
   );
-  return models.map((entry) => entry.key);
 }
 
 /** The one place the command name is spelled. */
@@ -311,7 +314,7 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
         await showAgentsActionMenu(
           ctx,
           subcommand,
-          await subagentModelOptions(pi, ctx),
+          await harnessModelOptions(pi, ctx),
         );
         return;
       }
@@ -323,7 +326,7 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
         return;
       }
       const { showAgentsMainMenu } = await import("./ui/menu/menus.js");
-      await showAgentsMainMenu(ctx, await subagentModelOptions(pi, ctx));
+      await showAgentsMainMenu(ctx, await harnessModelOptions(pi, ctx));
     },
   });
 }

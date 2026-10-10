@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
 import { registerOrchestrators } from "../../src/orchestrators/orchestrator-types.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
 import { DEFAULT_ORCHESTRATORS } from "../../src/orchestrators/default-orchestrators.js";
 import { showExtensionIndicator } from "../../src/ui/indicator.js";
 import { probed } from "../../src/availability.js";
@@ -39,7 +40,9 @@ vi.mock("../../src/pi-settings.js", () => ({
 const { showAgentsMainMenu } = await import("../../src/ui/menu/menus.js");
 
 /** Three models so the picker always offers more than the current value. */
-const MODEL_OPTIONS = ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"];
+const MODEL_OPTIONS: HarnessModelOptions = new Map([
+  ["pi", ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"]],
+]);
 
 let memory: MemoryStore;
 

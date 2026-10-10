@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
 import { registerOrchestrators } from "../../src/orchestrators/orchestrator-types.js";
 import { DEFAULT_ORCHESTRATORS } from "../../src/orchestrators/default-orchestrators.js";
 import type { OrchestratorConfig } from "../../src/orchestrators/types.js";
@@ -16,10 +17,12 @@ import {
   SPAWN_ID_ALPHABET,
   SPAWN_ID_LENGTH,
 } from "../../src/spawn/spawn-id.js";
+import { probed } from "../../src/availability.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import {
   resetShell,
   setCoordinator,
+  setHarnessAvailability,
   setManager,
   setPi,
   setRuntime,
@@ -49,7 +52,11 @@ const AVAILABLE_MODELS = [
   reasoningModel("openai", "gpt-4"),
   plainModel("openai", "gpt-3"),
 ];
-const MODEL_OPTIONS = ["openai/gpt-4", "openai/gpt-3", "anthropic/claude-3"];
+const PI_MODELS = ["openai/gpt-4", "openai/gpt-3", "anthropic/claude-3"];
+const OPENCODE_MODELS = ["anthropic/claude-opus-4", "google/gemini-2"];
+
+/** The per-harness structure registration hands the wizard; setup() resets it. */
+let harnessModelOptions: HarnessModelOptions;
 
 const GIT_WORKTREES = [
   "worktree /repo",
@@ -169,13 +176,15 @@ function setup(options: SetupOptions = {}): void {
   allocateMock.mockResolvedValue(
     fakeSandbox("/repo/.worktrees/cow-my-thing", "cow-my-thing"),
   );
+  harnessModelOptions = new Map([["pi", PI_MODELS]]);
 }
 
 const WIDE = 120;
 
 function openWizard(): MenuSession {
   return openMenu(
-    (ctx: ExtensionCommandContext) => showSpawnAgentMenu(ctx, MODEL_OPTIONS),
+    (ctx: ExtensionCommandContext) =>
+      showSpawnAgentMenu(ctx, harnessModelOptions),
     WIDE,
   );
 }
@@ -644,6 +653,63 @@ describe("Spawn wizard — model and thinking level", () => {
     );
 
     expect(spawnCalls[0]!.args.thinkingLevel).toBe("off");
+  });
+});
+
+describe("Spawn wizard — the Model row follows the selected type's harness", () => {
+  /** An agent type whose template names opencode. */
+  function registerOpencodeType(): void {
+    registerAgents(
+      new Map([
+        [
+          "auditor",
+          {
+            name: "auditor",
+            displayName: "Auditor",
+            description: "Audits a change",
+            systemPrompt: "",
+            harnessType: "opencode",
+          },
+        ],
+      ]),
+    );
+  }
+
+  it("offers opencode's keys when the type resolves to opencode", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    session.open("Model");
+    await session.settle();
+    session.open("Session");
+    await session.settle();
+
+    expect(session.text()).toContain("claude-opus-4 [anthropic]");
+    expect(session.text()).toContain("gemini-2 [google]");
+    expect(session.text()).not.toContain("claude-3 [anthropic]");
+  });
+
+  it("falls back to pi's keys when the type's harness cannot launch", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi"]));
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    session.open("Model");
+    await session.settle();
+    session.open("Session");
+    await session.settle();
+
+    expect(session.text()).toContain("claude-3 [anthropic]");
+    expect(session.text()).not.toContain("claude-opus-4");
   });
 });
 

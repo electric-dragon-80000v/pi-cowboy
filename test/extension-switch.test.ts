@@ -482,9 +482,16 @@ describe("/cowboy dispatch", () => {
 
       await captureCommand().handler(subcommand, ctx);
 
-      expect(menus.showAgentsActionMenu).toHaveBeenCalledWith(ctx, subcommand, [
-        "anthropic/claude",
+      const list = new Map([
+        ["pi", ["anthropic/claude"]],
+        ["pig", ["anthropic/claude"]],
+        ["pi-bolt", ["anthropic/claude"]],
       ]);
+      expect(menus.showAgentsActionMenu).toHaveBeenCalledWith(
+        ctx,
+        subcommand,
+        list,
+      );
       expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
       expect(notify).not.toHaveBeenCalled();
     },
@@ -590,7 +597,14 @@ describe("/cowboy dispatch", () => {
 
     await captureCommand().handler("", ctx);
 
-    expect(menus.showAgentsMainMenu).toHaveBeenCalledWith(ctx, ["openai/gpt"]);
+    expect(menus.showAgentsMainMenu).toHaveBeenCalledWith(
+      ctx,
+      new Map([
+        ["pi", ["openai/gpt"]],
+        ["pig", ["openai/gpt"]],
+        ["pi-bolt", ["openai/gpt"]],
+      ]),
+    );
     expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
   });
 

@@ -26,6 +26,7 @@ import {
   resolveHarnessType,
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
+import type { HarnessModelOptions } from "../../agents/harness/registry.js";
 import { findModelInRegistry } from "../../utils.js";
 import { agentBulletPrefix } from "../format.js";
 import {
@@ -43,6 +44,8 @@ import {
   actionReport,
   buildSettingsListTheme,
   buildSelectListTheme,
+  extractConfiguredModels,
+  mergedModelsForHarness,
   withVimKeys,
 } from "./helpers.js";
 import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
@@ -127,7 +130,7 @@ function createThinkingLevelSubmenu(
 /** Multi-step spawn wizard: options → worktree name (when new) → prompt → spawn. */
 export async function showSpawnAgentMenu(
   ctx: ExtensionCommandContext,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
   const types = getAvailableTypes();
   if (types.length === 0) {
@@ -179,6 +182,9 @@ export async function showSpawnAgentMenu(
   };
 
   const buildItems = (): SettingItem[] => {
+    // The harness the selected type's spawn will launch under, so the Model
+    // row offers exactly the list that launch would use.
+    const selectedHarness = resolveHarnessType(selectedType);
     // Empty when the whole chain is unset and the parent has no model either.
     const displayModel = currentModelStr || "(no model)";
     const items: SettingItem[] = [
@@ -257,7 +263,11 @@ export async function showSpawnAgentMenu(
         currentValue: displayModel,
         description: "Override the default model for this agent",
         submenu: createModelSelectSubmenu({
-          modelOptions,
+          modelOptions: harnessModelOptions.get(selectedHarness) ?? [],
+          mergedModels: mergedModelsForHarness(
+            selectedHarness,
+            extractConfiguredModels(store.agentConfigSnapshot()),
+          ),
           showClear: false,
           projectOffered: store.isProjectWritable,
           theme,

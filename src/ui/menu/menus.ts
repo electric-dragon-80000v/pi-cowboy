@@ -13,6 +13,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
 import { setExtensionEnabled } from "../../registration.js";
+import type { HarnessModelOptions } from "../../agents/harness/registry.js";
 import { setShowActiveIndicator } from "../../extension-toggle.js";
 import { getPiDefaultThinkingLevel } from "../../pi-settings.js";
 import { buildSettingsListTheme, type Notify } from "./helpers.js";
@@ -101,14 +102,14 @@ async function showSettingsList(
 
 export async function showSettingsMenu(
   ctx: ExtensionCommandContext,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
   while (true) {
     const action = await showSettingsList(ctx);
     if (action === undefined) return;
     switch (action) {
       case "concurrency":
-        await showConcurrencySettingsMenu(ctx, modelOptions);
+        await showConcurrencySettingsMenu(ctx, harnessModelOptions);
         break;
       case "spawnoptions":
         await showSpawnOptionsMenu(ctx);
@@ -130,17 +131,17 @@ type AgentsMainAction = "status" | "spawn" | "settings";
 export async function showAgentsActionMenu(
   ctx: ExtensionCommandContext,
   action: AgentsMainAction,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
   switch (action) {
     case "status":
       await showAgentStatusMenu(ctx);
       break;
     case "spawn":
-      await showSpawnAgentMenu(ctx, modelOptions);
+      await showSpawnAgentMenu(ctx, harnessModelOptions);
       break;
     case "settings":
-      await showSettingsMenu(ctx, modelOptions);
+      await showSettingsMenu(ctx, harnessModelOptions);
       break;
   }
 }
@@ -167,7 +168,7 @@ function handOffRow<A extends string>(
 /** Topmost menu. Resolves with the action to run, or undefined on cancel. */
 async function showAgentsMainList(
   ctx: ExtensionCommandContext,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<AgentsMainAction | undefined> {
   // Resolved once here because the model screen's submenu factory is synchronous.
   const piDefaultThinking = await getPiDefaultThinkingLevel(ctx.cwd);
@@ -197,7 +198,7 @@ async function showAgentsMainList(
             ctx,
             store,
             theme,
-            modelOptions,
+            harnessModelOptions,
             piDefaultThinking,
           }),
           buildDefaultOrchestratorRow({ store, theme, notify }),
@@ -260,11 +261,11 @@ async function showAgentsMainList(
 
 export async function showAgentsMainMenu(
   ctx: ExtensionCommandContext,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
   while (true) {
-    const action = await showAgentsMainList(ctx, modelOptions);
+    const action = await showAgentsMainList(ctx, harnessModelOptions);
     if (action === undefined) return;
-    await showAgentsActionMenu(ctx, action, modelOptions);
+    await showAgentsActionMenu(ctx, action, harnessModelOptions);
   }
 }

@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setPi } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
@@ -21,7 +22,10 @@ vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
 const { showConcurrencySettingsMenu } =
   await import("../../src/ui/menu/menu-concurrency.js");
 
-const MODEL_OPTIONS = ["anthropic/claude-3", "openai/gpt-4"];
+const MODEL_OPTIONS: HarnessModelOptions = new Map([
+  ["pi", ["anthropic/claude-3", "openai/gpt-4"]],
+  ["opencode", ["google/gemini-2"]],
+]);
 
 function openConcurrency(width = 80): MenuSession {
   return openMenu(
@@ -408,6 +412,19 @@ describe("Concurrency Settings — every fresh row renders", () => {
       await walk(session, traversal.steps, memory.store, traversal.name);
     });
   }
+});
+
+describe("Concurrency Settings — the merged model list", () => {
+  it("offers every harness's models, so a slot can cover a model of any", () => {
+    const session = openConcurrency(120);
+    session.open("Add per-model limit...");
+
+    // The one surface that keeps the merged list: slots key on the model key,
+    // not on the harness that would launch it.
+    expect(session.text()).toContain("claude-3 [anthropic]");
+    expect(session.text()).toContain("gpt-4 [openai]");
+    expect(session.text()).toContain("gemini-2 [google]");
+  });
 });
 
 describe("Concurrency Settings — keyboard navigation", () => {

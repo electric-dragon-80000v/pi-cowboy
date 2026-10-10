@@ -14,6 +14,7 @@ import {
   type SelectOption,
 } from "../searchable-select.js";
 import { parseModelKey } from "../../utils.js";
+import { isPiFamilyHarness, type HarnessId } from "../../agents/harness.js";
 import { SwappableView, type NavigableList } from "./screen-host.js";
 
 export { actionReport } from "../action-report.js";
@@ -119,12 +120,16 @@ export function installSeparatorSkip<T extends NavigableItem>(
 }
 /**
  * SelectOptions from "provider/model-id" strings, inherit row first.
- * With currentModel/configuredModels: current, then configured, then the rest.
+ * With currentModel/mergedModels: current, then merged, then the rest.
+ *
+ * `mergedModels` is the picker's own offering beside its harness's list — pi's
+ * configured models, on pi's rows. It is required so every caller states what
+ * it merges; a row that has nothing to merge passes an empty list.
  */
 export function buildModelOptions(
-  rawOptions: string[],
-  currentModel?: string | null,
-  configuredModels?: string[],
+  rawOptions: readonly string[],
+  currentModel: string | null,
+  mergedModels: readonly string[],
 ): SelectOption[] {
   const items: SelectOption[] = [
     { value: null, label: "(inherits parent)", provider: "" },
@@ -141,13 +146,13 @@ export function buildModelOptions(
     });
   }
 
-  if (!currentModel && !configuredModels) {
+  if (currentModel === null && mergedModels.length === 0) {
     items.push(...parsed);
     return items;
   }
 
   const current: SelectOption[] = [];
-  const configured: SelectOption[] = [];
+  const merged: SelectOption[] = [];
   const remaining: SelectOption[] = [];
 
   const added = new Set<string>();
@@ -164,11 +169,11 @@ export function buildModelOptions(
     }
   }
 
-  for (const modelId of configuredModels ?? []) {
+  for (const modelId of mergedModels) {
     if (added.has(modelId)) continue;
     const parsedKey = parseModelKey(modelId);
     if (parsedKey) {
-      configured.push({
+      merged.push({
         value: modelId,
         label: parsedKey.modelId,
         provider: parsedKey.provider,
@@ -183,7 +188,7 @@ export function buildModelOptions(
     }
   }
 
-  items.push(...current, ...configured, ...remaining);
+  items.push(...current, ...merged, ...remaining);
   return items;
 }
 
@@ -213,6 +218,19 @@ export function extractConfiguredModels(
   }
 
   return [...new Set(models)];
+}
+
+/**
+ * The configured keys a picker may merge ahead of its harness's list. Only pi's
+ * own rows do: the pi family shares pi's configuration and pi's catalog, while
+ * every other harness's list is the whole offering, so its picker must show no
+ * key that harness would not launch.
+ */
+export function mergedModelsForHarness(
+  harnessId: HarnessId,
+  configuredModels: readonly string[],
+): readonly string[] {
+  return isPiFamilyHarness(harnessId) ? configuredModels : [];
 }
 
 /** Build a SettingsListTheme from a pi-coding-agent Theme. */

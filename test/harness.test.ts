@@ -29,7 +29,8 @@ import {
 } from "../src/agents/harness.js";
 import {
   harnessFor,
-  listHarnessModels,
+  listHarnessModelOptions,
+  mergeHarnessModelOptions,
 } from "../src/agents/harness/registry.js";
 import { probed, unprobed } from "../src/availability.js";
 
@@ -515,7 +516,7 @@ describe("listModels", () => {
   });
 });
 
-describe("listHarnessModels", () => {
+describe("listHarnessModelOptions", () => {
   /** A pi registry: the catalog the pi family's list reads. */
   const CATALOG = {
     getAvailable: () => [
@@ -533,8 +534,8 @@ describe("listHarnessModels", () => {
     }));
   }
 
-  it("merges every runnable harness's models, once per key, in vocabulary order", async () => {
-    const entries = await listHarnessModels(
+  it("keeps one list per runnable harness, each key under its own harness", async () => {
+    const lists = await listHarnessModelOptions(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -542,7 +543,25 @@ describe("listHarnessModels", () => {
       probed(["pi", "opencode"]),
     );
 
-    expect(entries.map((entry) => entry.key)).toEqual([
+    expect([...lists.keys()]).toEqual(["pi", "pig", "pi-bolt", "opencode"]);
+    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
+    expect(lists.get("pig")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
+    expect(lists.get("opencode")).toEqual([
+      "anthropic/claude-opus-4",
+      "openai/gpt-4o",
+    ]);
+  });
+
+  it("merges the per-harness lists once per key, in vocabulary order", async () => {
+    const lists = await listHarnessModelOptions(
+      {
+        pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
+      probed(["pi", "opencode"]),
+    );
+
+    expect(mergeHarnessModelOptions(lists)).toEqual([
       "anthropic/claude-3",
       "openai/gpt-4o",
       "anthropic/claude-opus-4",
@@ -552,41 +571,35 @@ describe("listHarnessModels", () => {
   it("asks only the harnesses this machine can run", async () => {
     const exec = opencodeExec();
 
-    const entries = await listHarnessModels(
+    const lists = await listHarnessModelOptions(
       { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
       probed(["pi"]),
     );
 
-    expect(entries.map((entry) => entry.key)).toEqual([
-      "anthropic/claude-3",
-      "openai/gpt-4o",
-    ]);
+    expect([...lists.keys()]).toEqual(["pi", "pig", "pi-bolt"]);
     expect(exec).not.toHaveBeenCalled();
   });
 
   it("answers from pi before any probe has landed", async () => {
     const exec = opencodeExec();
 
-    const entries = await listHarnessModels(
+    const lists = await listHarnessModelOptions(
       { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
       unprobed(),
     );
 
-    expect(entries.map((entry) => entry.key)).toEqual([
-      "anthropic/claude-3",
-      "openai/gpt-4o",
-    ]);
+    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
     expect(exec).not.toHaveBeenCalled();
   });
 
-  it("resolves the other lists when one harness cannot answer", async () => {
+  it("resolves every other list when one harness cannot answer", async () => {
     const throwing = {
       getAvailable: () => {
         throw new Error("catalog unavailable");
       },
     };
 
-    const entries = await listHarnessModels(
+    const lists = await listHarnessModelOptions(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: throwing,
@@ -594,10 +607,27 @@ describe("listHarnessModels", () => {
       probed(["pi", "opencode"]),
     );
 
-    expect(entries.map((entry) => entry.key)).toEqual([
+    // The failing harness keeps its own empty list; opencode's is untouched.
+    expect(lists.get("pi")).toEqual([]);
+    expect(lists.get("opencode")).toEqual([
       "anthropic/claude-opus-4",
       "openai/gpt-4o",
     ]);
+  });
+
+  it("gives a harness whose CLI fails an empty list of its own", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const lists = await listHarnessModelOptions(
+      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      probed(["pi", "opencode"]),
+    );
+
+    expect(lists.get("opencode")).toEqual([]);
+    // The failure costs opencode's list alone; pi's catalog is still offered.
+    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
+    warn.mockRestore();
   });
 });
 

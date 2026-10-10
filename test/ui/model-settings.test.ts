@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
 import type { ConfigStore } from "../../src/config/config-store.js";
 import { probed, unprobed } from "../../src/availability.js";
 import type { ThinkingLevel } from "../../src/types.js";
@@ -35,7 +36,10 @@ vi.mock("../../src/pi-settings.js", () => ({
 const { showAgentsMainMenu } = await import("../../src/ui/menu/menus.js");
 
 /** Three models, so the picker always has more than the current value. */
-const MODEL_OPTIONS = ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"];
+const PI_MODELS = ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"];
+
+/** The per-harness structure registration hands the menu; one entry per runnable harness. */
+let harnessModelOptions: HarnessModelOptions;
 
 const REGISTRY = registryOver([
   reasoningModel("anthropic", "claude-3"),
@@ -63,7 +67,8 @@ function installStore(options: SetupOptions = {}): void {
 /** Reach the screen the way a user does: topmost menu → "Model overrides" row. */
 async function openModelSettings(width = 100): Promise<MenuSession> {
   const session = openMenu(
-    (ctx: ExtensionCommandContext) => showAgentsMainMenu(ctx, MODEL_OPTIONS),
+    (ctx: ExtensionCommandContext) =>
+      showAgentsMainMenu(ctx, harnessModelOptions),
     width,
   );
   await session.whenScreens(1);
@@ -98,6 +103,7 @@ beforeEach(() => {
     model: undefined,
     modelRegistry: REGISTRY,
   } as unknown as Parameters<typeof setSession>[0]);
+  harnessModelOptions = new Map([["pi", PI_MODELS]]);
 });
 
 describe("Model Settings — structure on a fresh config", () => {
@@ -490,19 +496,16 @@ describe("Model Settings — clear all overrides", () => {
 });
 
 describe("Model Settings — per-harness default rows", () => {
-  /** A plausible `opencode models`: one bare key per line, with a comment line. */
-  const OPENCODE_MODELS = [
-    "# Models available to opencode",
-    "anthropic/claude-opus-4",
-    "openai/gpt-4o",
-  ].join("\n");
+  /** The model keys opencode's own list answered for this machine. */
+  const OPENCODE_MODELS = ["anthropic/claude-opus-4", "openai/gpt-4o"];
 
-  /** This machine has opencode, and its CLI answers for itself. */
+  /** This machine has opencode, and its list is that harness's own. */
   function installOpencode(): void {
     setHarnessAvailability(probed(["pi", "opencode"]));
-    setPi({
-      exec: async () => ({ code: 0, stdout: OPENCODE_MODELS, stderr: "" }),
-    });
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
   }
 
   /** The raw agent slice of the last write, for asserting the persisted shape. */
@@ -684,6 +687,178 @@ describe("Model Settings — per-harness default rows", () => {
   });
 });
 
+describe("Model Settings — a picker offers only its harness's models", () => {
+  const OPENCODE_MODELS = ["anthropic/claude-opus-4", "openai/gpt-4o"];
+  const CONFIGURED = {
+    agent: {
+      default: "openai/gpt-4-configured",
+      auditor: "anthropic/claude-3-configured",
+    },
+  };
+
+  function installOpencode(): void {
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
+  }
+
+  it("keeps pi's configured models out of the OpenCode picker", async () => {
+    installStore({ global: CONFIGURED });
+    installOpencode();
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "OpenCode Default Model" },
+        { open: "Global" },
+        {
+          expect: {
+            // Only opencode's own list: neither pi's catalog nor pi's config.
+            shows: ["claude-opus-4 [anthropic]", "gpt-4o [openai]"],
+            hides: [
+              "claude-3 [anthropic]",
+              "gpt-4-configured",
+              "claude-3-configured",
+            ],
+          },
+        },
+      ],
+      memory.store,
+      "opencode picker excludes pi",
+    );
+  });
+
+  it("still merges pi's configured models into the Pi Default Model picker", async () => {
+    installStore({ global: CONFIGURED });
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "Pi Default Model" },
+        { open: "Global" },
+        {
+          expect: {
+            shows: [
+              "claude-3 [anthropic]",
+              "gpt-4o [openai]",
+              "gpt-4-configured [openai]",
+              "claude-3-configured [anthropic]",
+            ],
+          },
+        },
+      ],
+      memory.store,
+      "pi picker keeps its config",
+    );
+  });
+
+  it("offers nothing under the OpenCode row when its list is empty", async () => {
+    // An empty harness entry is what a failed `opencode models` leaves behind.
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", []],
+    ]);
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "OpenCode Default Model" },
+        { open: "Global" },
+        {
+          expect: {
+            shows: ["(inherits parent)"],
+            hides: [
+              "claude-3 [anthropic]",
+              "gpt-4 [openai]",
+              "gpt-4o [openai]",
+            ],
+          },
+        },
+      ],
+      memory.store,
+      "empty opencode offering",
+    );
+  });
+});
+
+describe("Model Settings — a per-type row follows its resolved harness", () => {
+  const OPENCODE_MODELS = ["anthropic/claude-opus-4", "openai/gpt-4o"];
+
+  /** An agent type whose template names opencode. */
+  function registerOpencodeType(): void {
+    registerAgents(
+      new Map([
+        [
+          "auditor",
+          {
+            name: "auditor",
+            displayName: "Auditor",
+            description: "Audits a change",
+            systemPrompt: "",
+            harnessType: "opencode",
+          },
+        ],
+      ]),
+    );
+  }
+
+  it("offers opencode's keys when the type resolves to opencode", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
+    installStore({ global: { agent: { auditor: "openai/gpt-4" } } });
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "• auditor" },
+        { open: "Global" },
+        {
+          expect: {
+            shows: ["claude-opus-4 [anthropic]", "gpt-4o [openai]"],
+            hides: ["claude-3 [anthropic]"],
+          },
+        },
+      ],
+      memory.store,
+      "type resolving to opencode",
+    );
+  });
+
+  it("falls back to pi's keys when opencode cannot launch", async () => {
+    registerOpencodeType();
+    // The default beforeEach: opencode is unproven, so the type resolves to pi.
+    installStore({ global: { agent: { auditor: "openai/gpt-4" } } });
+    const session = await openModelSettings();
+
+    await walk(
+      session,
+      [
+        { open: "• auditor" },
+        { open: "Global" },
+        {
+          expect: {
+            shows: ["claude-3 [anthropic]", "gpt-4o [openai]"],
+            hides: ["claude-opus-4"],
+          },
+        },
+      ],
+      memory.store,
+      "type falling back to pi",
+    );
+  });
+});
+
 describe("Model Settings — keyboard navigation", () => {
   it("skips the group header above the first listed type and the rule row", async () => {
     installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
@@ -704,10 +879,12 @@ describe("Model Settings — keyboard navigation", () => {
 });
 
 describe("Model Settings — keys reach the focused control", () => {
-  /** The openModelSettings path with its own option list (one id carries a vim key). */
-  async function openWith(options: string[]): Promise<MenuSession> {
+  /** The openModelSettings path with its own pi list (one id carries a vim key). */
+  async function openWith(models: readonly string[]): Promise<MenuSession> {
+    harnessModelOptions = new Map([["pi", models]]);
     const session = openMenu(
-      (ctx: ExtensionCommandContext) => showAgentsMainMenu(ctx, options),
+      (ctx: ExtensionCommandContext) =>
+        showAgentsMainMenu(ctx, harnessModelOptions),
       100,
     );
     await session.whenScreens(1);
@@ -718,7 +895,7 @@ describe("Model Settings — keys reach the focused control", () => {
 
   it("types a filter letter into the model search instead of moving its cursor", async () => {
     installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
-    const session = await openWith([...MODEL_OPTIONS, "openai/gpt-4j"]);
+    const session = await openWith([...PI_MODELS, "openai/gpt-4j"]);
 
     session.focus("• auditor");
     session.press(KEY.enter);

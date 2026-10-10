@@ -24,11 +24,10 @@ import {
   runnableHarnessIds,
   type HarnessId,
 } from "../../agents/harness.js";
-import { harnessFor } from "../../agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../agents/harness/registry.js";
 import type { Theme } from "../types.js";
 import { agentBulletPrefix } from "../format.js";
 import {
-  getPiInstance,
   getSessionCtx,
   getStore,
   getHarnessAvailability,
@@ -42,7 +41,7 @@ import { findModelInRegistry } from "../../utils.js";
 import type { SessionModelOverrides } from "../../models/model-precedence.js";
 import type { Availability } from "../../availability.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { asSubmenuComponent, SwappableView } from "./screen-host.js";
+import { asSubmenuComponent } from "./screen-host.js";
 import {
   createClearAllSubmenu,
   type AvailableLevels,
@@ -53,7 +52,9 @@ import {
   SEPARATOR_ID,
   buildSettingsListTheme,
   createSearchableSelect,
+  extractConfiguredModels,
   headerItem,
+  mergedModelsForHarness,
   type Notify,
   type SubmenuFactory,
 } from "./helpers.js";
@@ -77,9 +78,14 @@ function defaultRowValue(
 
 /** Per-render plumbing shared by every row: the target+model submenu factory plus per-key layer availability. */
 interface ModelOverridePlumbing {
-  /** Target + model picker submenu for one config key. */
+  /**
+   * Target + model picker submenu for one config key. `harnessId` names the
+   * harness the row's spawn launches under, so the picker offers that harness's
+   * list and, on pi's own rows, pi's configured models.
+   */
   modelSubmenuFor: (
     typeName: string,
+    harnessId: HarnessId,
     effectiveModel: string | null,
     showClear: boolean,
     availableLevels?: AvailableLevels,
@@ -92,7 +98,8 @@ interface ModelOverridePlumbing {
 interface ModelOverrideRowOptions {
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  modelOptions: string[];
+  /** Each harness's own list, read once when the menu tree opened. */
+  harnessModelOptions: HarnessModelOptions;
   notify: Notify;
   /**
    * Repaint the hosting list. Needed for inherit picks, which complete with no value
@@ -104,8 +111,9 @@ interface ModelOverrideRowOptions {
 function createModelOverridePlumbing(
   options: ModelOverrideRowOptions,
 ): ModelOverridePlumbing {
-  const { store, theme, modelOptions, notify, refresh } = options;
+  const { store, theme, harnessModelOptions, notify, refresh } = options;
   const projectOffered = store.isProjectWritable;
+  const configuredModels = extractConfiguredModels(store.agentConfigSnapshot());
 
   // Inherit picks null, which clears the key at the picked layer (ADR-0008 delete semantics).
   const modelOverrideOnSelect =
@@ -139,11 +147,20 @@ function createModelOverridePlumbing(
   return {
     // availableLevels filters the nested clear picker (the default and per-type
     // rows pass the levels where the key exists); set entries are never filtered.
-    modelSubmenuFor: (typeName, effectiveModel, showClear, availableLevels) => {
+    modelSubmenuFor: (
+      typeName,
+      harnessId,
+      effectiveModel,
+      showClear,
+      availableLevels,
+    ) => {
+      const modelOptions = harnessModelOptions.get(harnessId) ?? [];
+      const mergedModels = mergedModelsForHarness(harnessId, configuredModels);
       const onSet = modelOverrideOnSelect(typeName, typeName);
       if (showClear) {
         return createModelSelectSubmenu({
           modelOptions,
+          mergedModels,
           showClear: true,
           projectOffered,
           theme,
@@ -155,6 +172,7 @@ function createModelOverridePlumbing(
       }
       return createModelSelectSubmenu({
         modelOptions,
+        mergedModels,
         showClear: false,
         projectOffered,
         theme,
@@ -232,7 +250,10 @@ function buildHarnessDefaultRow(
     ),
     description: `Model used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
     submenu: createModelSelectSubmenu({
-      modelOptions: [...modelOptions],
+      modelOptions,
+      // A row exists only for a harness outside the pi family, so its own list
+      // is the whole offering and nothing is merged ahead of it.
+      mergedModels: [],
       showClear: true,
       projectOffered: store.isProjectWritable,
       theme,
@@ -262,91 +283,35 @@ interface ModelSettingsScreenOptions {
   ctx: ExtensionCommandContext;
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  modelOptions: string[];
+  /** Each harness's own list, read once when the menu tree opened. */
+  harnessModelOptions: HarnessModelOptions;
   /** pi's default thinking level, resolved by the hosting menu (this screen's factory is synchronous). */
   piDefaultThinking: ThinkingLevel | undefined;
   /** Close back to the hosting menu (the host row's submenu `done`). */
   close: () => void;
 }
 
-/** Model keys per harness that gets a row, each listed when the screen opened. */
-type HarnessModelOptions = ReadonlyMap<HarnessId, readonly string[]>;
-
 /**
  * The "Model Settings" screen as a Component a submenu can host in place.
  *
- * A non-pi harness's model list comes from that harness's own CLI, which
- * answers asynchronously, so the screen opens on a holding body and swaps in
- * the real one once the lists land. With no such harness there is nothing to
- * wait for and the list is built directly.
+ * Every row's list comes from the per-harness structure read when the menu tree
+ * opened, so the screen builds synchronously and no row offers a harness's
+ * models to another.
  */
 function buildModelSettingsScreen(
   options: ModelSettingsScreenOptions,
 ): Component {
-  const { theme, close } = options;
   const harnessIds = harnessDefaultRowIds(getHarnessAvailability());
-  if (harnessIds.length === 0) {
-    return asSubmenuComponent(
-      buildModelSettingsList(options, harnessIds, new Map()),
-    );
-  }
-
-  const holding = new SettingsList(
-    [
-      {
-        id: "loading",
-        label: "Loading models…",
-        currentValue: "",
-        description: "Reading the model lists the rows below offer.",
-      },
-    ],
-    1,
-    buildSettingsListTheme(theme),
-    () => {},
-    close,
-  );
-  const view = new SwappableView(
-    new SettingsListWrapper(holding, {
-      title: "Model Settings",
-      theme,
-      onCancel: close,
-    }),
-  );
-  void listHarnessModelOptions(options, harnessIds).then((lists) =>
-    view.activate(
-      asSubmenuComponent(buildModelSettingsList(options, harnessIds, lists)),
-    ),
-  );
-  // SwappableView owns its keys through the body showing, so it is hosted as it
-  // stands: wrapping it would pin `focused` and freeze that delegation.
-  return view;
+  return asSubmenuComponent(buildModelSettingsList(options, harnessIds));
 }
 
-/** Each row's own list, read on demand. A harness that fails answers empty. */
-async function listHarnessModelOptions(
-  options: ModelSettingsScreenOptions,
-  harnessIds: readonly HarnessId[],
-): Promise<HarnessModelOptions> {
-  const { ctx } = options;
-  const entries = await Promise.all(
-    harnessIds.map(async (id) => {
-      const models = await harnessFor(id).listModels({
-        pi: getPiInstance(),
-        modelCatalog: ctx.modelRegistry,
-      });
-      return [id, models.map((entry) => entry.key)] as const;
-    }),
-  );
-  return new Map(entries);
-}
-
-/** The framed screen, built once the model lists its rows offer are in hand. */
+/** The framed screen, built from the model lists each row's harness offers. */
 function buildModelSettingsList(
   options: ModelSettingsScreenOptions,
   harnessIds: readonly HarnessId[],
-  harnessModelOptions: HarnessModelOptions,
 ): Component {
-  const { ctx, store, theme, modelOptions, piDefaultThinking, close } = options;
+  const { ctx, store, theme, harnessModelOptions, piDefaultThinking, close } =
+    options;
   let rebuild: ((items: SettingItem[]) => void) | undefined;
 
   const buildItems = (theme: Theme): SettingItem[] => {
@@ -355,7 +320,7 @@ function buildModelSettingsList(
     const { levelsFor, modelSubmenuFor } = createModelOverridePlumbing({
       store,
       theme,
-      modelOptions,
+      harnessModelOptions,
       notify: (message, type) => ctx.ui.notify(message, type),
       // Inherit picks complete with no value, so refresh the row here.
       refresh: () => rebuild?.(buildItems(theme)),
@@ -385,6 +350,7 @@ function buildModelSettingsList(
         "Model used when no session default, per-type override, or agent-template model applies.",
       submenu: modelSubmenuFor(
         "default",
+        "pi",
         effectiveDefault,
         defaultLevels.session || defaultLevels.global || defaultLevels.project,
         defaultLevels,
@@ -445,6 +411,7 @@ function buildModelSettingsList(
           // Listed rows always carry an explicit override, so Clear is always offered.
           submenu: modelSubmenuFor(
             row.type,
+            resolveHarnessType(row.type),
             group.modelId,
             true,
             levelsFor(row.type),
@@ -482,14 +449,16 @@ function buildModelSettingsList(
             {
               onSelect: (typeName) => {
                 if (typeName == null) return subDone();
+                const harnessId = resolveHarnessType(typeName);
                 const effectiveModel = store.modelFor(
                   typeName,
                   parentModelId,
                   getAgentConfig(typeName),
-                  resolveHarnessType(typeName),
+                  harnessId,
                 );
                 return modelSubmenuFor(
                   typeName,
+                  harnessId,
                   effectiveModel,
                   false,
                   // The factory ignores its currentValue arg (pre-selection
@@ -562,7 +531,8 @@ interface ModelOverridesRowOptions {
   ctx: ExtensionCommandContext;
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  modelOptions: string[];
+  /** Each harness's own list, read once when the menu tree opened. */
+  harnessModelOptions: HarnessModelOptions;
   /** pi's default thinking level, resolved once when the topmost menu opens. */
   piDefaultThinking: ThinkingLevel | undefined;
 }
@@ -571,7 +541,7 @@ interface ModelOverridesRowOptions {
 export function buildModelOverridesRow(
   options: ModelOverridesRowOptions,
 ): SettingItem {
-  const { ctx, store, theme, modelOptions, piDefaultThinking } = options;
+  const { ctx, store, theme, harnessModelOptions, piDefaultThinking } = options;
   const defaultDisplay = () => {
     const session = getSessionCtx();
     const parentModel = session.model ?? ctx.model;
@@ -594,7 +564,7 @@ export function buildModelOverridesRow(
         ctx,
         store,
         theme,
-        modelOptions,
+        harnessModelOptions,
         piDefaultThinking,
         // Forward the fresh value so the row repaints without reopening the command.
         close: () => done(defaultDisplay()),

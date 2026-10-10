@@ -12,7 +12,6 @@ import {
   type Harness,
   type HarnessId,
   type HarnessListModelsRequest,
-  type ModelEntry,
 } from "../harness.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
@@ -48,28 +47,50 @@ export function harnessFor(id: HarnessId): Harness {
 }
 
 /**
- * The models every harness this machine can run offers, in `HARNESS_IDS` order
- * and once per key. Each harness answers for itself, so a caller that only
- * needs "what can a spawn be given" never has to name one.
+ * The model keys each harness this machine can run offers, keyed by harness.
+ * A harness whose list could not be produced is present with an empty list:
+ * "no models" belongs to that harness alone and is never filled in from
+ * another's.
  */
-export async function listHarnessModels(
+export type HarnessModelOptions = ReadonlyMap<HarnessId, readonly string[]>;
+
+/**
+ * One list per runnable harness, each answering for itself, read once when a
+ * menu tree opens so every picker under it selects from the same answer.
+ */
+export async function listHarnessModelOptions(
   request: HarnessListModelsRequest,
   availability: Availability<HarnessId>,
-): Promise<readonly ModelEntry[]> {
-  const lists = await Promise.all(
-    runnableHarnessIds(availability).map(async (id) => {
-      try {
-        return await harnessFor(id).listModels(request);
-      } catch {
-        // `listModels` is not supposed to throw; one that does costs its own
-        // list, never the others'.
-        return [];
-      }
-    }),
+): Promise<HarnessModelOptions> {
+  const entries = await Promise.all(
+    runnableHarnessIds(availability).map(
+      async (id): Promise<readonly [HarnessId, readonly string[]]> => {
+        try {
+          const models = await harnessFor(id).listModels(request);
+          return [id, models.map((entry) => entry.key)];
+        } catch {
+          // `listModels` is not supposed to throw; one that does costs its own
+          // list, never the others'.
+          return [id, []];
+        }
+      },
+    ),
   );
-  const byKey = new Map<string, ModelEntry>();
-  for (const entry of lists.flat()) {
-    if (!byKey.has(entry.key)) byKey.set(entry.key, entry);
+  return new Map(entries);
+}
+
+/**
+ * The one merged view of the per-harness structure: every harness's keys, once
+ * each, in `HARNESS_IDS` order. Only the concurrency menu asks for it — its
+ * slots are keyed by model key across harnesses, so it must offer every key a
+ * spawn could carry.
+ */
+export function mergeHarnessModelOptions(
+  options: HarnessModelOptions,
+): string[] {
+  const keys = new Set<string>();
+  for (const list of options.values()) {
+    for (const key of list) keys.add(key);
   }
-  return [...byKey.values()];
+  return [...keys];
 }

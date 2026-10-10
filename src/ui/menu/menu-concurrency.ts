@@ -7,6 +7,10 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
+import {
+  mergeHarnessModelOptions,
+  type HarnessModelOptions,
+} from "../../agents/harness/registry.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import type { SelectOption } from "../searchable-select.js";
 import type { Theme } from "../types.js";
@@ -33,12 +37,14 @@ import { ScreenHost } from "./screen-host.js";
 
 export async function showConcurrencySettingsMenu(
   ctx: ExtensionCommandContext,
-  modelOptions: string[],
+  harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
+  // The one surface that keeps the merged list: a concurrency slot is keyed by
+  // model key across harnesses, so it must offer every key a spawn could carry.
+  const modelOptions = mergeHarnessModelOptions(harnessModelOptions);
   const buildItems = (
     store: ReturnType<typeof getStore>,
     theme: Theme,
-    modelOptions: string[],
   ): SettingItem[] => {
     const providers = [
       ...new Set(modelOptions.map((m) => m.split("/")[0])),
@@ -286,7 +292,7 @@ export async function showConcurrencySettingsMenu(
         currentValue: "",
         description: "Cap how many agents run at once for a single model.",
         submenu: addPickThenValueSubmenu(
-          buildModelOptions(modelOptions, undefined, configuredModels),
+          buildModelOptions(modelOptions, null, configuredModels),
           (modelKey, target, parsed) => {
             store.mutate.concurrency.setModel(modelKey, parsed, target);
             ctx.ui.notify(
@@ -336,10 +342,9 @@ export async function showConcurrencySettingsMenu(
   let rebuild: ((items: SettingItem[]) => void) | undefined;
 
   await new ScreenHost(ctx).open<void>(({ theme, close }) => {
-    const triggerRebuild = () =>
-      rebuild?.(buildItems(getStore(), theme, modelOptions));
+    const triggerRebuild = () => rebuild?.(buildItems(getStore(), theme));
     const store = getStore();
-    const items = buildItems(store, theme, modelOptions);
+    const items = buildItems(store, theme);
     const settingsList = new SettingsList(
       items,
       15,

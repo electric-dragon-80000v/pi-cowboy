@@ -3,8 +3,7 @@
 import type { Component } from "@earendil-works/pi-tui";
 import type { Theme } from "../../types.js";
 import { SearchableSelectDialog } from "../../../ui/searchable-select.js";
-import { buildModelOptions, extractConfiguredModels } from "../helpers.js";
-import { getStore } from "../../../shell.js";
+import { buildModelOptions } from "../helpers.js";
 import {
   buildLevelItems,
   createClearPickerSubmenu,
@@ -14,7 +13,14 @@ import {
 } from "./target-select.js";
 
 interface ModelSelectSubmenuBase {
-  modelOptions: string[];
+  /** The models the harness this row configures can run; its picker offers these alone. */
+  modelOptions: readonly string[];
+  /**
+   * Keys this picker merges ahead of `modelOptions` — pi's configured models on
+   * pi's own rows. A row for any other harness passes none: its list is the
+   * whole offering.
+   */
+  mergedModels: readonly string[];
   /** Project target availability (untrusted/malformed projects hide the entry). */
   projectOffered: boolean;
   theme: Theme;
@@ -67,12 +73,12 @@ export function createModelSelectSubmenu(
         })("", subDone);
       }
       const target = id as "session" | "global" | "project";
-      const store = getStore();
-      const configuredModels = extractConfiguredModels(
-        store.agentConfigSnapshot(),
-      );
       return new SearchableSelectDialog(
-        buildModelOptions(options.modelOptions, currentModel, configuredModels),
+        buildModelOptions(
+          options.modelOptions,
+          currentModel,
+          options.mergedModels,
+        ),
         currentModel,
         {
           onSelect: (modelValue) => {
