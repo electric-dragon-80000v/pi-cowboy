@@ -1,6 +1,6 @@
 /**
  * subagent-session.ts — One subagent run's lifecycle and spawn projection.
- * Exports SubagentSession, buildAgentSpawn, DISPOSE_QUEUED_MESSAGE, transport.
+ * Exports SubagentSession, buildAgentSpawn, DISPOSE_QUEUED_MESSAGE.
  */
 
 import type {
@@ -8,19 +8,19 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createLogger } from "../logger.js";
-import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
 import { worktreeRetentionReason } from "../infrastructure/git-client.js";
 import {
   getAgentSpawns,
   getPiInstance,
   getStore,
   getWorktreeMaterialization,
-  subagentResultFileFor,
 } from "../shell.js";
-import { HerdrSubagentIPC, removeResultArtifacts } from "../subagent/ipc.js";
-import type { SubagentIPC } from "../subagent/ipc.js";
-import type { SubagentIpcFrame } from "../subagent/ipc-protocol.js";
-import { createPaneSupervisor } from "../subagent/pane-supervisor.js";
+import { subagentResultFileFor } from "../paths.js";
+import { removeResultArtifacts } from "../subagent/result-artifacts.js";
+import {
+  createPaneSupervisor,
+  type SupervisorTransport,
+} from "../subagent/pane-supervisor.js";
 import {
   type ProcessSupervisor,
   type ProcessSupervisorOptions,
@@ -67,19 +67,6 @@ import { reviveSettledRun } from "./agent-reviver.js";
 export { DISPOSE_QUEUED_MESSAGE } from "./run-state.js";
 
 const log = createLogger("session");
-
-/** Runtime transport kept injectable so the lifecycle has a narrow test seam. */
-export interface AgentManagerTransport {
-  createHost(pi: ExtensionAPI): AgentHost;
-  createIpc(
-    options: ConstructorParameters<typeof HerdrSubagentIPC>[0],
-  ): SubagentIPC;
-}
-
-export const defaultAgentManagerTransport: AgentManagerTransport = {
-  createHost: (pi) => createHerdrRuntime(pi).host,
-  createIpc: (options) => new HerdrSubagentIPC(options),
-};
 
 /** Steer verdict; refusals carry the reason. */
 export type SteerOutcome =
@@ -150,7 +137,7 @@ class CompletionGate {
 }
 
 export interface SubagentSessionDeps {
-  transport: AgentManagerTransport;
+  transport: SupervisorTransport;
   slots: {
     reserve(spawn: AgentSpawn, reservation: PoolReservation): void;
     /** Charge a run that returns to active without an admission. */
@@ -213,8 +200,6 @@ export class SubagentSession {
   private retention?: WorktreeRetentionReason;
   /** Live supervisor attachment: launched, or adopted on revive. */
   private supervisor?: ProcessSupervisor;
-  /** The run's channel: bound before the launch, released when the run is over for us. */
-  private ipc?: SubagentIPC;
   private parentBinding?: { signal: AbortSignal; handler: () => void };
 
   constructor({ id, args, deps }: SubagentSessionOptions) {
@@ -434,7 +419,6 @@ export class SubagentSession {
     // it; only a run whose removal is confirmed lets go of its artifacts.
     this.supervisor?.detach();
     this.supervisor = undefined;
-    this.closeChannel();
     removeResultArtifacts(this.resultFilePath());
     this.detachParentBinding();
     this.gate.open("");
@@ -452,7 +436,6 @@ export class SubagentSession {
     // Disposal stops tracking only: abandon the poll loop, leave pane and process alive.
     this.supervisor?.abandon();
     this.supervisor = undefined;
-    this.closeChannel();
     this.detachParentBinding();
   }
 
@@ -541,18 +524,13 @@ export class SubagentSession {
       this.spawn.execution.host = ref;
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({ pi, paneId: ref.paneId, cwd: plan.cwd });
-      const { supervisor, ipc } = createPaneSupervisor({
+      const supervisor = createPaneSupervisor({
         host,
         resultFile: launch.resultFile,
         supervisorOptions: this.supervisorOptions(),
         transport: this.deps.transport,
-        agentId: this.spawn.id,
-        onFrame: (frame) => this.handleFrame(launch, frame),
       });
       this.supervisor = supervisor;
-      this.ipc = ipc;
-      // The child connects at boot, so the parent must already be listening.
-      await this.openChannel(launch);
       await supervisor.start(
         {
           name: agentName,
@@ -600,58 +578,6 @@ export class SubagentSession {
   /** Where the run's result artifacts live; a run that never launched still reserves the path. */
   private resultFilePath(): string {
     return this.launchState?.resultFile ?? subagentResultFileFor(this.id);
-  }
-
-  /**
-   * Bind the run's channel before the child launches, so the child finds its
-   * parent listening, and record what the channel can carry. A bind failure is
-   * not a launch failure: the handshake is observability, and the run's own
-   * reporting does not depend on it.
-   */
-  private async openChannel(launch: AgentLaunchState): Promise<void> {
-    const { ipc } = this;
-    if (ipc === undefined || ipc.start === undefined) {
-      launch.handshake = {
-        kind: "unavailable",
-        reason: "no-channel",
-      };
-      return;
-    }
-    try {
-      await ipc.start();
-      launch.handshake = { kind: "awaiting" };
-    } catch (error) {
-      launch.handshake = {
-        kind: "unavailable",
-        reason: "bind-failed",
-      };
-      log.warn("subagent channel failed to bind", {
-        agentId: this.id,
-        errorMessage: errorMessage(error),
-      });
-    }
-  }
-
-  /**
-   * Release the run's channel, leaving the artifacts alone: the run may still
-   * write reports to them, so only drop() removes the directory.
-   */
-  private closeChannel(): void {
-    const ipc = this.ipc;
-    this.ipc = undefined;
-    void ipc?.close?.().catch(() => {});
-  }
-
-  /**
-   * The child's frames. `ready` is the only kind the protocol defines so far, so
-   * there is nothing to dispatch on: a ready frame names the run's process, and
-   * only while the run is still awaiting one — a child reload announces again,
-   * and a run whose channel was unavailable never gets to this at all.
-   */
-  private handleFrame(launch: AgentLaunchState, frame: SubagentIpcFrame): void {
-    if (launch.handshake?.kind === "awaiting") {
-      launch.handshake = { kind: "announced", pid: frame.pid };
-    }
   }
 
   private async applySupervisorOutcome(
@@ -730,8 +656,6 @@ export class SubagentSession {
     const settlingRun = this.run;
     if (settlingRun.shell !== "held" || settlingRun.process.kind !== "settling")
       return;
-    // The run is past its last frame: nothing will announce again.
-    this.closeChannel();
     // The gate opens once: snapshot the entered run's result before a revive
     // can re-project the lifecycle to spawned.
     const result = lifecycleResult(this.spawn.lifecycle);

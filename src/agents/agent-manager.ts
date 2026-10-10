@@ -1,7 +1,7 @@
 /**
  * agent-manager.ts — Fleet controller for independently running subagents.
- * Exports AgentManager, ClearOutcome/ClearRefusal; re-exports transport, spawn,
- * and steer types.
+ * Exports AgentManager, ClearOutcome/ClearRefusal; re-exports spawn and steer
+ * types.
  */
 
 import type {
@@ -13,8 +13,9 @@ import {
   getCoordinatorOrNull,
   getPiInstance,
   getSessionCtx,
-  subagentResultFileFor,
 } from "../shell.js";
+import { subagentResultFileFor } from "../paths.js";
+import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
 import {
   HerdrTaskRegistry,
   type ConcurrencyConfig,
@@ -33,7 +34,9 @@ import {
   type StopInitiator,
   type WorktreeRetentionReason,
 } from "../types.js";
-import { removeResultArtifacts } from "../subagent/ipc.js";
+import { FileDeliverable } from "../subagent/deliverable.js";
+import { removeResultArtifacts } from "../subagent/result-artifacts.js";
+import type { SupervisorTransport } from "../subagent/pane-supervisor.js";
 import { createCleanup, type WorktreeRemovalTarget } from "./agent-cleanup.js";
 import {
   createHerdrAgentAssets,
@@ -44,19 +47,19 @@ import type { CleanupReport, WorktreeTarget } from "./cleanup-policy.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
   SubagentSession,
-  defaultAgentManagerTransport,
-  type AgentManagerTransport,
   type SpawnArgs,
   type SpawnOptions,
   type SteerOutcome,
 } from "./subagent-session.js";
 import type { SubagentType } from "./types.js";
 
-export type {
-  AgentManagerTransport,
-  SpawnOptions,
-  SteerOutcome,
-} from "./subagent-session.js";
+export type { SpawnOptions, SteerOutcome } from "./subagent-session.js";
+
+/** The transport the manager wires its sessions with unless the caller supplies one. */
+export const defaultAgentManagerTransport: SupervisorTransport = {
+  createHost: (pi) => createHerdrRuntime(pi).host,
+  createDeliverable: (resultFile) => new FileDeliverable(resultFile),
+};
 
 type OnAgentComplete = (spawn: AgentSpawn) => void;
 
@@ -138,7 +141,7 @@ export class AgentManager {
     onComplete?: OnAgentComplete,
     concurrency?: ConcurrencyConfig,
     registry?: HerdrTaskRegistry,
-    private readonly transport: AgentManagerTransport = defaultAgentManagerTransport,
+    private readonly transport: SupervisorTransport = defaultAgentManagerTransport,
   ) {
     this.onComplete = onComplete;
     this.registry =

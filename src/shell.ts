@@ -3,7 +3,6 @@
  * Handler modules read via getter functions — no module-level mutable globals.
  */
 
-import * as path from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -23,8 +22,7 @@ import { unprobed, type Availability } from "./availability.js";
 import type { PresenceMarker } from "./ui/indicator.js";
 import { AgentSpawnStore } from "./agents/agent-spawn-store.js";
 import { ConfigStore } from "./config/config-store.js";
-import { subagentResultDir } from "./paths.js";
-import { SUBAGENT_SYSTEM_FILE_NAME, SUBAGENT_TASK_FILE_NAME } from "./types.js";
+import { SUBAGENT_TOKEN_PREFIX } from "./paths.js";
 
 /** Directories a session's template registries scan; "" leaves that layer off. */
 interface TemplateScanDirs {
@@ -285,23 +283,13 @@ export function setSessionTemplates(next: SessionTemplates): void {
   shell.sessionTemplates = next;
 }
 
-/**
- * Rides in the child's argv (a worktree-created pane gets no pane env, so env
- * is not a reliable channel). When present, the extension stays inert so a
- * subagent can never spawn further subagents.
- *
- * The shape is shell-inert on purpose: herdr types the launch arguments into the
- * pane's shell, and `[...]` would be a glob there — zsh aborts the whole
- * command line with "no matches found" before pi ever runs.
- */
-export function subagentTokenFor(agentId: string): string {
-  return `cowboy-subagent-${agentId}`;
-}
-
 /** The token within one argv entry; the id is a spawn id or an agent name. */
-const SUBAGENT_TOKEN = /cowboy-subagent-([A-Za-z0-9_-]+)/;
+const SUBAGENT_TOKEN = new RegExp(`${SUBAGENT_TOKEN_PREFIX}([A-Za-z0-9_-]+)`);
 
-/** Agent id from our argv's subagent token, or undefined in a root session. */
+/**
+ * Agent id from our argv's subagent token, or undefined in a root session. The
+ * marker is written by `subagentTokenFor`; this is its only reader.
+ */
 export function detectSubagentSpawn(
   argv: readonly string[] = process.argv,
 ): string | undefined {
@@ -310,26 +298,6 @@ export function detectSubagentSpawn(
     if (match) return match[1];
   }
   return undefined;
-}
-
-/** Canonical staging directory for a subagent id (parent and child derive the same path). */
-export function subagentResultDirFor(agentId: string): string {
-  return path.join(subagentResultDir(), agentId);
-}
-
-/** Canonical result.md for a subagent id. */
-export function subagentResultFileFor(agentId: string): string {
-  return path.join(subagentResultDirFor(agentId), "result.md");
-}
-
-/** pi reads a file from `--system-prompt` when the value names an existing path. */
-export function subagentSystemFileFor(agentId: string): string {
-  return path.join(subagentResultDirFor(agentId), SUBAGENT_SYSTEM_FILE_NAME);
-}
-
-/** Canonical task file for a subagent id — the `@<file>` initial message. */
-export function subagentTaskFileFor(agentId: string): string {
-  return path.join(subagentResultDirFor(agentId), SUBAGENT_TASK_FILE_NAME);
 }
 
 export function isInsideHerdr(): boolean {

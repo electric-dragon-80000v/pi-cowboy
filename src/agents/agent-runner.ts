@@ -15,16 +15,16 @@ import {
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { errorMessage } from "../utils.js";
-import { agentDir } from "../paths.js";
-import { type AgentWorktree, type RunTunables } from "../types.js";
 import {
-  getStore,
+  agentDir,
   subagentResultDirFor,
   subagentResultFileFor,
   subagentSystemFileFor,
   subagentTaskFileFor,
   subagentTokenFor,
-} from "../shell.js";
+} from "../paths.js";
+import { type AgentWorktree, type RunTunables } from "../types.js";
+import { getStore } from "../shell.js";
 import {
   buildSubagentSystemPrompt,
   buildWorktreeBranchSection,

@@ -32,7 +32,8 @@ import {
 import type { HerdrAgentInfo } from "../infrastructure/herdr/agents.js";
 import type { HerdrWorktreeInfo } from "../infrastructure/herdr/worktrees.js";
 import { createHerdrHost } from "../infrastructure/herdr-host.js";
-import { getSessionCtx, getStore, subagentResultFileFor } from "../shell.js";
+import { getSessionCtx, getStore } from "../shell.js";
+import { subagentResultFileFor } from "../paths.js";
 import {
   buildWorktreeBranch,
   isExtensionWorktree,

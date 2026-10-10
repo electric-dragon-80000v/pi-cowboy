@@ -20,7 +20,7 @@
  *   watch() never settles.
  * - Artifacts are NOT this engine's to remove: a settled run stays watched, so
  *   its result directory survives settlement and is removed when the run is
- *   dropped (see removeResultArtifacts).
+ *   dropped (see removeResultArtifacts in result-artifacts.ts).
  * - One supervisor per run: re-delegation and revive each use a fresh instance.
  */
 
@@ -28,7 +28,7 @@ import { createLogger } from "../logger.js";
 import { errorMessage } from "../utils.js";
 import type { AgentHost, AgentHostRef } from "../agents/agent-host.js";
 import type { StopInitiator } from "../types.js";
-import type { DeliverableReport, SubagentIPC } from "./ipc.js";
+import type { DeliverableReport, DeliverableSource } from "./deliverable.js";
 
 const log = createLogger("supervisor");
 
@@ -118,7 +118,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
 
   constructor(
     private readonly host: AgentHost,
-    private readonly ipc: SubagentIPC,
+    private readonly deliverable: DeliverableSource,
     options: ProcessSupervisorOptions = {},
   ) {
     this.pollMs = options.pollMs ?? DEFAULT_POLL_MS;
@@ -368,7 +368,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
   /** One artifact read; a failed read is a poll with nothing in it. */
   private async readDeliverable(): Promise<DeliverableReport | null> {
     try {
-      return await this.ipc.readDeliverable();
+      return await this.deliverable.readDeliverable();
     } catch (err) {
       log.debug("readDeliverable failed", {
         errorMessage: errorMessage(err),

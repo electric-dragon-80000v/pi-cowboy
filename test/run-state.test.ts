@@ -464,7 +464,6 @@ describe("projectLifecycle", () => {
 
 const LAUNCH: AgentLaunchState = {
   resultFile: "/tmp/pi-cowboy/01234567/result.md",
-  handshake: { kind: "awaiting" },
 };
 
 describe("projectLifecycle artifacts", () => {

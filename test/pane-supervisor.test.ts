@@ -1,7 +1,7 @@
 /**
  * pane-supervisor.test.ts — The wiring one supervisor is built from: the
- * result file and the frame hook. The supervisor it returns is unstarted, so
- * start/adopt and the watch stay the caller's; polling semantics live in
+ * deliverable it polls. The supervisor it returns is unstarted, so start/adopt
+ * and the watch stay the caller's; polling semantics live in
  * test/process-supervisor.test.ts.
  */
 
@@ -10,15 +10,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
 import type {
   DeliverableReport,
-  SubagentIPC,
-  SubagentIPCOptions,
-} from "../src/subagent/ipc.js";
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
 import {
   createPaneSupervisor,
   type PaneSupervisorInput,
   type SupervisorTransport,
 } from "../src/subagent/pane-supervisor.js";
-import type { SubagentIpcFrame } from "../src/subagent/ipc-protocol.js";
 
 const REF: AgentHostRef = {
   engine: "herdr",
@@ -29,15 +27,14 @@ const REF: AgentHostRef = {
   paneCreated: false,
 };
 
-/** Scriptable IPC: reports what the test sets. */
-class FakeIpc implements SubagentIPC {
+/** Scriptable deliverable: reports what the test sets. */
+class FakeDeliverable implements DeliverableSource {
   deliverable: string | null = null;
   async readDeliverable(): Promise<DeliverableReport | null> {
     return this.deliverable === null
       ? null
       : { content: this.deliverable, mtime: 1 };
   }
-  async steer(): Promise<void> {}
 }
 
 function makeInput() {
@@ -51,13 +48,13 @@ function makeInput() {
     release: async () => true,
     deliver: async () => ({ kind: "submitted" as const }),
   } as unknown as AgentHost;
-  const ipc = new FakeIpc();
-  let capturedOptions: SubagentIPCOptions | undefined;
+  const deliverable = new FakeDeliverable();
+  let capturedResultFile: string | undefined;
   const transport: SupervisorTransport = {
     createHost: (_pi: ExtensionAPI) => host,
-    createIpc: (options: SubagentIPCOptions) => {
-      capturedOptions = options;
-      return ipc;
+    createDeliverable: (resultFile: string) => {
+      capturedResultFile = resultFile;
+      return deliverable;
     },
   };
   const input: PaneSupervisorInput = {
@@ -65,15 +62,15 @@ function makeInput() {
     resultFile: "/tmp/cowboy-pane-supervisor/result.md",
     supervisorOptions: { pollMs: 1_000 },
     transport,
-    agentId: "abcd1234",
   };
   return {
     input,
-    ipc,
+    deliverable,
     startCalls,
-    options: () => {
-      if (!capturedOptions) throw new Error("createIpc was not called");
-      return capturedOptions;
+    resultFile: () => {
+      if (capturedResultFile === undefined)
+        throw new Error("createDeliverable was not called");
+      return capturedResultFile;
     },
   };
 }
@@ -89,9 +86,9 @@ afterEach(() => {
 describe("createPaneSupervisor", () => {
   it("builds an unstarted supervisor that adopts and watches on demand", async () => {
     const fixture = makeInput();
-    fixture.ipc.deliverable = "the answer";
+    fixture.deliverable.deliverable = "the answer";
 
-    const supervisor = createPaneSupervisor(fixture.input).supervisor;
+    const supervisor = createPaneSupervisor(fixture.input);
 
     // Building is not launching: nothing reached the pane.
     expect(fixture.startCalls).toEqual([]);
@@ -110,19 +107,9 @@ describe("createPaneSupervisor", () => {
     ]);
   });
 
-  it("carries the agent id and the frame hook into the IPC", () => {
+  it("gives the deliverable the result file the supervisor polls", () => {
     const fixture = makeInput();
-    const frames: SubagentIpcFrame[] = [];
-    fixture.input.onFrame = (frame) => frames.push(frame);
-
-    const { ipc } = createPaneSupervisor(fixture.input);
-
-    expect(fixture.options().agentId).toBe("abcd1234");
-    // The caller gets the channel back so it can bind and release it itself.
-    expect(ipc).toBe(fixture.ipc);
-    fixture
-      .options()
-      .onFrame?.({ kind: "ready", agentId: "abcd1234", pid: 4242 });
-    expect(frames).toEqual([{ kind: "ready", agentId: "abcd1234", pid: 4242 }]);
+    createPaneSupervisor(fixture.input);
+    expect(fixture.resultFile()).toBe(fixture.input.resultFile);
   });
 });

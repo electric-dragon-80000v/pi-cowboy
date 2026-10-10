@@ -7,15 +7,6 @@ import type { OrchestratorConfig } from "./orchestrators/types.js";
 export type ThinkingLevel = ModelThinkingLevel;
 
 /**
- * pi reads a file whenever `--system-prompt`'s value is an existing path, so
- * multi-line instructions ride out of herdr's single-line argv.
- */
-export const SUBAGENT_SYSTEM_FILE_NAME = "system.md";
-
-/** The pane's `@<file>` initial message; holds the task text and nothing else. */
-export const SUBAGENT_TASK_FILE_NAME = "prompt.md";
-
-/**
  * Built-in fallbacks for the configurable spawn defaults. A persisted setting
  * that is unset or names a type/template that no longer resolves degrades to
  * these — a removed registry entry never fails a spawn.
@@ -247,26 +238,6 @@ export type WorktreeRetentionReason =
   { kind: "dirty" } | { kind: "unverifiable"; detail: string };
 
 /**
- * Why no channel can carry an announcement for this run: the transport has no
- * endpoint (`no-channel`), the endpoint was refused (`bind-failed`), or the turn
- * is a revival, which binds none — the child does not reboot, so it never
- * announces again (`revive`).
- */
-type HandshakeUnavailableReason = "no-channel" | "bind-failed" | "revive";
-
-/**
- * What the parent knows about the subagent's own boot announcement. Only what
- * the parent observed: `awaiting` is "a channel is listening, nothing heard
- * yet", which covers a child still booting and a child that will never speak —
- * silence is not evidence, so there is no expired/timed-out state. Whether a
- * run ever announced is read from this plus the run's phase.
- */
-type ProcessHandshake =
-  | { kind: "awaiting" }
-  | { kind: "announced"; pid: number }
-  | { kind: "unavailable"; reason: HandshakeUnavailableReason };
-
-/**
  * A run's worktree coordinates: path and branch travel as one, absent for
  * parent-cwd runs. `owned` checkouts are extension-created (provisioned and
  * adopted at launch) and removed on clear; `picked` ones pre-existed — the
@@ -298,19 +269,12 @@ interface AgentDisplayInfo {
 }
 
 /**
- * What a run's launch produced: the file the child reports through and what
- * the parent's channel has heard. It outlives the run's own process, so a
- * revive resumes the same files.
+ * What a run's launch produced: the file the child reports through. It outlives
+ * the run's own process, so a revive resumes the same file.
  */
 export interface AgentLaunchState {
   /** Absolute path of the child's report file. */
   resultFile: string;
-  /**
-   * The child's boot announcement, once this run has a channel to receive it
-   * on. Absent until the bind: a run still building its launch has heard
-   * nothing, and has no endpoint on which it could.
-   */
-  handshake?: ProcessHandshake;
 }
 
 /**

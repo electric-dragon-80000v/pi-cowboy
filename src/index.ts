@@ -8,8 +8,12 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { setPiInstance, setRuntime, isInsideHerdr } from "./shell.js";
-import { announceReadyForSpawn } from "./subagent/ipc-protocol.js";
+import {
+  setPiInstance,
+  setRuntime,
+  isInsideHerdr,
+  detectSubagentSpawn,
+} from "./shell.js";
 import { createHerdrRuntime } from "./infrastructure/herdr-host.js";
 import { missingCloneProgramReport } from "./infrastructure/git/cow-clone.js";
 import { registerCowboyCommand, registerTools } from "./registration.js";
@@ -33,9 +37,8 @@ function reportInactive(pi: ExtensionAPI, message: string): void {
 export default function (pi: ExtensionAPI) {
   // Subagents launch through the parent session's `herdr` CLI.
   if (!isInsideHerdr()) return;
-  // Stay inert so subagents can never spawn further subagents — but first tell
-  // the parent this process booted.
-  if (announceReadyForSpawn()) return;
+  // Stay inert so subagents can never spawn further subagents.
+  if (detectSubagentSpawn() !== undefined) return;
   // A program the clone path needs is missing, so copy-on-write could never
   // work here. Staying unregistered says so once; a volume that cannot clone
   // still activates and falls back to a classic checkout.

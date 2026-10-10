@@ -122,11 +122,19 @@ vi.mock("../src/shell.js", async () => {
     getPiInstance: () => ({}),
     getStore: () => ({ agent: {} }),
     getSessionCtx: () => ({ cwd: "/work/repo" }),
-    subagentResultFileFor: (agentId: string) =>
-      `/tmp/pi-cowboy/${agentId}/result.md`,
     // Sessions register at creation, as in production; the manager's spawn surface reads this store.
     getAgentSpawns: () => shared.store,
     getCoordinatorOrNull: () => ({ dropNudge: dropNudgeMock }),
+  };
+});
+
+/** Pin the staging path to the test's /tmp fixtures, leaving every other path resolution real. */
+vi.mock("../src/paths.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/paths.js")>();
+  return {
+    ...actual,
+    subagentResultFileFor: (agentId: string) =>
+      `/tmp/pi-cowboy/${agentId}/result.md`,
   };
 });
 
@@ -1685,7 +1693,7 @@ function registerSpawn(manager: AgentManager, spawn: AgentSpawn): void {
     deps: {
       transport: {
         createHost: () => ({}) as never,
-        createIpc: () => ({}) as never,
+        createDeliverable: () => ({}) as never,
       },
       slots: {
         reserve: () => {},

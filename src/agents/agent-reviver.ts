@@ -14,7 +14,8 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getPiInstance, subagentResultFileFor } from "../shell.js";
+import { getPiInstance } from "../shell.js";
+import { subagentResultFileFor } from "../paths.js";
 import type {
   ProcessSupervisor,
   ProcessSupervisorOptions,
@@ -63,12 +64,11 @@ export function reviveSettledRun(request: AgentReviveRequest): void {
   ensureResultDir(resultDir);
   fs.rmSync(launch.resultFile, { force: true });
 
-  const { supervisor } = createPaneSupervisor({
+  const supervisor = createPaneSupervisor({
     host: transport.createHost(getPiInstance()),
     resultFile: launch.resultFile,
     supervisorOptions: request.supervisorOptions,
     transport,
-    agentId: spawn.id,
   });
   // Adopted, never launched: the pane already holds the run's pi process.
   supervisor.adopt(hostRef);
@@ -81,18 +81,12 @@ export function reviveSettledRun(request: AgentReviveRequest): void {
 
 /**
  * What the revived turn resumes: the settled turn's own artifacts, or a fresh
- * report path for a run that settled before it launched anything. The revived
- * turn binds no channel and the child does not reboot, so only an
- * announcement already heard still names its process.
+ * report path for a run that settled before it launched anything.
  */
 function resumeLaunch(spawn: AgentSpawn): AgentLaunchState {
   const { lifecycle } = spawn;
   const resumed = lifecycle.phase === "settled" ? lifecycle.launch : undefined;
   return {
     resultFile: resumed?.resultFile ?? subagentResultFileFor(spawn.id),
-    handshake:
-      resumed?.handshake?.kind === "announced"
-        ? resumed.handshake
-        : { kind: "unavailable", reason: "revive" },
   };
 }

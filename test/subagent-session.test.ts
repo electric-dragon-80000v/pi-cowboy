@@ -20,12 +20,10 @@ import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
 import { AgentSandbox } from "../src/spawn/sandbox.js";
 import type {
   DeliverableReport,
-  SubagentIPC,
-  SubagentIPCOptions,
-} from "../src/subagent/ipc.js";
-import { HerdrSubagentIPC } from "../src/subagent/ipc.js";
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
+import { FileDeliverable } from "../src/subagent/deliverable.js";
 import type {
-  AgentLaunchState,
   AgentLifecycleState,
   AgentSpawn,
   AgentWorktree,
@@ -95,18 +93,6 @@ vi.mock("../src/shell.js", async (importOriginal) => {
 });
 
 /**
- * The launch a run's pane bind produced; a queued run has none.
- */
-function launchOf(spawn: AgentSpawn): AgentLaunchState | undefined {
-  const { lifecycle } = spawn;
-  // Only a run that launched carries a launch: queued has none, and a run that
-  // ended before launching never produced one.
-  return lifecycle.phase === "spawned" || lifecycle.phase === "settled"
-    ? lifecycle.launch
-    : undefined;
-}
-
-/**
  * The settled lifecycle under test. Retention is unrepresentable before
  * settlement, so a read off anything else is a broken test, not a gap.
  */
@@ -120,8 +106,8 @@ function settledExecution(
   return lifecycle;
 }
 
-/** Scripted IPC: the report the parent's watcher reads. */
-class ScriptedIpc implements SubagentIPC {
+/** Scripted deliverable: the report the parent's watcher reads. */
+class ScriptedDeliverable implements DeliverableSource {
   private stamp = 0;
   constructor(private readonly script: { deliverable?: string } = {}) {}
 
@@ -134,7 +120,6 @@ class ScriptedIpc implements SubagentIPC {
   async readDeliverable(): Promise<DeliverableReport | null> {
     return { content: this.script.deliverable ?? "done", mtime: this.stamp };
   }
-  async steer(): Promise<void> {}
 }
 
 type StopOptions = {
@@ -227,15 +212,13 @@ interface HarnessOptions {
   host?: AgentHost;
   /** Overrides the host factory entirely (e.g. a transport that throws). */
   createHost?: (pi: unknown) => AgentHost;
-  ipc?: SubagentIPC;
+  deliverable?: DeliverableSource;
   hostRef?: AgentHostRef;
   worktree?: AgentWorktree;
   options?: Partial<SpawnOptions>;
   onRunEnded?: (spawn: AgentSpawn) => void;
   /** Reports from a run that already settled, as the manager would hear them. */
   onFollowUpResult?: (spawn: AgentSpawn, deliverable: string) => void;
-  /** Sees the options the session hands its IPC, for wiring assertions. */
-  onIpcOptions?: (options: SubagentIPCOptions) => void;
 }
 
 function makeSession(options: HarnessOptions = {}) {
@@ -247,10 +230,7 @@ function makeSession(options: HarnessOptions = {}) {
   const deps: SubagentSessionDeps = {
     transport: {
       createHost: options.createHost ?? (() => options.host!),
-      createIpc: (ipcOptions: SubagentIPCOptions) => {
-        options.onIpcOptions?.(ipcOptions);
-        return options.ipc!;
-      },
+      createDeliverable: () => options.deliverable!,
     },
     slots: {
       reserve: (_spawn, reservation) => {
@@ -340,7 +320,7 @@ function completedRun(
   const fake = makeFakeHost({ observeState: "done" });
   const harness = makeSession({
     host: fake.host,
-    ipc: new ScriptedIpc({
+    deliverable: new ScriptedDeliverable({
       deliverable: "the final answer",
     }),
     hostRef: fake.ref,
@@ -355,7 +335,7 @@ describe("SubagentSession", () => {
   it("keeps one mutable AgentSpawn instance and resolves a queued abort", async () => {
     const { session } = makeSession({
       host: makeFakeHost().host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
     const spawn = session.spawn;
 
@@ -373,7 +353,7 @@ describe("SubagentSession", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const run = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     const reservation = makeReservation();
@@ -390,7 +370,7 @@ describe("SubagentSession", () => {
   it("projects a queued disposal as the explicit never-started error", async () => {
     const { session } = makeSession({
       host: makeFakeHost().host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
     session.settleForDispose();
 
@@ -431,7 +411,7 @@ describe("SubagentSession launch failure", () => {
         createHostCalls.push(1);
         throw new Error("transport exploded");
       },
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
     harness.session.start();
     await driveRun(DRIVE_FAILED_MS);
@@ -453,13 +433,17 @@ describe("SubagentSession report-only launch", () => {
   it("keeps a launch whose pane never registers in herdr spawned until its report lands", async () => {
     const fake = makeFakeHost();
     const report = { deliverable: null as string | null };
-    const ipc: SubagentIPC = {
+    const deliverable: DeliverableSource = {
       readDeliverable: async () =>
         report.deliverable === null
           ? null
           : { content: report.deliverable, mtime: 1 },
     };
-    const run = makeSession({ host: fake.host, ipc, hostRef: fake.ref });
+    const run = makeSession({
+      host: fake.host,
+      deliverable,
+      hostRef: fake.ref,
+    });
     run.session.start();
     await driveRun(0);
     expect(run.session.isActive()).toBe(true);
@@ -484,228 +468,12 @@ describe("SubagentSession report-only launch", () => {
   });
 });
 
-describe("SubagentSession process handshake", () => {
-  /** An IPC the session can bind: start resolves (or fails), and the run's artifacts are scripted. */
-  function makeChannelIpc(
-    script: {
-      failStart?: Error;
-      deliverable?: string | null;
-      onStart?: () => void;
-    } = {},
-  ): {
-    ipc: SubagentIPC;
-    closes: () => number;
-  } {
-    let deliverable = script.deliverable ?? null;
-    let closes = 0;
-    return {
-      ipc: {
-        start: async () => {
-          script.onStart?.();
-          if (script.failStart) throw script.failStart;
-        },
-        close: async () => {
-          closes += 1;
-        },
-        readDeliverable: async () =>
-          deliverable === null ? null : { content: deliverable, mtime: 1 },
-      },
-      closes: () => closes,
-    };
-  }
-
-  /** Where the session's IPC options land, so a frame can be delivered as the child would. */
-  function capturing(): { options: SubagentIPCOptions | null } {
-    return { options: null };
-  }
-
-  /** A session on a recording host, with the options it handed its IPC captured. */
-  function makeRun(
-    script: {
-      failStart?: Error;
-      deliverable?: string | null;
-      onStart?: () => void;
-    } = {},
-  ) {
-    const fake = makeFakeHost({ observeState: "working" });
-    const captured = capturing();
-    const channel = makeChannelIpc(script);
-    const run = makeSession({
-      host: fake.host,
-      ipc: channel.ipc,
-      hostRef: fake.ref,
-      onIpcOptions: (options) => {
-        captured.options = options;
-      },
-    });
-    return { ...fake, ...run, channel, capture: captured };
-  }
-
-  it("waits for an announcement once its channel is bound", async () => {
-    const run = makeRun();
-
-    run.session.start();
-    await driveRun(0);
-
-    // Nothing heard yet — which covers both a child still booting and one that
-    // will never speak; silence is not evidence either way.
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "awaiting",
-    });
-  });
-
-  it("names the run's process from the first frame and ignores a repeat", async () => {
-    const run = makeRun();
-    run.session.start();
-    await driveRun(0);
-
-    run.capture.options?.onFrame?.({
-      kind: "ready",
-      agentId: run.session.id,
-      pid: 4242,
-    });
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "announced",
-      pid: 4242,
-    });
-
-    // A child reload announces again; the run's process is the first one named.
-    run.capture.options?.onFrame?.({
-      kind: "ready",
-      agentId: run.session.id,
-      pid: 9999,
-    });
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "announced",
-      pid: 4242,
-    });
-  });
-
-  it("launches anyway when the endpoint cannot be bound", async () => {
-    const run = makeRun({ failStart: new Error("EADDRINUSE") });
-
-    run.session.start();
-    await driveRun(0);
-
-    expect(run.startCalls).toHaveLength(1);
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "unavailable",
-      reason: "bind-failed",
-    });
-  });
-
-  it("records no channel when the transport has none", async () => {
-    const fake = makeFakeHost({ observeAgent: () => undefined });
-    const ipc: SubagentIPC = {
-      readDeliverable: async () => null,
-    };
-    const run = makeSession({ host: fake.host, ipc, hostRef: fake.ref });
-
-    run.session.start();
-    await driveRun(0);
-
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "unavailable",
-      reason: "no-channel",
-    });
-  });
-
-  it("binds the run's channel before the process is launched", async () => {
-    const order: string[] = [];
-    const run = makeRun({ onStart: () => order.push("channel.start") });
-    const launch = run.host.start.bind(run.host);
-    run.host.start = async (startedRef, startOptions) => {
-      order.push("host.start");
-      await launch(startedRef, startOptions);
-    };
-
-    run.session.start();
-    await driveRun(0);
-
-    // The child connects at boot, so the parent must already be listening.
-    expect(order).toEqual(["channel.start", "host.start"]);
-  });
-
-  it("releases the bound channel when the run settles", async () => {
-    const run = makeRun({ deliverable: "the final answer" });
-
-    run.session.start();
-    await driveRun(DRIVE_COMPLETED_MS);
-
-    expect(run.session.spawn.lifecycle).toMatchObject({ phase: "settled" });
-    expect(run.channel.closes()).toBe(1);
-  });
-
-  it("keeps the announced process across a revival", async () => {
-    const run = makeRun({ deliverable: "the final answer" });
-    run.session.start();
-    await driveRun(0);
-    run.capture.options?.onFrame?.({
-      kind: "ready",
-      agentId: run.session.id,
-      pid: 4242,
-    });
-    await driveRun(DRIVE_COMPLETED_MS);
-    expect(run.session.spawn.lifecycle).toMatchObject({ phase: "settled" });
-
-    await expect(run.session.steer("one more thing")).resolves.toEqual({
-      kind: "delivered",
-    });
-
-    // The pane still hosts the same pi, so the announced process is still the run's.
-    expect(run.session.isActive()).toBe(true);
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "announced",
-      pid: 4242,
-    });
-  });
-
-  it("has no channel for a revived turn that never announced", async () => {
-    const run = makeRun({ deliverable: "the final answer" });
-    run.session.start();
-    await driveRun(DRIVE_COMPLETED_MS);
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "awaiting",
-    });
-
-    await expect(run.session.steer("one more thing")).resolves.toEqual({
-      kind: "delivered",
-    });
-
-    // The revived turn binds no channel, and the adopted child never reboots.
-    expect(launchOf(run.session.spawn)?.handshake).toEqual({
-      kind: "unavailable",
-      reason: "revive",
-    });
-  });
-
-  it("releases the bound channel on disposal, keeping the artifacts", async () => {
-    const fake = makeFakeHost({ observeState: "working" });
-    let closes = 0;
-    const ipc: SubagentIPC = {
-      start: async () => {},
-      close: async () => {
-        closes += 1;
-      },
-      readDeliverable: async () => null,
-    };
-    const run = makeSession({ host: fake.host, ipc, hostRef: fake.ref });
-    run.session.start();
-    await driveRun(0);
-    fs.writeFileSync(path.join(resultDir, "prompt.md"), "task");
-
-    run.session.settleForDispose();
-
-    // The endpoint is the parent's; the abandoned run's files stay for a later revive.
-    expect(closes).toBe(1);
-    expect(fs.existsSync(path.join(resultDir, "prompt.md"))).toBe(true);
-  });
-
+describe("SubagentSession result artifacts", () => {
   it("removes the run's result artifacts when the spawn is dropped", async () => {
     const fake = makeFakeHost({ observeState: "done" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
@@ -733,7 +501,7 @@ describe("SubagentSession launch naming", () => {
     const fake = makeFakeHost({ observeState: "done" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({ deliverable: "the final answer" }),
+      deliverable: new ScriptedDeliverable({ deliverable: "the final answer" }),
       hostRef: options.hostRef,
       worktree: options.worktree,
       options:
@@ -810,7 +578,7 @@ describe("SubagentSession deferred sandbox allocation", () => {
     const fake = makeFakeHost();
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       worktree: { kind: "owned", path: "/wt", branch: BRANCH },
     });
 
@@ -835,7 +603,7 @@ describe("SubagentSession deferred sandbox allocation", () => {
       .mockResolvedValue(fakeSandbox(fake.ref));
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({ deliverable: "the final answer" }),
+      deliverable: new ScriptedDeliverable({ deliverable: "the final answer" }),
       worktree: { kind: "owned", path: "/wt", branch: BRANCH },
     });
 
@@ -883,7 +651,7 @@ describe("SubagentSession worktree retention capture", () => {
     const fake = makeFakeHost({ observeState: "done" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({
+      deliverable: new ScriptedDeliverable({
         deliverable: "the final answer",
       }),
       hostRef: fake.ref,
@@ -993,7 +761,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost();
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
 
     await expect(harness.session.abort("agent")).resolves.toBe(true);
@@ -1013,7 +781,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
@@ -1041,7 +809,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({
+      deliverable: new ScriptedDeliverable({
         deliverable: "the final answer",
       }),
       hostRef: fake.ref,
@@ -1071,7 +839,7 @@ describe("SubagentSession routing and projection", () => {
   it("refuses steer when the agent's pane is gone", async () => {
     const harness = makeSession({
       host: makeFakeHost().host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
     // Queued stop settles without ever obtaining a pane.
     await harness.session.abort("user");
@@ -1085,7 +853,10 @@ describe("SubagentSession routing and projection", () => {
 
   it("refuses steer mid-launch without blaming cleanup", async () => {
     const fake = makeFakeHost();
-    const harness = makeSession({ host: fake.host, ipc: new ScriptedIpc() });
+    const harness = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable(),
+    });
 
     // Steering before the launch reaches hostAt: the run is on its way up and
     // its pane does not exist yet, so nothing was cleaned up.
@@ -1125,7 +896,7 @@ describe("SubagentSession routing and projection", () => {
           detail: "its pane did not accept the message",
         }),
       } as AgentHost,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
@@ -1144,7 +915,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost();
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
 
     harness.session.drop();
@@ -1157,7 +928,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost();
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
 
     harness.session.settleForDispose();
@@ -1175,7 +946,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
@@ -1197,7 +968,7 @@ describe("SubagentSession routing and projection", () => {
   it("settleStartFailure from Queued projects a never-started error and retains the slot", async () => {
     const harness = makeSession({
       host: makeFakeHost().host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
     });
 
     harness.session.settleStartFailure(new Error("launch exploded"));
@@ -1219,7 +990,7 @@ describe("SubagentSession routing and projection", () => {
     const fake = makeFakeHost();
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc(),
+      deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
@@ -1244,23 +1015,24 @@ describe("SubagentSession routing and projection", () => {
 describe("SubagentSession settleForDispose abandons the supervisor", () => {
   it("stops polling after disposal while leaving the pane and artifacts alone", async () => {
     const fake = makeFakeHost();
-    const ipc = new ScriptedIpc();
+    const deliverable = new ScriptedDeliverable();
     // Count the poll loop through its one external call, the artifact read.
     let reads = 0;
-    const read = ipc.readDeliverable.bind(ipc);
-    ipc.readDeliverable = async () => {
+    const read = deliverable.readDeliverable.bind(deliverable);
+    deliverable.readDeliverable = async () => {
       reads += 1;
       return read();
     };
     const harness = makeSession({
       host: fake.host,
-      ipc,
+      deliverable,
       hostRef: fake.ref,
     });
     harness.session.start();
     await driveRun(2_000); // one poll: the report is held for confirmation
     const pollsBefore = reads;
     expect(pollsBefore).toBeGreaterThan(0);
+    fs.writeFileSync(path.join(resultDir, "prompt.md"), "task");
 
     harness.session.settleForDispose();
     await driveRun(20_000); // would settle + keep leaking the interval if not abandoned
@@ -1268,6 +1040,8 @@ describe("SubagentSession settleForDispose abandons the supervisor", () => {
     expect(reads).toBe(pollsBefore);
     // No settlement, no stop: the run and its pane survive.
     expect(fake.stopCalls).toEqual([]);
+    // Only drop() removes the directory; a revived turn resumes these files.
+    expect(fs.existsSync(path.join(resultDir, "prompt.md"))).toBe(true);
     await expect(harness.session.promise).resolves.toBe("");
     expect(harness.session.spawn.lifecycle).toMatchObject({
       phase: "spawned",
@@ -1283,10 +1057,10 @@ describe("SubagentSession reports after settlement", () => {
   it("hands a settled run's later report to the follow-up seam", async () => {
     const followUps: Array<{ id: string; deliverable: string }> = [];
     const fake = makeFakeHost({ observeState: "done" });
-    const ipc = new ScriptedIpc();
+    const deliverable = new ScriptedDeliverable();
     const harness = makeSession({
       host: fake.host,
-      ipc,
+      deliverable,
       hostRef: fake.ref,
       onFollowUpResult: (spawn, deliverable) =>
         followUps.push({ id: spawn.id, deliverable }),
@@ -1297,7 +1071,7 @@ describe("SubagentSession reports after settlement", () => {
     expect(followUps).toEqual([]);
 
     // The run's pane lives on: the report it writes next is a follow-up.
-    ipc.write("a second turn");
+    deliverable.write("a second turn");
     await driveRun(DRIVE_COMPLETED_MS);
 
     expect(followUps).toEqual([
@@ -1314,10 +1088,10 @@ describe("SubagentSession reports after settlement", () => {
   it("stops reporting once the spawn is dropped", async () => {
     const followUps: string[] = [];
     const fake = makeFakeHost({ observeState: "done" });
-    const ipc = new ScriptedIpc();
+    const deliverable = new ScriptedDeliverable();
     const harness = makeSession({
       host: fake.host,
-      ipc,
+      deliverable,
       hostRef: fake.ref,
       onFollowUpResult: (_spawn, deliverable) => followUps.push(deliverable),
     });
@@ -1325,7 +1099,7 @@ describe("SubagentSession reports after settlement", () => {
     await driveRun(DRIVE_COMPLETED_MS);
     harness.session.drop();
 
-    ipc.write("too late");
+    deliverable.write("too late");
     await driveRun(20_000);
 
     expect(followUps).toEqual([]);
@@ -1389,7 +1163,7 @@ describe("SubagentSession revive on steer", () => {
     const fake = makeFakeHost({ observeState: "done" });
     const run = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({ deliverable: "the final answer" }),
+      deliverable: new ScriptedDeliverable({ deliverable: "the final answer" }),
       hostRef: fake.ref,
       options: { modelSelection: selectionFor("acme/fast") },
     });
@@ -1468,13 +1242,14 @@ describe("SubagentSession revive on steer", () => {
 
   it("recreates the result directory so the revived run settles on its NEW report", async () => {
     const fake = makeFakeHost({ observeState: "working" });
-    // Real file-plane IPC: the deliverable must come from disk, not a script.
+    // Real deliverable: the report must come from disk, not a script.
     const resultFile = path.join(resultDir, "result.md");
-    const ipc = new HerdrSubagentIPC({
-      agentId: "session-readiness",
-      resultFile,
+    const deliverable = new FileDeliverable(resultFile);
+    const harness = makeSession({
+      host: fake.host,
+      deliverable,
+      hostRef: fake.ref,
     });
-    const harness = makeSession({ host: fake.host, ipc, hostRef: fake.ref });
     harness.session.start();
     await vi.advanceTimersByTimeAsync(0);
     await Promise.resolve();
@@ -1516,7 +1291,7 @@ describe("SubagentSession revive on steer", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({
+      deliverable: new ScriptedDeliverable({
         deliverable: "the final answer",
       }),
       hostRef: fake.ref,
@@ -1550,7 +1325,7 @@ describe("SubagentSession revive on steer", () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({
+      deliverable: new ScriptedDeliverable({
         deliverable: "the final answer",
       }),
       hostRef: fake.ref,
@@ -1616,7 +1391,7 @@ describe("SubagentSession steer inside the settle pass", () => {
     const fake = makeFakeHost({ observeState: "done" });
     const harness = makeSession({
       host: fake.host,
-      ipc: new ScriptedIpc({
+      deliverable: new ScriptedDeliverable({
         deliverable: "the final answer",
       }),
       hostRef: fake.ref,

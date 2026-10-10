@@ -11,7 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { reviveSettledRun } from "../src/agents/agent-reviver.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
-import type { DeliverableReport, SubagentIPC } from "../src/subagent/ipc.js";
+import type {
+  DeliverableReport,
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
 import type { AgentSpawn } from "../src/types.js";
 
 const { getPiInstanceMock } = vi.hoisted(() => ({
@@ -32,16 +35,13 @@ const REF: AgentHostRef = {
   paneCreated: false,
 };
 
-/** Scriptable IPC: reports what the test sets. */
-class FakeIpc implements SubagentIPC {
-  deliverable: string | null = null;
+/** Scriptable deliverable: reports what the test sets. */
+class FakeDeliverable implements DeliverableSource {
+  report: string | null = null;
 
   async readDeliverable(): Promise<DeliverableReport | null> {
-    return this.deliverable === null
-      ? null
-      : { content: this.deliverable, mtime: 1 };
+    return this.report === null ? null : { content: this.report, mtime: 1 };
   }
-  async steer(): Promise<void> {}
 }
 
 interface FixtureOptions {
@@ -62,8 +62,8 @@ function makeFixture(options: FixtureOptions = {}) {
     isAttached: async () => false,
     findAttempts: async () => [],
   } as unknown as AgentHost;
-  const ipc = new FakeIpc();
-  const ipcOptions: Array<{ agentId: string; resultFile: string }> = [];
+  const deliverable = new FakeDeliverable();
+  const deliverableFiles: string[] = [];
 
   const spawn = {
     id: "abcd1234",
@@ -96,9 +96,9 @@ function makeFixture(options: FixtureOptions = {}) {
     hostRef: REF,
     transport: {
       createHost: (_pi: ExtensionAPI) => host,
-      createIpc: (ipcOpts: { agentId: string; resultFile: string }) => {
-        ipcOptions.push(ipcOpts);
-        return ipc;
+      createDeliverable: (resultFile: string) => {
+        deliverableFiles.push(resultFile);
+        return deliverable;
       },
     },
     supervisorOptions: { pollMs: 1_000 },
@@ -116,8 +116,8 @@ function makeFixture(options: FixtureOptions = {}) {
   return {
     request,
     spawn,
-    ipc,
-    ipcOptions,
+    deliverable,
+    deliverableFiles,
     startCalls,
     attached,
     outcomes,
@@ -150,7 +150,7 @@ describe("reviveSettledRun", () => {
     expect(fixture.startCalls).toEqual([]);
     expect(fixture.attached).toHaveLength(1);
     expect(fixture.rebinds()).toBe(1);
-    expect(fixture.ipcOptions).toEqual([{ agentId: "abcd1234", resultFile }]);
+    expect(fixture.deliverableFiles).toEqual([resultFile]);
   });
 
   it("recreates the result directory with the stale report cleared", () => {
@@ -176,7 +176,7 @@ describe("reviveSettledRun", () => {
     reviveSettledRun(fixture.request);
     expect(fixture.outcomes).toEqual([]);
 
-    fixture.ipc.deliverable = "the second answer";
+    fixture.deliverable.report = "the second answer";
     await vi.advanceTimersByTimeAsync(1_000); // first sighting: held
     expect(fixture.outcomes).toEqual([]);
     await vi.advanceTimersByTimeAsync(1_000); // confirm: final

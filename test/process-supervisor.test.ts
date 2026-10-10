@@ -22,7 +22,10 @@ import type {
   DeliverOutcome,
   LiveAttempt,
 } from "../src/agents/agent-host.js";
-import type { DeliverableReport, SubagentIPC } from "../src/subagent/ipc.js";
+import type {
+  DeliverableReport,
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
 import type { StopInitiator } from "../src/types.js";
 
 type AgentState = "idle" | "working" | "blocked" | "done" | "unknown";
@@ -104,11 +107,10 @@ class FakeAgentHost implements AgentHost {
   }
 }
 
-/** SubagentIPC double: a scripted report file whose every write moves its stamp. */
-class FakeSubagentIPC implements SubagentIPC {
+/** DeliverableSource double: a scripted report file whose every write moves its stamp. */
+class FakeDeliverable implements DeliverableSource {
   /** Reads served so far, so a test can show the watch is still polling. */
   reads = 0;
-  steerMessages: string[] = [];
 
   private content: string | null = null;
   private stamp = 0;
@@ -117,11 +119,11 @@ class FakeSubagentIPC implements SubagentIPC {
    * Write the run's result file. Every write moves the stamp, so a rewrite that
    * repeats the same words is still a report the engine has not seen.
    */
-  set deliverable(value: string | null) {
+  set report(value: string | null) {
     this.content = value;
     this.stamp += 1;
   }
-  get deliverable(): string | null {
+  get report(): string | null {
     return this.content;
   }
 
@@ -129,10 +131,6 @@ class FakeSubagentIPC implements SubagentIPC {
     this.reads += 1;
     if (this.content === null) return null;
     return { content: this.content, mtime: this.stamp };
-  }
-
-  async steer(message: string): Promise<void> {
-    this.steerMessages.push(message);
   }
 }
 
@@ -162,7 +160,7 @@ const doneAgent: AgentSnapshot = {
 
 interface Fixture {
   host: FakeAgentHost;
-  ipc: FakeSubagentIPC;
+  deliverable: FakeDeliverable;
   supervisor: ProcessSupervisorEngine;
 }
 
@@ -180,13 +178,13 @@ function makeFixture(
     agent: options.agent,
     stopResult: options.stopResult,
   });
-  const ipc = new FakeSubagentIPC();
-  const supervisor = new ProcessSupervisorEngine(host, ipc, {
+  const deliverable = new FakeDeliverable();
+  const supervisor = new ProcessSupervisorEngine(host, deliverable, {
     pollMs: options.pollMs ?? 1_000,
     stopInitiator: options.stopInitiator,
     onFollowUp: options.onFollowUp,
   });
-  return { host, ipc, supervisor };
+  return { host, deliverable, supervisor };
 }
 
 /** Advance `ticks` poll intervals; exact for these synchronously-resolving fakes. */
@@ -262,7 +260,9 @@ describe("ProcessSupervisorEngine.adopt", () => {
   });
 
   it("supervises an already-spawned run without launching anything", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: workingAgent });
+    const { host, deliverable, supervisor } = makeFixture({
+      agent: workingAgent,
+    });
 
     supervisor.adopt(REF);
 
@@ -270,7 +270,7 @@ describe("ProcessSupervisorEngine.adopt", () => {
     expect(host.startCalls).toEqual([]);
     expect(host.hostAtCalls).toBe(0);
     const watchPromise = supervisor.watch();
-    ipc.deliverable = "revived answer";
+    deliverable.report = "revived answer";
     expect(await advancePolls(watchPromise, 2)).toBe("settled");
     await expect(watchPromise).resolves.toMatchObject({
       kind: "completed",
@@ -323,7 +323,7 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
   });
 
   it("resolves completed one confirm poll after the report, with the deliverable", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: workingAgent });
+    const { deliverable, supervisor } = makeFixture({ agent: workingAgent });
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
     let outcome: unknown = "pending";
@@ -331,7 +331,7 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
       outcome = o;
     });
 
-    ipc.deliverable = "final answer";
+    deliverable.report = "final answer";
     await vi.advanceTimersByTimeAsync(1_000);
     expect(outcome).toBe("pending");
 
@@ -343,8 +343,8 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
   });
 
   it("resolves completed when the report is already present at the first poll", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: doneAgent });
-    ipc.deliverable = "early finish";
+    const { deliverable, supervisor } = makeFixture({ agent: doneAgent });
+    deliverable.report = "early finish";
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
     await vi.advanceTimersByTimeAsync(1_000);
@@ -356,14 +356,14 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
   });
 
   it("keeps holding while the report is being rewritten, and settles the stable rewrite", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: doneAgent });
+    const { deliverable, supervisor } = makeFixture({ agent: doneAgent });
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
 
-    ipc.deliverable = "first draft";
+    deliverable.report = "first draft";
     await vi.advanceTimersByTimeAsync(1_000);
     // A rewritten report is still being written, not final.
-    ipc.deliverable = "second draft";
+    deliverable.report = "second draft";
     expect(await advancePolls(watchPromise, 1)).toBe("pending");
 
     expect(await advancePolls(watchPromise, 1)).toBe("settled");
@@ -374,17 +374,17 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
   });
 
   it("does not settle a report that vanished during the confirm poll", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: doneAgent });
+    const { deliverable, supervisor } = makeFixture({ agent: doneAgent });
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
 
-    ipc.deliverable = "draft";
+    deliverable.report = "draft";
     expect(await advancePolls(watchPromise, 1)).toBe("pending");
     // A rewrite removes the file first — the hold resets.
-    ipc.deliverable = null;
+    deliverable.report = null;
     expect(await advancePolls(watchPromise, 3)).toBe("pending");
 
-    ipc.deliverable = "final report";
+    deliverable.report = "final report";
     expect(await advancePolls(watchPromise, 2)).toBe("settled");
     await expect(watchPromise).resolves.toMatchObject({
       kind: "completed",
@@ -393,12 +393,12 @@ describe("ProcessSupervisorEngine.watch — completed (report artifact)", () => 
   });
 
   it("treats a whitespace-only report as no report", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: doneAgent });
-    ipc.deliverable = "   \n ";
+    const { deliverable, supervisor } = makeFixture({ agent: doneAgent });
+    deliverable.report = "   \n ";
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
     expect(await advancePolls(watchPromise, 4)).toBe("pending");
-    ipc.deliverable = "real answer";
+    deliverable.report = "real answer";
     expect(await advancePolls(watchPromise, 2)).toBe("settled");
     await expect(watchPromise).resolves.toMatchObject({
       kind: "completed",
@@ -423,10 +423,10 @@ describe("ProcessSupervisorEngine.watch — herdr state is never a settlement in
   });
 
   it("never settles because the agent sat idle without producing its report", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: doneAgent });
+    const { host, deliverable, supervisor } = makeFixture({ agent: doneAgent });
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
-    ipc.deliverable = null;
+    deliverable.report = null;
     expect(await advancePolls(watchPromise, 30)).toBe("pending");
     // No idle watchdog may read a quiet pane as a stuck agent.
     expect(host.stopCalls).toEqual([]);
@@ -444,7 +444,7 @@ describe("ProcessSupervisorEngine.watch — poll cadence", () => {
   it("runs one poll at a time, so a slow artifact read cannot stack polls", async () => {
     // Without one-poll-at-a-time the loop stacks ticks and the settlement
     // read queues behind the storm.
-    const { ipc, supervisor } = makeFixture({
+    const { deliverable, supervisor } = makeFixture({
       agent: workingAgent,
       pollMs: 10,
     });
@@ -452,7 +452,7 @@ describe("ProcessSupervisorEngine.watch — poll cadence", () => {
     let inFlight = 0;
     let peakInFlight = 0;
     const release: Array<() => void> = [];
-    ipc.readDeliverable = async () => {
+    deliverable.readDeliverable = async () => {
       readCalls += 1;
       inFlight += 1;
       peakInFlight = Math.max(peakInFlight, inFlight);
@@ -494,10 +494,12 @@ describe("ProcessSupervisorEngine.watch — lifecycle", () => {
   });
 
   it("resolves immediately with the stored outcome when watch() is called after settlement", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: workingAgent });
+    const { host, deliverable, supervisor } = makeFixture({
+      agent: workingAgent,
+    });
     await supervisor.start(PLAN, REF);
     const firstWatch = supervisor.watch();
-    ipc.deliverable = "done";
+    deliverable.report = "done";
     host.setObservation(doneAgent);
     await vi.advanceTimersByTimeAsync(2_000); // report + confirm
     await expect(firstWatch).resolves.toMatchObject({ kind: "completed" });
@@ -526,11 +528,11 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
   it("never closes the surface across interrupt-success, interrupt-ignored, and already-gone paths", async () => {
     // Every stop path must leave the pane alive for the worktree removal after stop.
     const sharedHost = new FakeAgentHost({ agent: workingAgent });
-    const sharedIpc = new FakeSubagentIPC();
+    const sharedDeliverable = new FakeDeliverable();
 
     sharedHost.setObservation(workingAgent);
     sharedHost.setStopResult(true);
-    const a = new ProcessSupervisorEngine(sharedHost, sharedIpc, {
+    const a = new ProcessSupervisorEngine(sharedHost, sharedDeliverable, {
       pollMs: 1_000,
     });
     await a.start(PLAN, REF);
@@ -542,7 +544,7 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
       initiator: "user",
     });
 
-    const b = new ProcessSupervisorEngine(sharedHost, sharedIpc, {
+    const b = new ProcessSupervisorEngine(sharedHost, sharedDeliverable, {
       pollMs: 1_000,
     });
     await b.start(PLAN, REF);
@@ -556,7 +558,7 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
 
     sharedHost.setObservation(undefined);
     sharedHost.setStopResult(true);
-    const c = new ProcessSupervisorEngine(sharedHost, sharedIpc, {
+    const c = new ProcessSupervisorEngine(sharedHost, sharedDeliverable, {
       pollMs: 1_000,
     });
     await c.start(PLAN, REF);
@@ -615,10 +617,12 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
   });
 
   it("returns false after a completed settlement and leaves the completed outcome", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: workingAgent });
+    const { host, deliverable, supervisor } = makeFixture({
+      agent: workingAgent,
+    });
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
-    ipc.deliverable = "finished";
+    deliverable.report = "finished";
     host.setObservation(doneAgent);
     await vi.advanceTimersByTimeAsync(2_000);
     await expect(watchPromise).resolves.toMatchObject({ kind: "completed" });
@@ -640,10 +644,10 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
     vi.useRealTimers();
   });
 
-  function countReads(ipc: FakeSubagentIPC): () => number {
+  function countReads(deliverable: FakeDeliverable): () => number {
     let calls = 0;
-    const read = ipc.readDeliverable.bind(ipc);
-    ipc.readDeliverable = async () => {
+    const read = deliverable.readDeliverable.bind(deliverable);
+    deliverable.readDeliverable = async () => {
       calls += 1;
       return read();
     };
@@ -651,8 +655,8 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
   }
 
   it("clears the poll interval: no further artifact read happens after abandon", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: workingAgent });
-    const reads = countReads(ipc);
+    const { deliverable, supervisor } = makeFixture({ agent: workingAgent });
+    const reads = countReads(deliverable);
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
 
@@ -669,8 +673,8 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
   });
 
   it("never delivers a settlement to watch(): the promise stays pending with no cleanup", async () => {
-    const { ipc, supervisor } = makeFixture({ agent: doneAgent });
-    ipc.deliverable = "# final answer";
+    const { deliverable, supervisor } = makeFixture({ agent: doneAgent });
+    deliverable.report = "# final answer";
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
 
@@ -692,8 +696,8 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
   });
 
   it("is idempotent, and ends a settled run's still-live watch", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: doneAgent });
-    ipc.deliverable = "done";
+    const { host, deliverable, supervisor } = makeFixture({ agent: doneAgent });
+    deliverable.report = "done";
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
     expect(await advancePolls(watchPromise, 2)).toBe("settled");
@@ -709,8 +713,10 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
   });
 
   it("is idempotent and safe when called twice mid-run", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: workingAgent });
-    const reads = countReads(ipc);
+    const { host, deliverable, supervisor } = makeFixture({
+      agent: workingAgent,
+    });
+    const reads = countReads(deliverable);
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
 
@@ -724,11 +730,13 @@ describe("ProcessSupervisorEngine.abandon — disposal only, never a settlement"
   });
 
   it("settles nothing even when an in-flight poll completes after abandon", async () => {
-    const { host, ipc, supervisor } = makeFixture({ agent: workingAgent });
-    ipc.deliverable = "done";
+    const { host, deliverable, supervisor } = makeFixture({
+      agent: workingAgent,
+    });
+    deliverable.report = "done";
     // Park the first poll inside the artifact read, as a slow filesystem would.
     let releasePoll: (() => void) | undefined;
-    ipc.readDeliverable = async () =>
+    deliverable.readDeliverable = async () =>
       new Promise<DeliverableReport | null>((resolve) => {
         releasePoll = () => resolve({ content: "done", mtime: 1 });
       });
@@ -768,11 +776,11 @@ describe("ProcessSupervisorEngine.watch — reports after settlement", () => {
   }
 
   it("delivers a later turn's report as a follow-up, leaving the outcome untouched", async () => {
-    const { ipc, supervisor, followUps } = followUpFixture();
+    const { deliverable, supervisor, followUps } = followUpFixture();
     await supervisor.start(PLAN, REF);
     const watchPromise = supervisor.watch();
 
-    ipc.deliverable = "first answer";
+    deliverable.report = "first answer";
     expect(await advancePolls(watchPromise, 2)).toBe("settled");
     await expect(watchPromise).resolves.toEqual({
       kind: "completed",
@@ -781,7 +789,7 @@ describe("ProcessSupervisorEngine.watch — reports after settlement", () => {
     expect(followUps).toEqual([]);
 
     // The run kept working in its pane: the same watch finds the new report.
-    ipc.deliverable = "and one more thing";
+    deliverable.report = "and one more thing";
     await vi.advanceTimersByTimeAsync(2_000);
     expect(followUps).toEqual(["and one more thing"]);
     // The run stays settled: a follow-up never rewrites the outcome.
@@ -792,37 +800,37 @@ describe("ProcessSupervisorEngine.watch — reports after settlement", () => {
   });
 
   it("treats a rewritten report of the same words as a follow-up", async () => {
-    const { ipc, supervisor, followUps } = followUpFixture();
+    const { deliverable, supervisor, followUps } = followUpFixture();
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
-    ipc.deliverable = "same words";
+    deliverable.report = "same words";
     await vi.advanceTimersByTimeAsync(2_000);
 
-    ipc.deliverable = "same words";
+    deliverable.report = "same words";
     await vi.advanceTimersByTimeAsync(2_000);
     expect(followUps).toEqual(["same words"]);
   });
 
   it("never repeats a report it already delivered", async () => {
-    const { ipc, supervisor, followUps } = followUpFixture();
+    const { deliverable, supervisor, followUps } = followUpFixture();
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
-    ipc.deliverable = "the only answer";
+    deliverable.report = "the only answer";
     // Well past settlement: the unchanged file is read over and over.
     await vi.advanceTimersByTimeAsync(10_000);
     expect(followUps).toEqual([]);
   });
 
   it("reports nothing more once detach() ends the watch", async () => {
-    const { ipc, supervisor, followUps } = followUpFixture();
+    const { deliverable, supervisor, followUps } = followUpFixture();
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
-    ipc.deliverable = "first answer";
+    deliverable.report = "first answer";
     await vi.advanceTimersByTimeAsync(2_000);
 
     supervisor.detach();
     expect(vi.getTimerCount()).toBe(0);
-    ipc.deliverable = "too late";
+    deliverable.report = "too late";
     await vi.advanceTimersByTimeAsync(10_000);
     expect(followUps).toEqual([]);
   });

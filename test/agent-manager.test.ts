@@ -11,9 +11,9 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   AgentManager,
   DISPOSE_QUEUED_MESSAGE,
-  type AgentManagerTransport,
   type SpawnOptions,
 } from "../src/agents/agent-manager.js";
+import type { SupervisorTransport } from "../src/subagent/pane-supervisor.js";
 import type {
   ConcurrencyPool,
   HerdrTaskRegistry,
@@ -25,7 +25,10 @@ import type { OrchestratorConfig } from "../src/orchestrators/types.js";
 import { DEFAULT_ORCHESTRATORS } from "../src/orchestrators/default-orchestrators.js";
 import type { AgentSpawn, ModelSelection } from "../src/types.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
-import type { DeliverableReport, SubagentIPC } from "../src/subagent/ipc.js";
+import type {
+  DeliverableReport,
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
 import { AgentSpawnStore } from "../src/agents/agent-spawn-store.js";
 import { ACTIVE_AGENT_PHASES } from "../src/types.js";
 import { nextSpawnId } from "./helpers/spawn-ids.js";
@@ -98,7 +101,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
 
   afterEach(() => vi.useRealTimers());
 
-  class ScriptedIpc implements SubagentIPC {
+  class ScriptedDeliverable implements DeliverableSource {
     /** Reads served, so a test can show the watch outlives settlement. */
     reads = 0;
     private content: string | null;
@@ -120,7 +123,6 @@ describe("AgentManager supervisor launch→watch seam", () => {
         ? null
         : { content: this.content, mtime: this.stamp };
     }
-    async steer(): Promise<void> {}
   }
 
   it("releases the placement when supervisor start fails", async () => {
@@ -155,7 +157,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
               return true;
             },
           }) as unknown as AgentHost,
-        createIpc: () => new ScriptedIpc("completed"),
+        createDeliverable: () => new ScriptedDeliverable("completed"),
       },
     );
     buildLaunchPlanMock.mockResolvedValue({
@@ -229,7 +231,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
             },
             release: async () => true,
           }) as unknown as AgentHost,
-        createIpc: () => new ScriptedIpc("completed"),
+        createDeliverable: () => new ScriptedDeliverable("completed"),
       },
     );
     buildLaunchPlanMock.mockResolvedValue({
@@ -281,12 +283,12 @@ describe("AgentManager supervisor launch→watch seam", () => {
       // Herdr state never settles: the agent's own report decides.
       observe: async () => ({ state: "working" }),
     } as unknown as AgentHost;
-    let ipc: ScriptedIpc | undefined;
-    const transport: AgentManagerTransport = {
+    let deliverable: ScriptedDeliverable | undefined;
+    const transport: SupervisorTransport = {
       createHost: () => host,
-      createIpc: () => {
-        ipc = new ScriptedIpc("completed");
-        return ipc;
+      createDeliverable: () => {
+        deliverable = new ScriptedDeliverable("completed");
+        return deliverable;
       },
     };
     const pool = { limit: 1, spawned: 0 };
@@ -352,7 +354,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
 
     // Settlement does not end the watch: the run's later report reaches the
     // follow-up seam without settling or re-notifying.
-    ipc!.write("and one more thing");
+    deliverable!.write("and one more thing");
     await vi.advanceTimersByTimeAsync(4_000);
     expect(followUps).toEqual([{ id, deliverable: "and one more thing" }]);
     expect(nudges).toEqual([spawn]);
@@ -381,12 +383,12 @@ describe("AgentManager supervisor launch→watch seam", () => {
         return true;
       },
     } as unknown as AgentHost;
-    let ipc: ScriptedIpc | undefined;
-    const transport: AgentManagerTransport = {
+    let deliverable: ScriptedDeliverable | undefined;
+    const transport: SupervisorTransport = {
       createHost: () => host,
-      createIpc: () => {
-        ipc = new ScriptedIpc("none");
-        return ipc;
+      createDeliverable: () => {
+        deliverable = new ScriptedDeliverable("none");
+        return deliverable;
       },
     };
     const pool = { limit: 1, spawned: 1 };
@@ -573,21 +575,20 @@ describe("AgentManager fleet routing", () => {
   afterEach(() => vi.useRealTimers());
 
   /** Routing suites assert routing, never the file plane. */
-  class FleetScriptedIpc implements SubagentIPC {
+  class FleetScriptedDeliverable implements DeliverableSource {
     async readDeliverable(): Promise<DeliverableReport | null> {
       return { content: "done", mtime: 1 };
     }
-    async steer(): Promise<void> {}
   }
 
   /** A host that never materializes a placement: launch stays pending. */
-  function hangingTransport(): AgentManagerTransport {
+  function hangingTransport(): SupervisorTransport {
     return {
       createHost: () =>
         ({
           hostAt: () => new Promise(() => {}),
         }) as unknown as AgentHost,
-      createIpc: () => new FleetScriptedIpc(),
+      createDeliverable: () => new FleetScriptedDeliverable(),
     };
   }
 
@@ -764,7 +765,10 @@ describe("AgentManager fleet routing", () => {
       undefined,
       undefined,
       fake.registry as unknown as HerdrTaskRegistry,
-      { createHost: () => host, createIpc: () => new FleetScriptedIpc() },
+      {
+        createHost: () => host,
+        createDeliverable: () => new FleetScriptedDeliverable(),
+      },
     );
     const liveId = spawnQueued(manager);
     await vi.advanceTimersByTimeAsync(0);
@@ -826,7 +830,10 @@ describe("AgentManager fleet routing", () => {
       (spawn) => nudges.push(spawn),
       undefined,
       fake.registry as unknown as HerdrTaskRegistry,
-      { createHost: () => host, createIpc: () => new FleetScriptedIpc() },
+      {
+        createHost: () => host,
+        createDeliverable: () => new FleetScriptedDeliverable(),
+      },
     );
     const id = spawnQueued(manager);
     await vi.advanceTimersByTimeAsync(0);
@@ -906,7 +913,10 @@ describe("AgentManager fleet routing", () => {
       undefined,
       undefined,
       fake.registry as unknown as HerdrTaskRegistry,
-      { createHost: () => host, createIpc: () => new FleetScriptedIpc() },
+      {
+        createHost: () => host,
+        createDeliverable: () => new FleetScriptedDeliverable(),
+      },
     );
     const queuedId = spawnQueued(manager);
     const spawnedId = spawnQueued(manager);

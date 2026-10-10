@@ -9,8 +9,6 @@ import {
   setCowAvailability,
   setHarnessAvailability,
   setSessionTemplates,
-  subagentResultFileFor,
-  subagentTokenFor,
 } from "../src/shell.js";
 import { probed, unprobed } from "../src/availability.js";
 import type { WorktreeMaterialization } from "../src/spawn/worktree-policy.js";
@@ -26,7 +24,11 @@ import {
   registerOrchestrators,
 } from "../src/orchestrators/orchestrator-types.js";
 import type { OrchestratorConfig } from "../src/orchestrators/types.js";
-import { subagentResultDir } from "../src/paths.js";
+import {
+  subagentResultDir,
+  subagentResultFileFor,
+  subagentTokenFor,
+} from "../src/paths.js";
 
 const AGENT: AgentConfig = {
   name: "scoped",
@@ -106,12 +108,6 @@ describe("subagent argv gate", () => {
     ).toBeUndefined();
     expect(detectSubagentSpawn([])).toBeUndefined();
   });
-
-  it("derives the result file from the agent id", () => {
-    expect(subagentResultFileFor("cow-fix-01234567")).toBe(
-      join(subagentResultDir(), "cow-fix-01234567", "result.md"),
-    );
-  });
 });
 
 const both = probed<WorktreeMaterialization>(["copy-on-write", "checkout"]);
@@ -154,6 +150,12 @@ describe("harness availability", () => {
 });
 
 describe("subagent staging root", () => {
+  it("derives the result file from the agent id", () => {
+    expect(subagentResultFileFor("cow-fix-01234567")).toBe(
+      join(subagentResultDir(), "cow-fix-01234567", "result.md"),
+    );
+  });
+
   it.skipIf(process.platform === "win32")(
     "moves with a TMPDIR override",
     () => {

@@ -23,7 +23,10 @@ import type {
 } from "../src/types.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
 import type { HerdrTaskRegistry } from "../src/task-registry.js";
-import type { DeliverableReport, SubagentIPC } from "../src/subagent/ipc.js";
+import type {
+  DeliverableReport,
+  DeliverableSource,
+} from "../src/subagent/deliverable.js";
 import type { BranchCleanupResult } from "../src/infrastructure/git-client.js";
 import {
   SPAWN_ID_ALPHABET,
@@ -164,13 +167,11 @@ const QUEUED: AgentLifecycleState = {
   queuedAt: 1_700_000_000_000,
 };
 
-/** IPC fake settling every run as completed. */
-class ScriptedIpc implements SubagentIPC {
-  constructor() {}
+/** Deliverable fake settling every run as completed. */
+class ScriptedDeliverable implements DeliverableSource {
   async readDeliverable(): Promise<DeliverableReport | null> {
     return { content: "done", mtime: 1 };
   }
-  async steer(): Promise<void> {}
 }
 
 interface HarnessOptions {
@@ -195,7 +196,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
   } as unknown as AgentHost;
   const transport = {
     createHost: () => host,
-    createIpc: () => new ScriptedIpc(),
+    createDeliverable: () => new ScriptedDeliverable(),
   };
   const pool = { limit: 1, spawned: 0 };
   const registry = {

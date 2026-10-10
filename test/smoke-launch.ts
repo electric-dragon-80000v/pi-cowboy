@@ -1,6 +1,10 @@
 /**
  * Smoke test: launch a real pi subagent in a background herdr tab, wait for
  * settlement, then clean up. Run with: npx tsx test/smoke-launch.ts
+ *
+ * The launch mirrors a real spawn's argv, so the system prompt and the task
+ * ride in files: this script stages them under the same directory a spawn
+ * uses, `<tmpdir>/pi-cowboy/<agentId>/`.
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -10,6 +14,26 @@ import {
   getAgentInfo,
   closePane,
 } from "../src/infrastructure/herdr-client.js";
+import {
+  subagentResultDirFor,
+  subagentSystemFileFor,
+  subagentTaskFileFor,
+  subagentTokenFor,
+} from "../src/paths.js";
+import {
+  ensureResultDir,
+  writeResultFile,
+} from "../src/agents/result-file-permissions.js";
+
+/** Stands in for a spawn id: the staging paths and the pane's agent name key on it. */
+const AGENT_ID = "smoke-test";
+
+const SYSTEM_PROMPT = [
+  "You are a smoke-test subagent launched by the pi-cowboy extension.",
+  "Do the task and state the result plainly.",
+].join("\n");
+
+const TASK = "Reply with the single word: OK";
 
 const herdr = (
   args: string[],
@@ -30,6 +54,12 @@ const pi = {
 } as never;
 
 async function main() {
+  // The argv below names these files, so they exist before pi boots: the
+  // spawn's own staging step, reproduced.
+  ensureResultDir(subagentResultDirFor(AGENT_ID));
+  writeResultFile(subagentSystemFileFor(AGENT_ID), SYSTEM_PROMPT);
+  writeResultFile(subagentTaskFileFor(AGENT_ID), TASK);
+
   const workspaceId = await getCurrentWorkspaceId(pi as never);
   console.log("workspace:", workspaceId);
 
@@ -42,21 +72,21 @@ async function main() {
 
   const piArgs = [
     "--system-prompt",
-    "/tmp/wt-smoke/system.md",
+    subagentSystemFileFor(AGENT_ID),
     "--append-system-prompt",
-    "cowboy-subagent-smoke-test",
+    subagentTokenFor(AGENT_ID),
     "--name",
-    "smoke-test",
+    AGENT_ID,
     "--no-session",
-    "@/tmp/wt-smoke/prompt.md",
+    `@${subagentTaskFileFor(AGENT_ID)}`,
   ];
-  await startPiAgent(pi as never, { name: "smoke-test", paneId, piArgs });
+  await startPiAgent(pi as never, { name: AGENT_ID, paneId, piArgs });
   console.log("pi started in pane");
 
   const deadline = Date.now() + 90_000;
   let settled = false;
   while (Date.now() < deadline) {
-    const info = await getAgentInfo(pi as never, "smoke-test");
+    const info = await getAgentInfo(pi as never, AGENT_ID);
     if (!info) {
       console.log("agent gone");
       break;
