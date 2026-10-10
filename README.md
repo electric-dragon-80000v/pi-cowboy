@@ -71,7 +71,7 @@ Depending on your concurrency settings, some of the tasks queue. The default glo
 
 Each agent runs as a separate pi process in its own Herdr workspace. Open a workspace at any time to monitor the agent or to steer it.
 
-Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session — the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane. Outside a git repository there is no worktree to open, so the agent gets a tab in your current workspace instead. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
+Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session — the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane — which is why pi-cowboy needs a git repository: outside one there is no worktree to open, so the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
 
 The agents work in separate git worktrees placed under `$HOME/.pi/agent/pi-cowboy/worktrees/`.
 

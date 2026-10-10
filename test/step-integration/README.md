@@ -202,7 +202,7 @@ is factored into `scenario-steps.ts` (see [WRITING-TESTS.md](WRITING-TESTS.md)):
    arbitrary_:
 
    ```ts
-   const ctx = initialize(stub, testId);
+   const ctx = await initialize(stub, testId);
    // → { agentDir, workDir, baseUrl, chatPath, runEnv }
    installLocalExtension(ctx); // → the run loads THIS repo's extension
 
@@ -212,7 +212,8 @@ is factored into `scenario-steps.ts` (see [WRITING-TESTS.md](WRITING-TESTS.md)):
    orchestrator.handle.endInput(); // shut it down; result resolves
    ```
 
-   `initialize` hides the temp dirs (plus the `sessions` dir), the
+   `initialize` hides the temp dirs (plus the `sessions` dir and a git
+   repository at the run's cwd, which the extension requires to activate), the
    `models.json` whose baseUrl is `${stub.origin}/${encodeURIComponent(testId)}`,
    and the `chatPath` (`${prefix}/chat/completions`). Visible at the call
    site: the stub handle and the test id. A block whose paths share the prefix

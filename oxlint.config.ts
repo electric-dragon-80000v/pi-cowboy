@@ -150,9 +150,10 @@ export default defineConfig({
       },
     },
     // The pi extension contract requires the entry point to be the default
-    // export (pi loads `export default` from the extension module).
+    // export (pi loads `export default` from the extension module), for the
+    // extension itself and for the test probes pi loads the same way.
     {
-      files: ["src/index.ts"],
+      files: ["src/index.ts", "test/step-integration/*-observer.ts"],
       rules: {
         "import/no-default-export": "off",
       },

@@ -16,10 +16,12 @@ import {
   mkdtempSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { onTestFinished } from "vitest";
+import { git } from "../helpers/git-repo.js";
 import type { FakeOpenAI } from "./fake-openai-server.js";
 import {
   PI_RUN_TIMEOUT_MS,
@@ -56,14 +58,32 @@ function removeTempDirs(dirs: { agentDir: string; workDir: string }): void {
 }
 
 /**
- * Give the calling test an isolated world against the stub: temp dirs plus a
- * `models.json` whose baseUrl carries this test's route prefix. Teardown is
- * registered here via `onTestFinished`, so the body needs no `try`/`finally`.
+ * Make `dir` a git repository with one commit. The extension activates only
+ * inside a git repository, and a spawn branches from HEAD, which needs a commit.
  */
-export function initialize(stub: FakeOpenAI, testId: string): ScenarioContext {
+async function initGitRepo(dir: string): Promise<void> {
+  await git(["init", "-b", "main"], dir);
+  await git(["config", "user.email", "t@t"], dir);
+  await git(["config", "user.name", "t"], dir);
+  writeFileSync(join(dir, "base.txt"), "base\n");
+  await git(["add", "-A"], dir);
+  await git(["commit", "-m", "init"], dir);
+}
+
+/**
+ * Give the calling test an isolated world against the stub: temp dirs, a git
+ * repository at the run's cwd, and a `models.json` whose baseUrl carries this
+ * test's route prefix. Teardown is registered here via `onTestFinished`, so the
+ * body needs no `try`/`finally`.
+ */
+export async function initialize(
+  stub: FakeOpenAI,
+  testId: string,
+): Promise<ScenarioContext> {
   const agentDir = mkdtempSync(join(tmpdir(), "step-integration-agent-"));
   const workDir = mkdtempSync(join(tmpdir(), "step-integration-work-"));
   mkdirSync(join(workDir, "sessions"), { recursive: true });
+  await initGitRepo(workDir);
 
   const prefix = `/${encodeURIComponent(testId)}`;
   const ctx: ScenarioContext = {

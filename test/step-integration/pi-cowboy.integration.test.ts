@@ -109,7 +109,7 @@ describe("step integration: a real pi process against the fake-openai stub", () 
 
   describe("a scripted cowboy_agent call against an installed extension", () => {
     it("fails the delegated agent's first inference and leaves the run live", async () => {
-      const ctx = initialize(stub, currentTestId());
+      const ctx = await initialize(stub, currentTestId());
       installLocalExtension(ctx);
       await startFakeHerdr(ctx);
 

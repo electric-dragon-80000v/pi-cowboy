@@ -67,6 +67,7 @@ const {
   deactivateExtension,
   registerTools,
   registerCowboyCommand,
+  registerUnavailableCowboyCommand,
   setExtensionEnabled,
 } = await import("../src/registration.js");
 const { isExtensionEnabled, setShowActiveIndicator, syncExtensionIndicator } =
@@ -355,6 +356,38 @@ describe("setExtensionEnabled", () => {
     expect(shell.active).toEqual(["read", "bash", ...COWBOY_TOOL_NAMES]);
     expect(markers).toHaveLength(2);
     expect(markers[0]!.hidden()).toBe(false);
+  });
+});
+
+describe("registerUnavailableCowboyCommand", () => {
+  it("registers /cowboy that reports the reason instead of opening a menu", async () => {
+    let name: string | undefined;
+    let registered:
+      | {
+          description: string;
+          handler: (args: string, ctx: unknown) => Promise<void>;
+        }
+      | undefined;
+    const registrationPi = {
+      registerCommand: (_name: string, options: unknown) => {
+        name = _name;
+        registered = options as typeof registered;
+      },
+    } as unknown as ExtensionAPI;
+
+    registerUnavailableCowboyCommand(registrationPi, "not inside a git repo");
+    if (!registered) {
+      throw new Error("registerUnavailableCowboyCommand registered no command");
+    }
+
+    const notify = vi.fn();
+    await registered.handler("status", commandContext(notify));
+
+    expect(name).toBe("cowboy");
+    expect(registered.description).toBe("not inside a git repo");
+    expect(notify).toHaveBeenCalledWith("not inside a git repo", "warning");
+    expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
+    expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
   });
 });
 

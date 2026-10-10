@@ -235,10 +235,31 @@ function subagentModelOptions(ctx: ExtensionCommandContext): string[] {
     : ctx.modelRegistry.getAvailable().map((m) => `${m.provider}/${m.id}`);
 }
 
+/** The one place the command name is spelled. */
+const COWBOY_COMMAND = "cowboy";
+
+/**
+ * The `/cowboy` command in its unavailable mode: a prerequisite the entry point
+ * could not meet means every invocation reports the reason instead of opening a
+ * menu. Registered so the human reads the reason on the command they would have
+ * used.
+ */
+export function registerUnavailableCowboyCommand(
+  pi: ExtensionAPI,
+  reason: string,
+): void {
+  pi.registerCommand(COWBOY_COMMAND, {
+    description: reason,
+    handler: async (_args: string, ctx: ExtensionCommandContext) => {
+      ctx.ui.notify(reason, "warning");
+    },
+  });
+}
+
 /** The /cowboy command — the human surface that turns the extension back on. */
 export function registerCowboyCommand(pi: ExtensionAPI): void {
   // Named cowboy so it never clashes with other subagent extensions' /agents.
-  pi.registerCommand("cowboy", {
+  pi.registerCommand(COWBOY_COMMAND, {
     description:
       "Manage agents: status, spawn, settings. `status` lists spawned, queued and settled agents; `spawn` opens the spawn wizard; `worktree` creates one git worktree with no agent attached to it. `enable`/`disable` load or unload the cowboy tools. Pass `model` (optionally a provider/model-id) to set the model agents use for this session — opens pi's model picker.",
     getArgumentCompletions: async (prefix: string) =>

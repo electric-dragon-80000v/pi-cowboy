@@ -219,6 +219,27 @@ export function locateMainCheckout(
 }
 
 /**
+ * Whether `cwd` sits inside a git repository, by git's own discovery rule: an
+ * ancestor — `cwd` itself included — holds a `.git` entry, a directory in the
+ * main checkout or a file whose `gitdir:` points at a linked worktree's real
+ * git dir.
+ *
+ * Reads the filesystem rather than asking git: a git that cannot run — a stray
+ * `GIT_DIR`, a broken global config, a checkout whose ownership git refuses —
+ * answers nothing, and "git could not say" must never be read as "not a
+ * repository".
+ */
+export function isInsideGitRepository(cwd: string): boolean {
+  let dir = path.resolve(cwd);
+  for (;;) {
+    if (fs.existsSync(path.join(dir, ".git"))) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+/**
  * Main checkout root for any in-repo cwd. Herdr rejects a linked worktree as an
  * adoption source, and the caller may itself sit in one — hence the common-dir
  * resolution. Throws GitError outside a git repository.
