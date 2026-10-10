@@ -120,13 +120,21 @@ If pi-cowboy cannot remove one of them, it reports the failure and completes the
 `/cowboy` opens a menu. See [Menu](docs/Menu.md).
 
 <code>/cowboy                         # pi-cowboy menu</code><br>
+
 <code>/cowboy status                  # List spawned, queued, and settled agents</code><br>
+
 <code>/cowboy spawn                   # Spawn an agent manually</code><br>
+
 <code>/cowboy worktree                # Create a git worktree with no agent attached</code><br>
+
 <code>/cowboy model                   # Model selection for the agents</code><br>
+
 <code>/cowboy model provider/model-id # Set the model for this session</code><br>
+
 <code>/cowboy model clear             # Clear the model set for this session</code><br>
+
 <code>/cowboy enable                  # Enables pi-cowboy</code><br>
+
 <code>/cowboy disable.                # Disables pi-cowboy</code>
 
 ## Tools
