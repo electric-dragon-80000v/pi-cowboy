@@ -196,10 +196,13 @@ export async function cowboyCompletions(
 }
 
 /**
- * The pi family's model list, read through the harness the spawns run under
- * rather than from the registry directly, so every pi-catalog reader shares one
- * source. A catalog that cannot answer reads as no models: this picker is a
- * convenience, and it must still open.
+ * The pi family's model list. `/cowboy model` sets the session default and
+ * applies the pick through pi's own registry, and its other branch is pi's
+ * `ModelSelectorComponent` over pi's runtime: both branches must offer the same
+ * models, so the fallback lists pi's catalog rather than every harness's.
+ *
+ * A catalog that cannot answer reads as no models: this picker is a convenience,
+ * and it must still open.
  */
 async function piHarnessModels(
   modelCatalog: ModelCatalog,

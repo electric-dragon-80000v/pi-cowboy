@@ -20,13 +20,17 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
+  runnableHarnessIds,
   type ExtensionLaunchMode,
   type HarnessLaunchRequest,
   type SkillLaunchMode,
   type ToolSelection,
   resolveHarness,
 } from "../src/agents/harness.js";
-import { harnessFor } from "../src/agents/harness/registry.js";
+import {
+  harnessFor,
+  listHarnessModels,
+} from "../src/agents/harness/registry.js";
 import { probed, unprobed } from "../src/availability.js";
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
@@ -508,6 +512,121 @@ describe("listModels", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0][0])).toContain("ENOENT");
     warn.mockRestore();
+  });
+});
+
+describe("listHarnessModels", () => {
+  /** A pi registry: the catalog the pi family's list reads. */
+  const CATALOG = {
+    getAvailable: () => [
+      { provider: "anthropic", id: "claude-3" },
+      { provider: "openai", id: "gpt-4o" },
+    ],
+  };
+
+  /** An opencode CLI that answers with one model the catalog does not have. */
+  function opencodeExec(): ReturnType<typeof vi.fn> {
+    return vi.fn(async () => ({
+      code: 0,
+      stdout: "anthropic/claude-opus-4\nopenai/gpt-4o\n",
+      stderr: "",
+    }));
+  }
+
+  it("merges every runnable harness's models, once per key, in vocabulary order", async () => {
+    const entries = await listHarnessModels(
+      {
+        pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
+      probed(["pi", "opencode"]),
+    );
+
+    expect(entries.map((entry) => entry.key)).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+      "anthropic/claude-opus-4",
+    ]);
+  });
+
+  it("asks only the harnesses this machine can run", async () => {
+    const exec = opencodeExec();
+
+    const entries = await listHarnessModels(
+      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      probed(["pi"]),
+    );
+
+    expect(entries.map((entry) => entry.key)).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("answers from pi before any probe has landed", async () => {
+    const exec = opencodeExec();
+
+    const entries = await listHarnessModels(
+      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      unprobed(),
+    );
+
+    expect(entries.map((entry) => entry.key)).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("resolves the other lists when one harness cannot answer", async () => {
+    const throwing = {
+      getAvailable: () => {
+        throw new Error("catalog unavailable");
+      },
+    };
+
+    const entries = await listHarnessModels(
+      {
+        pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
+        modelCatalog: throwing,
+      },
+      probed(["pi", "opencode"]),
+    );
+
+    expect(entries.map((entry) => entry.key)).toEqual([
+      "anthropic/claude-opus-4",
+      "openai/gpt-4o",
+    ]);
+  });
+});
+
+describe("runnableHarnessIds", () => {
+  it("always offers the pi family: it is the binary already running the pane", () => {
+    expect(runnableHarnessIds(unprobed())).toEqual(["pi", "pig", "pi-bolt"]);
+  });
+
+  it("adds another harness only once the probe has confirmed it", () => {
+    expect(runnableHarnessIds(probed(["pi", "opencode"]))).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "opencode",
+    ]);
+    expect(runnableHarnessIds(probed(["pi"]))).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+    ]);
+  });
+
+  it("keeps the vocabulary's order, never the probe's", () => {
+    expect(runnableHarnessIds(probed(["opencode", "pi"]))).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "opencode",
+    ]);
   });
 });
 

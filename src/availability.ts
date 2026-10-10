@@ -55,10 +55,8 @@ export function selectable<Id extends string>(
 }
 
 /**
- * Whether a probe has proven one value usable. Unlike `isAvailable`, "unknown"
- * is not a yes: a caller that cannot do anything without the value itself — a
- * row whose list can only come from that program — asks this instead, so it is
- * never offered something the machine has not shown it has.
+ * Whether a probe has confirmed one value. `isAvailable` also says yes while no
+ * probe has answered; a caller that needs the value itself asks this instead.
  */
 export function isProven<Id extends string>(
   id: NoInfer<Id>,

@@ -19,9 +19,9 @@ import type { ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
 import {
-  HARNESS_IDS,
   harnessDisplayName,
   isPiFamilyHarness,
+  runnableHarnessIds,
   type HarnessId,
 } from "../../agents/harness.js";
 import { harnessFor } from "../../agents/harness/registry.js";
@@ -40,7 +40,7 @@ import {
 } from "../../models/model-groups.js";
 import { findModelInRegistry } from "../../utils.js";
 import type { SessionModelOverrides } from "../../models/model-precedence.js";
-import { isProven, type Availability } from "../../availability.js";
+import type { Availability } from "../../availability.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { asSubmenuComponent, SwappableView } from "./screen-host.js";
 import {
@@ -172,22 +172,15 @@ function createModelOverridePlumbing(
 }
 
 /**
- * The non-pi harnesses that get a default-model row, in `HARNESS_IDS` order.
- *
- * A row needs the probe to have PROVEN the harness available, where the harness
- * setting itself keeps every value on offer until a verdict lands: a row exists
- * to list that harness's models, and only the harness can answer, so an unproven
- * one would open a picker that could never fill.
- *
- * The pi family is absent by construction rather than by a second list: pig and
- * pi-bolt run the pi binary, so they share pi's catalog and pi's default, and a
- * row of their own could only disagree with the one above it.
+ * The harnesses that get a default-model row: every runnable harness outside the
+ * pi family, which already has one row — pi runs the family's binary, so pig and
+ * pi-bolt share pi's catalog and pi's default.
  */
 function harnessDefaultRowIds(
   availability: Availability<HarnessId>,
 ): HarnessId[] {
-  return HARNESS_IDS.filter(
-    (id) => !isPiFamilyHarness(id) && isProven(id, availability),
+  return runnableHarnessIds(availability).filter(
+    (id) => !isPiFamilyHarness(id),
   );
 }
 

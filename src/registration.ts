@@ -28,8 +28,8 @@ import {
   isExtensionEnabled,
   syncExtensionIndicator,
 } from "./extension-toggle.js";
-import { getPiInstance, getStore } from "./shell.js";
-import { harnessFor } from "./agents/harness/registry.js";
+import { getHarnessAvailability, getPiInstance, getStore } from "./shell.js";
+import { listHarnessModels } from "./agents/harness/registry.js";
 
 /** The one place a tool name is spelled; the tools below are named from these. */
 export const COWBOY_TOOLS = {
@@ -219,8 +219,9 @@ export function registerTools(pi: ExtensionAPI): void {
 
 /**
  * The model keys a spawn can be given: the session's scoped models when any are
- * scoped, otherwise every model the pi harness's catalog offers — the same
- * interface method the Model settings menu reads, so the two never disagree.
+ * scoped, otherwise every model the harnesses this machine can run offer — one
+ * list per harness, merged, so a picker never offers a model no spawn here
+ * could use.
  */
 async function subagentModelOptions(
   pi: ExtensionAPI,
@@ -238,10 +239,10 @@ async function subagentModelOptions(
   if (scoped?.length) {
     return scoped.map((s) => `${s.model.provider}/${s.model.id}`);
   }
-  const models = await harnessFor("pi").listModels({
-    pi,
-    modelCatalog: ctx.modelRegistry,
-  });
+  const models = await listHarnessModels(
+    { pi, modelCatalog: ctx.modelRegistry },
+    getHarnessAvailability(),
+  );
   return models.map((entry) => entry.key);
 }
 

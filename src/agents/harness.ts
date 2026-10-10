@@ -32,7 +32,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isAvailable, type Availability } from "../availability.js";
+import { isAvailable, isProven, type Availability } from "../availability.js";
 
 /**
  * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
@@ -89,6 +89,20 @@ export function resolveHarness(
   availability: Availability<HarnessId>,
 ): HarnessId {
   return isAvailable(configured, availability) ? configured : DEFAULT_HARNESS;
+}
+
+/**
+ * The harnesses a spawn here can really use, in `HARNESS_IDS` order. pi runs the
+ * pane it would launch in, so the family answers always; any other harness needs
+ * the probe to have confirmed its binary, because only the binary itself can
+ * list the models it runs.
+ */
+export function runnableHarnessIds(
+  availability: Availability<HarnessId>,
+): HarnessId[] {
+  return HARNESS_IDS.filter(
+    (id) => isPiFamilyHarness(id) || isProven(id, availability),
+  );
 }
 
 /** How the child's tool set is chosen; `default` leaves the binary's own discovery untouched. */
