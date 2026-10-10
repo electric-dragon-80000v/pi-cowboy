@@ -1,4 +1,4 @@
-![logo-labeled-readme](./docs/assets/logo-labeled-readme.png)
+![logo-labeled-readme](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -25,7 +25,7 @@ pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for 
 
 - **Grazing cows and a cowboy on your screen**:
 
-  ![image-20260930022747492](./docs/assets/grazing.png)
+  ![image-20260930022747492](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/grazing.png)
 
   Who wouldn’t want their agents visualized as cow emojis? Go on… guess. That's exactly right. No one.
 
@@ -67,7 +67,7 @@ Depending on your concurrency settings, some of the tasks queue. The default glo
 
 ##### Agent isolation
 
-![herdr-containers](./docs/assets/herdr-containers.png)
+![herdr-containers](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/herdr-containers.png)
 
 Each agent runs as a separate pi process in its own Herdr workspace. Open a workspace at any time to monitor the agent or to steer it.
 

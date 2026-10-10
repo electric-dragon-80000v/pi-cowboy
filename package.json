@@ -36,9 +36,6 @@
     "!dist/**/*.d.ts",
     "agents/",
     "orchestrators/",
-    "docs/assets/logo-labeled-readme.png",
-    "docs/assets/grazing.png",
-    "docs/assets/herdr-containers.png",
     "README.md",
     "LICENSE"
   ],
