@@ -122,6 +122,9 @@ const PARAMS = {
   run_in_background: true,
 };
 
+/** The blocking call shape: one agent, awaited to settlement. */
+const PARAMS_BLOCKING = { agents: PARAMS.agents, run_in_background: false };
+
 let worktreeRoot: string;
 
 /** Serves the queued spawned-count and the spawn-id mint. */
@@ -373,5 +376,31 @@ describe("cowboy_agent settled result messages", () => {
     });
 
     expect(formatResultContent(spawn)).toBe("\n\nError: boom");
+  });
+
+  it("headlines a blocking result with the agent id the caller must act on", async () => {
+    // The settled cue names no id, so without this headline the one call shape
+    // that returns its result inline hands back no handle to stop, merge or
+    // clean up with. It is the completion nudge's headline, verbatim.
+    resolveMainCheckoutMock.mockResolvedValue("/work/repo");
+    const spawn = settledCompleted();
+    spawnMock.mockResolvedValue({ agentId: AGENT_ID, spawn });
+
+    const result = await executeAgentTool(
+      "",
+      PARAMS_BLOCKING,
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(result.content[0]!.text).toBe(
+      `[Cowboy agent "general-purpose" ${AGENT_ID} completed]\n\n${RESULT_TEXT}${cleanWorktreeNote(PROCESS_STAY)}`,
+    );
+    // The structured payload carries it too, nested like every other
+    // cowboy_agent return.
+    expect(result.details.agents).toEqual([
+      expect.objectContaining({ agentId: AGENT_ID }),
+    ]);
   });
 });

@@ -191,6 +191,16 @@ function settledOutcome(lifecycle: AgentLifecycleState): SettledOutcome {
   }
 }
 
+/**
+ * The settled report's headline: which agent, and how it ended. The settled cue
+ * is the run's own report and names no id, so both deliveries — the blocking
+ * call's return and the completion nudge — headline it the same way, and the
+ * caller always leaves with the id it must still stop, merge and clean up.
+ */
+export function settledHeadline(spawn: AgentSpawn): string {
+  return `[Cowboy agent "${spawn.display.type}" ${spawn.id} ${lifecycleStatus(spawn.lifecycle)}]`;
+}
+
 /** Result text plus status note, for display. Errors pass through verbatim. Worktree settles append a lifecycle note stating what remains and directing the orchestrator to call cleanup_cowboy_agent — removal is never implied to happen on its own. */
 export function formatResultContent(spawn: AgentSpawn): string {
   const lifecycle = spawn.lifecycle;
@@ -373,7 +383,10 @@ export class DelegationProtocol {
           `agent ${agentId} stopped with an error: ${spawn.lifecycle.error || "no error message was recorded"}`,
         );
       }
-      return { message: formatResultContent(spawn), details };
+      return {
+        message: `${settledHeadline(spawn)}\n\n${formatResultContent(spawn)}`,
+        details,
+      };
     }
 
     // The spawn-time cue is gated on the worktree the launch will provision, never on a spawn field: its branch names exactly the ref the orchestrator merges.

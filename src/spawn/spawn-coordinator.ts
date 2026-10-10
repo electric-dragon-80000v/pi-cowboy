@@ -18,6 +18,7 @@ import type { AgentManager } from "../agents/agent-manager.js";
 import {
   buildAgentDetails,
   formatResultContent,
+  settledHeadline,
 } from "../orchestrators/protocol.js";
 import {
   type AdmissionResult,
@@ -291,7 +292,7 @@ export class SpawnCoordinator {
       pi.sendMessage(
         {
           customType: "subagent-result",
-          content: `[Cowboy agent "${spawn.display.type}" ${spawn.id} ${lifecycleStatus(spawn.lifecycle)}]\n\n${formatResultContent(spawn)}`,
+          content: `${settledHeadline(spawn)}\n\n${formatResultContent(spawn)}`,
           details,
           display: true,
         },
