@@ -78,9 +78,6 @@ jobs:
             dist/index.js \
             agents/explore.toml \
             orchestrators/with-code-review.toml \
-            docs/assets/logo-labeled-readme.png \
-            docs/assets/grazing.png \
-            docs/assets/herdr-containers.png \
             README.md \
             LICENSE; do
             printf '%s\n' "$entries" | grep -qxF "$required" || {
