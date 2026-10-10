@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.4.0...v0.4.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **ci:** remove invalid asset checks from test workflow ([11e16e7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/11e16e7dea65de99167c84d45cfdf1e216827a43))
+
 # [0.4.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.3.7...v0.4.0) (2026-10-10)
 
 
