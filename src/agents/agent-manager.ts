@@ -16,11 +16,11 @@ import {
 } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
 import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
-import {
-  HerdrTaskRegistry,
-  type ConcurrencyConfig,
-  type PoolReservation,
-} from "../task-registry.js";
+import type {
+  ConcurrencyConfig,
+  PoolReservation,
+} from "../concurrency-pools.js";
+import { HerdrTaskRegistry } from "../task-registry.js";
 import { createLogger } from "../logger.js";
 import { errorMessage } from "../utils.js";
 import {

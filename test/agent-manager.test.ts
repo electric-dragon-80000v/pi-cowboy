@@ -16,9 +16,9 @@ import {
 import type { SupervisorTransport } from "../src/subagent/pane-supervisor.js";
 import type {
   ConcurrencyPool,
-  HerdrTaskRegistry,
   PoolReservation,
-} from "../src/task-registry.js";
+} from "../src/concurrency-pools.js";
+import type { HerdrTaskRegistry } from "../src/task-registry.js";
 import { HerdrTaskRegistry as HerdrTaskRegistryImpl } from "../src/task-registry.js";
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
 import type { OrchestratorConfig } from "../src/orchestrators/types.js";

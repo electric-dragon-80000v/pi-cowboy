@@ -11,7 +11,7 @@ import {
   type HarnessId,
 } from "../agents/harness.js";
 import { isRecord } from "../predicates.js";
-import { parsePoolKey } from "../task-registry.js";
+import { parsePoolKey } from "../concurrency-pools.js";
 import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
 import type { RawConfig } from "./config-io.js";
 

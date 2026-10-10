@@ -13,7 +13,7 @@ import {
   type HarnessId,
 } from "../../agents/harness.js";
 import type { HarnessModelOptions } from "../../agents/harness/registry.js";
-import { parsePoolKey } from "../../task-registry.js";
+import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
 import type { SelectOption } from "../searchable-select.js";

@@ -26,7 +26,7 @@ import {
   type ProcessSupervisorOptions,
   type SubagentExitOutcome,
 } from "../subagent/supervisor.js";
-import type { PoolIdentity, PoolReservation } from "../task-registry.js";
+import type { PoolIdentity, PoolReservation } from "../concurrency-pools.js";
 import type {
   AgentLaunchState,
   AgentSpawn,

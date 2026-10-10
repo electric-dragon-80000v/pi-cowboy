@@ -29,7 +29,7 @@ import type {
   AgentWorktree,
   ModelSelection,
 } from "../src/types.js";
-import type { PoolReservation } from "../src/task-registry.js";
+import type { PoolReservation } from "../src/concurrency-pools.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
 /** A paired model selection for the given "provider/modelId" concurrency key. */
