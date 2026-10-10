@@ -87,7 +87,7 @@ vi.mock("../src/agents/agent-runner.js", async (importOriginal) => {
 
 // The resolved harness: the launch reads it off the registry, so the harness
 // seam's tests stand one in. The default stays the real registry, so every
-// other suite in this file sees the true pi/pig/pi-bolt harnesses.
+// other suite in this file sees the true pi/pig/pi-bolt/opencode harnesses.
 vi.mock("../src/agents/harness/registry.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agents/harness/registry.js")>();

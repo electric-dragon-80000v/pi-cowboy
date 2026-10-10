@@ -8,8 +8,8 @@
  * uses (today, pi's CLI flags) lives beside it as that family's inputs, so a
  * second family adds a request member — never an optional field, a passthrough
  * schema, or a raw config record on a shared type. Each harness's
- * implementation lives beside this module (harness/pig.ts, harness/pi-bolt.ts)
- * and is selected through harness/registry.ts.
+ * implementation lives beside this module (harness/pig.ts, harness/pi-bolt.ts,
+ * harness/opencode.ts) and is selected through harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
  * a template written where a harness exists must still load where it does not.
@@ -29,8 +29,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isAvailable, type Availability } from "../availability.js";
 
-/** Every selectable harness. The `harness_type` enum and `HarnessId` derive from this. */
-export const HARNESS_IDS = ["pi", "pig", "pi-bolt"] as const;
+/**
+ * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
+ *
+ * `opencode` is detection-only: it is probed like every other harness and shows
+ * up wherever its binary is on PATH, but it has no launch implementation, so
+ * configuring it fails at launch rather than running an unmapped CLI.
+ */
+export const HARNESS_IDS = ["pi", "pig", "pi-bolt", "opencode"] as const;
 
 export type HarnessId = (typeof HARNESS_IDS)[number];
 

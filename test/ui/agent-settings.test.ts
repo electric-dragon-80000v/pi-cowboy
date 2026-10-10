@@ -188,7 +188,7 @@ describe("Agent settings — default harness", () => {
     await session.settle();
     expect(session.activeRow()?.value).toBe("pig");
 
-    // Wraps past pi: the missing pi-bolt is never reached.
+    // Wraps past pi: the missing pi-bolt and opencode are never reached.
     session.press(KEY.enter);
     await session.settle();
     expect(session.activeRow()?.value).toBe("pi");
@@ -224,7 +224,7 @@ describe("Agent settings — default harness", () => {
     shellState.harnessAvailability = probed<HarnessId>(["pi"]);
     const narrowed = openAgentSettings();
     narrowed.focus("Default harness");
-    expect(narrowed.text()).toContain("Not on PATH: pig, pi-bolt.");
+    expect(narrowed.text()).toContain("Not on PATH: pig, pi-bolt, opencode.");
 
     shellState.harnessAvailability = unprobed<HarnessId>();
     const everyHarness = openAgentSettings();
@@ -300,6 +300,11 @@ describe("Agent settings — toggles", () => {
     await session.settle();
     expect(session.activeRow()?.value).toBe("pi-bolt");
     expect(memory.store.agent.harnessType).toBe("pi-bolt");
+
+    session.press(KEY.enter);
+    await session.settle();
+    expect(session.activeRow()?.value).toBe("opencode");
+    expect(memory.store.agent.harnessType).toBe("opencode");
 
     session.press(KEY.enter);
     await session.settle();

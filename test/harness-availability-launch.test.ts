@@ -51,9 +51,10 @@ describe("detectHarnessAvailability", () => {
     const dir = freshPath();
     executable(dir, "pi-bolt");
     executable(dir, "pig");
+    executable(dir, "opencode");
 
     expect(detectHarnessAvailability()).toEqual(
-      probed(["pi", "pig", "pi-bolt"]),
+      probed(["pi", "pig", "pi-bolt", "opencode"]),
     );
   });
 });

@@ -47,14 +47,17 @@ function memoryIO(
 }
 
 describe("harnessType — file validation", () => {
-  it.each(["pi", "pig", "pi-bolt"])("keeps the valid harness %s", (value) => {
-    const cleaned = validateRawLayer(
-      { agent: { harnessType: value } },
-      "config.json",
-    );
+  it.each(["pi", "pig", "pi-bolt", "opencode"])(
+    "keeps the valid harness %s",
+    (value) => {
+      const cleaned = validateRawLayer(
+        { agent: { harnessType: value } },
+        "config.json",
+      );
 
-    expect(cleaned.agent?.harnessType).toBe(value);
-  });
+      expect(cleaned.agent?.harnessType).toBe(value);
+    },
+  );
 
   it("drops an unknown harness with the expected values in the warning", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -67,7 +70,7 @@ describe("harnessType — file validation", () => {
     expect(cleaned.agent?.harnessType).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toContain(
-      'expected "pi" | "pig" | "pi-bolt"',
+      'expected "pi" | "pig" | "pi-bolt" | "opencode"',
     );
     expect(warn.mock.calls[0][0]).toContain('"agent.harnessType"');
   });

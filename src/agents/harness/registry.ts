@@ -9,6 +9,7 @@ import type { Harness, HarnessId } from "../harness.js";
 import { buildPiLaunchArgs } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
+import { opencodeHarness } from "./opencode.js";
 
 /**
  * Real pi is already the pane shell's `pi`: it is always launchable, and there
@@ -28,6 +29,7 @@ const HARNESSES: Record<HarnessId, Harness> = {
   pi: piHarness,
   pig: pigHarness,
   "pi-bolt": piBoltHarness,
+  opencode: opencodeHarness,
 };
 
 /** The implementation for one harness id. */

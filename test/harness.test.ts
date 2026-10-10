@@ -1,7 +1,8 @@
 /**
  * harness.test.ts — the harness contract: its id vocabulary and the pane
  * preparation shared by the pi-compatible harnesses (the shell tricks that point
- * the pane's `pi` at pig or pi-bolt).
+ * the pane's `pi` at pig or pi-bolt), plus the detection-only opencode
+ * placeholder.
  */
 
 import {
@@ -52,8 +53,8 @@ afterEach(() => {
 });
 
 describe("harness ids", () => {
-  it("offers pi, pig, and pi-bolt, defaulting to pi", () => {
-    expect([...HARNESS_IDS]).toEqual(["pi", "pig", "pi-bolt"]);
+  it("offers pi, pig, pi-bolt, and opencode, defaulting to pi", () => {
+    expect([...HARNESS_IDS]).toEqual(["pi", "pig", "pi-bolt", "opencode"]);
     expect(DEFAULT_HARNESS).toBe("pi");
   });
 });
@@ -116,6 +117,14 @@ describe("available", () => {
 
     executable(dir, "pi-bolt");
     expect(harnessFor("pi-bolt").available()).toBe(true);
+  });
+
+  it("finds opencode by its binary name, though it cannot launch it yet", () => {
+    const dir = freshPath();
+    expect(harnessFor("opencode").available()).toBe(false);
+
+    executable(dir, "opencode");
+    expect(harnessFor("opencode").available()).toBe(true);
   });
 
   it("follows a symlink to the binary, as a shell would", () => {
@@ -236,6 +245,14 @@ describe("prepare", () => {
     expect(boltVerify).not.toContain("PIG_LAUNCHER_8f9a2b");
   });
 
+  it("refuses opencode: there is no launcher to plant until it is implemented", async () => {
+    await expect(
+      harnessFor("opencode").prepare({ pi: PI, paneId: "w1:p9", cwd: "/repo" }),
+    ).rejects.toThrow(/not implemented yet/);
+    expect(runInPaneMock).not.toHaveBeenCalled();
+    expect(waitForPaneOutputMock).not.toHaveBeenCalled();
+  });
+
   it("retries a lost `pane run` and fails loud when the launcher never lands", async () => {
     vi.useFakeTimers();
     waitForPaneOutputMock.mockRejectedValue(new Error("timed out waiting"));
@@ -297,6 +314,12 @@ describe("buildArgs", () => {
       expect(harnessFor(id).buildArgs(request())).toEqual(BASE);
     },
   );
+
+  it("builds no argv for opencode: there is no CLI mapping to build it from", () => {
+    expect(() => harnessFor("opencode").buildArgs(request())).toThrow(
+      /not implemented yet/,
+    );
+  });
 
   it("derives the report token from the subagent id, never a second field", () => {
     const args = harnessFor("pi").buildArgs(
@@ -401,6 +424,17 @@ describe("teardown", () => {
       ).resolves.toBeUndefined();
     },
   );
+
+  it("has nothing to undo for opencode: no launch state is ever staged", async () => {
+    await expect(
+      harnessFor("opencode").teardown({
+        pi: PI,
+        paneId: "w1:p1",
+        cwd: "/repo",
+        subagentId: "esp02hpw",
+      }),
+    ).resolves.toBeUndefined();
+  });
 
   it("tolerates a teardown called with nothing to remove (a run that never prepared)", async () => {
     await expect(
