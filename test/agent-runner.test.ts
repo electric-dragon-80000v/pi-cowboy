@@ -187,6 +187,14 @@ describe("buildLaunchPlan CLI flags", () => {
     expect(plan.piArgs).not.toContain("--fork");
   });
 
+  it("reports no model key when the launch requested no override", async () => {
+    const { cwd, notify } = setup(undefined);
+    const plan = await launch("general-purpose", cwd, notify);
+
+    expect(plan.modelKey).toBeNull();
+    expect(plan.piArgs).not.toContain("--model");
+  });
+
   it("forks the parent session when fork is enabled and a session file exists", async () => {
     const { cwd, notify } = setup(undefined);
     const plan = await launch(
@@ -235,6 +243,31 @@ describe("buildLaunchPlan CLI flags", () => {
     expect(notify).toHaveBeenCalledWith(
       expect.stringContaining("no parent session file"),
       "warning",
+    );
+  });
+
+  it("rides the task as the trailing @file the pane shell expands", async () => {
+    const { cwd, notify } = setup(undefined);
+    const plan = await launch("general-purpose", cwd, notify);
+
+    expect(plan.piArgs.at(-1)?.startsWith("@")).toBe(true);
+    expect(readTask(plan)).toBe("do the task");
+  });
+
+  it("builds the pi family's argv for a pi-compatible harness the same way", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "pig" }));
+    const plan = await launch("test-agent", cwd, notify);
+
+    // Delegation, not divergence: pig is pi's CLI behind the pane's `pi`.
+    expect(plan.harness).toBe("pig");
+    expect(plan.piArgs).toEqual(
+      expect.arrayContaining([
+        "--system-prompt",
+        "--append-system-prompt",
+        "cowboy-subagent-runner-test",
+        "--no-context-files",
+        "--approve",
+      ]),
     );
   });
 
@@ -425,10 +458,11 @@ function readSystemPrompt(plan: SubagentLaunchPlan): string {
 }
 
 function readTask(plan: SubagentLaunchPlan): string {
-  if (!plan.initialMessage?.startsWith("@")) {
+  const last = plan.piArgs.at(-1);
+  if (!last?.startsWith("@")) {
     throw new Error("launch plan carries no task @file");
   }
-  return fs.readFileSync(plan.initialMessage.slice(1), "utf-8");
+  return fs.readFileSync(last.slice(1), "utf-8");
 }
 
 describe("buildLaunchPlan orchestration guidance", () => {
@@ -631,7 +665,7 @@ describe("buildLaunchPlan system prompt split", () => {
         fs.statSync(target).mode & 0o777;
       expect(modeOf(path.join(subagentResultDir(), agentId))).toBe(0o700);
       expect(modeOf(plan.systemPromptFile!)).toBe(0o600);
-      const taskFile = plan.initialMessage!.slice(1);
+      const taskFile = plan.piArgs.at(-1)!.slice(1);
       expect(modeOf(taskFile)).toBe(0o600);
     } finally {
       fs.rmSync(path.join(subagentResultDir(), agentId), {

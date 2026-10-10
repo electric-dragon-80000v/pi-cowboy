@@ -442,6 +442,9 @@ export class SubagentSession {
   private async launch(): Promise<void> {
     let placement: LaunchPlacement = { kind: "none" };
     let failure: LaunchFailure = { kind: "none" };
+    // The cwd a harness teardown needs if the launch fails past the plan; a
+    // failure before the plan leaves it undefined, and no harness is recorded.
+    let launchCwd: string | undefined;
     try {
       const host = this.deps.transport.createHost(this.args.pi);
       const { pi, ctx, type, prompt, options } = this.args;
@@ -510,6 +513,7 @@ export class SubagentSession {
       );
       const launch: AgentLaunchState = { resultFile: plan.resultFile! };
       this.launchState = launch;
+      launchCwd = plan.cwd;
       const harness = harnessFor(plan.harness);
       ref =
         ref ??
@@ -522,6 +526,9 @@ export class SubagentSession {
       placement = { kind: "held", host, ref };
       if (!this.isLaunching()) return;
       this.spawn.execution.host = ref;
+      // Recorded before prepare: cleanup and a failed launch read it to tear
+      // this harness's pane state down, whatever the config says by then.
+      this.spawn.execution.harness = plan.harness;
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({ pi, paneId: ref.paneId, cwd: plan.cwd });
       const supervisor = createPaneSupervisor({
@@ -535,7 +542,7 @@ export class SubagentSession {
         {
           name: agentName,
           cwd: plan.cwd,
-          piArgs: [...plan.piArgs, plan.initialMessage ?? ""],
+          piArgs: plan.piArgs,
           taskSlug: options.taskSlug,
         },
         ref,
@@ -555,6 +562,25 @@ export class SubagentSession {
           .catch(() => {});
     }
     if (failure.kind === "failed" && this.isLaunching()) {
+      // Best-effort: a failed teardown is logged, never allowed to mask the
+      // launch error that caused it.
+      const harnessId = this.spawn.execution.harness;
+      if (harnessId !== undefined) {
+        try {
+          await harnessFor(harnessId).teardown({
+            pi: this.args.pi,
+            paneId: this.spawn.execution.host?.paneId ?? null,
+            cwd: launchCwd ?? null,
+            subagentId: this.spawn.id,
+          });
+        } catch (error) {
+          log.warn("harness teardown failed after a failed launch", {
+            spawnId: this.spawn.id,
+            harness: harnessId,
+            error: errorMessage(error),
+          });
+        }
+      }
       this.commit(
         enterSettling(
           this.run,

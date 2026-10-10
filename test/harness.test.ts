@@ -19,6 +19,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
+  type ExtensionLaunchMode,
+  type HarnessLaunchRequest,
+  type SkillLaunchMode,
+  type ToolSelection,
   resolveHarness,
 } from "../src/agents/harness.js";
 import { harnessFor } from "../src/agents/harness/registry.js";
@@ -249,5 +253,163 @@ describe("prepare", () => {
 
     // One define + one verify per attempt.
     expect(runInPaneMock.mock.calls.length).toBe(10);
+  });
+});
+
+describe("buildArgs", () => {
+  /** A launch request with every optional arm absent. */
+  function request(
+    overrides: Partial<HarnessLaunchRequest> = {},
+  ): HarnessLaunchRequest {
+    return {
+      subagentId: "esp02hpw",
+      systemPromptFile: "/spawn/esp02hpw/system.md",
+      taskFile: "/spawn/esp02hpw/task.md",
+      resultFile: "/spawn/esp02hpw/result.md",
+      modelKey: null,
+      toolSelection: { kind: "default" } satisfies ToolSelection,
+      thinkingLevel: null,
+      forkSessionFile: null,
+      skills: { kind: "default" } satisfies SkillLaunchMode,
+      extensions: { kind: "default" } satisfies ExtensionLaunchMode,
+      projectTrusted: true,
+      ...overrides,
+    };
+  }
+
+  const BASE = [
+    "--system-prompt",
+    "/spawn/esp02hpw/system.md",
+    "--append-system-prompt",
+    "cowboy-subagent-esp02hpw",
+    "--name",
+    "esp02hpw",
+    "--no-context-files",
+    "--approve",
+    "@/spawn/esp02hpw/task.md",
+  ];
+
+  // One harness belongs to the pi family; the binary behind the pane's `pi`
+  // takes the same CLI, so the family shares its argv assembly.
+  it.each(["pi", "pig", "pi-bolt"] as const)(
+    "%s launches the pi family's argv",
+    (id) => {
+      expect(harnessFor(id).buildArgs(request())).toEqual(BASE);
+    },
+  );
+
+  it("derives the report token from the subagent id, never a second field", () => {
+    const args = harnessFor("pi").buildArgs(
+      request({ subagentId: "another-id" }),
+    );
+
+    expect(args[args.indexOf("--append-system-prompt") + 1]).toBe(
+      "cowboy-subagent-another-id",
+    );
+  });
+
+  it("carries the resolved model, thinking, and fork only when they exist", () => {
+    const withAll = harnessFor("pi").buildArgs(
+      request({
+        modelKey: "override/special-model",
+        thinkingLevel: "high",
+        forkSessionFile: "/sessions/parent.jsonl",
+      }),
+    );
+    expect(withAll).toEqual(
+      expect.arrayContaining([
+        "--model",
+        "override/special-model",
+        "--thinking",
+        "high",
+        "--fork",
+        "/sessions/parent.jsonl",
+      ]),
+    );
+
+    const bare = harnessFor("pi").buildArgs(request());
+    expect(bare).not.toContain("--model");
+    expect(bare).not.toContain("--thinking");
+    expect(bare).not.toContain("--fork");
+  });
+
+  it("maps the tool selection union onto pi's tool flags", () => {
+    expect(
+      harnessFor("pi").buildArgs(request({ toolSelection: { kind: "none" } })),
+    ).toEqual(expect.arrayContaining(["--no-tools"]));
+
+    const include = harnessFor("pi").buildArgs(
+      request({ toolSelection: { kind: "include", names: ["read", "write"] } }),
+    );
+    expect(include).toEqual(expect.arrayContaining(["--tools", "read,write"]));
+
+    const exclude = harnessFor("pi").buildArgs(
+      request({ toolSelection: { kind: "exclude", names: ["read"] } }),
+    );
+    expect(exclude).toEqual(
+      expect.arrayContaining(["--exclude-tools", "read"]),
+    );
+
+    // The default case emits no tool flag: pi's own discovery stands.
+    expect(harnessFor("pi").buildArgs(request())).not.toContain("--no-tools");
+  });
+
+  it("withholds skills and extensions by their modes", () => {
+    const noSkills = harnessFor("pi").buildArgs(
+      request({ skills: { kind: "none" } }),
+    );
+    expect(noSkills).toContain("--no-skills");
+
+    const noExt = harnessFor("pi").buildArgs(
+      request({ extensions: { kind: "none" } }),
+    );
+    expect(noExt).toContain("--no-extensions");
+
+    const extPaths = harnessFor("pi").buildArgs(
+      request({ extensions: { kind: "paths", paths: ["npm:pi-intercom"] } }),
+    );
+    expect(extPaths).toEqual(
+      expect.arrayContaining(["--no-extensions", "-e", "npm:pi-intercom"]),
+    );
+  });
+
+  it("swaps the approve flag on an untrusted project", () => {
+    const args = harnessFor("pi").buildArgs(request({ projectTrusted: false }));
+
+    expect(args).toEqual(expect.arrayContaining(["--no-approve"]));
+    expect(args).not.toContain("--approve");
+  });
+
+  it("rides the task as a trailing @file so the text never crosses argv", () => {
+    const args = harnessFor("pi").buildArgs(request());
+
+    expect(args.at(-1)).toBe("@/spawn/esp02hpw/task.md");
+  });
+});
+
+describe("teardown", () => {
+  it.each(["pi", "pig", "pi-bolt"] as const)(
+    "%s has no filesystem state to undo: the launcher dies with the pane",
+    async (id) => {
+      await expect(
+        harnessFor(id).teardown({
+          pi: PI,
+          paneId: "w1:p1",
+          cwd: "/repo",
+          subagentId: "esp02hpw",
+        }),
+      ).resolves.toBeUndefined();
+    },
+  );
+
+  it("tolerates a teardown called with nothing to remove (a run that never prepared)", async () => {
+    await expect(
+      harnessFor("pi").teardown({
+        pi: PI,
+        paneId: null,
+        cwd: null,
+        subagentId: "esp02hpw",
+      }),
+    ).resolves.toBeUndefined();
   });
 });

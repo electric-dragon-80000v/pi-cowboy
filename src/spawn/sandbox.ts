@@ -421,6 +421,9 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
     closePane: async (ref) => {
       await host.release(ref, "placement");
     },
+    // Allocation-time cleanup tears no harness state: a checkout that failed
+    // its create never hosted a launch, so no harness prepared a pane here.
+    harnessTeardown: async () => {},
   };
 }
 

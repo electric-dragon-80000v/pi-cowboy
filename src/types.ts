@@ -2,6 +2,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
+import type { HarnessId } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
 export type ThinkingLevel = ModelThinkingLevel;
@@ -288,6 +289,13 @@ export interface AgentLaunchState {
 export interface AgentExecutionState {
   /** An owned worktree run's pane address, once launch adopts or creates one. A run that fails first never gets one. */
   host?: AgentHostRef;
+  /**
+   * The harness that owns this run's pane state, recorded before prepare runs.
+   * Absent means the run never reached its launch plan, so there is no harness
+   * state to tear down. Cleanup reads it so the harness that prepared a pane
+   * is the one that tears it down, whatever the config says by then.
+   */
+  harness?: HarnessId;
   /** Opened exactly once at the terminal transition; never the run's own promise. */
   promise: Promise<string>;
   /** Kept for the spawn's lifetime so the UI-notify fallback can reach a live context on any later nudge. */

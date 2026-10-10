@@ -1,12 +1,13 @@
 /**
- * pi-compatible.ts — the shared preparation for a pi-compatible binary behind
- * the pane's `pi`.
+ * pi-compatible.ts — the shared launch mechanics for a pi-compatible binary
+ * behind the pane's `pi`.
  *
  * herdr types the canonical name `pi` into the pane, so a harness whose binary
  * is not named `pi` must point the pane's `pi` at its own binary before herdr
  * starts the agent. That shell trick is identical for every such harness, so
  * this factory builds one from a binary name and a signature that proves which
- * launcher landed.
+ * launcher landed. The argv is identical too — pi's CLI — so the whole family
+ * shares `buildPiLaunchArgs`, and only the shell trick varies per binary.
  */
 
 import {
@@ -16,7 +17,55 @@ import {
 } from "../../infrastructure/herdr-client.js";
 import { commandPath } from "../../infrastructure/exec-path.js";
 import { sleep } from "../../utils.js";
-import type { Harness, HarnessId, HarnessPrepareRequest } from "../harness.js";
+import { subagentTokenFor } from "../../paths.js";
+import type {
+  Harness,
+  HarnessId,
+  HarnessLaunchRequest,
+  HarnessPrepareRequest,
+} from "../harness.js";
+
+/**
+ * The pi family's argv: every flag a pi-compatible launch carries, ending with
+ * the task riding as `@<taskFile>` (the pane shell expands it, so multi-line
+ * task text never crosses herdr's single-line shell encoder). The report
+ * token rides via `--append-system-prompt` because `--system-prompt` names a
+ * file and a path cannot carry the marker.
+ */
+export function buildPiLaunchArgs(request: HarnessLaunchRequest): string[] {
+  const args: string[] = [
+    "--system-prompt",
+    request.systemPromptFile,
+    "--append-system-prompt",
+    subagentTokenFor(request.subagentId),
+    "--name",
+    request.subagentId,
+    "--no-context-files",
+  ];
+  if (request.modelKey !== null) args.push("--model", request.modelKey);
+  if (request.thinkingLevel !== null)
+    args.push("--thinking", request.thinkingLevel);
+  if (request.forkSessionFile !== null)
+    args.push("--fork", request.forkSessionFile);
+  const tools = request.toolSelection;
+  if (tools.kind === "none") {
+    args.push("--no-tools");
+  } else if (tools.kind === "include") {
+    args.push("--tools", tools.names.join(","));
+  } else if (tools.kind === "exclude") {
+    args.push("--exclude-tools", tools.names.join(","));
+  }
+  if (request.skills.kind === "none") args.push("--no-skills");
+  if (request.extensions.kind === "none") {
+    args.push("--no-extensions");
+  } else if (request.extensions.kind === "paths") {
+    args.push("--no-extensions");
+    for (const extPath of request.extensions.paths) args.push("-e", extPath);
+  }
+  args.push(request.projectTrusted ? "--approve" : "--no-approve");
+  args.push(`@${request.taskFile}`);
+  return args;
+}
 
 /** Bounded prepare attempts: a `pane run` before the shell is at its prompt is silently lost. */
 const PREPARE_MAX_ATTEMPTS = 5;
@@ -74,6 +123,12 @@ export function createPiCompatibleHarness(spec: PiCompatibleSpec): Harness {
     // can never launch this harness — however well the preparation itself would
     // go.
     available: () => commandPath(spec.binary) !== undefined,
+    // The binary is pi behind the shell trick, so the argv is pi's; only a
+    // harness that stages filesystem state before launch has teardown work —
+    // the launcher dies with the pane and the staged files belong to the
+    // result-dir artifacts the session owns.
+    buildArgs: buildPiLaunchArgs,
+    teardown: async () => {},
     async prepare({ pi, paneId }: HarnessPrepareRequest): Promise<void> {
       for (let attempt = 1; attempt <= PREPARE_MAX_ATTEMPTS; attempt++) {
         await runInPane(pi, paneId, launcher);

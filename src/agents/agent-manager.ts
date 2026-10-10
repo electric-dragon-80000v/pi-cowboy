@@ -38,6 +38,7 @@ import { FileDeliverable } from "../subagent/deliverable.js";
 import { removeResultArtifacts } from "../subagent/result-artifacts.js";
 import type { SupervisorTransport } from "../subagent/pane-supervisor.js";
 import { createCleanup, type WorktreeRemovalTarget } from "./agent-cleanup.js";
+import { harnessFor } from "./harness/registry.js";
 import {
   createHerdrAgentAssets,
   type AgentAssets,
@@ -313,6 +314,28 @@ export class AgentManager {
     // The first teardown's verdict is the answer for every clear that arrives
     // while it runs; a second removal of the same checkout would race the first.
     if (this.teardowns.has(id)) return { kind: "refused", reason: "in-flight" };
+    // Claimed in the same turn as the check — before the removal's first await
+    // (the harness teardown below) — so a clear that arrives while one runs
+    // still reads the claim instead of racing the removal it would duplicate.
+    const removal = this.runClearRemoval(spawn);
+    this.teardowns.set(id, removal);
+    try {
+      return await removal;
+    } finally {
+      // A cleanup may have queued behind this removal and taken the id over.
+      if (this.teardowns.get(id) === removal) this.teardowns.delete(id);
+    }
+  }
+
+  /**
+   * One clear's work, in order: the harness's state leaves the checkout
+   * before the removal path probes or removes anything (see cleanupAgent's
+   * teardown), then the owned checkout goes.
+   */
+  private async runClearRemoval(spawn: AgentSpawn): Promise<ClearOutcome> {
+    if (spawn.execution.harness !== undefined) {
+      await this.teardownHarnessState(spawn);
+    }
     const address = removalAddressFor(spawn);
     if (address.kind === "none") {
       this.dropSpawn(spawn);
@@ -326,14 +349,7 @@ export class AgentManager {
       this.recordRetention(spawn, reason);
       return { kind: "kept", path: address.path, reason };
     }
-    const removal = this.runRemoval(spawn, address.target);
-    this.teardowns.set(id, removal);
-    try {
-      return await removal;
-    } finally {
-      // A cleanup may have queued behind this removal and taken the id over.
-      if (this.teardowns.get(id) === removal) this.teardowns.delete(id);
-    }
+    return this.runRemoval(spawn, address.target);
   }
 
   /** Tear one owned checkout down and settle the spawn on what it did. */
@@ -410,6 +426,35 @@ export class AgentManager {
     // Clear takes only an ended spawn, so the ended phases can carry the reason.
     if (hasOutcome(lifecycle)) {
       lifecycle.worktreeRetentionReason = reason;
+    }
+  }
+
+  /**
+   * Best-effort teardown of the harness state a run's pane was prepared
+   * with, before the run's checkout is probed or removed. Uses the harness
+   * recorded at launch, never a re-resolution — the harness that prepared
+   * the pane is the one that undoes its state. A failure is logged and
+   * never blocks the removal that follows.
+   */
+  private async teardownHarnessState(spawn: AgentSpawn): Promise<void> {
+    const harnessId = spawn.execution.harness;
+    if (harnessId === undefined) return;
+    try {
+      await harnessFor(harnessId).teardown({
+        pi: getPiInstance(),
+        paneId: spawn.execution.host?.paneId ?? null,
+        cwd:
+          spawn.display.worktree?.kind === "owned"
+            ? spawn.display.worktree.path
+            : null,
+        subagentId: spawn.id,
+      });
+    } catch (error) {
+      log.warn("harness teardown failed before worktree removal", {
+        spawnId: spawn.id,
+        harness: harnessId,
+        error: errorMessage(error),
+      });
     }
   }
 

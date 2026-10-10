@@ -1,9 +1,9 @@
 /**
  * agent-runner.ts — Launch-plan building for herdr-pane subagents.
  *
- * Produces a `SubagentLaunchPlan`: tool/extension flags, staged prompt
- * files, and argv for a real `pi` process (prompt text compiled by
- * `../prompt/subagent-system-prompt.js`). The child process owns extension
+ * Produces a `SubagentLaunchPlan`: staged prompt files and the launch
+ * context, with the argv owned by the resolved harness (prompt text compiled
+ * by `../prompt/subagent-system-prompt.js`). The child process owns extension
  * discovery and tool validation.
  */
 
@@ -21,7 +21,6 @@ import {
   subagentResultFileFor,
   subagentSystemFileFor,
   subagentTaskFileFor,
-  subagentTokenFor,
 } from "../paths.js";
 import { type AgentWorktree, type RunTunables } from "../types.js";
 import { getStore } from "../shell.js";
@@ -29,7 +28,13 @@ import {
   buildSubagentSystemPrompt,
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
-import type { HarnessId } from "./harness.js";
+import type {
+  ExtensionLaunchMode,
+  HarnessId,
+  SkillLaunchMode,
+  ToolSelection,
+} from "./harness.js";
+import { harnessFor } from "./harness/registry.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -44,19 +49,13 @@ export { buildWorktreeBranchSection };
 
 // ── Launch plan ─────────────────────────────────────────────────────
 
-/** How extensions reach the subagent process. */
-type ExtensionLaunchMode =
-  { kind: "default" } | { kind: "none" } | { kind: "paths"; paths: string[] };
-
 /**
- * How the child pi gets its skills. `default` leaves pi's own discovery alone,
- * so an implicit `skills: true` reaches the agent through pi's skill section.
+ * Resolve the skill mode: `default` leaves pi's own discovery alone, so an
+ * implicit `skills: true` reaches the agent through pi's skill section.
  * `none` suppresses that discovery because the extension decides the agent's
  * skills itself — an explicit list is rendered into the prompt here, and
  * `skills: false` withholds skills entirely.
  */
-type SkillLaunchMode = { kind: "default" } | { kind: "none" };
-
 function resolveSkillMode(
   skills: ResolvedAgentConfig["skills"],
   agentConfig: AgentConfig | undefined,
@@ -210,13 +209,12 @@ export interface SubagentLaunchPlan {
    * herdr's single-line shell encoder.
    */
   systemPromptFile?: string;
-  /** `@<task-file>` initial message; pi expands the @file natively. */
-  initialMessage?: string;
-  /** pi argv (without the initial message — appended last by the launcher). */
+  /** The complete argv the pane runs (task included — the harness decides how it rides). */
   piArgs: string[];
 
   resultFile?: string;
-  modelKey?: string;
+  /** `null` = no model override was requested. */
+  modelKey: string | null;
   taskSlug?: string;
   /** The harness that owns the pane `piArgs` launches into. */
   harness: HarnessId;
@@ -291,21 +289,17 @@ export async function buildLaunchPlan(
       }
     }
   }
-  let toolMode:
-    | { kind: "none" }
-    | { kind: "include"; names: string[] }
-    | { kind: "exclude"; names: string[] }
-    | undefined;
+  let toolSelection: ToolSelection = { kind: "default" };
   try {
     if (agentConfig?.tools === false) {
-      toolMode = { kind: "none" };
+      toolSelection = { kind: "none" };
     } else if (Array.isArray(agentConfig?.tools)) {
-      toolMode = {
+      toolSelection = {
         kind: "include",
         names: resolveToolCliEntries(agentConfig.tools, "tools"),
       };
     } else if (agentConfig?.excludeTools?.length) {
-      toolMode = {
+      toolSelection = {
         kind: "exclude",
         names: resolveToolCliEntries(agentConfig.excludeTools, "excludeTools"),
       };
@@ -360,68 +354,43 @@ export async function buildLaunchPlan(
   // Throws on failure: a launch without its task file must not proceed.
   writeResultFile(taskFile, prompt);
 
-  // --system-prompt names the prompt FILE, so the subagent token rides via
-  // --append-system-prompt (a path cannot carry the marker).
-  const piArgs: string[] = [
-    "--system-prompt",
-    systemFile,
-    "--append-system-prompt",
-    subagentTokenFor(agentId),
-    "--name",
-    agentId,
-    "--no-context-files",
-  ];
-  if (options.modelSelection) {
-    piArgs.push("--model", options.modelSelection.key);
+  const forkSessionFile = options.fork
+    ? resolveParentSessionFile(ctx)
+    : undefined;
+  if (options.fork && forkSessionFile === undefined) {
+    bufferNotify(
+      "Fork session is enabled, but no parent session file is available; launching without --fork",
+    );
   }
-  if (options.thinkingLevel) {
-    piArgs.push("--thinking", options.thinkingLevel);
-  }
-  if (options.fork) {
-    const forkSessionFile = resolveParentSessionFile(ctx);
-    if (forkSessionFile) {
-      piArgs.push("--fork", forkSessionFile);
-    } else {
-      bufferNotify(
-        "Fork session is enabled, but no parent session file is available; launching without --fork",
-      );
-    }
-  }
-  if (toolMode?.kind === "none") {
-    piArgs.push("--no-tools");
-  } else if (toolMode?.kind === "include") {
-    piArgs.push("--tools", toolMode.names.join(","));
-  } else if (toolMode?.kind === "exclude") {
-    piArgs.push("--exclude-tools", toolMode.names.join(","));
-  }
-  if (skillMode.kind === "none") {
-    piArgs.push("--no-skills");
-  }
-  if (extMode.kind === "none") {
-    piArgs.push("--no-extensions");
-  } else if (extMode.kind === "paths") {
-    piArgs.push("--no-extensions");
-    for (const extPath of extMode.paths) {
-      piArgs.push("-e", extPath);
-    }
-  }
-  piArgs.push(options.projectTrusted === false ? "--no-approve" : "--approve");
+
+  // The harness owns the argv — including how the task rides — because the
+  // CLI surface is the harness's, not the orchestrator's.
+  const piArgs = harnessFor(harnessType).buildArgs({
+    subagentId: agentId,
+    systemPromptFile: systemFile,
+    taskFile,
+    resultFile,
+    modelKey: options.modelSelection?.key ?? null,
+    toolSelection,
+    thinkingLevel: options.thinkingLevel ?? null,
+    forkSessionFile: forkSessionFile ?? null,
+    skills: skillMode,
+    extensions: extMode,
+    projectTrusted: options.projectTrusted !== false,
+  });
 
   for (const msg of warnings) {
     ctx.ui.notify(`[cowboy] ${msg}`, "warning");
   }
-
-  const modelKey = options.modelSelection?.key;
 
   return {
     name: agentId,
     cwd: effectiveCwd,
     systemPrompt,
     systemPromptFile: systemFile,
-    initialMessage: `@${taskFile}`,
     piArgs,
     resultFile,
-    modelKey,
+    modelKey: options.modelSelection?.key ?? null,
     harness: harnessType,
   };
 }

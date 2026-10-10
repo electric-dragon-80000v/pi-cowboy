@@ -6,17 +6,21 @@
  */
 
 import type { Harness, HarnessId } from "../harness.js";
+import { buildPiLaunchArgs } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
 
 /**
- * Real pi is already the pane shell's `pi`: it is always launchable, and there is
- * nothing to prepare.
+ * Real pi is already the pane shell's `pi`: it is always launchable, and there
+ * is nothing to prepare or tear down. Its argv is the family's shared
+ * assembly — pi is the family's namesake.
  */
 const piHarness: Harness = {
   id: "pi",
   available: () => true,
   prepare: async () => {},
+  buildArgs: buildPiLaunchArgs,
+  teardown: async () => {},
 };
 
 /** Keyed by id, so a harness added to `HARNESS_IDS` without an implementation fails to compile. */

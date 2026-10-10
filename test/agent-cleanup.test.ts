@@ -44,6 +44,10 @@ import type {
   LocateResult,
   PaneRef,
 } from "../src/agents/agent-assets.js";
+import type {
+  HarnessId,
+  HarnessTeardownContext,
+} from "../src/agents/harness.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
 import type {
@@ -112,7 +116,23 @@ const shared = vi.hoisted(() => ({
     undefined as unknown as import("../src/agents/agent-spawn-store.js").AgentSpawnStore,
 }));
 
-const { dropNudgeMock } = vi.hoisted(() => ({ dropNudgeMock: vi.fn() }));
+/** The registry module's real harnesses; the stub restores them per suite. */
+type RealRegistry = typeof import("../src/agents/harness/registry.js");
+
+const { dropNudgeMock, harnessForMock, registry } = vi.hoisted(() => ({
+  dropNudgeMock: vi.fn(),
+  harnessForMock: vi.fn(),
+  registry: { real: undefined as RealRegistry | undefined },
+}));
+
+vi.mock("../src/agents/harness/registry.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agents/harness/registry.js")>();
+  // Default to the real harnesses; the teardown-ordering tests stand one in.
+  harnessForMock.mockImplementation(actual.harnessFor);
+  registry.real = actual;
+  return { ...actual, harnessFor: harnessForMock };
+});
 
 vi.mock("../src/shell.js", async () => {
   const { AgentSpawnStore: Store } =
@@ -268,8 +288,14 @@ interface MockedDeps {
   closePane: Mock<ClosePane>;
   worktreeExists: Mock<(path: string) => Promise<boolean>>;
   removeGitWorktree: Mock<(path: string, repoCwd: string) => Promise<boolean>>;
+  harnessTeardown: Mock<HarnessTeardown>;
   probes: Mock<DirtyProbe>;
 }
+
+type HarnessTeardown = (
+  harness: HarnessId,
+  context: HarnessTeardownContext,
+) => Promise<void>;
 
 function buildDeps(tree: TreeState): MockedDeps {
   const isWorktreeDirty = vi.fn<DirtyProbe>();
@@ -285,6 +311,7 @@ function buildDeps(tree: TreeState): MockedDeps {
     closePane: vi.fn<ClosePane>().mockResolvedValue(undefined),
     worktreeExists: vi.fn().mockResolvedValue(true),
     removeGitWorktree: vi.fn().mockResolvedValue(true),
+    harnessTeardown: vi.fn<HarnessTeardown>().mockResolvedValue(undefined),
     probes: isWorktreeDirty,
   };
 }
@@ -1262,6 +1289,86 @@ describe("cleanup — a recovered run", () => {
   });
 });
 
+/* ── Harness state teardown ──────────────────────────────────────────── */
+
+describe("cleanup — harness state teardown", () => {
+  /** A settled tracked spawn whose run recorded the harness it launched under. */
+  function harnessed(): AgentSpawn {
+    const spawn = completed();
+    spawn.execution.harness = "pig";
+    return spawn;
+  }
+
+  it("tears the recorded harness state down before the dirty probe reads the tree", async () => {
+    const order: string[] = [];
+    const assets = buildAssets("clean");
+    assets.harnessTeardown.mockImplementation(async () => {
+      order.push("teardown");
+    });
+    assets.isWorktreeDirty.mockImplementation(async () => {
+      order.push("probe");
+      return false;
+    });
+    const { registry } = buildRegistry(new Map([[ID, harnessed()]]));
+
+    await createCleanup(assets).cleanupAgent(ID, registry);
+
+    // A harness that embeds launch state in the checkout must remove it before
+    // the probe: unresolved state would hold a clean tree hostage to retention.
+    expect(order).toEqual(["teardown", "probe"]);
+    expect(assets.harnessTeardown).toHaveBeenCalledWith("pig", {
+      paneId: "w1:p1",
+      cwd: WT_PATH,
+      subagentId: ID,
+    });
+  });
+
+  it("tears no harness state down for a run that recorded none", async () => {
+    const assets = buildAssets("clean");
+    const { registry } = buildRegistry(new Map([[ID, completed()]]));
+
+    await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(assets.harnessTeardown).not.toHaveBeenCalled();
+  });
+
+  it("swallows a failed teardown and removes the worktree anyway", async () => {
+    const assets = buildAssets("clean");
+    assets.harnessTeardown.mockRejectedValue(new Error("teardown exploded"));
+    const { registry } = buildRegistry(new Map([[ID, harnessed()]]));
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report).toMatchObject({
+      outcome: { kind: "torn-down" },
+      worktree: { kind: "removed", path: WT_PATH },
+    });
+    expect(assets.isWorktreeDirty).toHaveBeenCalled();
+  });
+
+  it("refuses a live run before touching harness state", async () => {
+    const assets = buildAssets("clean");
+    const { registry } = buildRegistry(new Map([[ID, queued()]]));
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report.outcome.kind).toBe("refused");
+    expect(assets.harnessTeardown).not.toHaveBeenCalled();
+  });
+
+  it("reads the dirty probe on worktrees whose harness state never existed", async () => {
+    const assets = buildAssets("dirty-pre");
+    const { registry } = buildRegistry(new Map([[ID, harnessed()]]));
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    // Teardown ran first and the tree still reads dirty: retention wins.
+    expect(report).toMatchObject({
+      outcome: { kind: "refused" },
+      worktree: { kind: "kept", path: WT_PATH },
+    });
+  });
+});
 /* ── shouldDropSpawn (pure) ───────────────────────────────────────────── */
 
 describe("shouldDropSpawn", () => {
@@ -1828,6 +1935,11 @@ describe("AgentManager.clear — teardown ordering", () => {
 
   afterEach(() => fs.rmSync(checkout, { recursive: true, force: true }));
 
+  afterEach(() => {
+    // The stub is per-suite: later suites see the real harnesses again.
+    harnessForMock.mockImplementation(registry.real!.harnessFor);
+  });
+
   /** A settled spawn owning `checkout`. */
   function clearable(): AgentSpawn {
     const spawn = completed();
@@ -1883,7 +1995,6 @@ describe("AgentManager.clear — teardown ordering", () => {
   it("keeps the spawn listed when the removal fails", async () => {
     removeHerdrWorktreeMock.mockResolvedValue(false);
     const spawn = clearable();
-
     await expect(manager.clear(ID)).resolves.toEqual({
       kind: "removal-failed",
       path: checkout,
@@ -1896,6 +2007,30 @@ describe("AgentManager.clear — teardown ordering", () => {
       detail:
         "the removal was not confirmed (herdr did not confirm the worktree removal)",
     });
+  });
+
+  it("tears the recorded harness's state down before the checkout is probed", async () => {
+    const order: string[] = [];
+    harnessForMock.mockReturnValue({
+      id: "pig",
+      available: () => true,
+      prepare: async () => {},
+      buildArgs: (request: never) => request,
+      teardown: async () => {
+        order.push("teardown");
+      },
+    });
+    const spawn = clearable();
+    spawn.execution.harness = "pig";
+    isWorktreeDirtyMock.mockImplementation(async () => {
+      order.push("probe");
+      return false;
+    });
+
+    await expect(manager.clear(ID)).resolves.toEqual({ kind: "cleared" });
+
+    expect(order).toEqual(["teardown", "probe"]);
+    expect(manager.getSpawn(ID)).toBeUndefined();
   });
 
   it("keeps an owned checkout no recorded cwd can address", async () => {
@@ -1952,6 +2087,36 @@ describe("AgentManager.clear — teardown ordering", () => {
     await expect(first).resolves.toEqual({ kind: "cleared" });
     expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
     expect(manager.getSpawn(ID)).toBeUndefined();
+  });
+
+  it("refuses a clear that races a harness teardown already in flight", async () => {
+    let releaseTeardown!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      releaseTeardown = resolve;
+    });
+    harnessForMock.mockReturnValue({
+      id: "pig",
+      available: () => true,
+      prepare: async () => {},
+      buildArgs: (request: never) => request,
+      teardown: () => pending,
+    });
+    const spawn = clearable();
+    spawn.execution.harness = "pig";
+    isWorktreeDirtyMock.mockResolvedValue(false);
+
+    // The claim is taken in the same turn as the check, so a clear arriving
+    // while the teardown runs is refused rather than removing the checkout
+    // twice: every launched run records a harness, so this is the common path.
+    const first = manager.clear(ID);
+    await expect(manager.clear(ID)).resolves.toEqual({
+      kind: "refused",
+      reason: "in-flight",
+    });
+
+    releaseTeardown();
+    await expect(first).resolves.toEqual({ kind: "cleared" });
+    expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
   });
 
   it("refuses an id no spawn answers", async () => {

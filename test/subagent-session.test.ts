@@ -43,13 +43,22 @@ function makeReservation(): PoolReservation {
   return [{ limit: 1, spawned: 0 }];
 }
 
-const { getPiInstanceMock, getStoreMock, buildLaunchPlanMock } = vi.hoisted(
-  () => ({
-    getPiInstanceMock: vi.fn(() => ({})),
-    getStoreMock: vi.fn(() => ({ agent: {} })),
-    buildLaunchPlanMock: vi.fn(),
-  }),
-);
+/** The registry module's real harnesses; the stub restores them per suite. */
+type RealRegistry = typeof import("../src/agents/harness/registry.js");
+
+const {
+  getPiInstanceMock,
+  getStoreMock,
+  buildLaunchPlanMock,
+  harnessForMock,
+  registry,
+} = vi.hoisted(() => ({
+  getPiInstanceMock: vi.fn(() => ({})),
+  getStoreMock: vi.fn(() => ({ agent: {} })),
+  buildLaunchPlanMock: vi.fn(),
+  harnessForMock: vi.fn(),
+  registry: { real: undefined as RealRegistry | undefined },
+}));
 
 /** The revive's result-dir reset, made to fail on demand. */
 const { resultDirGate } = vi.hoisted(() => ({
@@ -74,6 +83,17 @@ vi.mock("../src/agents/agent-runner.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agents/agent-runner.js")>();
   return { ...actual, buildLaunchPlan: buildLaunchPlanMock };
+});
+
+// The resolved harness: the launch reads it off the registry, so the harness
+// seam's tests stand one in. The default stays the real registry, so every
+// other suite in this file sees the true pi/pig/pi-bolt harnesses.
+vi.mock("../src/agents/harness/registry.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agents/harness/registry.js")>();
+  harnessForMock.mockImplementation(actual.harnessFor);
+  registry.real = actual;
+  return { ...actual, harnessFor: harnessForMock };
 });
 
 vi.mock("../src/shell.js", async (importOriginal) => {
@@ -291,9 +311,8 @@ beforeEach(() => {
   getStoreMock.mockReset().mockReturnValue({ agent: {} });
   buildLaunchPlanMock.mockReset().mockResolvedValue({
     cwd: "/repo",
-    initialMessage: "@/tmp/briefing.md",
     resultFile: path.join(resultDir, "result.md"),
-    piArgs: [],
+    piArgs: ["--system-prompt", "/tmp/system.md", "--approve", "@task.md"],
     harness: "pi",
   });
 });
@@ -425,6 +444,175 @@ describe("SubagentSession launch failure", () => {
     expect(harness.session.spawn.lifecycle.phase).toBe("settled");
     // One construction (the launch): no kill sequence ran.
     expect(createHostCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * The harness seam: the session records which harness prepared the pane (so
+ * cleanup and a failed launch can tear that one down), hands the pane the
+ * harness-built argv whole, and never tears harness state down from the
+ * session's own synchronous drop.
+ */
+describe("SubagentSession harness seam", () => {
+  const teardownCalls: unknown[] = [];
+
+  /** Stand in the resolved harness; records teardown requests it receives. */
+  function stubHarness(
+    teardown: (request: never) => Promise<void> = async (request) => {
+      teardownCalls.push(request);
+    },
+  ): void {
+    harnessForMock.mockReturnValue({
+      id: "pi",
+      available: () => true,
+      prepare: async () => {},
+      buildArgs: (request: never) => request,
+      teardown,
+    });
+  }
+
+  /** A reporting run on its own recording host, harness stubbed. */
+  function stubbedRun() {
+    const fake = makeFakeHost({ observeState: "done" });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable({
+        deliverable: "the final answer",
+      }),
+      hostRef: fake.ref,
+    });
+    return { fake, ...run };
+  }
+
+  /** A host that fails the agent start itself, after prepare succeeded. */
+  function failingStart(fake: ReturnType<typeof makeFakeHost>) {
+    return {
+      ...fake.host,
+      start: async () => {
+        throw new Error("agent start refused");
+      },
+    } as unknown as AgentHost;
+  }
+
+  beforeEach(() => {
+    teardownCalls.length = 0;
+  });
+
+  afterEach(() => {
+    // The stub is per-suite: later suites see the real harnesses again.
+    harnessForMock.mockImplementation(registry.real!.harnessFor);
+  });
+
+  it("records the resolved harness on the spawn before the pane starts", async () => {
+    const { fake, session } = stubbedRun();
+    stubHarness();
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    expect(session.spawn.execution.harness).toBe("pi");
+    expect(fake.startCalls).toEqual([
+      expect.objectContaining({
+        options: expect.objectContaining({ name: expect.any(String) }),
+      }),
+    ]);
+  });
+
+  it("starts the pane with the harness-built argv whole — no appended initial message", async () => {
+    const { fake, session } = stubbedRun();
+    stubHarness();
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    // The plan's argv is handed over verbatim: the harness owns the tail.
+    expect(fake.startCalls).toEqual([
+      expect.objectContaining({
+        options: expect.objectContaining({
+          piArgs: [
+            "--system-prompt",
+            "/tmp/system.md",
+            "--approve",
+            "@task.md",
+          ],
+        }),
+      }),
+    ]);
+  });
+
+  it("tears the recorded harness down, guarded, when the launch fails past prepare", async () => {
+    const fake = makeFakeHost({ observeState: "done" });
+    stubHarness();
+    const run = makeSession({
+      host: failingStart(fake),
+      deliverable: new ScriptedDeliverable(),
+      hostRef: fake.ref,
+    });
+    run.session.start();
+    await driveRun(DRIVE_FAILED_MS);
+
+    await expect(run.session.promise).resolves.toBe("");
+    expect(run.session.spawn.lifecycle).toMatchObject({
+      phase: "settled",
+      status: "error",
+      error: "agent start refused",
+    });
+    // The recorded harness's teardown runs with the run's identity and its
+    // pane's address.
+    expect(teardownCalls).toEqual([
+      expect.objectContaining({
+        subagentId: "session-1",
+        paneId: fake.ref.paneId,
+        cwd: "/repo",
+      }),
+    ]);
+  });
+
+  it("keeps the launch error when the failure teardown itself throws", async () => {
+    const fake = makeFakeHost({ observeState: "done" });
+    stubHarness(async () => {
+      throw new Error("teardown exploded");
+    });
+    const run = makeSession({
+      host: failingStart(fake),
+      deliverable: new ScriptedDeliverable(),
+      hostRef: fake.ref,
+    });
+    run.session.start();
+    await driveRun(DRIVE_FAILED_MS);
+
+    // The teardown failure is swallowed; the launch error decides.
+    await expect(run.session.promise).resolves.toBe("");
+    expect(run.session.spawn.lifecycle).toMatchObject({
+      phase: "settled",
+      status: "error",
+      error: "agent start refused",
+    });
+  });
+
+  it("never tears harness state down from the session's own drop", async () => {
+    const { session } = stubbedRun();
+    stubHarness();
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    session.drop();
+
+    // Teardown belongs to the async cleanup plane; drop stays synchronous.
+    expect(teardownCalls).toEqual([]);
+  });
+
+  it("tears no harness down when a launch fails before the plan", async () => {
+    stubHarness();
+    const run = makeSession({
+      createHost: () => {
+        throw new Error("transport exploded");
+      },
+      deliverable: new ScriptedDeliverable(),
+    });
+    run.session.start();
+    await driveRun(DRIVE_FAILED_MS);
+
+    expect(teardownCalls).toEqual([]);
+    expect(harnessForMock).not.toHaveBeenCalled();
   });
 });
 

@@ -91,6 +91,7 @@ function buildDeps(overrides: Partial<AgentAssetsDeps> = {}): AgentAssetsDeps {
     removeGitWorktree: async () => true,
     deleteBranch: async () => ({ kind: "deleted" as const }),
     closePane: async () => {},
+    harnessTeardown: async () => {},
     ...overrides,
   };
 }

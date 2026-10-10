@@ -42,6 +42,8 @@ import {
   slugifyWorktreeType,
 } from "../spawn/worktree-policy.js";
 import type { AgentHostRef, HostObservation } from "./agent-host.js";
+import type { HarnessId, HarnessTeardownContext } from "./harness.js";
+import { harnessFor } from "./harness/registry.js";
 import type {
   CleanupSource,
   LocatedArtifacts,
@@ -71,6 +73,16 @@ export interface CleanupDeps {
   deleteBranch: (options: DeleteBranchOptions) => Promise<BranchCleanupResult>;
   /** Close a self-created placement. */
   closePane: (ref: AgentHostRef) => Promise<void>;
+  /**
+   * Best-effort teardown of the harness state one ended run's pane was
+   * prepared with, ordered before any worktree dirty probe so harness-written
+   * files never hold a clean tree hostage to retention. The bound actuator
+   * resolves the recorded harness and supplies the pi instance.
+   */
+  harnessTeardown: (
+    harness: HarnessId,
+    context: HarnessTeardownContext,
+  ) => Promise<void>;
 }
 
 /* ── The locator half ──────────────────────────────────────────────────── */
@@ -375,6 +387,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     removeGitWorktree: deps.removeGitWorktree,
     deleteBranch: deps.deleteBranch,
     closePane: deps.closePane,
+    harnessTeardown: deps.harnessTeardown,
   };
 }
 
@@ -434,5 +447,7 @@ export function createHerdrAgentAssets(pi: ExtensionAPI): AgentAssets {
     closePane: async (ref) => {
       await host.release(ref, "placement");
     },
+    harnessTeardown: (harness, context) =>
+      harnessFor(harness).teardown({ pi, ...context }),
   });
 }

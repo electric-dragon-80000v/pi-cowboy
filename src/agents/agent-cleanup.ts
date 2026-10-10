@@ -12,6 +12,7 @@
 import type { AgentSpawn, WorktreeRetentionReason } from "../types.js";
 import { hasOutcome } from "../types.js";
 import type { BranchCleanupResult } from "../infrastructure/git-client.js";
+import { createLogger } from "../logger.js";
 import { errorMessage } from "../utils.js";
 import type { AgentHostRef, HostObservation } from "./agent-host.js";
 import type { AgentAssets, CleanupDeps, Located } from "./agent-assets.js";
@@ -43,6 +44,8 @@ import {
 } from "./cleanup-policy.js";
 
 export type { CleanupDeps } from "./agent-assets.js";
+
+const log = createLogger("cleanup");
 
 /** The agent-tracking surface cleanup needs — injected by the caller. */
 export interface AgentCleanupRegistry {
@@ -422,6 +425,27 @@ export function createCleanup(assets: AgentAssets): Cleanup {
         verdict.reason,
         "open",
       );
+    }
+
+    // Harness state must leave the checkout before the dirty probe reads it:
+    // a harness that embeds launch state in the worktree would hold a clean
+    // tree hostage to retention. Best-effort — a failed teardown is logged
+    // and never blocks or masks the cleanup sequence.
+    const harness = hint?.execution.harness;
+    if (harness !== undefined) {
+      try {
+        await assets.harnessTeardown(harness, {
+          paneId: located.pane?.paneId ?? null,
+          cwd: located.worktree?.path ?? null,
+          subagentId: agentId,
+        });
+      } catch (err: unknown) {
+        log.warn("harness teardown failed during cleanup", {
+          agentId,
+          harness,
+          error: errorMessage(err),
+        });
+      }
     }
 
     if (plan.kind === "worktree-unlocatable") {
