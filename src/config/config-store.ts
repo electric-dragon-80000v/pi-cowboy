@@ -72,6 +72,7 @@ function sessionOverridesHasModelSettings(
 function concurrencyLayerHasSettings(layer: RawConcurrency): boolean {
   return (
     layer.default !== undefined ||
+    (layer.harnesses != null && Object.keys(layer.harnesses).length > 0) ||
     (layer.providers != null && Object.keys(layer.providers).length > 0) ||
     (layer.models != null && Object.keys(layer.models).length > 0)
   );
@@ -198,6 +199,7 @@ export class ConfigStore {
 
   get concurrency(): {
     default: number;
+    harnesses: Partial<Record<HarnessId, number>>;
     providers: Record<string, number>;
     models: Record<string, number>;
   } {
@@ -205,6 +207,7 @@ export class ConfigStore {
     const session = this.sessionConcurrencyLayer;
     return {
       default: session.default ?? base.default,
+      harnesses: { ...base.harnesses, ...session.harnesses },
       providers: { ...base.providers, ...session.providers },
       models: { ...base.models, ...session.models },
     };
@@ -469,6 +472,15 @@ export class ConfigStore {
           layer.default = n;
         });
       },
+      setHarness: (
+        harness: HarnessId,
+        n: number,
+        target: ConfigTarget = "global",
+      ): void => {
+        this.applyConcurrencyWrite(target, (layer) => {
+          layer.harnesses = { ...layer.harnesses, [harness]: n };
+        });
+      },
       setProvider: (
         key: string,
         n: number,
@@ -486,6 +498,12 @@ export class ConfigStore {
         this.applyConcurrencyWrite(target, (layer) => {
           layer.models = { ...layer.models, [key]: n };
         });
+      },
+      removeHarness: (
+        harness: HarnessId,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.removeConcurrencyEntry("harnesses", harness, target);
       },
       removeProvider: (
         key: string,
@@ -603,7 +621,7 @@ export class ConfigStore {
   }
 
   private removeConcurrencyEntry(
-    section: "default" | "providers" | "models",
+    section: "default" | "harnesses" | "providers" | "models",
     key: string | undefined,
     target: ConfigTarget | "all",
   ): void {
@@ -611,10 +629,18 @@ export class ConfigStore {
       if (!layer) return;
       if (section === "default") {
         delete layer.default;
-      } else if (key) {
-        const entries = layer[section];
-        if (entries) delete entries[key];
+        return;
       }
+      if (key === undefined) return;
+      if (section === "harnesses") {
+        const harness = parseHarnessId(key);
+        if (harness !== undefined && layer.harnesses) {
+          delete layer.harnesses[harness];
+        }
+        return;
+      }
+      const entries = layer[section];
+      if (entries) delete entries[key];
     };
     this.layers.clear(
       target,

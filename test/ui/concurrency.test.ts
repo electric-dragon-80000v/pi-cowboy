@@ -8,14 +8,7 @@ import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setPi } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
-import {
-  each,
-  expandTree,
-  walk,
-  type Branch,
-  type Expect,
-  type Traversal,
-} from "./walk.js";
+import { expandTree, walk, type Branch, type Expect } from "./walk.js";
 
 vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
 
@@ -105,14 +98,19 @@ const setLimitTree: Branch = {
 };
 
 describe("Concurrency Settings — structure", () => {
-  it("lists the default limit and hides clear-all on a fresh config", () => {
+  it("lists every level and hides clear-all on a fresh config", () => {
     const session = openConcurrency();
+    const rows = session.walkRows();
 
     expect(session.title()).toBe("Concurrency Settings");
-    expect(session.text()).toContain("Per-provider limits");
-    expect(session.text()).toContain("Add per-provider limit...");
-    expect(session.text()).toContain("Per-model limits");
-    expect(session.text()).toContain("Add per-model limit...");
+    expect(rows.map((row) => row.label)).toEqual([
+      "Default concurrency limit",
+      "Add per-harness limit...",
+      "Add Pi provider limit...",
+      "Add OpenCode provider limit...",
+      "Add Pi model limit...",
+      "Add OpenCode model limit...",
+    ]);
     expect(session.text()).not.toContain("Clear all concurrency limits...");
   });
 
@@ -121,11 +119,6 @@ describe("Concurrency Settings — structure", () => {
     const rows = session.walkRows();
     const labels = rows.map((row) => row.label);
 
-    expect(labels).toEqual([
-      "Default concurrency limit",
-      "Add per-provider limit...",
-      "Add per-model limit...",
-    ]);
     // Separator rows never take the cursor, so every discovered label is a real row.
     expect(labels.every((label) => label.trim().length > 0)).toBe(true);
   });
@@ -170,7 +163,7 @@ describe("Concurrency Settings — structure", () => {
     memory.install();
 
     const session = openConcurrency();
-    const rows = session.rows();
+    const rows = session.walkRows();
 
     expect(rows).toContainEqual({ label: "anthropic", value: "3 slots" });
     expect(rows).toContainEqual({
@@ -185,7 +178,7 @@ describe("Concurrency Settings — structure", () => {
     const rebuilt = openConcurrency();
     void session;
 
-    expect(rebuilt.rows()).toContainEqual({
+    expect(rebuilt.walkRows()).toContainEqual({
       label: "anthropic",
       value: "5 slots [session]",
     });
@@ -397,33 +390,194 @@ describe("Concurrency Settings — numeric validation", () => {
 describe("Concurrency Settings — every fresh row renders", () => {
   const rowTable = [
     ["Default concurrency limit", "4"],
-    ["Add per-provider limit...", ""],
-    ["Add per-model limit...", ""],
+    ["Add per-harness limit...", ""],
+    ["Add Pi provider limit...", ""],
+    ["Add OpenCode provider limit...", ""],
+    ["Add Pi model limit...", ""],
+    ["Add OpenCode model limit...", ""],
   ] as const;
 
-  const cases: Traversal[] = each(rowTable, ([label, value]) => ({
-    name: `row ${label}`,
-    steps: [{ expect: { rows: [[label, value]] } }],
-  }));
-
-  for (const traversal of cases) {
-    it(traversal.name, async () => {
-      const session = openConcurrency();
-      await walk(session, traversal.steps, memory.store, traversal.name);
-    });
-  }
+  it.each(rowTable)("row %s", (label, value) => {
+    const session = openConcurrency();
+    // The full menu outgrows the frame, so scroll to the row rather than
+    // reading only what one viewport shows.
+    expect(session.walkRows()).toContainEqual({ label, value });
+  });
 });
 
-describe("Concurrency Settings — the merged model list", () => {
-  it("offers every harness's models, so a slot can cover a model of any", () => {
+describe("Concurrency Settings — per-harness model lists", () => {
+  it("offers a harness only its own models in its picker", () => {
     const session = openConcurrency(120);
-    session.open("Add per-model limit...");
 
-    // The one surface that keeps the merged list: slots key on the model key,
-    // not on the harness that would launch it.
+    session.open("Add Pi model limit...");
     expect(session.text()).toContain("claude-3 [anthropic]");
     expect(session.text()).toContain("gpt-4 [openai]");
+    expect(session.text()).not.toContain("gemini-2");
+  });
+
+  it("offers a non-pi harness only its own models in its picker", () => {
+    const session = openConcurrency(120);
+
+    session.open("Add OpenCode model limit...");
     expect(session.text()).toContain("gemini-2 [google]");
+    expect(session.text()).not.toContain("claude-3");
+    expect(session.text()).not.toContain("gpt-4");
+  });
+
+  it("writes the bare key for pi and a qualified key for another harness", async () => {
+    const session = openConcurrency(120);
+
+    await walk(
+      session,
+      [
+        { open: "Add Pi model limit..." },
+        { open: "claude-3 [anthropic]" },
+        { open: "Global" },
+        { fill: "2" },
+        { enter: true },
+        {
+          expect: {
+            store: (store) =>
+              expect(store.concurrency.models["anthropic/claude-3"]).toBe(2),
+          },
+        },
+      ],
+      memory.store,
+      "pi model limit",
+    );
+  });
+
+  it("qualifies a non-pi harness's model key with its harness", async () => {
+    const session = openConcurrency(120);
+
+    await walk(
+      session,
+      [
+        { open: "Add OpenCode model limit..." },
+        { open: "gemini-2 [google]" },
+        { open: "Global" },
+        { fill: "2" },
+        { enter: true },
+        {
+          expect: {
+            store: (store) =>
+              expect(store.concurrency.models["opencode:google/gemini-2"]).toBe(
+                2,
+              ),
+          },
+        },
+      ],
+      memory.store,
+      "opencode model limit",
+    );
+  });
+
+  it("keeps a pi row and an opencode row for one model independent", () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: {
+        concurrency: {
+          models: {
+            "anthropic/claude-3": 2,
+            "opencode:anthropic/claude-3": 3,
+          },
+        },
+      },
+    });
+    memory.install();
+
+    const session = openConcurrency();
+    const rows = session.walkRows();
+
+    expect(rows).toContainEqual({
+      label: "anthropic/claude-3",
+      value: "2 slots",
+    });
+    expect(rows).toContainEqual({
+      label: "opencode:anthropic/claude-3",
+      value: "3 slots",
+    });
+  });
+});
+
+describe("Concurrency Settings — the harness level", () => {
+  it("sets a per-harness limit keyed by harness id", async () => {
+    const session = openConcurrency(120);
+
+    await walk(
+      session,
+      [
+        { open: "Add per-harness limit..." },
+        { open: "OpenCode" },
+        { open: "Global" },
+        { fill: "2" },
+        { enter: true },
+        {
+          expect: {
+            store: (store) =>
+              expect(store.concurrency.harnesses.opencode).toBe(2),
+            notified: ["opencode concurrency set to 2 (global)"],
+          },
+        },
+      ],
+      memory.store,
+      "harness limit",
+    );
+  });
+
+  it("renders a configured per-harness limit with its layer tag", () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: { concurrency: { harnesses: { opencode: 2 } } },
+    });
+    memory.install();
+
+    const session = openConcurrency();
+    expect(session.walkRows()).toContainEqual({
+      label: "OpenCode",
+      value: "2 slots",
+    });
+  });
+
+  it("tags a per-harness limit that comes from the session layer", () => {
+    const session = openConcurrency();
+    memory.store.mutate.concurrency.setHarness("opencode", 5, "session");
+    const rebuilt = openConcurrency();
+    void session;
+
+    expect(rebuilt.walkRows()).toContainEqual({
+      label: "OpenCode",
+      value: "5 slots [session]",
+    });
+  });
+
+  it("clears a configured per-harness limit at the picked layer", async () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: { concurrency: { harnesses: { opencode: 2 } } },
+    });
+    memory.install();
+
+    const session = openConcurrency();
+    await walk(
+      session,
+      [
+        { open: "OpenCode" },
+        { open: "Clear..." },
+        { open: "Global" },
+        {
+          expect: {
+            store: (store) =>
+              expect(
+                store.globalConcurrency.harnesses?.opencode,
+              ).toBeUndefined(),
+            notified: ["Removed per-harness limit for opencode (global)"],
+          },
+        },
+      ],
+      memory.store,
+      "clear harness limit",
+    );
   });
 });
 
@@ -434,7 +588,7 @@ describe("Concurrency Settings — keyboard navigation", () => {
     expect(first?.label).toBe("Default concurrency limit");
 
     session.press(KEY.j);
-    expect(session.activeRow()?.label).toBe("Add per-provider limit...");
+    expect(session.activeRow()?.label).toBe("Add per-harness limit...");
 
     session.press(KEY.k);
     expect(session.activeRow()?.label).toBe("Default concurrency limit");
@@ -464,7 +618,7 @@ describe("Concurrency Settings — known navigation defects", () => {
     "wraps from the last row to the first with Down (trailing separator)",
     () => {
       const session = openConcurrency();
-      session.focus("Add per-model limit...");
+      session.focus("Add OpenCode model limit...");
       session.press(KEY.down);
 
       expect(session.activeRow()?.label).toBe("Default concurrency limit");
@@ -473,7 +627,7 @@ describe("Concurrency Settings — known navigation defects", () => {
 
   it.fails("never gets stuck on the last row", () => {
     const session = openConcurrency();
-    session.focus("Add per-model limit...");
+    session.focus("Add OpenCode model limit...");
 
     expect(session.downMoved()).toBe(true);
   });

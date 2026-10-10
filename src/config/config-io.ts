@@ -8,7 +8,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentsConfig } from "../models/model-precedence.js";
-import { DEFAULT_HARNESS, parseHarnessId } from "../agents/harness.js";
+import {
+  DEFAULT_HARNESS,
+  parseHarnessId,
+  type HarnessId,
+} from "../agents/harness.js";
 import { defaultExtensionDir, EXTENSION_NAME } from "../paths.js";
 import { isRecord } from "../predicates.js";
 import {
@@ -75,6 +79,7 @@ export type ProjectLayerStatus =
 
 export interface RawConcurrency {
   default?: number;
+  harnesses?: Partial<Record<HarnessId, number>>;
   providers?: Record<string, number>;
   models?: Record<string, number>;
 }
@@ -217,14 +222,17 @@ function mergeRawConcurrency(
   ...layers: Array<RawConcurrency | undefined>
 ): RawConcurrency {
   const out: RawConcurrency = {};
+  const harnesses: Partial<Record<HarnessId, number>> = {};
   const providers: Record<string, number> = {};
   const models: Record<string, number> = {};
   for (const layer of layers) {
     if (!layer) continue;
     if (layer.default !== undefined) out.default = layer.default;
+    Object.assign(harnesses, layer.harnesses ?? {});
     Object.assign(providers, layer.providers ?? {});
     Object.assign(models, layer.models ?? {});
   }
+  if (Object.keys(harnesses).length > 0) out.harnesses = harnesses;
   if (Object.keys(providers).length > 0) out.providers = providers;
   if (Object.keys(models).length > 0) out.models = models;
   return out;

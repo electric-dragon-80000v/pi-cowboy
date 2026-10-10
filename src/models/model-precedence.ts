@@ -69,6 +69,7 @@ export interface SubagentsConfig {
   };
   concurrency: {
     default: number;
+    harnesses?: Partial<Record<HarnessId, number>>;
     providers?: Record<string, number>;
     models?: Record<string, number>;
   };

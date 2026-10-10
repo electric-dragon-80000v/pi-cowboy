@@ -26,7 +26,7 @@ import {
   type ProcessSupervisorOptions,
   type SubagentExitOutcome,
 } from "../subagent/supervisor.js";
-import type { PoolReservation } from "../task-registry.js";
+import type { PoolIdentity, PoolReservation } from "../task-registry.js";
 import type {
   AgentLaunchState,
   AgentSpawn,
@@ -41,6 +41,7 @@ import {
   slugifyWorktreeType,
 } from "../spawn/worktree-policy.js";
 import { AgentSandbox } from "../spawn/sandbox.js";
+import type { HarnessId } from "./harness.js";
 import { resolveWorktreeCheckoutType } from "./spawn-defaults.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
 import { harnessFor } from "./harness/registry.js";
@@ -84,12 +85,21 @@ export interface SpawnOptions extends SpawnConfig {
   signal?: AbortSignal;
 }
 
+/**
+ * Spawn options after the spawn path has resolved the harness the launch uses.
+ * Carrying it here keeps admission, a queued drain, a revived turn, and the
+ * launch plan on one value instead of resolving the harness again later.
+ */
+export interface ResolvedSpawnOptions extends SpawnOptions {
+  harness: HarnessId;
+}
+
 export interface SpawnArgs {
   pi: ExtensionAPI;
   ctx: ExtensionContext;
   type: SubagentType;
   prompt: string;
-  options: SpawnOptions;
+  options: ResolvedSpawnOptions;
 }
 
 /** Spawn is born queued and mutated in place; its identity is public API. */
@@ -141,7 +151,7 @@ export interface SubagentSessionDeps {
   slots: {
     reserve(spawn: AgentSpawn, reservation: PoolReservation): void;
     /** Charge a run that returns to active without an admission. */
-    reacquire(spawn: AgentSpawn, modelKey: string | undefined): void;
+    reacquire(spawn: AgentSpawn, identity: PoolIdentity): void;
     release(agentId: string): Promise<void>;
     cancelQueued(id: string): void;
   };
@@ -358,11 +368,11 @@ export class SubagentSession {
         // are the new supervisor's to find.
         this.supervisor?.detach();
         // A revived turn is a live process again, so it takes the same pools the first
-        // turn held: its model's, its provider's, and the global limit.
-        this.deps.slots.reacquire(
-          this.spawn,
-          this.args.options.modelSelection?.key,
-        );
+        // turn held: its model's, its provider's, its harness's, and the global limit.
+        this.deps.slots.reacquire(this.spawn, {
+          harness: this.args.options.harness,
+          modelKey: this.args.options.modelSelection?.key,
+        });
         this.supervisor = supervisor;
         this.launchState = launch;
         // A revived run has not settled yet: no report, no retention reason.
@@ -501,6 +511,7 @@ export class SubagentSession {
         prompt,
         {
           agentId: this.id,
+          harness: options.harness,
           modelSelection: options.modelSelection,
           thinkingLevel: options.thinkingLevel,
           fork: options.fork,

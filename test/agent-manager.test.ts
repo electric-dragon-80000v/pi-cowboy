@@ -95,7 +95,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       interactiveReady: true,
     });
     getStoreMock.mockReset().mockReturnValue({
-      agent: {},
+      agent: { harnessType: "pi" },
     });
   });
 
@@ -561,7 +561,7 @@ describe("AgentManager fleet routing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     getStoreMock.mockReset().mockReturnValue({
-      agent: {},
+      agent: { harnessType: "pi" },
     });
     buildLaunchPlanMock.mockReset().mockResolvedValue({
       cwd: "/repo",
@@ -601,22 +601,28 @@ describe("AgentManager fleet routing", () => {
   ) {
     const released: string[] = [];
     const cancelled: string[] = [];
-    const reacquired: Array<{ id: string; modelKey: string | undefined }> = [];
+    const reacquired: Array<{
+      id: string;
+      identity: { harness: string; modelKey: string | undefined };
+    }> = [];
     let captured: {
       id: string;
       start(reservation: PoolReservation): boolean;
     } | null = null;
     const registry = {
       admitSpawn: (
-        _modelKey: string | undefined,
+        _identity: { harness: string; modelKey: string | undefined },
         queued: { id: string; start(reservation: PoolReservation): boolean },
       ) => {
         captured = queued;
         return admission();
       },
       reserve: () => {},
-      reacquire: (spawn: { id: string }, modelKey: string | undefined) => {
-        reacquired.push({ id: spawn.id, modelKey });
+      reacquire: (
+        spawn: { id: string },
+        identity: { harness: string; modelKey: string | undefined },
+      ) => {
+        reacquired.push({ id: spawn.id, identity });
       },
       release: async (id: string) => {
         released.push(id);
@@ -862,7 +868,9 @@ describe("AgentManager fleet routing", () => {
     });
 
     // The revived turn is live again, so its pools are charged again.
-    expect(fake.reacquired).toEqual([{ id, modelKey: "test/model" }]);
+    expect(fake.reacquired).toEqual([
+      { id, identity: { harness: "pi", modelKey: "test/model" } },
+    ]);
 
     // Revived runs look live to dispatch again.
     expect(manager.getSpawn(id)!.lifecycle).toMatchObject({

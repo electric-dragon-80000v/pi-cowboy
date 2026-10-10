@@ -5,8 +5,13 @@
  */
 import { Type, type TSchema } from "typebox";
 import { Check } from "typebox/value";
-import { HARNESS_IDS, parseHarnessId } from "../agents/harness.js";
+import {
+  HARNESS_IDS,
+  parseHarnessId,
+  type HarnessId,
+} from "../agents/harness.js";
 import { isRecord } from "../predicates.js";
+import { parsePoolKey } from "../task-registry.js";
 import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
 import type { RawConfig } from "./config-io.js";
 
@@ -233,6 +238,55 @@ function cleanConcurrencySection(
         NUM.expected,
       );
   }
+
+  const harnesses = concurrency.harnesses;
+  if (harnesses !== undefined) {
+    if (!isRecord(harnesses)) {
+      warnIncompatible(
+        filePath,
+        "concurrency.harnesses",
+        harnesses,
+        EXPECTED_OBJECT,
+      );
+    } else {
+      const keptHarnesses: Partial<Record<HarnessId, number>> = {};
+      for (const [key, value] of Object.entries(harnesses)) {
+        const harness = parseHarnessId(key);
+        if (harness === undefined) {
+          warnIncompatible(
+            filePath,
+            `concurrency.harnesses.${key}`,
+            key,
+            HARNESS.expected,
+          );
+          continue;
+        }
+        if (typeof value === "number") keptHarnesses[harness] = value;
+        else
+          warnIncompatible(
+            filePath,
+            `concurrency.harnesses.${key}`,
+            value,
+            NUM.expected,
+          );
+      }
+      if (Object.keys(keptHarnesses).length > 0) kept.harnesses = keptHarnesses;
+    }
+  }
+
+  const sections = {
+    providers: {
+      // A provider pool key is "<harness>:<provider>"; a bare key means pi.
+      level: "provider",
+      expected: 'a provider key "provider" or "<harness>:<provider>"',
+    },
+    models: {
+      // A model pool key is "<harness>:<provider>/<model>"; a bare key means pi.
+      level: "model",
+      expected:
+        'a model key "provider/model" or "<harness>:<provider>/<model>"',
+    },
+  } as const;
   for (const section of ["providers", "models"] as const) {
     const entries = concurrency[section];
     if (entries === undefined) continue;
@@ -245,8 +299,19 @@ function cleanConcurrencySection(
       );
       continue;
     }
+    const { level, expected } = sections[section];
     const keptEntries: Record<string, number> = {};
     for (const [key, value] of Object.entries(entries)) {
+      // A malformed key drops only its own entry: the rest of the map survives.
+      if (parsePoolKey(key)?.kind !== level) {
+        warnIncompatible(
+          filePath,
+          `concurrency.${section}.${key}`,
+          key,
+          expected,
+        );
+        continue;
+      }
       if (typeof value === "number") keptEntries[key] = value;
       else
         warnIncompatible(

@@ -48,10 +48,12 @@ import type { CleanupReport, WorktreeTarget } from "./cleanup-policy.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
   SubagentSession,
+  type ResolvedSpawnOptions,
   type SpawnArgs,
   type SpawnOptions,
   type SteerOutcome,
 } from "./subagent-session.js";
+import { resolveHarnessType } from "./spawn-defaults.js";
 import type { SubagentType } from "./types.js";
 
 export type { SpawnOptions, SteerOutcome } from "./subagent-session.js";
@@ -189,11 +191,23 @@ export class AgentManager {
   ): string {
     // The caller mints the id, so it matches the branch/worktree/herdr suffix.
     const id = options.spawnId;
-    const args: SpawnArgs = { pi, ctx, type, prompt, options };
-    const admission = this.registry.admitSpawn(options.modelSelection?.key, {
-      id,
-      start: (reservation) => this.startSession(id, args, reservation),
-    });
+    // Resolve the harness once, on the spawn path: the pool identity, a queued
+    // drain, a revived turn, and the launch plan all read this one value.
+    const resolvedOptions: ResolvedSpawnOptions = {
+      ...options,
+      harness: resolveHarnessType(type),
+    };
+    const args: SpawnArgs = { pi, ctx, type, prompt, options: resolvedOptions };
+    const admission = this.registry.admitSpawn(
+      {
+        harness: resolvedOptions.harness,
+        modelKey: resolvedOptions.modelSelection?.key,
+      },
+      {
+        id,
+        start: (reservation) => this.startSession(id, args, reservation),
+      },
+    );
     let session: SubagentSession;
     try {
       // Registration refuses a duplicate id; release the granted admission first.
@@ -213,7 +227,7 @@ export class AgentManager {
       throw err;
     }
     this.sessions.set(id, session);
-    if (options.signal?.aborted) {
+    if (resolvedOptions.signal?.aborted) {
       void session.abort("user");
       return id;
     }

@@ -17,6 +17,7 @@ import {
 import type { SpawnOptions } from "../src/agents/agent-manager.js";
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
 import type { AgentSpawn, ModelSelection } from "../src/types.js";
+import type { HarnessId } from "../src/agents/harness.js";
 import { nextSpawnId } from "./helpers/spawn-ids.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
@@ -33,6 +34,8 @@ function selectionFor(key: string): ModelSelection {
 class FakeManager implements TaskRegistryDeps {
   registry!: HerdrTaskRegistry;
   spawns = new Map<string, AgentSpawn>();
+  /** The harness every fake spawn resolves to; a test overrides it for non-pi pools. */
+  harness: HarnessId = "pi";
 
   constructor(
     public findTaskAttempts = vi.fn(async () => [] as LiveAttempt[]),
@@ -57,10 +60,10 @@ class FakeManager implements TaskRegistryDeps {
         taskSlug: options.taskSlug,
       },
     } as unknown as AgentSpawn;
-    const admission = this.registry.admitSpawn(options.modelSelection?.key, {
-      id,
-      start: (reservation) => this.startQueued(id, reservation),
-    });
+    const admission = this.registry.admitSpawn(
+      { harness: this.harness, modelKey: options.modelSelection?.key },
+      { id, start: (reservation) => this.startQueued(id, reservation) },
+    );
     this.spawns.set(id, spawn);
     if (admission.kind === "queue") return id;
     this.startQueued(id, admission.reservation);
@@ -331,28 +334,94 @@ describe("HerdrTaskRegistry concurrency levels", () => {
     expect(phases.at(-1)).toBe("queued");
   });
 
-  it("resolves a spawn's pools as model, provider, then global", () => {
+  it("resolves a spawn's pools as model, provider, harness, then global", () => {
     const { registry } = makePair({
       default: 4,
+      harnesses: { pi: 5 },
       providers: { acme: 3 },
       models: { "acme/fast": 1 },
     });
     const pools = (
       registry as unknown as {
-        applicablePools(key: string | undefined): PoolReservation;
+        applicablePools(identity: {
+          harness: string;
+          modelKey: string | undefined;
+        }): PoolReservation;
       }
-    ).applicablePools("acme/fast");
-    expect(pools.map((pool) => pool.limit)).toEqual([1, 3, 4]);
+    ).applicablePools({ harness: "pi", modelKey: "acme/fast" });
+    expect(pools.map((pool) => pool.limit)).toEqual([1, 3, 5, 4]);
   });
 
-  it("resolves a spawn without a model selection to the global pool alone", () => {
-    const { registry } = makePair({ default: 4, providers: { acme: 3 } });
+  it("resolves a spawn without a model selection to its harness and global pools", () => {
+    const { registry } = makePair({
+      default: 4,
+      harnesses: { opencode: 2 },
+      providers: { acme: 3 },
+    });
     const pools = (
       registry as unknown as {
-        applicablePools(key: string | undefined): PoolReservation;
+        applicablePools(identity: {
+          harness: string;
+          modelKey: string | undefined;
+        }): PoolReservation;
       }
-    ).applicablePools(undefined);
-    expect(pools.map((pool) => pool.limit)).toEqual([4]);
+    ).applicablePools({ harness: "opencode", modelKey: undefined });
+    expect(pools.map((pool) => pool.limit)).toEqual([2, 4]);
+  });
+
+  it("names the same pi pool for a bare key and its pi-qualified form", () => {
+    const { registry } = makePair({
+      default: 4,
+      models: { "acme/fast": 1, "pi:acme/fast": 2 },
+    });
+    // Two keys that parse to one pool share it; the later entry wins.
+    const pools = (
+      registry as unknown as {
+        applicablePools(identity: {
+          harness: string;
+          modelKey: string | undefined;
+        }): PoolReservation;
+      }
+    ).applicablePools({ harness: "pi", modelKey: "acme/fast" });
+    expect(pools.map((pool) => pool.limit)).toEqual([2, 4]);
+  });
+
+  it("namespaces the model pool by harness", () => {
+    const { manager } = makePair({
+      default: 4,
+      models: { "acme/fast": 1, "opencode:acme/fast": 4 },
+    });
+    manager.harness = "pi";
+    expect(spawnFor(manager, "acme/fast")).toBe("spawned");
+    expect(spawnFor(manager, "acme/fast")).toBe("queued");
+    // The opencode pool for the same model is independent of pi's.
+    manager.harness = "opencode";
+    expect(spawnFor(manager, "acme/fast")).toBe("spawned");
+  });
+
+  it("queues when the harness pool is full even though model and global have room", () => {
+    const { manager } = makePair({
+      default: 4,
+      harnesses: { opencode: 1 },
+      models: { "opencode:acme/fast": 4 },
+    });
+    manager.harness = "opencode";
+    expect(spawnFor(manager, "acme/fast")).toBe("spawned");
+    expect(spawnFor(manager, "acme/slow")).toBe("queued");
+  });
+
+  it("drains a queued spawn into the harness pool it was queued under", async () => {
+    const { manager } = makePair({
+      default: 4,
+      harnesses: { opencode: 1, pi: 4 },
+    });
+    manager.harness = "opencode";
+    expect(spawnFor(manager, undefined)).toBe("spawned");
+    expect(spawnFor(manager, undefined)).toBe("queued");
+
+    // The queue entry carried its harness, so the drain re-checks opencode's pool.
+    await manager.settle("a1");
+    expect(manager.getSpawn("a2")?.lifecycle.phase).toBe("spawned");
   });
 
   it("queues when the model pool is full even though provider and global have room", () => {

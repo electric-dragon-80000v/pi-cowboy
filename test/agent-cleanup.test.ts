@@ -1794,6 +1794,7 @@ function registerSpawn(manager: AgentManager, spawn: AgentSpawn): void {
       options: {
         spawnId: "tscleanup",
         description: "teardown adapter fixture",
+        harness: "pi",
         orchestration: TEST_ORCHESTRATION,
       },
     },

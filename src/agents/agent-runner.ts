@@ -42,7 +42,6 @@ import {
   type ResolvedAgentConfig,
 } from "./agent-types.js";
 import { ensureResultDir, writeResultFile } from "./result-file-permissions.js";
-import { resolveHarnessType } from "./spawn-defaults.js";
 
 // Re-exported for consumers importing it from this module.
 export { buildWorktreeBranchSection };
@@ -228,6 +227,8 @@ interface LaunchTunables extends RunTunables {
 
 interface LaunchExtras {
   description: string;
+  /** The harness the launch resolves, so the plan and the pool identity agree. */
+  harness: HarnessId;
   /** Worktree coordinates with ownership; absent for parent-cwd runs. */
   worktree?: AgentWorktree;
   /** The subagent-facing guidance the resolved orchestration template declares, rendered as the system prompt's final block. */
@@ -251,7 +252,7 @@ export async function buildLaunchPlan(
     store.agent.loadExtensionsImplicitly,
   );
   const agentConfig = getAgentConfig(type);
-  const harnessType = resolveHarnessType(type);
+  const harnessType = options.harness;
   const skillMode = resolveSkillMode(config.skills, agentConfig);
 
   const warnings: string[] = [];

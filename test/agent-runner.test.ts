@@ -20,6 +20,7 @@ import {
 import type { LoadedConfig } from "../src/config/config-io.js";
 import { subagentResultDir } from "../src/paths.js";
 import { buildOrchestrationGuidance } from "../src/orchestrators/briefing-section.js";
+import { resolveHarnessType } from "../src/agents/spawn-defaults.js";
 import {
   createSessionTemplates,
   detectSubagentSpawn,
@@ -112,6 +113,7 @@ async function launch(
   return buildLaunchPlan(pi, ctx, type, "do the task", {
     description: "test task",
     agentId: "runner-test",
+    harness: resolveHarnessType(type),
     cwd,
     agentGuidance,
     fork,
@@ -578,6 +580,7 @@ describe("buildLaunchPlan system prompt split", () => {
     const plan = await buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
       description: "test task",
       agentId: "runner-context",
+      harness: resolveHarnessType("test-agent"),
       cwd,
       worktree: { kind: "owned", path: cwd, branch: "cow-fix-login-abc12345" },
     });
@@ -658,6 +661,7 @@ describe("buildLaunchPlan system prompt split", () => {
         {
           description: "test task",
           agentId,
+          harness: resolveHarnessType("general-purpose"),
           cwd,
         },
       );

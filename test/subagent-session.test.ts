@@ -244,7 +244,10 @@ interface HarnessOptions {
 function makeSession(options: HarnessOptions = {}) {
   const releasedSlots: string[] = [];
   const cancelledQueued: string[] = [];
-  const reacquired: Array<{ id: string; modelKey: string | undefined }> = [];
+  const reacquired: Array<{
+    id: string;
+    identity: { harness: string; modelKey: string | undefined };
+  }> = [];
   const reserved: PoolReservation[] = [];
   const ends: AgentSpawn[] = [];
   const deps: SubagentSessionDeps = {
@@ -256,8 +259,8 @@ function makeSession(options: HarnessOptions = {}) {
       reserve: (_spawn, reservation) => {
         reserved.push(reservation);
       },
-      reacquire: (spawn, modelKey) => {
-        reacquired.push({ id: spawn.id, modelKey });
+      reacquire: (spawn, identity) => {
+        reacquired.push({ id: spawn.id, identity });
       },
       release: async (id) => {
         releasedSlots.push(id);
@@ -283,6 +286,7 @@ function makeSession(options: HarnessOptions = {}) {
       options: {
         description: "test run",
         spawnId: options.id ?? "session-1",
+        harness: "pi",
         orchestration: TEST_ORCHESTRATION,
         worktree: options.worktree,
         hostRef: options.hostRef,
@@ -411,6 +415,7 @@ describe("SubagentSession", () => {
         options: {
           description: "test run",
           spawnId: "sess-test-1",
+          harness: "pi",
           orchestration: TEST_ORCHESTRATION,
         },
       },
@@ -919,6 +924,7 @@ describe("SubagentSession worktree retention capture", () => {
         options: {
           description: "test run",
           spawnId: "sess-test-2",
+          harness: "pi",
           orchestration: TEST_ORCHESTRATION,
           worktree: {
             kind: "owned",
@@ -1367,7 +1373,7 @@ describe("SubagentSession revive on steer", () => {
     });
     expect(run.session.isActive()).toBe(true);
     expect(run.reacquired).toEqual([
-      { id: "session-1", modelKey: "acme/fast" },
+      { id: "session-1", identity: { harness: "pi", modelKey: "acme/fast" } },
     ]);
 
     // The second settlement gives the same pools back again.
