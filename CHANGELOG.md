@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.4.1...v0.5.0) (2026-10-10)
+
+
+### Features
+
+* **git:** require a git repository for extension activation ([b78875d](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b78875dd0f29bb4855c235a88c5e9e85d56fab82))
+
 ## [0.4.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.4.0...v0.4.1) (2026-10-10)
 
 
