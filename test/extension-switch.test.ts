@@ -467,13 +467,17 @@ describe("/cowboy dispatch", () => {
   });
 
   it.each(["spawn", "status"] as const)(
-    "opens `/cowboy %s` without the main menu, on the session's model options",
+    "opens `/cowboy %s` without the main menu, on the models the harnesses offer",
     async (subcommand) => {
       install({});
       const notify = vi.fn();
       const ctx = {
         ...commandContext(notify),
-        scopedModels: [{ model: { provider: "anthropic", id: "claude" } }],
+        modelRegistry: {
+          getAvailable: (): Array<{ provider: string; id: string }> => [
+            { provider: "anthropic", id: "claude" },
+          ],
+        },
       };
 
       await captureCommand().handler(subcommand, ctx);

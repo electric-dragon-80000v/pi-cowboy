@@ -30,7 +30,6 @@ import {
 } from "./extension-toggle.js";
 import { getHarnessAvailability, getPiInstance, getStore } from "./shell.js";
 import { listHarnessModels } from "./agents/harness/registry.js";
-import type { ModelCatalog } from "./agents/harness.js";
 
 /** The one place a tool name is spelled; the tools below are named from these. */
 export const COWBOY_TOOLS = {
@@ -219,31 +218,15 @@ export function registerTools(pi: ExtensionAPI): void {
 }
 
 /**
- * The models this session offers a harness: its scoped set when it is scoped,
- * otherwise the whole catalogue it can reach. The harnesses read their list
- * through this, so "which models may this session use" is resolved once, at the
- * point where the catalogue is injected.
- */
-function sessionModelCatalog(ctx: ExtensionCommandContext): ModelCatalog {
-  const scoped = ctx.scopedModels;
-  return {
-    getAvailable: () =>
-      scoped.length > 0
-        ? scoped.map((entry) => entry.model)
-        : ctx.modelRegistry.getAvailable(),
-  };
-}
-
-/**
  * The model keys a spawn can be given, straight from the harnesses: each
- * launchable one lists what it can run, from the models this session offers.
+ * launchable one lists what it can run from the catalogue this session holds.
  */
 async function subagentModelOptions(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
 ): Promise<string[]> {
   const models = await listHarnessModels(
-    { pi, modelCatalog: sessionModelCatalog(ctx) },
+    { pi, modelCatalog: ctx.modelRegistry },
     getHarnessAvailability(),
   );
   return models.map((entry) => entry.key);

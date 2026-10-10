@@ -218,14 +218,7 @@ async function piHarnessModels(
 }
 
 async function availableModelsForCompletion(): Promise<readonly ModelEntry[]> {
-  const session = getSessionCtx();
-  const scoped = session.scopedModels;
-  if (scoped.length > 0) {
-    return scoped.map((s) => ({
-      key: `${s.model.provider}/${s.model.id}`,
-    }));
-  }
-  return await piHarnessModels(session.modelRegistry);
+  return await piHarnessModels(getSessionCtx().modelRegistry);
 }
 
 export async function handleModelArg(
