@@ -22,12 +22,13 @@ The main screen. The screen title is `Agents`.
 
 Opens from the `Model overrides` row on the main screen.
 
-| Row                            | What it does                                                                                                           |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `Global default model`         | The model every agent uses unless a more specific rule applies. See [Model resolution](../README.md#model-resolution). |
-| One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                            |
-| `Override another type...`     | Adds an override for an agent type that has none.                                                                      |
-| `Clear all model overrides...` | Removes every override.                                                                                                |
+| Row                            | What it does                                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pi Default Model`             | The default model for agents the pi family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution). |
+| `OpenCode Default Model`       | The default model for agents launched under opencode. One such row appears for each harness outside the pi family on `PATH`.             |
+| One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                                              |
+| `Override another type...`     | Adds an override for an agent type that has none.                                                                                        |
+| `Clear all model overrides...` | Removes every override.                                                                                                                  |
 
 ## Turning pi-cowboy off
 
