@@ -53,6 +53,7 @@ function registryFor(
       ),
     getSpawn: (agentId) => surface.getSpawn(agentId),
     findTaskAttempts: (taskSlug) => findTaskAttemptsMock(taskSlug),
+    queuePosition: () => 0,
   });
 }
 

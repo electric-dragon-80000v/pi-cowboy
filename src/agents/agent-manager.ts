@@ -16,9 +16,10 @@ import {
 } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
 import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
-import type {
-  ConcurrencyConfig,
-  PoolReservation,
+import {
+  ConcurrencyPools,
+  type ConcurrencyConfig,
+  type PoolReservation,
 } from "../concurrency-pools.js";
 import { HerdrTaskRegistry } from "../task-registry.js";
 import { createLogger } from "../logger.js";
@@ -138,35 +139,32 @@ export class AgentManager {
    * the running one instead of racing it for the same checkout.
    */
   private readonly teardowns = new Map<string, Promise<unknown>>();
+  /** The resource limiter the fleet drives directly; sessions charge their capacity to it. */
+  private readonly pools: ConcurrencyPools;
+  /** Task identity and admission serialization; pool accounting lives in `pools`. */
   private readonly registry: HerdrTaskRegistry;
 
   constructor(
-    onComplete?: OnAgentComplete,
-    concurrency?: ConcurrencyConfig,
-    registry?: HerdrTaskRegistry,
+    pools: ConcurrencyPools,
     private readonly transport: SupervisorTransport = defaultAgentManagerTransport,
   ) {
-    this.onComplete = onComplete;
-    this.registry =
-      registry ??
-      new HerdrTaskRegistry(
-        {
-          listAgents: () => this.listAgents(ACTIVE_AGENT_PHASES),
-          spawn: (type, prompt, options) =>
-            this.spawn(getPiInstance(), getSessionCtx(), type, prompt, options),
-          getSpawn: (id) => this.getSpawn(id),
-          findTaskAttempts: (taskSlug) =>
-            this.transport.createHost(getPiInstance()).findAttempts(taskSlug),
-        },
-        concurrency,
-      );
+    this.pools = pools;
+    this.registry = new HerdrTaskRegistry({
+      listAgents: () => this.listAgents(ACTIVE_AGENT_PHASES),
+      spawn: (type, prompt, options) =>
+        this.spawn(getPiInstance(), getSessionCtx(), type, prompt, options),
+      getSpawn: (id) => this.getSpawn(id),
+      findTaskAttempts: (taskSlug) =>
+        this.transport.createHost(getPiInstance()).findAttempts(taskSlug),
+      queuePosition: (id) => this.pools.queuePosition(id),
+    });
   }
 
   getRegistry(): HerdrTaskRegistry {
     return this.registry;
   }
   setConcurrency(config: ConcurrencyConfig): void {
-    this.registry.setConcurrency(config);
+    this.pools.setConcurrency(config);
   }
   setOnComplete(cb: OnAgentComplete): void {
     this.onComplete = cb;
@@ -198,7 +196,7 @@ export class AgentManager {
       harness: resolveHarnessType(type),
     };
     const args: SpawnArgs = { pi, ctx, type, prompt, options: resolvedOptions };
-    const admission = this.registry.admitSpawn(
+    const admission = this.pools.admitSpawn(
       {
         harness: resolvedOptions.harness,
         modelKey: resolvedOptions.modelSelection?.key,
@@ -216,14 +214,14 @@ export class AgentManager {
         args,
         deps: {
           transport: this.transport,
-          slots: this.registry,
+          pools: this.pools,
           onRunEnded: (spawn) => this.notifyComplete(spawn),
           onFollowUpResult: (spawn, deliverable) =>
             this.notifyFollowUp(spawn, deliverable),
         },
       });
     } catch (err) {
-      void this.registry.release(id);
+      this.pools.release(id);
       throw err;
     }
     this.sessions.set(id, session);
@@ -236,7 +234,7 @@ export class AgentManager {
       session.start(admission.reservation);
     } catch (err) {
       session.rollbackStart();
-      void this.registry.release(id);
+      this.pools.release(id);
       this.sessions.delete(id);
       // A start that never happened leaves no spawn: an orphan would trip dedup on retry.
       getAgentSpawns().drop(id);
@@ -534,7 +532,7 @@ export class AgentManager {
    * spawns must stay cleanable and untracked live ones stay visible.
    */
   dispose(): void {
-    this.registry.clearQueue();
+    this.pools.clearQueue();
     for (const session of this.sessions.values()) session.settleForDispose();
     this.sessions.clear();
   }

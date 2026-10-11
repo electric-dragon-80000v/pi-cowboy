@@ -16,6 +16,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
+import { ConcurrencyPools } from "../src/concurrency-pools.js";
 import {
   createCleanup,
   createWorktreeTeardown,
@@ -1803,12 +1804,7 @@ function registerSpawn(manager: AgentManager, spawn: AgentSpawn): void {
         createHost: () => ({}) as never,
         createDeliverable: () => ({}) as never,
       },
-      slots: {
-        reserve: () => {},
-        reacquire: () => {},
-        release: async () => {},
-        cancelQueued: () => {},
-      },
+      pools: new ConcurrencyPools(),
       onRunEnded: () => {},
       onFollowUpResult: () => {},
     },
@@ -1823,7 +1819,7 @@ describe("AgentManager.cleanup — adapter wiring", () => {
   let manager: AgentManager;
 
   beforeEach(() => {
-    manager = new AgentManager();
+    manager = new AgentManager(new ConcurrencyPools());
     for (const entry of shared.store.list()) shared.store.drop(entry.id);
     removeHerdrWorktreeMock.mockReset().mockResolvedValue(true);
     deleteWorktreeBranchMock.mockReset().mockResolvedValue({ kind: "deleted" });
@@ -1925,7 +1921,7 @@ describe("AgentManager.clear — teardown ordering", () => {
 
   beforeEach(() => {
     checkout = fs.mkdtempSync(path.join(os.tmpdir(), "cow-clear-order-"));
-    manager = new AgentManager();
+    manager = new AgentManager(new ConcurrencyPools());
     for (const entry of shared.store.list()) shared.store.drop(entry.id);
     removeHerdrWorktreeMock.mockReset().mockResolvedValue(true);
     deleteWorktreeBranchMock.mockReset().mockResolvedValue({ kind: "deleted" });

@@ -29,7 +29,10 @@ import type {
   AgentWorktree,
   ModelSelection,
 } from "../src/types.js";
-import type { PoolReservation } from "../src/concurrency-pools.js";
+import {
+  ConcurrencyPools,
+  type PoolReservation,
+} from "../src/concurrency-pools.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
 /** A paired model selection for the given "provider/modelId" concurrency key. */
@@ -250,25 +253,26 @@ function makeSession(options: HarnessOptions = {}) {
   }> = [];
   const reserved: PoolReservation[] = [];
   const ends: AgentSpawn[] = [];
+  // A real limiter, spied so the assertions read the calls the run made.
+  const pools = new ConcurrencyPools();
+  vi.spyOn(pools, "reserve").mockImplementation((_id, reservation) => {
+    reserved.push(reservation);
+  });
+  vi.spyOn(pools, "reacquire").mockImplementation((id, identity) => {
+    reacquired.push({ id, identity });
+  });
+  vi.spyOn(pools, "release").mockImplementation((id) => {
+    releasedSlots.push(id);
+  });
+  vi.spyOn(pools, "cancelQueued").mockImplementation((id) => {
+    cancelledQueued.push(id);
+  });
   const deps: SubagentSessionDeps = {
     transport: {
       createHost: options.createHost ?? (() => options.host!),
       createDeliverable: () => options.deliverable!,
     },
-    slots: {
-      reserve: (_spawn, reservation) => {
-        reserved.push(reservation);
-      },
-      reacquire: (spawn, identity) => {
-        reacquired.push({ id: spawn.id, identity });
-      },
-      release: async (id) => {
-        releasedSlots.push(id);
-      },
-      cancelQueued: (id) => {
-        cancelledQueued.push(id);
-      },
-    },
+    pools,
     onRunEnded: (spawn) => {
       ends.push(spawn);
       options.onRunEnded?.(spawn);

@@ -344,6 +344,7 @@ export async function showConcurrencySettingsMenu(
       });
       for (const key of configured) {
         const limit = store.concurrency.providers[key];
+        if (limit === undefined) continue;
         items.push(
           limitRow({
             id: `provider:${key}`,
@@ -415,6 +416,7 @@ export async function showConcurrencySettingsMenu(
       });
       for (const key of configured) {
         const limit = store.concurrency.models[key];
+        if (limit === undefined) continue;
         const parsed = parsePoolKey(key);
         const modelName = parsed?.kind === "model" ? parsed.model : key;
         items.push(

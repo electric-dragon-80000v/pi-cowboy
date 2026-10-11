@@ -32,6 +32,7 @@ import {
   type WorktreeMaterialization,
 } from "../spawn/worktree-policy.js";
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
+import type { ConcurrencyConfig } from "../concurrency-pools.js";
 import { CONFIG_AGENT_NON_MODEL_KEYS } from "./types.js";
 import { LayeredConfig } from "./layered-config.js";
 import {
@@ -197,12 +198,7 @@ export class ConfigStore {
     };
   }
 
-  get concurrency(): {
-    default: number;
-    harnesses: Partial<Record<HarnessId, number>>;
-    providers: Record<string, number>;
-    models: Record<string, number>;
-  } {
+  get concurrency(): ConcurrencyConfig {
     const base = this.layers.effective.concurrency;
     const session = this.sessionConcurrencyLayer;
     return {

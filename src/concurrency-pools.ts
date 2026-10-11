@@ -25,15 +25,27 @@ import {
 /** The global concurrency limit every spawn counts against. */
 export const DEFAULT_CONCURRENCY_LIMIT = 4;
 
+/**
+ * The resolved concurrency config. Every level is present — an empty map means
+ * "no ceiling at this level" — so a reader never distinguishes an absent level
+ * from an empty one.
+ *
+ * Each level's map holds only the keys that have a ceiling, so each is
+ * `Partial<Record<Key, number>>`. For `harnesses` that is what allows one
+ * harness without the other three — `Record<HarnessId, number>` would demand
+ * all of them. For `providers`/`models` the keys are open-ended strings, and
+ * `Partial` keeps a lookup of an unset key honest (`number | undefined`)
+ * instead of claiming a number.
+ */
 export interface ConcurrencyConfig {
   /** The global limit: every spawn counts against it, whatever else also applies. */
   default: number;
-  /** Per-harness ceilings keyed by harness id; every spawn of that harness counts. */
-  harnesses?: Partial<Record<HarnessId, number>>;
-  /** Per-provider concurrency limits keyed by "provider" or "<harnessId>:<provider>". */
-  providers?: Record<string, number>;
-  /** Per-model concurrency limits keyed by "provider/modelId" or "<harnessId>:<provider>/<modelId>". */
-  models?: Record<string, number>;
+  /** Per-harness ceilings keyed by harness id. */
+  harnesses: Partial<Record<HarnessId, number>>;
+  /** Per-provider ceilings keyed by "provider" or "<harnessId>:<provider>". */
+  providers: Partial<Record<string, number>>;
+  /** Per-model ceilings keyed by "provider/modelId" or "<harnessId>:<provider>/<modelId>". */
+  models: Partial<Record<string, number>>;
 }
 
 /**
@@ -188,7 +200,12 @@ export class ConcurrencyPools {
 
   constructor(initialConcurrency?: ConcurrencyConfig) {
     this.setLimits(
-      initialConcurrency ?? { default: DEFAULT_CONCURRENCY_LIMIT },
+      initialConcurrency ?? {
+        default: DEFAULT_CONCURRENCY_LIMIT,
+        harnesses: {},
+        providers: {},
+        models: {},
+      },
     );
   }
 
@@ -266,13 +283,9 @@ export class ConcurrencyPools {
   /** Bring the four levels in line with the config. */
   private setLimits(config: ConcurrencyConfig): void {
     this.globalPool.limit = clampLimit(config.default);
-    this.syncHarnessPools(config.harnesses ?? {});
-    this.syncPools(
-      this.providerPools,
-      config.providers ?? {},
-      providerPoolKeyOf,
-    );
-    this.syncPools(this.modelPools, config.models ?? {}, modelPoolKeyOf);
+    this.syncHarnessPools(config.harnesses);
+    this.syncPools(this.providerPools, config.providers, providerPoolKeyOf);
+    this.syncPools(this.modelPools, config.models, modelPoolKeyOf);
   }
 
   /** Harness pools are keyed by the harness id itself, so no qualifier is parsed. */
@@ -305,13 +318,13 @@ export class ConcurrencyPools {
    */
   private syncPools(
     pools: Map<string, ConcurrencyPool>,
-    configured: Record<string, number>,
+    configured: Partial<Record<string, number>>,
     canonicalKeyOf: (key: string) => string | undefined,
   ): void {
     const limits = new Map<string, number>();
     for (const [key, limit] of Object.entries(configured)) {
       const canonicalKey = canonicalKeyOf(key);
-      if (canonicalKey !== undefined)
+      if (canonicalKey !== undefined && limit !== undefined)
         limits.set(canonicalKey, clampLimit(limit));
     }
     for (const [key, limit] of limits) {

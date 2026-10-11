@@ -15,14 +15,27 @@ import {
 } from "../src/concurrency-pools.js";
 import type { HarnessId } from "../src/agents/harness.js";
 
+/** A complete config from just the levels a test cares about. */
+function poolConfig(
+  overrides: Partial<ConcurrencyConfig> = {},
+): ConcurrencyConfig {
+  return {
+    default: DEFAULT_CONCURRENCY_LIMIT,
+    harnesses: {},
+    providers: {},
+    models: {},
+    ...overrides,
+  };
+}
+
 /** A spawn registry over ConcurrencyPools: ids, phases, and settle. */
 class Spawns {
   readonly pools: ConcurrencyPools;
   private n = 0;
   private phases = new Map<string, "spawned" | "queued">();
 
-  constructor(config?: ConcurrencyConfig) {
-    this.pools = new ConcurrencyPools(config);
+  constructor(overrides: Partial<ConcurrencyConfig> = {}) {
+    this.pools = new ConcurrencyPools(poolConfig(overrides));
   }
 
   spawn(identity: PoolIdentity): string {
@@ -59,8 +72,8 @@ class Spawns {
     this.pools.release(id);
   }
 
-  setConcurrency(config: ConcurrencyConfig): void {
-    this.pools.setConcurrency(config);
+  setConcurrency(overrides: Partial<ConcurrencyConfig> = {}): void {
+    this.pools.setConcurrency(poolConfig(overrides));
   }
 
   private start(id: string, reservation: PoolReservation): boolean {
@@ -208,12 +221,14 @@ describe("ConcurrencyPools — levels", () => {
   });
 
   it("resolves a spawn's pools as model, provider, harness, then global", () => {
-    const pools = new ConcurrencyPools({
-      default: 4,
-      harnesses: { pi: 5 },
-      providers: { acme: 3 },
-      models: { "acme/fast": 1 },
-    });
+    const pools = new ConcurrencyPools(
+      poolConfig({
+        default: 4,
+        harnesses: { pi: 5 },
+        providers: { acme: 3 },
+        models: { "acme/fast": 1 },
+      }),
+    );
     const reservation = applicablePools(pools, {
       harness: "pi",
       modelKey: "acme/fast",
@@ -222,11 +237,13 @@ describe("ConcurrencyPools — levels", () => {
   });
 
   it("resolves a spawn without a model selection to its harness and global pools", () => {
-    const pools = new ConcurrencyPools({
-      default: 4,
-      harnesses: { opencode: 2 },
-      providers: { acme: 3 },
-    });
+    const pools = new ConcurrencyPools(
+      poolConfig({
+        default: 4,
+        harnesses: { opencode: 2 },
+        providers: { acme: 3 },
+      }),
+    );
     const reservation = applicablePools(pools, {
       harness: "opencode",
       modelKey: undefined,
@@ -235,10 +252,12 @@ describe("ConcurrencyPools — levels", () => {
   });
 
   it("names the same pi pool for a bare key and its pi-qualified form", () => {
-    const pools = new ConcurrencyPools({
-      default: 4,
-      models: { "acme/fast": 1, "pi:acme/fast": 2 },
-    });
+    const pools = new ConcurrencyPools(
+      poolConfig({
+        default: 4,
+        models: { "acme/fast": 1, "pi:acme/fast": 2 },
+      }),
+    );
     // Two keys that parse to one pool share it; the later entry wins.
     const reservation = applicablePools(pools, {
       harness: "pi",

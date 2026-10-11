@@ -6,22 +6,15 @@
  * kill capability. Shell-free: every external dependency is injected via
  * TaskRegistryDeps (fakes in tests).
  *
- * Concurrency accounting lives in concurrency-pools.ts; this layer owns only the
- * task identity that decides whether a spawn may happen at all, and delegates the
- * pool verbs to its ConcurrencyPools.
+ * Resource rate limiting is not this layer's: concurrency-pools.ts owns the
+ * pools, and AgentManager drives them directly. The registry asks the manager
+ * surface only for the queue position a queued admission reports.
  */
 
 import type { LiveAttempt } from "./agents/agent-host.js";
 import type { SpawnIntent } from "./spawn/spawn-coordinator.js";
 import type { SpawnOptions } from "./agents/agent-manager.js";
 import type { SubagentType } from "./agents/types.js";
-import {
-  ConcurrencyPools,
-  type ConcurrencyConfig,
-  type PoolIdentity,
-  type PoolReservation,
-  type SpawnAdmission,
-} from "./concurrency-pools.js";
 import { isActivePhase, lifecycleStatus, type AgentSpawn } from "./types.js";
 
 export type AdmissionResult =
@@ -35,7 +28,6 @@ export type AdmissionResult =
 
 export interface TaskRegistry {
   admit(intent: SpawnIntent): Promise<AdmissionResult>;
-  release(agentId: string): Promise<void>;
 }
 
 // --- Task dedup ---
@@ -94,21 +86,16 @@ export interface TaskRegistryDeps {
   getSpawn(agentId: string): AgentSpawn | undefined;
   /** Live backend attempts for a task slug. */
   findTaskAttempts(taskSlug: string): Promise<LiveAttempt[]>;
+  /** 1-based FIFO position of a queued spawn, or 0 when it is not queued. */
+  queuePosition(agentId: string): number;
 }
 
-/** Admission workflow over a task's identity, with pool accounting delegated to ConcurrencyPools. */
+/** Task identity and admission serialization; pool accounting belongs to ConcurrencyPools. */
 export class HerdrTaskRegistry implements TaskRegistry {
   /** Tail of the admission chain per task slug, so two requests for one slug cannot interleave. */
   private admissionBySlug = new Map<string, Promise<AdmissionResult>>();
 
-  private readonly pools: ConcurrencyPools;
-
-  constructor(
-    private deps: TaskRegistryDeps,
-    initialConcurrency?: ConcurrencyConfig,
-  ) {
-    this.pools = new ConcurrencyPools(initialConcurrency);
-  }
+  constructor(private deps: TaskRegistryDeps) {}
 
   /**
    * Admit a spawn request. Rejections carry the conflict's identity and never throw — the caller converts them.
@@ -173,51 +160,9 @@ export class HerdrTaskRegistry implements TaskRegistry {
       return {
         status: "queued",
         agentId,
-        queuePosition: this.pools.queuePosition(agentId),
+        queuePosition: this.deps.queuePosition(agentId),
       };
     }
     return { status: "admitted", agentId };
-  }
-
-  /** Release a spawn's pools and drain the queue. Idempotent. */
-  async release(agentId: string): Promise<void> {
-    this.pools.release(agentId);
-  }
-
-  /** Concurrency admission at spawn time: a reservation now, or a FIFO queue entry. */
-  admitSpawn(
-    identity: PoolIdentity,
-    queued: { id: string; start: (reservation: PoolReservation) => boolean },
-  ): SpawnAdmission {
-    return this.pools.admitSpawn(identity, queued);
-  }
-
-  /** Charge every pool in the reservation and remember it, so release can give them back. */
-  reserve(spawn: AgentSpawn, reservation: PoolReservation): void {
-    this.pools.reserve(spawn.id, reservation);
-  }
-
-  /**
-   * Charge a run that returns to active without an admission, which is a revived turn.
-   * The message is already in the agent's pane, so the run cannot wait for room: a pool
-   * that is full is charged past its limit, and the next admission reads the true count.
-   */
-  reacquire(spawn: AgentSpawn, identity: PoolIdentity): void {
-    this.pools.reacquire(spawn.id, identity);
-  }
-
-  /** Drop a queued spawn (queued stop). */
-  cancelQueued(id: string): void {
-    this.pools.cancelQueued(id);
-  }
-
-  /** Drop every queued spawn (manager dispose). */
-  clearQueue(): void {
-    this.pools.clearQueue();
-  }
-
-  /** Update the configured limits and drain the queue. */
-  setConcurrency(config: ConcurrencyConfig): void {
-    this.pools.setConcurrency(config);
   }
 }

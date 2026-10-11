@@ -22,7 +22,7 @@ import type {
   ModelSelection,
 } from "../src/types.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
-import type { HerdrTaskRegistry } from "../src/task-registry.js";
+import { ConcurrencyPools } from "../src/concurrency-pools.js";
 import type {
   DeliverableReport,
   DeliverableSource,
@@ -199,7 +199,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     createDeliverable: () => new ScriptedDeliverable(),
   };
   const pool = { limit: 1, spawned: 0 };
-  const registry = {
+  const pools = {
     admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
     reserve: () => {
       pool.spawned++;
@@ -210,9 +210,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     clearQueue: () => {},
   };
   const manager = new AgentManager(
-    undefined,
-    undefined,
-    registry as unknown as HerdrTaskRegistry,
+    pools as unknown as ConcurrencyPools,
     transport,
   );
   buildLaunchPlanMock.mockResolvedValue({
@@ -260,18 +258,14 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
 
 /** Queued spawn without starting it. */
 function spawnQueued(): Harness {
-  const registry = {
+  const pools = {
     admitSpawn: () => ({ kind: "queue" as const }),
     reserve: () => {},
     release: async () => {},
     cancelQueued: () => {},
     clearQueue: () => {},
   };
-  const manager = new AgentManager(
-    undefined,
-    undefined,
-    registry as unknown as HerdrTaskRegistry,
-  );
+  const manager = new AgentManager(pools as unknown as ConcurrencyPools);
   const id = manager.spawn(
     {} as never,
     {} as never,
@@ -329,7 +323,7 @@ describe("AgentSpawnStore.mint", () => {
 
   it("the manager mints through the store, so its ids never collide", () => {
     const store = new AgentSpawnStore();
-    const manager = new AgentManager();
+    const manager = new AgentManager(new ConcurrencyPools());
     const id = manager.mintSpawnId();
     store.add(storeSpawn(id, SPAWNED));
 
@@ -460,7 +454,7 @@ describe("spawn retention through the manager", () => {
     expect(manager.getSpawn(id)).toBeDefined();
 
     manager.dispose();
-    const fresh = new AgentManager();
+    const fresh = new AgentManager(new ConcurrencyPools());
     const report = await fresh.cleanup(id);
 
     expect(report).toMatchObject({
@@ -517,7 +511,7 @@ describe("spawn retention through the manager", () => {
     expect(shared.store.get(id)).toBeDefined();
 
     // Fresh manager on the same store, as after a session replacement.
-    const fresh = new AgentManager();
+    const fresh = new AgentManager(new ConcurrencyPools());
     expect(fresh.getSpawn(id)).toBeDefined();
     expect(fresh.listAgents().map((spawn) => spawn.id)).toEqual([id]);
 
@@ -549,7 +543,7 @@ describe("spawn retention through the manager", () => {
       const { manager, id } = await spawnAndSettle({ worktree: true });
 
       manager.dispose();
-      const fresh = new AgentManager();
+      const fresh = new AgentManager(new ConcurrencyPools());
       const report = await fresh.cleanup(id);
 
       expect(report.worktree).toEqual({ kind: "kept", path: WT_PATH });
@@ -583,7 +577,7 @@ describe("spawn retention through the manager", () => {
   });
 
   it("a start that never happened leaves no spawn behind", () => {
-    const registry = {
+    const pools = {
       admitSpawn: () => ({
         kind: "start" as const,
         reservation: [{ limit: 1, spawned: 0 }],
@@ -594,11 +588,7 @@ describe("spawn retention through the manager", () => {
       release: async () => {},
       clearQueue: () => {},
     };
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-    );
+    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -617,18 +607,14 @@ describe("spawn retention through the manager", () => {
     // Refused id gives the granted admission back instead of leaking.
     shared.store.add(storeSpawn("dup00001", SPAWNED));
     const release = vi.fn(async () => {});
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "queue" as const }),
       reserve: () => {},
       release,
       cancelQueued: vi.fn(),
       clearQueue: () => {},
     };
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-    );
+    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -659,7 +645,7 @@ describe("spawn retention through the manager", () => {
     expect(manager.getSpawn(id)).toBeDefined();
 
     manager.dispose();
-    const fresh = new AgentManager();
+    const fresh = new AgentManager(new ConcurrencyPools());
 
     await expect(fresh.clear(id)).resolves.toEqual({ kind: "cleared" });
     expect(shared.store.get(id)).toBeUndefined();

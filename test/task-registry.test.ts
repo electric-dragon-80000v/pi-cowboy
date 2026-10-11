@@ -11,9 +11,11 @@ import {
   type TaskRegistryDeps,
   LiveAttempt,
 } from "../src/task-registry.js";
-import type {
-  ConcurrencyConfig,
-  PoolReservation,
+import {
+  ConcurrencyPools,
+  DEFAULT_CONCURRENCY_LIMIT,
+  type ConcurrencyConfig,
+  type PoolReservation,
 } from "../src/concurrency-pools.js";
 import type { SpawnOptions } from "../src/agents/agent-manager.js";
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
@@ -31,16 +33,32 @@ function selectionFor(key: string): ModelSelection {
   };
 }
 
-/** Fake manager surface mirroring the real admission shape (same circular registry binding). */
+/** A complete config from just the levels a test cares about. */
+function poolConfig(
+  overrides: Partial<ConcurrencyConfig> = {},
+): ConcurrencyConfig {
+  return {
+    default: DEFAULT_CONCURRENCY_LIMIT,
+    harnesses: {},
+    providers: {},
+    models: {},
+    ...overrides,
+  };
+}
+
+/** Fake manager surface mirroring the real admission shape (same circular binding). */
 class FakeManager implements TaskRegistryDeps {
-  registry!: HerdrTaskRegistry;
   spawns = new Map<string, AgentSpawn>();
   /** The harness every fake spawn resolves to; a test overrides it for non-pi pools. */
   harness: HarnessId = "pi";
+  readonly pools: ConcurrencyPools;
 
   constructor(
+    initialConcurrency?: Partial<ConcurrencyConfig>,
     public findTaskAttempts = vi.fn(async () => [] as LiveAttempt[]),
-  ) {}
+  ) {
+    this.pools = new ConcurrencyPools(poolConfig(initialConcurrency));
+  }
 
   listAgents(): AgentSpawn[] {
     return [...this.spawns.values()];
@@ -48,6 +66,10 @@ class FakeManager implements TaskRegistryDeps {
 
   getSpawn(agentId: string): AgentSpawn | undefined {
     return this.spawns.get(agentId);
+  }
+
+  queuePosition(agentId: string): number {
+    return this.pools.queuePosition(agentId);
   }
 
   spawn(_type: string, _prompt: string, options: SpawnOptions): string {
@@ -61,7 +83,7 @@ class FakeManager implements TaskRegistryDeps {
         taskSlug: options.taskSlug,
       },
     } as unknown as AgentSpawn;
-    const admission = this.registry.admitSpawn(
+    const admission = this.pools.admitSpawn(
       { harness: this.harness, modelKey: options.modelSelection?.key },
       { id, start: (reservation) => this.startQueued(id, reservation) },
     );
@@ -74,7 +96,7 @@ class FakeManager implements TaskRegistryDeps {
   startQueued(id: string, reservation: PoolReservation | undefined): boolean {
     const spawn = this.spawns.get(id);
     if (!spawn || spawn.lifecycle.phase !== "queued") return false;
-    if (reservation) this.registry.reserve(spawn, reservation);
+    if (reservation) this.pools.reserve(id, reservation);
     spawn.lifecycle = {
       phase: "spawned",
       startedAt: Date.now(),
@@ -93,18 +115,17 @@ class FakeManager implements TaskRegistryDeps {
       result: "done",
       completedAt: Date.now(),
     };
-    await this.registry.release(agentId);
+    this.pools.release(agentId);
   }
 }
 
 /** Registry + fake manager pair. */
-function makePair(initialConcurrency?: ConcurrencyConfig): {
+function makePair(initialConcurrency?: Partial<ConcurrencyConfig>): {
   registry: HerdrTaskRegistry;
   manager: FakeManager;
 } {
-  const manager = new FakeManager();
-  const registry = new HerdrTaskRegistry(manager, initialConcurrency);
-  manager.registry = registry;
+  const manager = new FakeManager(initialConcurrency);
+  const registry = new HerdrTaskRegistry(manager);
   return { registry, manager };
 }
 

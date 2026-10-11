@@ -26,7 +26,10 @@ import {
   type ProcessSupervisorOptions,
   type SubagentExitOutcome,
 } from "../subagent/supervisor.js";
-import type { PoolIdentity, PoolReservation } from "../concurrency-pools.js";
+import type {
+  ConcurrencyPools,
+  PoolReservation,
+} from "../concurrency-pools.js";
 import type {
   AgentLaunchState,
   AgentSpawn,
@@ -148,13 +151,8 @@ class CompletionGate {
 
 export interface SubagentSessionDeps {
   transport: SupervisorTransport;
-  slots: {
-    reserve(spawn: AgentSpawn, reservation: PoolReservation): void;
-    /** Charge a run that returns to active without an admission. */
-    reacquire(spawn: AgentSpawn, identity: PoolIdentity): void;
-    release(agentId: string): Promise<void>;
-    cancelQueued(id: string): void;
-  };
+  /** The pool accountant the run charges and returns capacity through. */
+  pools: ConcurrencyPools;
   /**
    * Called once per run end, whatever ended it: the settle pass, a failed
    * start, or a queued abort.
@@ -278,7 +276,7 @@ export class SubagentSession {
   /** Project the run before the async launch; a spawn that is not queued takes no pool. */
   start(reservation?: PoolReservation): void {
     if (!this.isQueued()) return;
-    if (reservation) this.deps.slots.reserve(this.spawn, reservation);
+    if (reservation) this.deps.pools.reserve(this.id, reservation);
     this.commit(startRun(this.run, Date.now()));
     void this.launch();
   }
@@ -369,7 +367,7 @@ export class SubagentSession {
         this.supervisor?.detach();
         // A revived turn is a live process again, so it takes the same pools the first
         // turn held: its model's, its provider's, its harness's, and the global limit.
-        this.deps.slots.reacquire(this.spawn, {
+        this.deps.pools.reacquire(this.id, {
           harness: this.args.options.harness,
           modelKey: this.args.options.modelSelection?.key,
         });
@@ -396,7 +394,7 @@ export class SubagentSession {
       stopIssued,
     });
     if (this.isQueued()) {
-      this.deps.slots.cancelQueued(this.id);
+      this.deps.pools.cancelQueued(this.id);
       this.commit(abortQueuedRun(this.run, initiator ?? "agent", Date.now()));
       this.detachParentBinding();
       this.gate.open("");
@@ -697,7 +695,7 @@ export class SubagentSession {
     // can re-project the lifecycle to spawned.
     const result = lifecycleResult(this.spawn.lifecycle);
     const retention = await this.readWorktreeRetention();
-    await this.deps.slots.release(this.id);
+    this.deps.pools.release(this.id);
     // The supervisor stays attached past settlement: its watch is what reports
     // the follow-ups a later turn produces. A revive replaces it (see revive).
     this.deps.onRunEnded(this.spawn);

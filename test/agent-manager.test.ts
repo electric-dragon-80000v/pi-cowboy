@@ -16,9 +16,9 @@ import {
 import type { SupervisorTransport } from "../src/subagent/pane-supervisor.js";
 import type {
   ConcurrencyPool,
+  ConcurrencyPools,
   PoolReservation,
 } from "../src/concurrency-pools.js";
-import type { HerdrTaskRegistry } from "../src/task-registry.js";
 import { HerdrTaskRegistry as HerdrTaskRegistryImpl } from "../src/task-registry.js";
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
 import type { OrchestratorConfig } from "../src/orchestrators/types.js";
@@ -127,39 +127,34 @@ describe("AgentManager supervisor launch→watch seam", () => {
 
   it("releases the placement when supervisor start fails", async () => {
     const pool = { limit: 1, spawned: 0 };
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {},
       release: async () => {},
       clearQueue: () => {},
     };
     const released: Array<{ ref: AgentHostRef; scope: string }> = [];
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-      {
-        createHost: () =>
-          ({
-            hostAt: async () => ({
-              engine: "herdr",
-              name: "cow-seam-01234567",
-              paneId: "w1:p1",
-              tabId: "w1:t1",
-              workspaceId: "w1",
-              paneCreated: true,
-            }),
-            start: async () => {
-              throw new Error("start failed");
-            },
-            release: async (ref: AgentHostRef, scope: string) => {
-              released.push({ ref, scope });
-              return true;
-            },
-          }) as unknown as AgentHost,
-        createDeliverable: () => new ScriptedDeliverable("completed"),
-      },
-    );
+    const manager = new AgentManager(pools as unknown as ConcurrencyPools, {
+      createHost: () =>
+        ({
+          hostAt: async () => ({
+            engine: "herdr",
+            name: "cow-seam-01234567",
+            paneId: "w1:p1",
+            tabId: "w1:t1",
+            workspaceId: "w1",
+            paneCreated: true,
+          }),
+          start: async () => {
+            throw new Error("start failed");
+          },
+          release: async (ref: AgentHostRef, scope: string) => {
+            released.push({ ref, scope });
+            return true;
+          },
+        }) as unknown as AgentHost,
+      createDeliverable: () => new ScriptedDeliverable("completed"),
+    });
     buildLaunchPlanMock.mockResolvedValue({
       cwd: "/repo",
       initialMessage: "@/tmp/briefing.md",
@@ -205,35 +200,30 @@ describe("AgentManager supervisor launch→watch seam", () => {
 
   it("forwards the authored guidance into the launch plan options", async () => {
     const pool = { limit: 1, spawned: 0 };
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {},
       release: async () => {},
       clearQueue: () => {},
     };
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-      {
-        createHost: () =>
-          ({
-            hostAt: async () => ({
-              engine: "herdr",
-              name: "cow-seam-01234567",
-              paneId: "w1:p1",
-              tabId: "w1:t1",
-              workspaceId: "w1",
-              paneCreated: true,
-            }),
-            start: async () => {
-              throw new Error("start failed");
-            },
-            release: async () => true,
-          }) as unknown as AgentHost,
-        createDeliverable: () => new ScriptedDeliverable("completed"),
-      },
-    );
+    const manager = new AgentManager(pools as unknown as ConcurrencyPools, {
+      createHost: () =>
+        ({
+          hostAt: async () => ({
+            engine: "herdr",
+            name: "cow-seam-01234567",
+            paneId: "w1:p1",
+            tabId: "w1:t1",
+            workspaceId: "w1",
+            paneCreated: true,
+          }),
+          start: async () => {
+            throw new Error("start failed");
+          },
+          release: async () => true,
+        }) as unknown as AgentHost,
+      createDeliverable: () => new ScriptedDeliverable("completed"),
+    });
     buildLaunchPlanMock.mockResolvedValue({
       cwd: "/repo",
       initialMessage: "@/tmp/briefing.md",
@@ -293,7 +283,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     };
     const pool = { limit: 1, spawned: 0 };
     const released: string[] = [];
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {
         pool.spawned++;
@@ -307,11 +297,10 @@ describe("AgentManager supervisor launch→watch seam", () => {
     const nudges: AgentSpawn[] = [];
     const followUps: Array<{ id: string; deliverable: string }> = [];
     const manager = new AgentManager(
-      (spawn) => nudges.push(spawn),
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
+      pools as unknown as ConcurrencyPools,
       transport,
     );
+    manager.setOnComplete((spawn) => nudges.push(spawn));
     manager.setOnFollowUp((followedUp, deliverable) =>
       followUps.push({ id: followedUp.id, deliverable }),
     );
@@ -393,7 +382,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     };
     const pool = { limit: 1, spawned: 1 };
     const released: string[] = [];
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {},
       release: async (id: string) => {
@@ -404,11 +393,10 @@ describe("AgentManager supervisor launch→watch seam", () => {
     };
     const nudges: AgentSpawn[] = [];
     const manager = new AgentManager(
-      (spawn) => nudges.push(spawn),
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
+      pools as unknown as ConcurrencyPools,
       transport,
     );
+    manager.setOnComplete((spawn) => nudges.push(spawn));
     buildLaunchPlanMock.mockResolvedValue({
       cwd: "/repo",
       initialMessage: "@/tmp/briefing.md",
@@ -462,7 +450,7 @@ describe("AgentManager.spawn start failure", () => {
     const released: string[] = [];
     // Structural fake: the session's first start step throws, and the sync
     // release lands before the throw reaches the caller.
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {
         reserved++;
@@ -474,11 +462,7 @@ describe("AgentManager.spawn start failure", () => {
         pool.spawned = Math.max(0, pool.spawned - 1);
       },
     };
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-    );
+    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -499,15 +483,11 @@ describe("AgentManager.spawn start failure", () => {
 describe("AgentManager.spawn orchestration designator", () => {
   /** Queue without launching: off the herdr transport entirely. */
   function makeQueuedManager(): AgentManager {
-    const registry = {
+    const pools = {
       admitSpawn: () => ({ kind: "queue" as const }),
       clearQueue: () => {},
     };
-    return new AgentManager(
-      undefined,
-      undefined,
-      registry as unknown as HerdrTaskRegistry,
-    );
+    return new AgentManager(pools as unknown as ConcurrencyPools);
   }
 
   it("copies a supplied orchestration onto the spawn's display info", () => {
@@ -540,6 +520,7 @@ describe("AgentManager.spawn orchestration designator", () => {
       },
       getSpawn: () => undefined,
       findTaskAttempts: async () => [],
+      queuePosition: () => 0,
     });
     const intent: SpawnIntent = {
       type: "general-purpose",
@@ -592,8 +573,8 @@ describe("AgentManager fleet routing", () => {
     };
   }
 
-  /** Registry fake: admits what the test asks, records releases. */
-  function recordingRegistry(
+  /** Pool fake: admits what the test asks, records releases. */
+  function recordingPools(
     admission: () => {
       kind: "start" | "queue";
       reservation?: PoolReservation;
@@ -609,7 +590,7 @@ describe("AgentManager fleet routing", () => {
       id: string;
       start(reservation: PoolReservation): boolean;
     } | null = null;
-    const registry = {
+    const pools = {
       admitSpawn: (
         _identity: { harness: string; modelKey: string | undefined },
         queued: { id: string; start(reservation: PoolReservation): boolean },
@@ -619,10 +600,10 @@ describe("AgentManager fleet routing", () => {
       },
       reserve: () => {},
       reacquire: (
-        spawn: { id: string },
+        id: string,
         identity: { harness: string; modelKey: string | undefined },
       ) => {
-        reacquired.push({ id: spawn.id, identity });
+        reacquired.push({ id, identity });
       },
       release: async (id: string) => {
         released.push(id);
@@ -633,7 +614,7 @@ describe("AgentManager fleet routing", () => {
       clearQueue: () => {},
     };
     return {
-      registry,
+      pools,
       released,
       cancelled,
       reacquired,
@@ -651,11 +632,9 @@ describe("AgentManager fleet routing", () => {
   }
 
   it("drains a queued spawn through the registry's captured start callback", () => {
-    const fake = recordingRegistry(() => ({ kind: "queue" as const }));
+    const fake = recordingPools(() => ({ kind: "queue" as const }));
     const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
+      fake.pools as unknown as ConcurrencyPools,
       hangingTransport(),
     );
 
@@ -673,12 +652,8 @@ describe("AgentManager fleet routing", () => {
   });
 
   it("lists agents newest-first by lifecycle start time", () => {
-    const fake = recordingRegistry(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
-    );
+    const fake = recordingPools(() => ({ kind: "queue" as const }));
+    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
 
     vi.setSystemTime(1_000);
     const first = spawnQueued(manager);
@@ -696,12 +671,8 @@ describe("AgentManager fleet routing", () => {
   });
 
   it("refuses clear on a queued session and clears it once terminal", async () => {
-    const fake = recordingRegistry(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
-    );
+    const fake = recordingPools(() => ({ kind: "queue" as const }));
+    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
     const id = spawnQueued(manager);
 
     await expect(manager.clear(id)).resolves.toEqual({
@@ -718,14 +689,12 @@ describe("AgentManager fleet routing", () => {
   });
 
   it("refuses clear on a spawned session", async () => {
-    const fake = recordingRegistry(() => ({
+    const fake = recordingPools(() => ({
       kind: "start" as const,
       reservation: [{ limit: 1, spawned: 0 }],
     }));
     const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
+      fake.pools as unknown as ConcurrencyPools,
       hangingTransport(),
     );
     const id = spawnQueued(manager);
@@ -763,14 +732,12 @@ describe("AgentManager fleet routing", () => {
         return { kind: "submitted" as const };
       },
     } as unknown as AgentHost;
-    const fake = recordingRegistry(() => ({
+    const fake = recordingPools(() => ({
       kind: "start" as const,
       reservation: [{ limit: 1, spawned: 0 }],
     }));
     const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
+      fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
         createDeliverable: () => new FleetScriptedDeliverable(),
@@ -795,12 +762,8 @@ describe("AgentManager fleet routing", () => {
   });
 
   it("refuses a queued session's steer with the queued reason", async () => {
-    const fake = recordingRegistry(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
-    );
+    const fake = recordingPools(() => ({ kind: "queue" as const }));
+    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
     const id = spawnQueued(manager);
 
     await expect(manager.steer(id, "hello")).resolves.toEqual({
@@ -827,20 +790,19 @@ describe("AgentManager fleet routing", () => {
       release: async () => true,
       deliver: async () => ({ kind: "submitted" as const }),
     } as unknown as AgentHost;
-    const fake = recordingRegistry(() => ({
+    const fake = recordingPools(() => ({
       kind: "start" as const,
       reservation: [{ limit: 1, spawned: 0 }],
     }));
     const nudges: AgentSpawn[] = [];
     const manager = new AgentManager(
-      (spawn) => nudges.push(spawn),
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
+      fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
         createDeliverable: () => new FleetScriptedDeliverable(),
       },
     );
+    manager.setOnComplete((spawn) => nudges.push(spawn));
     const id = spawnQueued(manager);
     await vi.advanceTimersByTimeAsync(0);
     await Promise.resolve();
@@ -911,16 +873,14 @@ describe("AgentManager fleet routing", () => {
       release: async () => true,
     } as unknown as AgentHost;
     let admits = 0;
-    const fake = recordingRegistry(() => {
+    const fake = recordingPools(() => {
       admits += 1;
       return admits === 1
         ? { kind: "queue" as const }
         : { kind: "start" as const, reservation: [{ limit: 1, spawned: 0 }] };
     });
     const manager = new AgentManager(
-      undefined,
-      undefined,
-      fake.registry as unknown as HerdrTaskRegistry,
+      fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
         createDeliverable: () => new FleetScriptedDeliverable(),

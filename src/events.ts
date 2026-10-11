@@ -22,6 +22,7 @@ import {
   scanAndMergeOrchestrators,
 } from "./orchestrators/orchestrator-types.js";
 import { AgentManager } from "./agents/agent-manager.js";
+import { ConcurrencyPools } from "./concurrency-pools.js";
 import { ACTIVE_AGENT_PHASES } from "./types.js";
 import { SpawnCoordinator } from "./spawn/spawn-coordinator.js";
 import { toolCallListener } from "./agents/tool-execution.js";
@@ -44,10 +45,7 @@ import {
 function ensureManagerAndCoordinator(): void {
   if (!getManagerOrNull()) {
     const newManager = new AgentManager(
-      undefined,
-      getStore().concurrency as unknown as ConstructorParameters<
-        typeof AgentManager
-      >[1],
+      new ConcurrencyPools(getStore().concurrency),
     );
     setManager(newManager);
     // Config side-effect target: concurrency setters call setConcurrency.

@@ -80,8 +80,8 @@ export type ProjectLayerStatus =
 export interface RawConcurrency {
   default?: number;
   harnesses?: Partial<Record<HarnessId, number>>;
-  providers?: Record<string, number>;
-  models?: Record<string, number>;
+  providers?: Partial<Record<string, number>>;
+  models?: Partial<Record<string, number>>;
 }
 
 export interface RawConfig {
@@ -223,8 +223,8 @@ function mergeRawConcurrency(
 ): RawConcurrency {
   const out: RawConcurrency = {};
   const harnesses: Partial<Record<HarnessId, number>> = {};
-  const providers: Record<string, number> = {};
-  const models: Record<string, number> = {};
+  const providers: Partial<Record<string, number>> = {};
+  const models: Partial<Record<string, number>> = {};
   for (const layer of layers) {
     if (!layer) continue;
     if (layer.default !== undefined) out.default = layer.default;
