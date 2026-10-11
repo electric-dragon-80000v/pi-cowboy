@@ -16,7 +16,7 @@ import {
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
-import { opencodeHarness } from "./opencode.js";
+import { opencodeHarness } from "./opencode/index.js";
 
 /**
  * Real pi is already the pane shell's `pi`: it is always launchable, and there
