@@ -349,9 +349,10 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
       this.held = null;
       return;
     }
-    // Byte-for-byte the report already handed on: nothing to announce, whichever
-    // turn wrote it.
-    if (this.delivered !== null && sameReport(this.delivered, report)) {
+    // The deliverable already handed on: those words are with the parent, so a
+    // later write that repeats them is not a report. News is the words, never
+    // the write — a re-saved report must not arrive twice.
+    if (this.delivered !== null && this.delivered.content === report.content) {
       this.held = null;
       return;
     }

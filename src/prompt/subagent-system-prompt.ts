@@ -221,14 +221,21 @@ function buildSteeringInstructions(): string {
   ].join("\n");
 }
 
-/** Deliverable contract: the path the child writes to, in the wording the parent reads back. */
+/**
+ * Deliverable contract: the path the child writes to, in the wording the parent
+ * reads back. The write is the submission, never a draft: the parent announces
+ * the file as soon as it stops changing, so a report the child proofreads and
+ * corrects after writing it arrives as a second report.
+ */
 function buildResultInstruction(resultFile: string): string {
   return [
     "",
-    "When you have completed the task, write your complete final response verbatim to the file:",
+    "## Your report",
+    "",
+    "When the task is done — every change committed, every check run — write your complete final answer, once, to the file:",
     resultFile,
     "",
-    "Write the full final answer as Markdown to that file, then reply with a one-line confirmation. The parent session reads that file as your deliverable.",
+    "That write is your last action. The parent session reads the file as your deliverable as soon as it stops changing, so an edit or a rewrite after it is announced to the parent as a separate report. Verify before you write, not after; then reply with a one-line confirmation.",
   ].join("\n");
 }
 

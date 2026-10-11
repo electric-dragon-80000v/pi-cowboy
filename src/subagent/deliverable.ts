@@ -13,8 +13,9 @@ import fs from "node:fs";
 export interface DeliverableReport {
   content: string;
   /**
-   * The file's modification time. Read with the content so a rewrite that
-   * repeats the same words still counts as a report the caller has not seen.
+   * The file's modification time: the witness that the words were not written
+   * again between this read and the previous one. Whether a report is news is
+   * the content's question alone; the stamp only proves the file went quiet.
    */
   mtime: number;
 }
@@ -34,9 +35,10 @@ export class FileDeliverable implements DeliverableSource {
   /**
    * The child's last report, or null when it is absent, unreadable, or blank —
    * the run has not finished. The content rides with the file's modification
-   * time, because a rewritten report of the same words is still news. The stamp
-   * is sampled before the content: a write landing between the two calls leaves
-   * the pair understating the file rather than overstating it, and the next poll
+   * time: the stamp is what tells a reader the file is no longer being written,
+   * so a report caught mid-write is never handed on. The stamp is sampled
+   * before the content: a write landing between the two calls leaves the pair
+   * understating the file rather than overstating it, and the next poll
    * corrects it.
    */
   async readDeliverable(): Promise<DeliverableReport | null> {

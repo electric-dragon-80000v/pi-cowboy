@@ -117,8 +117,8 @@ class FakeDeliverable implements DeliverableSource {
   private stamp = 0;
 
   /**
-   * Write the run's result file. Every write moves the stamp, so a rewrite that
-   * repeats the same words is still a report the engine has not seen.
+   * Write the run's result file. Every write moves the stamp, so a second write
+   * of the same words is a fresh, identical read — never a second report.
    */
   set report(value: string | null) {
     this.content = value;
@@ -808,16 +808,18 @@ describe("ProcessSupervisorEngine.watch — reports after settlement", () => {
     });
   });
 
-  it("treats a rewritten report of the same words as a follow-up", async () => {
+  it("does not announce a rewrite that repeats the delivered words", async () => {
     const { deliverable, supervisor, followUps } = followUpFixture();
     await supervisor.start(PLAN, REF);
     void supervisor.watch();
     deliverable.report = "same words";
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
 
+    // The child re-saved its report without changing a word: the parent already
+    // holds that deliverable, so a second write of it is not a report.
     deliverable.report = "same words";
-    await vi.advanceTimersByTimeAsync(2_000);
-    expect(followUps).toEqual(["same words"]);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(followUps).toEqual([]);
   });
 
   it("never repeats a report it already delivered", async () => {

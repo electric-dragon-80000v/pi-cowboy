@@ -598,13 +598,11 @@ describe("buildLaunchPlan system prompt split", () => {
     expect(system).toContain("## Worktree branch");
     expect(system).toContain("`cow-fix-login-abc12345`");
     expect(system).toContain(
-      "When you have completed the task, write your complete final response verbatim to the file:",
+      "write your complete final answer, once, to the file:",
     );
     expect(system).toContain(plan.resultFile!);
     // The parent reads the deliverable back on this exact wording.
-    expect(system).toContain(
-      "Write the full final answer as Markdown to that file, then reply with a one-line confirmation. The parent session reads that file as your deliverable.",
-    );
+    expect(system).toContain("That write is your last action.");
     expect(readTask(plan)).toBe("do the task");
   });
 

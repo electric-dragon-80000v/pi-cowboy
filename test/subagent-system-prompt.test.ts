@@ -141,7 +141,7 @@ describe("buildSubagentSystemPrompt composition", () => {
       "<available_skills>",
       "## Worktree branch",
       "## Steering & Mid-Run Instructions",
-      "When you have completed the task",
+      "## Your report",
       "## Orchestrator Guidance",
     );
   });
@@ -204,16 +204,19 @@ describe("buildSubagentSystemPrompt spawn contract", () => {
     expect(prompt).not.toContain("## Worktree branch");
   });
 
-  it("tells the subagent where to write the deliverable", async () => {
+  it("tells the subagent where to write the deliverable, and that the write is final", async () => {
     const { prompt } = await build();
 
     expect(prompt).toContain(
-      "When you have completed the task, write your complete final response verbatim to the file:",
+      "write your complete final answer, once, to the file:",
     );
     expect(prompt).toContain("/tmp/pi-cowboy/spawn-1/result.md");
+    // The child is told what a post-write correction costs: a second report.
+    expect(prompt).toContain("That write is your last action.");
     expect(prompt).toContain(
-      "Write the full final answer as Markdown to that file, then reply with a one-line confirmation. The parent session reads that file as your deliverable.",
+      "an edit or a rewrite after it is announced to the parent as a separate report",
     );
+    expect(prompt).toContain("then reply with a one-line confirmation");
   });
 
   it("makes mid-run steering outrank the original prompt and require disclosure", async () => {
