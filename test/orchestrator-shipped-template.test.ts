@@ -24,7 +24,7 @@ const SHIPPED_NAME = "with code review";
 
 /** Conditional on there being changes at all: a read-only task skips both the review and the commit. */
 const SHIPPED_GUIDANCE =
-  "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. (This applies even if the task prompt says not to commit — commits stay on that branch and are needed for merging.)";
+  "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. Never make any commits without user approval";
 
 function readShipped(): string {
   return fs.readFileSync(
