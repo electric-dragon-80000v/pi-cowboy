@@ -26,7 +26,11 @@ import {
 import type { CowboyAgents } from "./schemas/cowboy-agents.schema.js";
 import type { StopBatchParams } from "./schemas/stop-batch.schema.js";
 import { getAgentConfig } from "./agent-types.js";
-import { resolveAgentTypeParam, resolveHarnessType } from "./spawn-defaults.js";
+import {
+  requestedHarnessId,
+  resolveAgentTypeParam,
+  resolveHarnessType,
+} from "./spawn-defaults.js";
 import { runBatch } from "./batch.js";
 import { successResult, type ToolResult } from "./tool-result.js";
 
@@ -162,9 +166,13 @@ export async function toolCallListener(
     // Look up the type the spawn will actually resolve.
     const subagentType = resolveAgentTypeParam(calledType);
     const agentConfig = getAgentConfig(subagentType);
+    // The requested harness only when this machine can launch it; parse raises
+    // the real error for an unknown or unlaunchable value, so a bad one here
+    // leaves the template/config resolution in charge instead of throwing.
+    const requested = requestedHarnessId(item.harness_type);
     // Resolved the way the launch resolves it — post-availability-fallback —
     // because the harness names which default the chain below consults.
-    const harnessType = resolveHarnessType(subagentType);
+    const harnessType = resolveHarnessType(subagentType, requested);
 
     // The configured default travels in its own key so a caller-supplied model
     // is never mistaken for the injected default across repeated hook runs.

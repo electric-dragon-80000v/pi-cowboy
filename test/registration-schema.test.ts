@@ -93,6 +93,25 @@ describe("cowboy_agent registration", () => {
     expect(itemRequired(tool) ?? []).not.toContain("model");
   });
 
+  it("exposes per-item `harness_type` as an optional string, never required", () => {
+    const tool = captureAgentTool();
+    const harnessType = itemProperties(tool)?.harness_type;
+    expect(harnessType).toBeDefined();
+    expect(isRecord(harnessType) ? harnessType.type : undefined).toBe("string");
+    expect(itemRequired(tool) ?? []).not.toContain("harness_type");
+  });
+
+  it("documents `harness_type` as the override, listing the harnesses and the no-fallback rule", () => {
+    const tool = captureAgentTool();
+    const description =
+      stringMember(itemProperties(tool)?.harness_type)?.description ?? "";
+    expect(description).toMatch(/^Optional\b/);
+    expect(description).toContain("harness_type");
+    expect(description).toContain("pi, pig, pi-bolt, opencode");
+    expect(description).toContain("cannot launch");
+    expect(description).toContain("never falls back");
+  });
+
   it("documents the per-item `prompt` param as the task itself, committing only what needs changes", () => {
     const tool = captureAgentTool();
     const description =

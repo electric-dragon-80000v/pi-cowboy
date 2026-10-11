@@ -7,15 +7,17 @@ import { registerAgents } from "../src/agents/agent-types.js";
 import { registerOrchestrators } from "../src/orchestrators/orchestrator-types.js";
 import { DEFAULT_ORCHESTRATORS } from "../src/orchestrators/default-orchestrators.js";
 import {
+  requestedHarnessId,
   resolveAgentTypeParam,
   resolveDefaultAgentType,
   resolveDefaultOrchestrator,
   resolveDefaultOrchestratorName,
   resolveHarnessType,
+  resolveRequestedHarness,
   resolveWorktreeCheckoutType,
 } from "../src/agents/spawn-defaults.js";
 import { probed, unprobed, type Availability } from "../src/availability.js";
-import type { HarnessId } from "../src/agents/harness.js";
+import { HARNESS_IDS, type HarnessId } from "../src/agents/harness.js";
 
 const { configured } = vi.hoisted(() => ({
   configured: {} as {
@@ -149,6 +151,57 @@ describe("spawn-defaults — harness", () => {
     configured.harnessAvailability = probed<HarnessId>(["pi"]);
 
     expect(resolveHarnessType("harness-pig")).toBe("pi");
+  });
+
+  it("lets the caller's harness_type win over both the template and the config setting", () => {
+    configured.harnessType = "pi";
+
+    expect(resolveHarnessType("harness-pig", "opencode")).toBe("opencode");
+  });
+
+  it("uses an explicit harness as-is, skipping the availability fallback the config path applies", () => {
+    // Validation happens at parse; the resolver is handed a valid id and does not re-narrow it.
+    configured.harnessType = "pi";
+    configured.harnessAvailability = probed<HarnessId>(["pi"]);
+
+    expect(resolveHarnessType("general-purpose", "opencode")).toBe("opencode");
+  });
+});
+
+describe("spawn-defaults — the caller's explicit harness_type", () => {
+  it("resolves a harness this machine can launch", () => {
+    configured.harnessAvailability = probed<HarnessId>(["pi", "pig"]);
+
+    expect(resolveRequestedHarness("pig")).toBe("pig");
+  });
+
+  it("reads null and blank as unset, never as an unknown id", () => {
+    expect(resolveRequestedHarness(null)).toBeUndefined();
+    expect(resolveRequestedHarness("")).toBeUndefined();
+    expect(resolveRequestedHarness("   ")).toBeUndefined();
+  });
+
+  it("refuses an unknown id, naming the valid ones and that nothing was spawned", () => {
+    expect(() => resolveRequestedHarness("ghost")).toThrow(
+      `Unknown harness_type "ghost": valid harnesses are ${HARNESS_IDS.join(", ")}. Nothing was spawned`,
+    );
+  });
+
+  it("refuses a harness this machine cannot launch, naming what it can", () => {
+    configured.harnessAvailability = probed<HarnessId>(["pi"]);
+
+    expect(() => resolveRequestedHarness("opencode")).toThrow(
+      'Harness "opencode" cannot be launched on this machine — this machine can launch pi. Nothing was spawned',
+    );
+  });
+
+  it("leaves a bad value alone at the tool boundary instead of throwing", () => {
+    configured.harnessAvailability = probed<HarnessId>(["pi"]);
+
+    expect(requestedHarnessId("pi")).toBe("pi");
+    expect(requestedHarnessId("ghost")).toBeUndefined();
+    expect(requestedHarnessId("opencode")).toBeUndefined();
+    expect(requestedHarnessId(null)).toBeUndefined();
   });
 });
 

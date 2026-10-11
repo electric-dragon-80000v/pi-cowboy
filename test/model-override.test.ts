@@ -302,6 +302,73 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
       "pi",
     );
   });
+
+  it("keys the injected default by the call's harness_type, not the template or the setting", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: "pi" });
+    setHarnessAvailability(probed(["pi", AGENT_HARNESS]));
+
+    const options = await runTool({ harness_type: AGENT_HARNESS });
+
+    expect(configuredModelMock).toHaveBeenCalledWith(
+      "general-purpose",
+      "parent/parent-1",
+      { harnessType: "pi" },
+      AGENT_HARNESS,
+    );
+    // The request rides to the spawn as the pool identity the manager resolves.
+    expect(options.requestedHarness).toBe(AGENT_HARNESS);
+  });
+
+  it("leaves today's resolution alone for a harness this machine cannot launch, and parse refuses it", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: AGENT_HARNESS });
+    setHarnessAvailability(probed(["pi", AGENT_HARNESS]));
+    const input: CowboyAgents & Record<string, unknown> = {
+      ...PARAMS(),
+      agents: [
+        { ...structuredClone(PARAMS().agents[0]), harness_type: "opencode" },
+      ],
+    };
+
+    // The listener must not throw on a value the machine cannot launch.
+    await toolCallListener(
+      { toolName: "cowboy_agent", input } as unknown as ToolCallEvent,
+      ctx,
+    );
+    expect(configuredModelMock).toHaveBeenCalledWith(
+      "general-purpose",
+      "parent/parent-1",
+      { harnessType: AGENT_HARNESS },
+      AGENT_HARNESS,
+    );
+
+    await expect(
+      executeAgentTool("", input, undefined, undefined, ctx),
+    ).rejects.toThrow(/Harness "opencode" cannot be launched on this machine/);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("does not throw at the listener for an unknown harness_type, and parse raises the real error", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: AGENT_HARNESS });
+    setHarnessAvailability(probed(["pi", AGENT_HARNESS]));
+    const input: CowboyAgents & Record<string, unknown> = {
+      ...PARAMS(),
+      agents: [
+        { ...structuredClone(PARAMS().agents[0]), harness_type: "ghost" },
+      ],
+    };
+
+    await expect(
+      toolCallListener(
+        { toolName: "cowboy_agent", input } as unknown as ToolCallEvent,
+        ctx,
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      executeAgentTool("", input, undefined, undefined, ctx),
+    ).rejects.toThrow(/Unknown harness_type "ghost"/);
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
 });
 
 /**

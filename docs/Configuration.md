@@ -144,6 +144,8 @@ A clean parent has no uncommitted work to carry, so both materializations start 
 
 pi-cowboy scans `PATH` once at session start. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all four values on every machine, so a config file or template written where a harness exists still loads where it does not.
 
+A `cowboy_agent` call can override this per item with its `harness_type` parameter.
+
 ### `agent.defaultModelByHarness`
 
 The default model per harness, keyed by harness id: each value is that harness's own `"provider/model-id"` key or `null`. It fills the per-harness default slot in [Model keys](#model-keys). A session entry set from the model settings screen sits above the project layer, which sits above the global layer.

@@ -190,10 +190,12 @@ export class AgentManager {
     // The caller mints the id, so it matches the branch/worktree/herdr suffix.
     const id = options.spawnId;
     // Resolve the harness once, on the spawn path: the pool identity, a queued
-    // drain, a revived turn, and the launch plan all read this one value.
+    // drain, a revived turn, and the launch plan all read this one value. The
+    // caller's validated `harness_type` wins over the template/config chain.
+    const { requestedHarness, ...rest } = options;
     const resolvedOptions: ResolvedSpawnOptions = {
-      ...options,
-      harness: resolveHarnessType(type),
+      ...rest,
+      harness: resolveHarnessType(type, requestedHarness),
     };
     const args: SpawnArgs = { pi, ctx, type, prompt, options: resolvedOptions };
     const admission = this.pools.admitSpawn(

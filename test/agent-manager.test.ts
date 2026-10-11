@@ -507,7 +507,8 @@ describe("AgentManager.spawn orchestration designator", () => {
   });
 
   it("survives the registry's intent → spawn-options handoff", async () => {
-    // The registry spreads intent extras into SpawnOptions; orchestration rides along.
+    // The registry spreads intent extras into SpawnOptions; orchestration and
+    // the requested harness ride along.
     let captured: SpawnOptions | undefined;
     const registry = new HerdrTaskRegistryImpl({
       listAgents: () => [],
@@ -524,6 +525,7 @@ describe("AgentManager.spawn orchestration designator", () => {
       prompt: "do it",
       description: "do it",
       spawnId: nextSpawnId(),
+      requestedHarness: "pig",
       runInBackground: true,
       orchestration: OPS_TEMPLATE,
     };
@@ -531,6 +533,7 @@ describe("AgentManager.spawn orchestration designator", () => {
     await registry.admit(intent);
 
     expect(captured!.orchestration).toEqual(OPS_TEMPLATE);
+    expect(captured!.requestedHarness).toBe("pig");
   });
 });
 
@@ -581,11 +584,16 @@ describe("AgentManager fleet routing", () => {
       id: string;
       start(reservation: PoolReservation): boolean;
     } | null = null;
+    const identities: Array<{
+      harness: string;
+      modelKey: string | undefined;
+    }> = [];
     const pools = {
       admitSpawn: (
-        _identity: { harness: string; modelKey: string | undefined },
+        identity: { harness: string; modelKey: string | undefined },
         queued: { id: string; start(reservation: PoolReservation): boolean },
       ) => {
+        identities.push(identity);
         captured = queued;
         return admission();
       },
@@ -609,6 +617,7 @@ describe("AgentManager fleet routing", () => {
       released,
       cancelled,
       reacquired,
+      identities,
       capturedStart: () => captured!,
     };
   }
@@ -621,6 +630,46 @@ describe("AgentManager fleet routing", () => {
       orchestration: TEST_ORCHESTRATION,
     });
   }
+
+  it("charges the pool to the harness the call requested, before admission", () => {
+    const fake = recordingPools(() => ({ kind: "queue" as const }));
+    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
+
+    manager.spawn({} as never, {} as never, "general-purpose", "do it", {
+      description: "do it",
+      spawnId: nextSpawnId(),
+      requestedHarness: "pig",
+      orchestration: TEST_ORCHESTRATION,
+    });
+
+    expect(fake.identities).toEqual([{ harness: "pig", modelKey: undefined }]);
+    manager.dispose();
+  });
+
+  it("hands the requested harness to the session's launch plan", async () => {
+    const fake = recordingPools(() => ({
+      kind: "start" as const,
+      reservation: [{ limit: 1, spawned: 0 }],
+    }));
+    const manager = new AgentManager(
+      fake.pools as unknown as ConcurrencyPools,
+      hangingTransport(),
+    );
+
+    manager.spawn({} as never, {} as never, "general-purpose", "do it", {
+      description: "do it",
+      spawnId: nextSpawnId(),
+      requestedHarness: "pig",
+      orchestration: TEST_ORCHESTRATION,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+
+    expect(buildLaunchPlanMock.mock.calls[0]![4]).toMatchObject({
+      harness: "pig",
+    });
+    manager.dispose();
+  });
 
   it("drains a queued spawn through the registry's captured start callback", () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));

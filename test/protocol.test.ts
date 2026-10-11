@@ -16,6 +16,8 @@ import {
 } from "../src/orchestrators/protocol.js";
 import { registerOrchestrators } from "../src/orchestrators/orchestrator-types.js";
 import type { OrchestratorConfig } from "../src/orchestrators/types.js";
+import { probed, unprobed } from "../src/availability.js";
+import { setHarnessAvailability } from "../src/shell.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
 const { configuredAgent, getManagerMock } = vi.hoisted(() => ({
@@ -324,6 +326,55 @@ describe("DelegationProtocol.parse", () => {
       ),
     ).rejects.toThrow(/Unknown agent type: ghost — nothing was spawned/);
   });
+
+  it("carries an explicit harness_type, validated as-is", async () => {
+    const protocol = await DelegationProtocol.parse(
+      { prompt: "x", task_name: "fix login", harness_type: "pig" },
+      ctx(),
+      "",
+    );
+
+    expect(protocol.intent.requestedHarness).toBe("pig");
+  });
+
+  it("omits the requested harness when the caller left harness_type unset", async () => {
+    const protocol = await DelegationProtocol.parse(
+      { prompt: "x", task_name: "fix login" },
+      ctx(),
+      "",
+    );
+
+    expect(protocol.intent.requestedHarness).toBeUndefined();
+  });
+
+  it("fails an unknown harness_type at parse, before anything is provisioned", async () => {
+    await expect(
+      DelegationProtocol.parse(
+        { prompt: "x", task_name: "fix login", harness_type: "ghost" },
+        ctx(),
+        "",
+      ),
+    ).rejects.toThrow(
+      'Unknown harness_type "ghost": valid harnesses are pi, pig, pi-bolt, opencode. Nothing was spawned',
+    );
+  });
+
+  it("fails a harness this machine cannot launch at parse, before anything is provisioned", async () => {
+    setHarnessAvailability(probed(["pi"]));
+    try {
+      await expect(
+        DelegationProtocol.parse(
+          { prompt: "x", task_name: "fix login", harness_type: "opencode" },
+          ctx(),
+          "",
+        ),
+      ).rejects.toThrow(
+        'Harness "opencode" cannot be launched on this machine — this machine can launch pi. Nothing was spawned',
+      );
+    } finally {
+      setHarnessAvailability(unprobed());
+    }
+  });
 });
 
 describe("runDelegationBatch", () => {
@@ -389,6 +440,31 @@ describe("runDelegationBatch", () => {
     ).rejects.toThrow(/Unknown agent type: ghost — nothing was spawned/);
     // No item reached `run`: the good item spawned no agent either.
     expect(getManagerMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the whole batch on a harness this machine cannot launch before any item runs", async () => {
+    setHarnessAvailability(probed(["pi"]));
+    try {
+      await expect(
+        runDelegationBatch(
+          {
+            agents: [
+              { prompt: "a", task_name: "task a" },
+              { prompt: "b", task_name: "task b", harness_type: "opencode" },
+            ],
+          },
+          ctx(),
+          "",
+          undefined,
+        ),
+      ).rejects.toThrow(
+        /Harness "opencode" cannot be launched on this machine/,
+      );
+      // No item reached `run`: the good item spawned no agent either.
+      expect(getManagerMock).not.toHaveBeenCalled();
+    } finally {
+      setHarnessAvailability(unprobed());
+    }
   });
 
   it("refuses a task_name used twice in one batch, before any item runs", async () => {

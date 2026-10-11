@@ -52,6 +52,7 @@ import {
 import {
   resolveAgentTypeParam,
   resolveDefaultOrchestrator,
+  resolveRequestedHarness,
 } from "../agents/spawn-defaults.js";
 import {
   readModelRequest,
@@ -65,6 +66,7 @@ import {
   getStore,
 } from "../shell.js";
 import { assertNever, parseThinkingLevel } from "../utils.js";
+import type { HarnessId } from "../agents/harness.js";
 import type { OrchestratorConfig } from "./types.js";
 import {
   queuedCueContext,
@@ -94,6 +96,8 @@ interface DelegationIntent {
   fork: boolean;
   /** Absent means inherit the parent. */
   modelSelection?: ModelSelection;
+  /** The caller's validated `harness_type`; absent means the agent template's `harness_type` and the config setting resolve it. */
+  requestedHarness?: HarnessId;
   isBackground: boolean;
   /** Raw `thinking` override, possibly injected by the tool_call listener. */
   thinkingOverride: string | undefined;
@@ -309,6 +313,11 @@ export class DelegationProtocol {
       );
     }
 
+    // An explicit harness is validated here, before any item runs: an unknown
+    // id and one this machine cannot launch both refuse, because an explicit
+    // request never falls back to pi. Nothing was spawned either way.
+    const requestedHarness = resolveRequestedHarness(params.harness_type);
+
     // Background is the default — delegation never blocks the orchestrator's turn. Only an explicit run_in_background: false opts into foreground.
     const isBackground = params.run_in_background !== false;
 
@@ -326,6 +335,7 @@ export class DelegationProtocol {
         requested.kind === "resolved"
           ? { model: requested.model, key: requested.modelKey }
           : undefined,
+      requestedHarness,
       isBackground,
       thinkingOverride: params.thinking,
     });
@@ -356,6 +366,7 @@ export class DelegationProtocol {
       taskSlug,
       orchestration: this.intent.orchestrator,
       modelSelection: this.intent.modelSelection,
+      requestedHarness: this.intent.requestedHarness,
       thinkingLevel,
       fork: this.intent.fork,
       // Coordinates only: the launch provisions the checkout once the run holds a slot.

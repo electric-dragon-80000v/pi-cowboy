@@ -75,6 +75,8 @@ function cowboyAgentsSchemaWithTypes(
         Type.String({ description: agentTypeDescription }),
       ),
       model: CowboyAgentsSchema.properties.agents.items.properties.model,
+      harness_type:
+        CowboyAgentsSchema.properties.agents.items.properties.harness_type,
     },
     { additionalProperties: false, required: ["prompt", "task_name"] },
   );

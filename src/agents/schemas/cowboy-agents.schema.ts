@@ -15,6 +15,7 @@
  */
 
 import { Type, type Static } from "typebox";
+import { HARNESS_IDS } from "../harness.js";
 
 const PROMPT_DESCRIPTION =
   "Task instructions for the agent. If the task requires code changes, the agent works in an isolated branch and will review and commit its changes upon approval. Do not instruct the agent to avoid committing when code modifications are needed.";
@@ -28,7 +29,9 @@ const AGENT_TYPE_DESCRIPTION =
 const MODEL_DESCRIPTION =
   'Optional model for THIS agent as "provider/model-id". Leave it unset (the default) to use the configured default for this session and agent type — the usual case. Pass it when the user asked for a specific model for this task. When a previous attempt failed with a provider/model error, pass a different model here and instruct the agent in plain text to continue where the failed attempt left off. A model that is not in this session\'s registry fails the call before anything is spawned — leave it unset to use the configured default instead.';
 
-/** One spawn's parameters: prompt + task_name required, agent_type/model optional. */
+const HARNESS_TYPE_DESCRIPTION = `Optional harness that launches THIS agent, overriding the agent template's harness_type and the configured default harness. Available: ${HARNESS_IDS.join(", ")}. Leave it unset (the default) to use the agent template's harness_type, then the configured default. A harness this machine cannot launch fails the call before anything is spawned — unlike the configured default, an explicit request never falls back to pi.`;
+
+/** One spawn's parameters: prompt + task_name required, agent_type/model/harness_type optional. */
 const CowboyAgentParamsSchema = Type.Object(
   {
     prompt: Type.String({ description: PROMPT_DESCRIPTION }),
@@ -37,6 +40,9 @@ const CowboyAgentParamsSchema = Type.Object(
       Type.String({ description: AGENT_TYPE_DESCRIPTION }),
     ),
     model: Type.Optional(Type.String({ description: MODEL_DESCRIPTION })),
+    harness_type: Type.Optional(
+      Type.String({ description: HARNESS_TYPE_DESCRIPTION }),
+    ),
   },
   { additionalProperties: false, required: ["prompt", "task_name"] },
 );

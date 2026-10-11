@@ -53,7 +53,7 @@ You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". opencode is detected-only: its model list answers, which is why its default model is configurable, but a launch under it is not implemented. default = the configured `agent.harnessType`
+# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". opencode is detected-only: its model list answers, which is why its default model is configurable, but a launch under it is not implemented. A `cowboy_agent` call's `harness_type` overrides this. default = the configured `agent.harnessType`
 harness_type = "pi"
 
 # (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way.

@@ -150,12 +150,13 @@ Delegates one or more tasks to cowboy agents. Each cowboy agent runs in its own 
 
 `agents[]`:
 
-| Field        | Required | Description                                                                                                                           |
-| ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`     | yes      | Task instructions for the cowboy agent.                                                                                               |
-| `task_name`  | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                         |
-| `agent_type` | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                   |
-| `model`      | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution). |
+| Field          | Required | Description                                                                                                                                                                                                                       |
+| -------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`       | yes      | Task instructions for the cowboy agent.                                                                                                                                                                                           |
+| `task_name`    | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                                                                                                                     |
+| `agent_type`   | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                                                                                                               |
+| `model`        | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution).                                                                                             |
+| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, or `opencode`. Overrides the agent template's `harness_type` and the `harnessType` setting. A harness this machine cannot launch fails the call before anything spawns. |
 
 ### `steer_cowboy_agent`
 
