@@ -9,28 +9,55 @@
 import { z } from "zod";
 import { VALID_THINKING_LEVELS } from "../utils.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
+import { compactDefined } from "../templates/template-files.js";
 import { HARNESS_IDS } from "./harness.js";
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
 
 /**
- * The `[harness]` table: These describe the child process,
- * not the agent's identity or its worktree.
+ * The pi family's own `[harness]` keys, shared by their `[harness.pi]` table
+ * and their flat alias at the top level. The family-neutral keys (`model`,
+ * `tools`, `exclude_tools`, `include_context_files`) stay at the top level; a
+ * second family adds its own strict table beside `pi` rather than widening this
+ * one.
  */
-const HarnessSchema = z.strictObject({
-  model: z.string().optional(),
+const PI_HARNESS_SHAPE = {
   thinking: z.enum(VALID_THINKING_LEVELS).optional(),
-  tools: z.array(z.string()).optional(),
-  exclude_tools: z.array(z.string()).optional(),
   extensions: filterList.optional(),
   skills: filterList.optional(),
   /** Names inlined in full into the system prompt; a `skills` entry is only a name, description, and file path. An empty list inlines nothing. */
   inlined_skills: z.array(z.string()).optional(),
   /** Fork the parent session into the subagent (`pi --fork <sessionFile>`). */
   fork: z.boolean().optional(),
-  /** Whether the child's system prompt carries the repo's AGENTS.md context files. */
-  include_context_files: z.boolean().optional(),
-});
+};
+
+const PiHarnessSchema = z.strictObject(PI_HARNESS_SHAPE);
+
+/**
+ * The `[harness]` table describes the child process, not the agent's identity
+ * or its worktree. Family-neutral keys sit here, each family translating them
+ * its own way; a family's own keys sit under `[harness.<family>]`.
+ *
+ * A pi-only key written flat under `[harness]` means the same slice as
+ * `[harness.pi]`, so both spellings load; an explicit `[harness.pi]` value wins
+ * over its flat twin. The transform collapses the family tables into the one
+ * flat shape the resolution code reads, so the on-disk keying stops at this
+ * boundary.
+ */
+const HarnessSchema = z
+  .strictObject({
+    model: z.string().optional(),
+    tools: z.array(z.string()).optional(),
+    exclude_tools: z.array(z.string()).optional(),
+    /** Whether the child's system prompt carries the repo's AGENTS.md context files. */
+    include_context_files: z.boolean().optional(),
+    pi: PiHarnessSchema.optional(),
+    ...PI_HARNESS_SHAPE,
+  })
+  .transform(({ pi, ...flat }) => ({
+    ...flat,
+    ...compactDefined(pi ?? {}),
+  }));
 
 export const AgentTemplateSchema = z.strictObject({
   name: z.string().optional(),

@@ -19,8 +19,7 @@
  * command misbehaved.
  *
  * What lands with the implementation: the opencode CLI mapping in `buildArgs`,
- * opencode's own model settings, and its strict slice of the template
- * `[harness]` schema.
+ * opencode's own model settings, and its strict `[harness.opencode]` table.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

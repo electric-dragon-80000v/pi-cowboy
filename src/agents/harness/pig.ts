@@ -3,9 +3,9 @@
  * `pi`.
  *
  * pig is a drop-in reimplementation of pi (https://github.com/MichaelKinsy/PiG),
- * so it takes pi's `[harness]` section and argv unchanged. Only its binary name
- * differs from pi, which the pi-compatible factory reconciles by pointing the
- * pane's `pi` at `pig`.
+ * so it takes pi's `[harness]` and `[harness.pi]` sections and argv unchanged.
+ * Only its binary name differs from pi, which the pi-compatible factory
+ * reconciles by pointing the pane's `pi` at `pig`.
  */
 
 import { createPiCompatibleHarness } from "./pi-compatible.js";

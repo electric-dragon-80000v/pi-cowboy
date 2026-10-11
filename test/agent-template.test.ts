@@ -100,6 +100,117 @@ describe("AgentTemplateSchema rejections", () => {
   });
 });
 
+describe("AgentTemplateSchema harness family split", () => {
+  it("reads family-neutral keys from [harness]", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'model = "anthropic/claude-sonnet-4"',
+        'tools = ["read", "edit"]',
+        "include_context_files = false",
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({
+      model: "anthropic/claude-sonnet-4",
+      tools: ["read", "edit"],
+      include_context_files: false,
+    });
+  });
+
+  it("reads pi-only keys from [harness.pi]", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness.pi]",
+        'thinking = "high"',
+        "fork = true",
+        "skills = false",
+        'inlined_skills = ["git"]',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({
+      thinking: "high",
+      fork: true,
+      skills: false,
+      inlined_skills: ["git"],
+    });
+  });
+
+  it("loads a legacy flat pi-only template as the [harness.pi] slice", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "legacy"',
+        "[harness]",
+        'thinking = "low"',
+        "fork = true",
+        'tools = ["read"]',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({
+      thinking: "low",
+      fork: true,
+      tools: ["read"],
+    });
+  });
+
+  it("lets an explicit [harness.pi] value win over its flat twin", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'thinking = "low"',
+        "fork = true",
+        "[harness.pi]",
+        'thinking = "high"',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({ thinking: "high", fork: true });
+  });
+
+  it("merges the flat and nested pi slices field by field", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        "skills = false",
+        "[harness.pi]",
+        "fork = true",
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({ skills: false, fork: true });
+  });
+
+  it("rejects an unknown [harness.<family>] table", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.codex]\nmodel = 1'),
+      ),
+    ).toBe('harness: Unrecognized key: "codex"');
+  });
+
+  it("rejects an unknown key inside [harness.pi]", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi]\npython = true'),
+      ),
+    ).toBe('harness.pi: Unrecognized key: "python"');
+  });
+
+  it("rejects a pi-only key inside a future family table", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.opencode]\nthinking = "high"'),
+      ),
+    ).toBe('harness: Unrecognized key: "opencode"');
+  });
+});
+
 describe("AgentTemplateSchema fork flag", () => {
   it("parses fork = true and fork = false", () => {
     expect(

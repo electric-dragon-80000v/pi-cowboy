@@ -453,3 +453,41 @@ describe("mergeAgents harness_type inheritance", () => {
     ).toThrow();
   });
 });
+
+describe("mergeAgents harness family split", () => {
+  it("maps pi-only keys from [harness.pi] into the agent config", () => {
+    const merged = mergeAgents(
+      new Map(),
+      [
+        parseAgentFile(
+          'name = "split"\n[harness]\nmodel = "m"\n[harness.pi]\nthinking = "high"\nfork = true',
+        ),
+      ],
+      [],
+      [],
+    );
+    const config = merged.get("split")!;
+
+    expect(config.model).toBe("m");
+    expect(config.thinkingLevel).toBe("high");
+    expect(config.fork).toBe(true);
+  });
+
+  it("loads a legacy flat pi-only template as the same slice", () => {
+    const merged = mergeAgents(
+      new Map(),
+      [
+        parseAgentFile(
+          'name = "legacy"\n[harness]\nmodel = "m"\nthinking = "high"\nfork = true',
+        ),
+      ],
+      [],
+      [],
+    );
+    const config = merged.get("legacy")!;
+
+    expect(config.model).toBe("m");
+    expect(config.thinkingLevel).toBe("high");
+    expect(config.fork).toBe(true);
+  });
+});

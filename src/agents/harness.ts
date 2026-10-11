@@ -24,12 +24,12 @@
  *
  * Evolution rule: a new harness family is added by growing `HARNESS_IDS`, one
  * harness implementation, and — where that family needs them — a member on
- * `HarnessLaunchRequest` and a strict schema for its slice of the template's
- * `[harness]` table (a plain union of strict per-harness schemas, never
- * passthrough; parsed options are typed and merged per field like every other
- * template field). A family whose `prepare` needs launch context (a harness
- * that stages files before launch) widens `HarnessPrepareRequest` in the same
- * change — the fields arrive with their first reader, never before.
+ * `HarnessLaunchRequest` and a strict `[harness.<family>]` table for its own
+ * slice of the template (never passthrough; parsed options are typed and merged
+ * per field like every other template field). A family whose `prepare` needs
+ * launch context (a harness that stages files before launch) widens
+ * `HarnessPrepareRequest` in the same change — the fields arrive with their
+ * first reader, never before.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

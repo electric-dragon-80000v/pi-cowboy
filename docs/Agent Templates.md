@@ -56,21 +56,27 @@ You prepare release notes for this repository. Read the history and tags
 # (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". opencode is detected-only: its model list answers, which is why its default model is configurable, but a launch under it is not implemented. default = the configured `agent.harnessType`
 harness_type = "pi"
 
-# (optional) Per-agent settings for the harness named by `harness_type`. Every field below belongs to this table. opencode's slice of the table is not implemented yet.
+# (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way.
 [harness]
 
 # (optional) Model for this agent as "provider/model-id". default = the first model that is set, falling back to the parent session's model.
 model = "anthropic/claude-sonnet-4"
 
-# (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
-thinking = "medium"
-
-# (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
+# (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary. default = every tool
 tools = ["read", "bash", "grep", "find"]
 
 # (optional) `exclude_tools`: every tool except these is available. default = none excluded
 # Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
 # exclude_tools = ["write"]
+
+# (optional) Sets if the agent's system prompt carries pi's context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
+include_context_files = true
+
+# (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too. opencode's slice of the table is not implemented yet.
+[harness.pi]
+
+# (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
+thinking = "medium"
 
 # (optional) Extensions: true uses pi's own set, false loads none, or a list of names loads only those. default = the global `agent.loadExtensionsImplicitly`
 extensions = true
@@ -83,7 +89,6 @@ inlined_skills = []
 
 # (optional) Fork the parent session into the agent (`pi --fork <sessionFile>`). default = false
 fork = false
-
-# (optional) Sets if the agent's system prompt carries pi's context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
-include_context_files = true
 ```
+
+A pi-only key written flat under `[harness]` still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins.
