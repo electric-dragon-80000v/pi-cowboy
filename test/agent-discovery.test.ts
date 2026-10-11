@@ -275,7 +275,7 @@ describe("mergeAgents field inheritance", () => {
         name: "reviewer",
         displayName: "Base Reviewer",
         description: "base description",
-        model: "base-model",
+        modelsByFamily: { pi: "base-model" },
         systemPrompt: "",
         harnessType: "pi",
       },
@@ -298,7 +298,7 @@ describe("mergeAgents field inheritance", () => {
     const merged = mergeAgents(WITH_IDENTITY, user, [], []);
     const config = merged.get("reviewer")!;
 
-    expect(config.model).toBe("base-model");
+    expect(config.modelsByFamily?.pi).toBe("base-model");
   });
 
   it("takes display_name and description from the layer that declares them", () => {
@@ -336,7 +336,7 @@ describe("mergeAgents field inheritance", () => {
     const merged = mergeAgents(new Map(), user, [], project);
     const config = merged.get("reviewer")!;
 
-    expect(config.model).toBe("user-model");
+    expect(config.modelsByFamily?.pi).toBe("user-model");
     expect(config.tools).toEqual(["read", "edit"]);
     expect(config.hidden).toBe(true);
   });
@@ -468,7 +468,7 @@ describe("mergeAgents harness family split", () => {
     );
     const config = merged.get("split")!;
 
-    expect(config.model).toBe("m");
+    expect(config.modelsByFamily?.pi).toBe("m");
     expect(config.thinkingLevel).toBe("high");
     expect(config.fork).toBe(true);
   });
@@ -486,17 +486,17 @@ describe("mergeAgents harness family split", () => {
     );
     const config = merged.get("legacy")!;
 
-    expect(config.model).toBe("m");
+    expect(config.modelsByFamily?.pi).toBe("m");
     expect(config.thinkingLevel).toBe("high");
     expect(config.fork).toBe(true);
   });
 
-  it("maps opencode-only keys from [harness.opencode] into the agent config", () => {
+  it("maps a model under [harness.opencode] into the opencode family's entry", () => {
     const merged = mergeAgents(
       new Map(),
       [
         parseAgentFile(
-          'name = "split"\nharness_type = "opencode"\n[harness]\nmodel = "m"\n[harness.opencode]\nvariant = "high"',
+          'name = "split"\nharness_type = "opencode"\n[harness.opencode]\nmodel = "m"\nvariant = "high"',
         ),
       ],
       [],
@@ -505,9 +505,24 @@ describe("mergeAgents harness family split", () => {
     const config = merged.get("split")!;
 
     expect(config.harnessType).toBe("opencode");
-    expect(config.model).toBe("m");
+    expect(config.modelsByFamily).toEqual({ opencode: "m" });
     expect(config.variant).toBe("high");
     expect(config.thinkingLevel).toBeUndefined();
+  });
+
+  it("files the flat model under pi even when harness_type is opencode", () => {
+    const merged = mergeAgents(
+      new Map(),
+      [
+        parseAgentFile(
+          'name = "split"\nharness_type = "opencode"\n[harness]\nmodel = "m"',
+        ),
+      ],
+      [],
+      [],
+    );
+
+    expect(merged.get("split")?.modelsByFamily).toEqual({ pi: "m" });
   });
 
   it("keeps an earlier layer's variant when a later override omits it", () => {
@@ -523,7 +538,18 @@ describe("mergeAgents harness family split", () => {
 
     expect(config.variant).toBe("high");
     expect(config.harnessType).toBe("opencode");
-    expect(config.model).toBe("m");
+    expect(config.modelsByFamily?.pi).toBe("m");
+  });
+
+  it("merges the model families entry by entry across layers", () => {
+    const user = [parseAgentFile('name = "oc"\n[harness.pi]\nmodel = "pi/m"')];
+    const project = [
+      parseAgentFile('name = "oc"\n[harness.opencode]\nmodel = "oc/m"'),
+    ];
+
+    expect(
+      mergeAgents(new Map(), user, [], project).get("oc")?.modelsByFamily,
+    ).toEqual({ pi: "pi/m", opencode: "oc/m" });
   });
 
   it("lets a later layer set its own variant", () => {

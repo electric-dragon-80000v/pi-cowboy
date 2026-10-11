@@ -256,8 +256,32 @@ describe("model resolution — the harness default's position", () => {
       store.modelFor(
         "general-purpose",
         null,
-        { model: TEMPLATE_MODEL },
+        { modelsByFamily: { opencode: TEMPLATE_MODEL } },
         "opencode",
+      ),
+    ).toBe(TEMPLATE_MODEL);
+  });
+
+  it("reads only the launching family's template model", () => {
+    const store = storeWithOpencodeDefault();
+
+    // The template's key is written for pi, whose catalogue it names; the
+    // opencode launch reads its own family's entry, which the template leaves
+    // unset, so it falls through to opencode's configured default.
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        { modelsByFamily: { pi: TEMPLATE_MODEL } },
+        "opencode",
+      ),
+    ).toBe(OPENCODE_DEFAULT);
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        { modelsByFamily: { pi: TEMPLATE_MODEL } },
+        "pi",
       ),
     ).toBe(TEMPLATE_MODEL);
   });

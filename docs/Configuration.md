@@ -161,12 +161,12 @@ Model resolution order, highest precedence first:
 1. The `model` in a `cowboy_agent` call.
 2. Session per-type override.
 3. `agent.<agent-type>` in the config.
-4. `[harness] model` in the agent template.
+4. The agent template's model for the launching harness's family: the flat `[harness] model` and `[harness.pi] model` spellings both write the pi family's entry, and `[harness.opencode] model` writes opencode's. The template never contributes a key that the launching family's catalogue did not define.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
 7. The parent session model.
 
-Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` uses that model, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`.
+Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to the launching harness's default and then to the parent session.
 
 Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, and then to the launching harness's default — `agent.default` under pi.
 

@@ -4,7 +4,8 @@
  * generic defaults, then the parent.
  *   1. sessionOverrides[subagentType]  (session per-type override)
  *   2. config.agent[subagentType]      (config per-type override)
- *   3. agentConfig?.model              (agent config / agent template)
+ *   3. agentConfig?.modelsByFamily[family] (the agent config / agent template,
+ *      read only for the launching harness's family)
  *   4. sessionOverrides["default"]     (session default)
  *   5. the launching harness's default (pi's family: agent.default at any layer;
  *      any other harness: agent.defaultModelByHarness[harness], session first)
@@ -12,11 +13,20 @@
  *
  * The tool's per-call `model` parameter sits above this chain: when set, the
  * chain is not consulted; when unset, the chain decides.
+ *
+ * A model key names an entry in one harness's catalogue, so a template's key
+ * carries its family: step 3 reads the launching harness's family entry and
+ * nothing else, and a key written for pi contributes nothing to an opencode
+ * launch. That launch falls through to the launching harness's default.
  */
 
 import type { ThinkingLevel } from "../types.js";
-import { isPiFamilyHarness, type HarnessId } from "../agents/harness.js";
-import type { SystemPromptMode } from "../agents/types.js";
+import {
+  isPiFamilyHarness,
+  type HarnessFamily,
+  type HarnessId,
+} from "../agents/harness.js";
+import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
 import type {
   WorktreeCheckoutType,
   WorktreeMaterialization,
@@ -83,7 +93,10 @@ export interface SessionModelOverrides {
 
 interface ResolveModelOptions {
   subagentType: string;
-  agentConfig?: { model?: string };
+  /** The launching harness's family: the only family whose template model step 3 reads. */
+  harnessFamily: HarnessFamily;
+  /** The agent config's model keys, each under the family whose catalogue defines it. */
+  agentConfig?: { modelsByFamily?: ModelsByFamily };
   config: Pick<SubagentsConfig, "agent">;
   /**
    * The launching harness's default, flattened across the layers that carry one
@@ -133,6 +146,7 @@ export function resolveModelSource(options: ResolveModelOptions): {
   const {
     subagentType,
     agentConfig,
+    harnessFamily,
     config,
     harnessDefault,
     parentModelId,
@@ -149,7 +163,7 @@ export function resolveModelSource(options: ResolveModelOptions): {
       "config-per-type",
       config.agent[subagentType] as string | null | undefined,
     ],
-    ["agent-template", agentConfig?.model],
+    ["agent-template", agentConfig?.modelsByFamily?.[harnessFamily]],
     ["session-default", sessionOverrides?.["default"]],
     ["harness-default", harnessDefault],
   ];

@@ -21,7 +21,8 @@ import {
   parseHarnessId,
   type HarnessId,
 } from "../agents/harness.js";
-import type { SystemPromptMode } from "../agents/types.js";
+import { harnessFamilyOf } from "../agents/harness-family.js";
+import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
 import type { ThinkingLevel } from "../types.js";
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
@@ -318,12 +319,13 @@ export class ConfigStore {
   modelFor(
     type: string,
     parentModelId: string | null,
-    agentConfig: { model?: string } | undefined,
+    agentConfig: { modelsByFamily?: ModelsByFamily } | undefined,
     harnessId: HarnessId,
   ): string | null {
     return resolveModel({
       subagentType: type,
       agentConfig,
+      harnessFamily: harnessFamilyOf(harnessId),
       config: this.layers.effective,
       harnessDefault: this.defaultModelForHarness(harnessId),
       parentModelId,

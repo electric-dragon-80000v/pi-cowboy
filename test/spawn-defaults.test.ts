@@ -18,6 +18,7 @@ import {
 } from "../src/agents/spawn-defaults.js";
 import { probed, unprobed, type Availability } from "../src/availability.js";
 import { HARNESS_IDS, type HarnessId } from "../src/agents/harness.js";
+import { harnessFamilyOf } from "../src/agents/harness-family.js";
 
 const { configured } = vi.hoisted(() => ({
   configured: {} as {
@@ -165,6 +166,25 @@ describe("spawn-defaults — harness", () => {
     configured.harnessAvailability = probed<HarnessId>(["pi"]);
 
     expect(resolveHarnessType("general-purpose", "opencode")).toBe("opencode");
+  });
+
+  it.each(["pi", "pig", "pi-bolt"] as const)(
+    "keys the %s launch on the pi family, which shares pi's model catalogue",
+    (harness) => {
+      configured.harnessAvailability = unprobed();
+      configured.harnessType = harness;
+
+      expect(harnessFamilyOf(resolveHarnessType("general-purpose"))).toBe("pi");
+    },
+  );
+
+  it("keys the opencode launch on its own family", () => {
+    configured.harnessAvailability = unprobed();
+    configured.harnessType = "opencode";
+
+    expect(harnessFamilyOf(resolveHarnessType("general-purpose"))).toBe(
+      "opencode",
+    );
   });
 });
 

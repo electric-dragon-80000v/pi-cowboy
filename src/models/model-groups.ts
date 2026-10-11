@@ -12,6 +12,8 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "../types.js";
+import type { HarnessFamily } from "../agents/harness.js";
+import type { ModelsByFamily } from "../agents/types.js";
 import type {
   SubagentsConfig,
   SessionModelOverrides,
@@ -19,7 +21,7 @@ import type {
 import { resolveModelSource } from "./model-precedence.js";
 
 export interface AgentTypeModelConfig {
-  model?: string;
+  modelsByFamily?: ModelsByFamily;
   thinkingLevel?: ThinkingLevel;
 }
 
@@ -32,6 +34,8 @@ interface ModelGroupsInput {
   sessionOverrides: SessionModelOverrides;
   /** The launching harness's default for one type, flattened across its layers. */
   harnessDefaultFor: (type: string) => string | null;
+  /** The family that launches one type: which family's template model step 3 reads. */
+  harnessFamilyFor: (type: string) => HarnessFamily;
   /** Provenance for [project] tags. */
   hasProjectModelKey: (key: string) => boolean;
   /** Null when the parent session has no model: nothing further to inherit. */
@@ -68,6 +72,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
     config,
     sessionOverrides,
     harnessDefaultFor,
+    harnessFamilyFor,
     hasProjectModelKey,
     parentModelId,
   } = input;
@@ -77,6 +82,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
     const cfg = agentConfigs[type];
     const { model: resolved, source } = resolveModelSource({
       subagentType: type,
+      harnessFamily: harnessFamilyFor(type),
       agentConfig: cfg,
       config: { agent: config },
       harnessDefault: harnessDefaultFor(type),

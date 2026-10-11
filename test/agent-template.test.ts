@@ -106,17 +106,80 @@ describe("AgentTemplateSchema harness family split", () => {
       [
         'name = "x"',
         "[harness]",
-        'model = "anthropic/claude-sonnet-4"',
         'tools = ["read", "edit"]',
         "include_context_files = false",
       ].join("\n"),
     );
 
     expect(parsed.harness).toMatchObject({
-      model: "anthropic/claude-sonnet-4",
       tools: ["read", "edit"],
       include_context_files: false,
     });
+  });
+
+  it("files the flat model under the pi family", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness]", 'model = "anthropic/claude-sonnet-4"'].join(
+        "\n",
+      ),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({
+      pi: "anthropic/claude-sonnet-4",
+    });
+  });
+
+  it("reads model from [harness.pi] as the pi family's spelling", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness.pi]", 'model = "pi/model"'].join("\n"),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({ pi: "pi/model" });
+  });
+
+  it("lets an explicit [harness.pi] model win over its flat twin", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'model = "flat/model"',
+        "[harness.pi]",
+        'model = "pi/model"',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({ pi: "pi/model" });
+  });
+
+  it("reads model from [harness.opencode] into that family's entry alone", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness.opencode]", 'model = "oc/model"'].join("\n"),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({ opencode: "oc/model" });
+  });
+
+  it("keeps the two families' models apart", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'model = "pi/model"',
+        "[harness.opencode]",
+        'model = "oc/model"',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({
+      pi: "pi/model",
+      opencode: "oc/model",
+    });
+  });
+
+  it("leaves modelsByFamily undefined when the template names no model", () => {
+    expect(
+      parseAgentFile('name = "x"').harness?.modelsByFamily,
+    ).toBeUndefined();
   });
 
   it("reads pi-only keys from [harness.pi]", () => {
@@ -207,7 +270,7 @@ describe("AgentTemplateSchema harness family split", () => {
     );
 
     expect(parsed.harness).toMatchObject({
-      model: "anthropic/claude-sonnet-4",
+      modelsByFamily: { pi: "anthropic/claude-sonnet-4" },
       thinking: "low",
       variant: "max",
     });
@@ -249,9 +312,19 @@ describe("AgentTemplateSchema harness family split", () => {
   it("rejects an unknown key inside [harness.opencode]", () => {
     expect(
       parseError(() =>
-        parseAgentFile('name = "x"\n[harness.opencode]\nmodel = "x"'),
+        parseAgentFile('name = "x"\n[harness.opencode]\npython = true'),
       ),
-    ).toBe('harness.opencode: Unrecognized key: "model"');
+    ).toBe('harness.opencode: Unrecognized key: "python"');
+  });
+
+  it("rejects a wrongly-typed model inside [harness.opencode], naming the key", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.opencode]\nmodel = 12'),
+      ),
+    ).toBe(
+      "harness.opencode.model: Invalid input: expected string, received number",
+    );
   });
 
   it("rejects a pi-only key inside the opencode table", () => {

@@ -14,7 +14,7 @@ import {
   type TemplateScanWarning,
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
-import type { AgentConfig } from "./types.js";
+import type { AgentConfig, ModelsByFamily } from "./types.js";
 
 /** One parsed agent template. */
 export type AgentTemplateFile = AgentTemplate;
@@ -100,11 +100,17 @@ function mergeAgentOverrides(
         displayName: template.display_name,
         description: template.description ?? "",
       };
+      const incoming = fromTemplate(template);
+      const modelsByFamily = mergeModelsByFamily(
+        existing.modelsByFamily,
+        incoming.modelsByFamily,
+      );
       result.set(
         template.name,
         arbitrateFilters({
           ...existing,
-          ...fromTemplate(template),
+          ...incoming,
+          ...(modelsByFamily ? { modelsByFamily } : {}),
           ...identity,
         }),
       );
@@ -115,6 +121,19 @@ function mergeAgentOverrides(
       );
     }
   }
+}
+
+/**
+ * Per-family merge of the layers' model keys: a later layer's key for one
+ * family replaces that family's and leaves every other family's intact, the
+ * same per-field precedence the rest of the config follows.
+ */
+function mergeModelsByFamily(
+  existing: ModelsByFamily | undefined,
+  incoming: ModelsByFamily | undefined,
+): ModelsByFamily | undefined {
+  const merged = { ...existing, ...incoming };
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**
@@ -134,7 +153,7 @@ function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
     extensions: harness?.extensions,
     skills: harness?.skills,
     inlinedSkills: harness?.inlined_skills,
-    model: harness?.model,
+    modelsByFamily: harness?.modelsByFamily,
     thinkingLevel: harness?.thinking,
     variant: harness?.variant,
     hidden: template.hidden,

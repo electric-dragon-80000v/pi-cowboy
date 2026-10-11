@@ -18,6 +18,7 @@ import {
 import type { ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
+import { harnessFamilyOf } from "../../agents/harness-family.js";
 import {
   harnessDisplayName,
   isPiFamilyHarness,
@@ -392,6 +393,7 @@ function buildModelSettingsList(
       sessionOverrides,
       harnessDefaultFor: (type) =>
         store.defaultModelForHarness(resolveHarnessType(type)),
+      harnessFamilyFor: (type) => harnessFamilyOf(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
       parentModelId,
       piDefaultThinking,

@@ -427,7 +427,7 @@ describe("cowboy_agent — the harness default at the global default's position"
   it("keeps an agent template's model above the harness default", async () => {
     getAgentConfigMock.mockReturnValue({
       harnessType: "opencode",
-      model: CONFIGURED_KEY,
+      modelsByFamily: { opencode: CONFIGURED_KEY },
     });
     getStoreMock.mockReturnValue(
       realStore({ defaultModelByHarness: { opencode: OPENCODE_DEFAULT } }),
@@ -435,6 +435,22 @@ describe("cowboy_agent — the harness default at the global default's position"
 
     await expect(runTool()).resolves.toMatchObject({
       modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+    });
+  });
+
+  it("ignores a pi-family template model under an opencode launch", async () => {
+    // The template's key names an entry in pi's catalogue; the opencode launch
+    // reads only opencode's family entry, so the harness default answers.
+    getAgentConfigMock.mockReturnValue({
+      harnessType: "opencode",
+      modelsByFamily: { pi: CONFIGURED_KEY },
+    });
+    getStoreMock.mockReturnValue(
+      realStore({ defaultModelByHarness: { opencode: OPENCODE_DEFAULT } }),
+    );
+
+    await expect(runTool()).resolves.toMatchObject({
+      modelSelection: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
     });
   });
 });

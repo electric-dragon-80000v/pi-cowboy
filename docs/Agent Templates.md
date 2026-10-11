@@ -56,11 +56,8 @@ You prepare release notes for this repository. Read the history and tags
 # (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". opencode is detected-only: its model list answers, which is why its default model is configurable, but a launch under it is not implemented. A `cowboy_agent` call's `harness_type` overrides this. default = the configured `agent.harnessType`
 harness_type = "pi"
 
-# (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way.
+# (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way. A model key is not among them, because it names an entry in one harness's model catalogue: it sits with the family that defines it, below.
 [harness]
-
-# (optional) Model for this agent as "provider/model-id". default = the first model that is set, falling back to the parent session's model.
-model = "anthropic/claude-sonnet-4"
 
 # (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary. default = every tool
 tools = ["read", "bash", "grep", "find"]
@@ -74,6 +71,9 @@ include_context_files = true
 
 # (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too.
 [harness.pi]
+
+# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling is this same pi-family key. default = the first model that is set, falling back to the parent session's model.
+model = "anthropic/claude-sonnet-4"
 
 # (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
 thinking = "medium"
@@ -93,8 +93,11 @@ fork = false
 # (optional) Settings only opencode reads. Its launch is not implemented yet, so nothing acts on these keys today.
 [harness.opencode]
 
+# (optional) Model for this agent as "provider/model-id", a key in opencode's catalogue. An opencode launch reads this key; a pi launch never does.
+# model = "anthropic/claude-sonnet-4"
+
 # (optional) Reasoning-effort variant opencode's agent definition carries: the `--variant` of `opencode run`, a flag the top-level command pi-cowboy launches does not take. Example values: "minimal", "high", "max". default = none
 # variant = "high"
 ```
 
-A pi-only key written flat under `[harness]` still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` never reaches a pi launch.
+A pi-family key written flat under `[harness]` — `model` among them — still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` and `[harness.opencode] model` never reach a pi launch, and a `model` written for pi (flat or under `[harness.pi]`) never reaches an opencode launch — that launch falls through to its own default or the parent session's model.

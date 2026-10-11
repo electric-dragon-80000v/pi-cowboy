@@ -1,6 +1,14 @@
 import type { ThinkingLevel } from "../types.js";
 import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
-import type { HarnessId } from "./harness.js";
+import type { HarnessFamily, HarnessId } from "./harness.js";
+
+/**
+ * A template's model keys, each under the harness family whose catalogue
+ * defines it. A key written for one family is invisible to every other: a
+ * launch reads only its own family's entry, and a family the template does not
+ * name has none.
+ */
+export type ModelsByFamily = Partial<Record<HarnessFamily, string>>;
 
 export type SubagentType = string;
 
@@ -41,7 +49,8 @@ interface BaseAgentConfig {
    * Default = [].
    */
   inlinedSkills?: string[];
-  model?: string;
+  /** This agent's model keys, one per harness family; a launch reads only its own family's. */
+  modelsByFamily?: ModelsByFamily;
   thinkingLevel?: ThinkingLevel;
   /** opencode's reasoning-effort variant: what its agent definition carries into `opencode run --variant`. Undefined = none requested. */
   variant?: string;
