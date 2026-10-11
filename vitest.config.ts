@@ -38,6 +38,16 @@
 
 import { configDefaults, defineConfig } from "vitest/config";
 
+/**
+ * The outer budget for an integration test. These files run real processes and
+ * real repositories, and the spawn they drive carries its own, larger budget —
+ * a `pi` run is allowed 90 s (`PI_RUN_TIMEOUT_MS` in
+ * test/step-integration/pi-headless.ts). Vitest's 5 s default is therefore the
+ * tighter of the two and killed a `pi` boot mid-flight; the spawn's own timer
+ * still fails a hung run first, with its own diagnostic.
+ */
+const INTEGRATION_TEST_TIMEOUT_MS = 120_000;
+
 export default defineConfig({
   test: {
     // ─── Shared root settings (inherited by every project) ─────────────────
@@ -71,6 +81,7 @@ export default defineConfig({
           name: "integration-no-cow",
           include: ["**/*.integration.test.ts"],
           exclude: [...configDefaults.exclude, "**/*.cow.integration.test.ts"],
+          testTimeout: INTEGRATION_TEST_TIMEOUT_MS,
         },
       },
       {
@@ -78,6 +89,7 @@ export default defineConfig({
         test: {
           name: "integration-cow",
           include: ["**/*.cow.integration.test.ts"],
+          testTimeout: INTEGRATION_TEST_TIMEOUT_MS,
         },
       },
     ],
