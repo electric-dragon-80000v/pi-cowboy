@@ -17,7 +17,7 @@
  * family's own input rides it as a field named after that family, never as a
  * member a caller has to pick. Each harness's
  * implementation lives beside this module (harness/pig.ts,
- * harness/pi-bolt.ts, harness/opencode.ts) and is selected through
+ * harness/pi-bolt.ts, harness/opencode/index.ts) and is selected through
  * harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
@@ -46,9 +46,9 @@ import type { AgentMuxKind } from "./agent-host.js";
 /**
  * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
  *
- * `opencode` is detection-only: it is probed like every other harness and shows
- * up wherever its binary is on PATH, but it has no launch implementation, so
- * configuring it fails at launch rather than running an unmapped CLI.
+ * `opencode` runs a binary of its own rather than pi: it is probed like every
+ * other harness and shows up wherever its binary is on PATH, and its own
+ * implementation stages the agent definition its launch reads.
  */
 export const HARNESS_IDS = ["pi", "pig", "pi-bolt", "opencode"] as const;
 

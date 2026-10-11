@@ -1,14 +1,16 @@
 /**
  * harness.test.ts — the harness contract: its id vocabulary, the model list
- * every harness answers, and the pane preparation shared by the pi-compatible
- * harnesses (the shell tricks that point the pane's `pi` at pig or pi-bolt),
- * plus the detection-only opencode placeholder.
+ * every harness answers, and the pane preparation each harness performs (the
+ * shell tricks that point the pane's `pi` at pig or pi-bolt, and the launcher
+ * that points opencode at its staged config directory).
  */
 
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -24,6 +26,7 @@ import {
   type HarnessId,
   type HarnessPrepareRequest,
   type LaunchRequestFor,
+  type OpencodeLaunchRequest,
   type PiFamilyLaunchRequest,
   type SubagentLaunchInputs,
   resolveHarness,
@@ -33,6 +36,11 @@ import {
   listHarnessModelOptions,
   mergeHarnessModelOptions,
 } from "../src/agents/harness/registry.js";
+import {
+  opencodeConfigDir,
+  removeOpencodeStaging,
+  writeOpencodeStaging,
+} from "../src/agents/harness/opencode/staging.js";
 import { probed, unprobed } from "../src/availability.js";
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
@@ -53,6 +61,31 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 });
 
 const PI = {} as unknown as ExtensionAPI;
+
+/**
+ * The real TMPDIR, put back after every test. Staging resolves its directory
+ * per call, so a test that stages redirects TMPDIR rather than writing into the
+ * machine's own staging area.
+ */
+let realTmpdir: string | undefined;
+
+/** Temporary roots this file made; removed after every test, pass or fail. */
+const madeRoots: string[] = [];
+
+/** The root this test redirected TMPDIR to. */
+let tmpRoot: string;
+
+/** A name inside this test's redirected TMPDIR. */
+function inTmpRoot(name: string): string {
+  return join(tmpRoot, name);
+}
+
+/** A staged system prompt file, in this test's redirected TMPDIR. */
+function stagedPrompt(text = "You review one diff.\n"): string {
+  const file = inTmpRoot("system.md");
+  writeFileSync(file, text);
+  return file;
+}
 
 /** The launch inputs every family's request shares. */
 function sharedInputs(): SubagentLaunchInputs {
@@ -99,8 +132,22 @@ function prepareRequest<K extends HarnessId>(
   return { pi: PI, paneId, cwd: "/repo", launch: LAUNCHES[id] };
 }
 
+beforeEach(() => {
+  realTmpdir = process.env.TMPDIR;
+  tmpRoot = mkdtempSync(join(tmpdir(), "cowboy-harness-"));
+  madeRoots.push(tmpRoot);
+  process.env.TMPDIR = tmpRoot;
+});
+
 afterEach(() => {
   vi.useRealTimers();
+  // Remove through the module, with the redirected TMPDIR still in place.
+  removeOpencodeStaging("esp02hpw");
+  if (realTmpdir === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = realTmpdir;
+  for (const root of madeRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("harness ids", () => {
@@ -170,7 +217,7 @@ describe("available", () => {
     expect(harnessFor("pi-bolt").available()).toBe(true);
   });
 
-  it("finds opencode by its binary name, though it cannot launch it yet", () => {
+  it("finds opencode by its binary name", () => {
     const dir = freshPath();
     expect(harnessFor("opencode").available()).toBe(false);
 
@@ -288,14 +335,6 @@ describe("prepare", () => {
     expect(boltVerify).not.toContain("PIG_LAUNCHER_8f9a2b");
   });
 
-  it("refuses opencode: there is no launcher to plant until it is implemented", async () => {
-    await expect(
-      harnessFor("opencode").prepare(prepareRequest("opencode", "w1:p9")),
-    ).rejects.toThrow(/not implemented yet/);
-    expect(runInPaneMock).not.toHaveBeenCalled();
-    expect(waitForPaneOutputMock).not.toHaveBeenCalled();
-  });
-
   it("retries a lost `pane run` and fails loud when the launcher never lands", async () => {
     vi.useFakeTimers();
     waitForPaneOutputMock.mockRejectedValue(new Error("timed out waiting"));
@@ -311,6 +350,131 @@ describe("prepare", () => {
 
     // One define + one verify per attempt.
     expect(runInPaneMock.mock.calls.length).toBe(10);
+  });
+});
+
+/**
+ * The opencode launch: staging and the launcher read real files and write a real
+ * config directory, so these cases redirect `TMPDIR` and stage for the harness
+ * rather than stubbing the staging module out.
+ */
+describe("prepare: opencode", () => {
+  let taskFile: string;
+
+  beforeEach(() => {
+    runInPaneMock.mockReset().mockResolvedValue(undefined);
+    waitForPaneOutputMock.mockReset().mockResolvedValue(undefined);
+    taskFile = inTmpRoot("prompt.md");
+    writeFileSync(taskFile, "do the thing\n\nand the second thing\n");
+  });
+
+  /** The launch this file stages for opencode. */
+  function opencodeLaunch(): OpencodeLaunchRequest {
+    return {
+      ...sharedInputs(),
+      family: "opencode",
+      variant: "high",
+      systemPromptFile: stagedPrompt(),
+      taskFile,
+    };
+  }
+
+  /** Prepare one opencode launch into a pane. */
+  function prepareOpencode(paneId = "w1:p9"): Promise<void> {
+    return harnessFor("opencode").prepare({
+      pi: PI,
+      paneId,
+      cwd: "/repo",
+      launch: opencodeLaunch(),
+    });
+  }
+
+  it("stages the definition and plants the launcher that points opencode at it", async () => {
+    await prepareOpencode();
+
+    const configDir = opencodeConfigDir("esp02hpw");
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1; command opencode "$@" < '${taskFile}'; }`,
+    );
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      2,
+      PI,
+      "w1:p9",
+      'typeset -f opencode 2>/dev/null | grep -q "OPENCODE_LAUNCHER_7d3e91" && echo OPENCODE_""VERIFIED',
+    );
+    expect(waitForPaneOutputMock).toHaveBeenCalledWith(
+      PI,
+      "w1:p9",
+      "OPENCODE_VERIFIED",
+      expect.any(Number),
+    );
+
+    // The tree the launcher names is really there, and carries the prompt the
+    // launch handed over plus the variant, which has no argv route.
+    const definition = readFileSync(
+      join(configDir, "agent", "esp02hpw.md"),
+      "utf-8",
+    );
+    expect(definition).toContain("You review one diff.");
+    expect(definition).toContain("variant: high");
+  });
+
+  it("reads the definition back through `opencode agent list` and requires a primary agent", async () => {
+    await prepareOpencode();
+
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      3,
+      PI,
+      "w1:p9",
+      "opencode agent list | grep -x 'esp02hpw (primary)'",
+    );
+    expect(waitForPaneOutputMock).toHaveBeenCalledWith(
+      PI,
+      "w1:p9",
+      "esp02hpw (primary)",
+      expect.any(Number),
+    );
+  });
+
+  it("fails loud when the pane never lists the staged definition as primary", async () => {
+    waitForPaneOutputMock.mockImplementation(async (_pi, _pane, match) => {
+      // The launcher's own verification still passes; only the agent list fails.
+      if (typeof match === "string" && match.endsWith("(primary)")) {
+        throw new Error("timed out waiting for pane output");
+      }
+    });
+
+    await expect(prepareOpencode()).rejects.toThrow(
+      /never printed esp02hpw \(primary\).*did not start/s,
+    );
+  });
+
+  it("stages and installs again when prepare is called twice", async () => {
+    await prepareOpencode();
+    await expect(prepareOpencode()).resolves.toBeUndefined();
+
+    expect(
+      existsSync(join(opencodeConfigDir("esp02hpw"), "agent", "esp02hpw.md")),
+    ).toBe(true);
+    // Two installs, each verified: no state accumulates behind the second.
+    expect(runInPaneMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("fails before touching the pane when the system prompt cannot be read", async () => {
+    const launch = opencodeLaunch();
+
+    await expect(
+      harnessFor("opencode").prepare({
+        pi: PI,
+        paneId: "w1:p9",
+        cwd: "/repo",
+        launch: { ...launch, systemPromptFile: join(tmpdir(), "gone.md") },
+      }),
+    ).rejects.toThrow(/ENOENT/);
+    expect(runInPaneMock).not.toHaveBeenCalled();
   });
 });
 
@@ -352,14 +516,50 @@ describe("buildArgs", () => {
     },
   );
 
-  it("builds no argv for opencode: there is no CLI mapping to build it from", () => {
-    expect(() =>
+  it("starts opencode's minimal interactive UI with the staged agent", () => {
+    expect(
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
         variant: null,
       }),
-    ).toThrow(/not implemented yet/);
+    ).toEqual(["--mini", "--agent", "esp02hpw"]);
+  });
+
+  it("carries opencode's model only when one was resolved", () => {
+    expect(
+      harnessFor("opencode").buildArgs({
+        ...sharedInputs(),
+        family: "opencode",
+        variant: null,
+        modelKey: "anthropic/claude-opus-4",
+      }),
+    ).toEqual([
+      "--mini",
+      "--agent",
+      "esp02hpw",
+      "--model",
+      "anthropic/claude-opus-4",
+    ]);
+
+    expect(
+      harnessFor("opencode").buildArgs({
+        ...sharedInputs(),
+        family: "opencode",
+        variant: null,
+      }),
+    ).not.toContain("--model");
+  });
+
+  it("keeps the variant off opencode's argv: it rides the staged definition", () => {
+    const args = harnessFor("opencode").buildArgs({
+      ...sharedInputs(),
+      family: "opencode",
+      variant: "high",
+    });
+
+    expect(args).not.toContain("--variant");
+    expect(args).not.toContain("high");
   });
 
   it("derives the report token from the subagent id, never a second field", () => {
@@ -742,13 +942,35 @@ describe("teardown", () => {
     },
   );
 
-  it("has nothing to undo for opencode: no launch state is ever staged", async () => {
+  it("removes the staging tree opencode reads its definition from", async () => {
+    const configDir = opencodeConfigDir("esp02hpw");
+    writeOpencodeStaging({
+      subagentId: "esp02hpw",
+      systemPromptFile: stagedPrompt(),
+      variant: null,
+      toolSelection: { kind: "default" },
+    });
+    expect(existsSync(configDir)).toBe(true);
+
     await expect(
       harnessFor("opencode").teardown({
         pi: PI,
         paneId: "w1:p1",
         cwd: "/repo",
         subagentId: "esp02hpw",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(existsSync(configDir)).toBe(false);
+  });
+
+  it("tolerates an opencode teardown with nothing to remove", async () => {
+    await expect(
+      harnessFor("opencode").teardown({
+        pi: PI,
+        paneId: null,
+        cwd: null,
+        subagentId: "never-staged",
       }),
     ).resolves.toBeUndefined();
   });

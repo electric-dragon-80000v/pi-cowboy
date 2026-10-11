@@ -275,7 +275,7 @@ describe("buildLaunchPlan CLI flags", () => {
     );
   });
 
-  it("dispatches opencode through its own family's request, which is unmapped", async () => {
+  it("dispatches opencode through its own family's request", async () => {
     const { cwd, notify } = setup(makeAgent({ harnessType: "opencode" }));
     const pi = {
       exec: vi.fn().mockResolvedValue({ code: 1, stdout: "" }),
@@ -286,33 +286,34 @@ describe("buildLaunchPlan CLI flags", () => {
       ui: { notify },
     } as unknown as ExtensionContext;
 
-    await expect(
-      buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
-        description: "test task",
-        agentId: "runner-opencode",
-        harness: "opencode",
-        cwd,
-      }),
-    ).rejects.toThrow(/not implemented yet/);
+    const plan = await buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
+      description: "test task",
+      agentId: "runner-opencode",
+      harness: "opencode",
+      cwd,
+    });
+
+    // opencode's own CLI: the minimal interactive UI, the staged agent, and no
+    // pi flag on the argv. The task rides the launcher's stdin redirect, so it
+    // is staged rather than named on this argv.
+    expect(plan.piArgs).toEqual(["--mini", "--agent", "runner-opencode"]);
+    expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
   });
 
   /**
-   * The request buildLaunchPlan hands the opencode harness. Its buildArgs has no
-   * CLI mapping to answer with, so the stub records the request and answers an
-   * empty argv, which lets the plan reach the test.
+   * The request buildLaunchPlan hands the opencode harness. The spy calls
+   * through, so the plan is still built by the harness's own argv; `requests`
+   * is read before `restore`, which forgets the recordings.
    */
   function captureOpencodeBuildArgs(): {
-    requests: OpencodeLaunchRequest[];
+    requests: () => OpencodeLaunchRequest[];
     restore: () => void;
   } {
-    const requests: OpencodeLaunchRequest[] = [];
-    const spy = vi
-      .spyOn(harnessFor("opencode"), "buildArgs")
-      .mockImplementation((request) => {
-        requests.push(request);
-        return [];
-      });
-    return { requests, restore: () => spy.mockRestore() };
+    const spy = vi.spyOn(harnessFor("opencode"), "buildArgs");
+    return {
+      requests: () => spy.mock.calls.map(([request]) => request),
+      restore: () => spy.mockRestore(),
+    };
   }
 
   it("keys the plan's launch to the pi family, with no other family's inputs", async () => {
@@ -341,6 +342,7 @@ describe("buildLaunchPlan CLI flags", () => {
     const capture = captureOpencodeBuildArgs();
 
     const plan = await launch("test-agent", cwd, notify);
+    const requests = capture.requests();
     capture.restore();
 
     expect(plan.harness).toBe("opencode");
@@ -355,7 +357,7 @@ describe("buildLaunchPlan CLI flags", () => {
       variant: "high",
     });
     // One object: the argv and the plan were built from the same request.
-    expect(capture.requests[0]).toBe(plan.launch);
+    expect(requests[0]).toBe(plan.launch);
   });
 
   it("carries no variant and no pi flag when the template sets none", async () => {

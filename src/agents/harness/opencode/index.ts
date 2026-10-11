@@ -1,18 +1,21 @@
 /**
- * harness/opencode/index.ts — the opencode harness: detected on PATH, not launched.
+ * harness/opencode/index.ts — the opencode harness: a binary of its own, staged
+ * and launched behind the pane's `opencode`.
  *
  * opencode is not a pi-compatible binary, so nothing here can reuse the
- * pi-compatible factory: `prepare` and `buildArgs` throw a not-yet-implemented
- * error, and a spawn configured for opencode fails loudly at launch rather than
- * running pi's argv under a binary that has not mapped it. Detection is real
- * meanwhile — the availability probe, the settings row, and the template's
- * `harness_type` enum all answer for it wherever the binary is on PATH.
+ * pi-compatible factory: it takes no system prompt on its argv (the prompt is
+ * read from a staged agent definition), and its task arrives differently too.
+ * A multi-line task cannot ride the argv — herdr single-quotes every argument it
+ * passes and refuses multi-line ones outright — so the launcher feeds the task
+ * on stdin. `prepare` stages the config directory opencode is pointed at
+ * (staging.ts and its siblings), installs that launcher into the pane, and then
+ * proves the definition is live; `buildArgs` is opencode's minimal interactive
+ * CLI; `teardown` removes the staged tree.
  *
- * `listModels` is the one thing opencode already answers for, so its default
- * model is configurable today. It shells `opencode models` through `pi.exec`
- * (children inherit the session environment, as every other child here does)
- * and parses the output defensively. The real format — verified against the
- * installed CLI by test/opencode-staging.integration.test.ts — is one bare
+ * `listModels` shells `opencode models` through `pi.exec` (children inherit the
+ * session environment, as every other child here does) and parses the output
+ * defensively. The real format — verified against the installed CLI by
+ * test/opencode-staging.integration.test.ts — is one bare
  * `provider/model-id` per line with no decoration, the provider carrying no
  * slash and the model id allowed to (a real id such as
  * `groq/canopylabs/orpheus-…` does). The parser also tolerates blank lines and
@@ -21,17 +24,13 @@
  * settings menu must never fail to open when a list command misbehaves. The
  * integration test is what keeps the verified shape true as opencode changes.
  *
- * What lands with the implementation: the opencode CLI mapping in `buildArgs`
- * and opencode's own model settings. The strict `[harness.opencode]` table
- * already carries `variant`, which has no argv route: `--variant` exists on
- * `opencode run`, not on the top-level command pi-cowboy launches, so it must
- * ride the agent definition this harness prepares — which this module's
- * siblings stage (staging.ts, definition.ts, npm-seed.ts, permissions.ts).
+ * The strict `[harness.opencode]` table carries `variant`, which has no argv
+ * route: `--variant` exists on `opencode run`, not on the top-level command
+ * pi-cowboy launches, so it rides the agent definition this harness stages.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { commandPath } from "../../../infrastructure/exec-path.js";
-import { HerdrError } from "../../../infrastructure/herdr-client.js";
 import { parseModelKey } from "../../../utils.js";
 import type {
   Harness,
@@ -39,12 +38,80 @@ import type {
   ModelEntry,
   OpencodeLaunchRequest,
 } from "../../harness.js";
-
-const NOT_IMPLEMENTED =
-  "the opencode harness is not implemented yet; use pi, pig, or pi-bolt meanwhile";
+import { installPaneLauncher, type PaneProof } from "../pane-launcher.js";
+import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
 const LIST_MODELS_TIMEOUT_MS = 10_000;
+
+/**
+ * Budget for the pane's `opencode agent list`. The command boots the CLI, so it
+ * is slower than a shell builtin but answers in about a second on 1.18.35.
+ */
+const AGENT_LIST_TIMEOUT_MS = 15_000;
+
+/** The command herdr types into the pane; the launcher is installed under it. */
+const OPENCODE_COMMAND = "opencode";
+
+/** Signature carried by this launcher, so pane verification proves which launcher landed. */
+const LAUNCHER_SIGNATURE = "OPENCODE_LAUNCHER_7d3e91";
+
+/** Token the verify command echoes once the launcher body is confirmed. */
+const LAUNCHER_READY_MARKER = "OPENCODE_VERIFIED";
+
+/**
+ * The launcher body: opencode's config directory and the two switches that keep
+ * a spawn from reading anyone else's configuration, then the real binary with
+ * the pane's own arguments and the task on stdin.
+ *
+ * Bare `opencode` keeps the pane's `PATH` the authority on which binary runs,
+ * and `command` bypasses this very function. The redirect is what delivers a
+ * multi-line task: it becomes the initial message (opencode reads stdin as the
+ * prompt when it is not a terminal), and mini mode then reopens the controlling
+ * terminal for input, so later steers still reach the process.
+ */
+function launcherBody(configDir: string, taskFile: string): string {
+  return [
+    `export OPENCODE_CONFIG_DIR=${singleQuote(configDir)}`,
+    "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
+    "export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1",
+    `command opencode "$@" < ${singleQuote(taskFile)}`,
+  ].join("; ");
+}
+
+/**
+ * A value as one POSIX shell word: single quotes around it, and the `'\''` dance
+ * for any single quote inside. Every path this harness passes is its own temp
+ * path, but the launcher is a shell command herdr types into the pane, so the
+ * value is quoted rather than trusted.
+ */
+function singleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The proof that the staged definition is live, read back through the launcher
+ * the pane just took.
+ *
+ * opencode falls back to its own default agent — no system prompt, no
+ * permission map — when the named agent is missing or is not a primary agent,
+ * and the fallback is a warning it prints rather than a failure: nothing in the
+ * launch's argv or exit status reports one. `opencode agent list` is where the
+ * answer can be read. The list is filtered in the pane to the one line this
+ * wants: the unfiltered list runs past a thousand lines here (the staged agent
+ * sorts last), which is deeper than the output herdr's literal `wait-output`
+ * match searches, and `grep -x` pins the verified `^<subagentId> (primary)$`
+ * line rather than accepting a mention of the id.
+ */
+function definitionProof(subagentId: string): PaneProof {
+  const listed = `${subagentId} (primary)`;
+  return {
+    command: `${OPENCODE_COMMAND} agent list | grep -x ${singleQuote(listed)}`,
+    output: listed,
+    timeoutMs: AGENT_LIST_TIMEOUT_MS,
+    failure: `failed to prepare the pane: \`${OPENCODE_COMMAND} agent list\` never printed ${listed} — the definition staged for ${subagentId} is missing, unreadable, or not a primary agent, and opencode would fall back to its own default agent. The agent did not start.`,
+  };
+}
 
 /** Warns with the `[subagents]` prefix every other config-plane warning carries. */
 function warnListModels(reason: string): void {
@@ -141,11 +208,41 @@ export const opencodeHarness: Harness<"opencode"> = {
   id: "opencode",
   agentMuxKind: "opencode",
   available: () => commandPath("opencode") !== undefined,
-  async prepare(_request: HarnessPrepareRequest<"opencode">): Promise<void> {
-    throw new HerdrError(NOT_IMPLEMENTED, undefined);
+  /**
+   * Stage the config directory, install the launcher that points opencode at it
+   * and feeds it the task, and prove the staged definition is live behind it. A
+   * launch reaches the CLI through this pane state alone, so it is verified here
+   * rather than assumed.
+   */
+  async prepare({
+    pi,
+    paneId,
+    launch,
+  }: HarnessPrepareRequest<"opencode">): Promise<void> {
+    const configDir = writeOpencodeStaging({
+      subagentId: launch.subagentId,
+      systemPromptFile: launch.systemPromptFile,
+      variant: launch.variant,
+      toolSelection: launch.toolSelection,
+    });
+    await installPaneLauncher(pi, paneId, {
+      commandName: OPENCODE_COMMAND,
+      body: launcherBody(configDir, launch.taskFile),
+      signature: LAUNCHER_SIGNATURE,
+      readyMarker: LAUNCHER_READY_MARKER,
+      proof: definitionProof(launch.subagentId),
+    });
   },
-  buildArgs(_request: OpencodeLaunchRequest): string[] {
-    throw new HerdrError(NOT_IMPLEMENTED, undefined);
+  /**
+   * `--mini` is the minimal *interactive* UI and is load-bearing: `opencode run`
+   * exits when the session goes idle and never reads the terminal again, so a
+   * later steer would be typed into the pane's shell. The variant is not here —
+   * `--variant` exists only on `opencode run`; it rides the staged definition.
+   */
+  buildArgs(request: OpencodeLaunchRequest): string[] {
+    const args = ["--mini", "--agent", request.subagentId];
+    if (request.modelKey !== null) args.push("--model", request.modelKey);
+    return args;
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
@@ -156,5 +253,9 @@ export const opencodeHarness: Harness<"opencode"> = {
   prefetchModels: (pi) => {
     void fetchModels(pi);
   },
-  teardown: async () => {},
+  // Best effort and idempotent: the staged tree is this harness's only
+  // filesystem state, and a launch that failed before prepare staged nothing.
+  teardown: async ({ subagentId }) => {
+    removeOpencodeStaging(subagentId);
+  },
 };
