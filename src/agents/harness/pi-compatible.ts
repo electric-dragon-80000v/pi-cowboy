@@ -6,17 +6,12 @@
  * is not named `pi` must point the pane's `pi` at its own binary before herdr
  * starts the agent. That shell trick is identical for every such harness, so
  * this factory builds one from a binary name and a signature that proves which
- * launcher landed. The argv is identical too — pi's CLI — so the whole family
- * shares `buildPiLaunchArgs`, and only the shell trick varies per binary.
+ * launcher landed — the install itself is pane-launcher.ts's. The argv is
+ * identical too — pi's CLI — so the whole family shares `buildPiLaunchArgs`, and
+ * only the shell trick varies per binary.
  */
 
-import {
-  HerdrError,
-  runInPane,
-  waitForPaneOutput,
-} from "../../infrastructure/herdr-client.js";
 import { commandPath } from "../../infrastructure/exec-path.js";
-import { sleep } from "../../utils.js";
 import { subagentTokenFor } from "../../paths.js";
 import type {
   Harness,
@@ -26,6 +21,7 @@ import type {
   PiFamilyHarnessId,
   PiFamilyLaunchRequest,
 } from "../harness.js";
+import { installPaneLauncher } from "./pane-launcher.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
@@ -79,36 +75,14 @@ export const piFamilyListModels: HarnessListModels = async ({ modelCatalog }) =>
     .getAvailable()
     .map((model): ModelEntry => ({ key: `${model.provider}/${model.id}` }));
 
-/** Bounded prepare attempts: a `pane run` before the shell is at its prompt is silently lost. */
-const PREPARE_MAX_ATTEMPTS = 5;
-const PREPARE_OUTPUT_TIMEOUT_MS = 2_000;
-const PREPARE_RETRY_DELAY_MS = 250;
-
 export interface PiCompatibleSpec {
   readonly id: PiFamilyHarnessId;
   /** Binary the pane's `pi` forwards to, resolved on the pane's PATH. */
   readonly binary: string;
-  /**
-   * Signature carried by the launcher so verification can prove the pane's `pi`
-   * is this harness's launcher rather than another one's. A comment would be
-   * stripped when the shell stores the definition, so it rides as an inert `:`
-   * command.
-   */
+  /** Signature this binary's launcher carries, so pane verification proves which launcher landed. */
   readonly signature: string;
   /** Token the verify command echoes once the launcher body is confirmed. */
   readonly readyMarker: string;
-}
-
-/**
- * Break the marker with a `""` so only the shell's evaluation of the command —
- * not the command line's own echo, which `wait-output` also sees — produces the
- * contiguous token.
- */
-function splitMarker(marker: string): string {
-  const at = marker.indexOf("_");
-  return at === -1
-    ? marker
-    : `${marker.slice(0, at + 1)}""${marker.slice(at + 1)}`;
 }
 
 /**
@@ -120,17 +94,12 @@ function splitMarker(marker: string): string {
  * `HERDR_AGENT=pi` is what makes herdr's pi screen manifest detect the process —
  * without it the start times out and the pane never registers as an agent.
  *
- * Verification reads the pane's `pi` back with `typeset -f` and matches the
- * signature, so a match means the body is this launcher rather than an unrelated
- * `pi` from the pane's rc. `type pi` is not used: its wording varies by shell
- * (`is a function` in bash, `is a shell function` in zsh).
+ * The launcher is installed under the name herdr types into the pane, `pi`, so
+ * the pane's `pi` forwards to this binary whatever it is called.
  */
 export function createPiCompatibleHarness(
   spec: PiCompatibleSpec,
 ): Harness<PiFamilyHarnessId> {
-  const launcher = `pi() { : "${spec.signature}"; export HERDR_AGENT=pi; ${spec.binary} "$@"; }`;
-  const verifyCommand = `typeset -f pi 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`;
-
   return {
     id: spec.id,
     // The pane's `pi` forwards to this binary, so herdr's pi detection is what
@@ -148,26 +117,12 @@ export function createPiCompatibleHarness(
     listModels: piFamilyListModels,
     teardown: async () => {},
     async prepare({ pi, paneId }: HarnessPrepareRequest): Promise<void> {
-      for (let attempt = 1; attempt <= PREPARE_MAX_ATTEMPTS; attempt++) {
-        await runInPane(pi, paneId, launcher);
-        await runInPane(pi, paneId, verifyCommand);
-        try {
-          await waitForPaneOutput(
-            pi,
-            paneId,
-            spec.readyMarker,
-            PREPARE_OUTPUT_TIMEOUT_MS,
-          );
-          return;
-        } catch {
-          if (attempt < PREPARE_MAX_ATTEMPTS)
-            await sleep(PREPARE_RETRY_DELAY_MS);
-        }
-      }
-      throw new HerdrError(
-        `failed to prepare pane ${paneId} for the ${spec.id} harness: the pi launcher never landed`,
-        undefined,
-      );
+      await installPaneLauncher(pi, paneId, {
+        commandName: "pi",
+        body: `export HERDR_AGENT=pi; ${spec.binary} "$@"`,
+        signature: spec.signature,
+        readyMarker: spec.readyMarker,
+      });
     },
   };
 }
