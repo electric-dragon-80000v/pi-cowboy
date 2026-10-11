@@ -21,10 +21,8 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   runnableHarnessIds,
-  type ExtensionLaunchMode,
-  type HarnessLaunchRequest,
-  type SkillLaunchMode,
-  type ToolSelection,
+  type PiFamilyLaunchRequest,
+  type SubagentLaunchInputs,
   resolveHarness,
 } from "../src/agents/harness.js";
 import {
@@ -279,21 +277,29 @@ describe("prepare", () => {
 });
 
 describe("buildArgs", () => {
-  /** A launch request with every optional arm absent. */
-  function request(
-    overrides: Partial<HarnessLaunchRequest> = {},
-  ): HarnessLaunchRequest {
+  /** The launch inputs every family's request shares. */
+  function sharedInputs(): SubagentLaunchInputs {
     return {
       subagentId: "esp02hpw",
       systemPromptFile: "/spawn/esp02hpw/system.md",
       taskFile: "/spawn/esp02hpw/task.md",
       resultFile: "/spawn/esp02hpw/result.md",
       modelKey: null,
-      toolSelection: { kind: "default" } satisfies ToolSelection,
+      toolSelection: { kind: "default" },
+    };
+  }
+
+  /** A pi-family launch request with every optional arm absent. */
+  function request(
+    overrides: Partial<PiFamilyLaunchRequest> = {},
+  ): PiFamilyLaunchRequest {
+    return {
+      ...sharedInputs(),
+      family: "pi",
       thinkingLevel: null,
       forkSessionFile: null,
-      skills: { kind: "default" } satisfies SkillLaunchMode,
-      extensions: { kind: "default" } satisfies ExtensionLaunchMode,
+      skills: { kind: "default" },
+      extensions: { kind: "default" },
       projectTrusted: true,
       ...overrides,
     };
@@ -321,9 +327,12 @@ describe("buildArgs", () => {
   );
 
   it("builds no argv for opencode: there is no CLI mapping to build it from", () => {
-    expect(() => harnessFor("opencode").buildArgs(request())).toThrow(
-      /not implemented yet/,
-    );
+    expect(() =>
+      harnessFor("opencode").buildArgs({
+        ...sharedInputs(),
+        family: "opencode",
+      }),
+    ).toThrow(/not implemented yet/);
   });
 
   it("derives the report token from the subagent id, never a second field", () => {

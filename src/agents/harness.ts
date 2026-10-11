@@ -4,13 +4,13 @@
  * A harness owns four things: the mux agent kind its process launches as
  * (`agentMuxKind`), bringing its host pane into the state it launches in
  * (`prepare`), the argv the pane runs (`buildArgs`), and undoing any state it
- * left on the filesystem (`teardown`). What every harness family
- * has in common lives here as `SubagentLaunchInputs`; what one family alone
- * uses (today, pi's CLI flags) lives beside it as that family's inputs, so a
- * second family adds a request member — never an optional field, a passthrough
- * schema, or a raw config record on a shared type. Each harness's
- * implementation lives beside this module (harness/pig.ts, harness/pi-bolt.ts,
- * harness/opencode.ts) and is selected through harness/registry.ts.
+ * left on the filesystem (`teardown`). What every harness family has in common
+ * lives here as `SubagentLaunchInputs`; what one family alone uses (today,
+ * pi's CLI flags) lives beside it as that family's inputs, so a second family
+ * adds a request member — never an optional field, a passthrough schema, or a
+ * raw config record on a shared type. Each harness's implementation lives
+ * beside this module (harness/pig.ts, harness/pi-bolt.ts, harness/opencode.ts)
+ * and is selected through harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
  * a template written where a harness exists must still load where it does not.
@@ -57,8 +57,15 @@ export const DEFAULT_HARNESS: HarnessId = "pi";
  */
 export const PI_FAMILY_HARNESS_IDS = ["pi", "pig", "pi-bolt"] as const;
 
-/** Whether this harness runs the pi binary (see PI_FAMILY_HARNESS_IDS). */
-export function isPiFamilyHarness(id: HarnessId): boolean {
+/** One of the pi family's ids (see PI_FAMILY_HARNESS_IDS). */
+export type PiFamilyHarnessId = (typeof PI_FAMILY_HARNESS_IDS)[number];
+
+/**
+ * Whether this harness runs the pi binary (see PI_FAMILY_HARNESS_IDS). Narrowing,
+ * so the branch that builds the pi family's launch request is typed against a
+ * pi-family harness.
+ */
+export function isPiFamilyHarness(id: HarnessId): id is PiFamilyHarnessId {
   return PI_FAMILY_HARNESS_IDS.some((family) => family === id);
 }
 
@@ -162,11 +169,51 @@ export interface PiLaunchInputs {
 }
 
 /**
- * The argv-building request. Today it has exactly one shape — the pi family's
- * — because every harness is pi-compatible; a second family adds a member
- * (a family-keyed union), never an optional field on this one.
+ * The launch-request families: the pi family (pi, pig, pi-bolt) and opencode.
+ * Filtered from the mux's kinds rather than re-declared, so the two vocabularies
+ * cannot drift apart; each member of `HarnessLaunchRequest` carries one as its
+ * `family` tag.
  */
-export type HarnessLaunchRequest = SubagentLaunchInputs & PiLaunchInputs;
+export type HarnessFamily = Extract<AgentMuxKind, "pi" | "opencode">;
+
+/** The family tag one launch request carries; the tag alone selects the member. */
+interface HarnessFamilyTag<F extends HarnessFamily> {
+  readonly family: F;
+}
+
+/** pi's argv request: the shared launch inputs plus pi's own CLI flags. */
+export type PiFamilyLaunchRequest = HarnessFamilyTag<"pi"> &
+  SubagentLaunchInputs &
+  PiLaunchInputs;
+
+/**
+ * opencode's argv request: the shared launch inputs alone, because opencode's
+ * CLI mapping is not written.
+ */
+export type OpencodeLaunchRequest = HarnessFamilyTag<"opencode"> &
+  SubagentLaunchInputs;
+
+/**
+ * The argv-building request, keyed by family: pi's flags are what a `"pi"`
+ * request is, so they cannot ride to a harness that never mapped them. A new
+ * family adds a member — and, if its `prepare` needs launch context, widens
+ * `HarnessPrepareRequest` in the same change — never an optional field on an
+ * existing member.
+ */
+export type HarnessLaunchRequest =
+  PiFamilyLaunchRequest | OpencodeLaunchRequest;
+
+/**
+ * The launch request one harness id builds argv from. Keyed by id, so a harness
+ * added to `HARNESS_IDS` without a request fails to compile; the pi family
+ * shares one member because they all run the pi binary.
+ */
+export type LaunchRequestFor<K extends HarnessId> = {
+  pi: PiFamilyLaunchRequest;
+  pig: PiFamilyLaunchRequest;
+  "pi-bolt": PiFamilyLaunchRequest;
+  opencode: OpencodeLaunchRequest;
+}[K];
 
 /** What a harness needs to bring its host pane into the state it launches in. */
 export interface HarnessPrepareRequest {
@@ -230,7 +277,7 @@ export type HarnessListModels = (
 ) => Promise<readonly ModelEntry[]>;
 
 /** One harness implementation. */
-export interface Harness {
+export interface Harness<K extends HarnessId = HarnessId> {
   readonly id: HarnessId;
   /**
    * The agent kind this harness launches as, in the mux's vocabulary; the only
@@ -253,8 +300,10 @@ export interface Harness {
   /**
    * The complete argv the pane runs, including how the task rides (the pi
    * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.
+   * Typed to this harness's own family, so one family's flags cannot reach
+   * another's buildArgs.
    */
-  buildArgs(request: HarnessLaunchRequest): string[];
+  buildArgs(request: LaunchRequestFor<K>): string[];
   /**
    * Undo filesystem state this harness's prepare left behind. Best-effort and
    * idempotent: callers wrap it so a failure is logged and never masks the

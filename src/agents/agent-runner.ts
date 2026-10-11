@@ -28,11 +28,13 @@ import {
   buildSubagentSystemPrompt,
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
-import type {
-  ExtensionLaunchMode,
-  HarnessId,
-  SkillLaunchMode,
-  ToolSelection,
+import {
+  isPiFamilyHarness,
+  type ExtensionLaunchMode,
+  type HarnessId,
+  type SkillLaunchMode,
+  type SubagentLaunchInputs,
+  type ToolSelection,
 } from "./harness.js";
 import { harnessFor } from "./harness/registry.js";
 import type { AgentConfig, SubagentType } from "./types.js";
@@ -365,20 +367,30 @@ export async function buildLaunchPlan(
   }
 
   // The harness owns the argv — including how the task rides — because the
-  // CLI surface is the harness's, not the orchestrator's.
-  const piArgs = harnessFor(harnessType).buildArgs({
+  // CLI surface is the harness's, not the orchestrator's. The request is keyed by
+  // family, so pi's flags only ever reach a pi-family harness.
+  const sharedInputs: SubagentLaunchInputs = {
     subagentId: agentId,
     systemPromptFile: systemFile,
     taskFile,
     resultFile,
     modelKey: options.modelSelection?.key ?? null,
     toolSelection,
-    thinkingLevel: options.thinkingLevel ?? null,
-    forkSessionFile: forkSessionFile ?? null,
-    skills: skillMode,
-    extensions: extMode,
-    projectTrusted: options.projectTrusted !== false,
-  });
+  };
+  const piArgs = isPiFamilyHarness(harnessType)
+    ? harnessFor(harnessType).buildArgs({
+        ...sharedInputs,
+        family: "pi",
+        thinkingLevel: options.thinkingLevel ?? null,
+        forkSessionFile: forkSessionFile ?? null,
+        skills: skillMode,
+        extensions: extMode,
+        projectTrusted: options.projectTrusted !== false,
+      })
+    : harnessFor(harnessType).buildArgs({
+        ...sharedInputs,
+        family: "opencode",
+      });
 
   for (const msg of warnings) {
     ctx.ui.notify(`[cowboy] ${msg}`, "warning");

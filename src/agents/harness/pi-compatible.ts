@@ -20,11 +20,11 @@ import { sleep } from "../../utils.js";
 import { subagentTokenFor } from "../../paths.js";
 import type {
   Harness,
-  HarnessId,
-  HarnessLaunchRequest,
   HarnessListModels,
   HarnessPrepareRequest,
   ModelEntry,
+  PiFamilyHarnessId,
+  PiFamilyLaunchRequest,
 } from "../harness.js";
 
 /**
@@ -34,7 +34,7 @@ import type {
  * token rides via `--append-system-prompt` because `--system-prompt` names a
  * file and a path cannot carry the marker.
  */
-export function buildPiLaunchArgs(request: HarnessLaunchRequest): string[] {
+export function buildPiLaunchArgs(request: PiFamilyLaunchRequest): string[] {
   const args: string[] = [
     "--system-prompt",
     request.systemPromptFile,
@@ -85,7 +85,7 @@ const PREPARE_OUTPUT_TIMEOUT_MS = 2_000;
 const PREPARE_RETRY_DELAY_MS = 250;
 
 export interface PiCompatibleSpec {
-  readonly id: HarnessId;
+  readonly id: PiFamilyHarnessId;
   /** Binary the pane's `pi` forwards to, resolved on the pane's PATH. */
   readonly binary: string;
   /**
@@ -125,7 +125,9 @@ function splitMarker(marker: string): string {
  * `pi` from the pane's rc. `type pi` is not used: its wording varies by shell
  * (`is a function` in bash, `is a shell function` in zsh).
  */
-export function createPiCompatibleHarness(spec: PiCompatibleSpec): Harness {
+export function createPiCompatibleHarness(
+  spec: PiCompatibleSpec,
+): Harness<PiFamilyHarnessId> {
   const launcher = `pi() { : "${spec.signature}"; export HERDR_AGENT=pi; ${spec.binary} "$@"; }`;
   const verifyCommand = `typeset -f pi 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`;
 

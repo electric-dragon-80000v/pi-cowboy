@@ -24,7 +24,7 @@ import { opencodeHarness } from "./opencode.js";
  * assembly — pi is the family's namesake — and its model list is the family's
  * shared catalog.
  */
-const piHarness: Harness = {
+const piHarness: Harness<"pi"> = {
   id: "pi",
   agentMuxKind: "pi",
   available: () => true,
@@ -35,15 +35,15 @@ const piHarness: Harness = {
 };
 
 /** Keyed by id, so a harness added to `HARNESS_IDS` without an implementation fails to compile. */
-const HARNESSES: Record<HarnessId, Harness> = {
+const HARNESSES: { [K in HarnessId]: Harness<K> } = {
   pi: piHarness,
   pig: pigHarness,
   "pi-bolt": piBoltHarness,
   opencode: opencodeHarness,
 };
 
-/** The implementation for one harness id. */
-export function harnessFor(id: HarnessId): Harness {
+/** The implementation for one harness id, typed to that harness's launch request. */
+export function harnessFor<K extends HarnessId>(id: K): Harness<K> {
   return HARNESSES[id];
 }
 
