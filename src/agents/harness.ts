@@ -1,16 +1,21 @@
 /**
  * harness.ts — the harness contract: which process launches a subagent, and how.
  *
- * A harness owns four things: the mux agent kind its process launches as
+ * A harness owns five things: the mux agent kind its process launches as
  * (`agentMuxKind`), bringing its host pane into the state it launches in
- * (`prepare`), the argv the pane runs (`buildArgs`), and undoing any state it
- * left on the filesystem (`teardown`). What every harness family has in common
+ * (`prepare`), the argv the pane runs (`buildArgs`), undoing any state it
+ * left on the filesystem (`teardown`), and warming a slow model list at boot
+ * (`prefetchModels`). What every harness family has in common
  * lives here as `SubagentLaunchInputs`; what one family alone uses (pi's CLI
  * flags, opencode's variant) lives beside it as that family's inputs, so a
  * second family adds a request member — never an optional field, a passthrough
  * schema, or a raw config record on a shared type. One request carries one
  * family's launch, and both `buildArgs` and `prepare` read it, so nothing a
- * harness is handed belongs to a family it does not launch. Each harness's
+ * harness is handed belongs to a family it does not launch. The listing request
+ * below (`HarnessListModelsRequest`) is the one shared request that breaks that
+ * shape, because one call answers for every runnable harness at once: a
+ * family's own input rides it as a field named after that family, never as a
+ * member a caller has to pick. Each harness's
  * implementation lives beside this module (harness/pig.ts,
  * harness/pi-bolt.ts, harness/opencode.ts) and is selected through
  * harness/registry.ts.
@@ -336,8 +341,17 @@ export interface Harness<K extends HarnessId = HarnessId> {
   teardown(request: HarnessTeardownRequest): Promise<void>;
   /**
    * The models this harness can run, listed on demand — when a menu opens, and
-   * when the spawn wizard opens — rather than cached, because a catalog or a
-   * foreign CLI can change under a live session.
+   * when the spawn wizard opens. The pi family reads its catalog live on every
+   * call. opencode answers from its memoized fetch, so the boot warm and every
+   * menu select share one CLI run; an empty answer is never retained, so a
+   * failed list retries on the next read instead of pinning an empty row.
    */
   listModels(request: HarnessListModelsRequest): Promise<readonly ModelEntry[]>;
+  /**
+   * Warm the model list in the background at boot. Required, with an explicit
+   * no-op for a harness whose list is cheap — a harness that needs warming
+   * but forgets this compiles loudly missing, never silently cold.
+   * Fire-and-forget, so a slow channel never blocks the launch.
+   */
+  prefetchModels(pi: ExtensionAPI): void;
 }

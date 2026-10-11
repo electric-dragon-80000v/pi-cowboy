@@ -99,6 +99,40 @@ async function listOpencodeModels(
   return entries;
 }
 
+/**
+ * Fetches by requesting pi instance. This is memoization of an idempotent
+ * read, owned by the code that performs it — not session lifecycle state, so
+ * it lives here rather than in the shell. Keying by caller means no read can
+ * pin another caller's pi (the instance is process-singleton in production;
+ * the keying is strictness for tests and embedders, which also keeps cases
+ * from leaking answers into each other with no reset helper). An empty
+ * answer reads exactly like a failed list, so it is forgotten and the next
+ * read retries instead of pinning an empty row.
+ */
+const modelFetches = new WeakMap<
+  ExtensionAPI,
+  Promise<readonly ModelEntry[]>
+>();
+
+/** The models for this caller, fetching once and memoizing the answer. */
+function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
+  const existing = modelFetches.get(pi);
+  if (existing !== undefined) return existing;
+  const fetch = listOpencodeModels(pi);
+  modelFetches.set(pi, fetch);
+  // listModels never rejects — every failure mode resolves [] — so the
+  // rejection arm only guards the contract, never the CLI.
+  void fetch.then(
+    (models) => {
+      if (models.length === 0) modelFetches.delete(pi);
+    },
+    () => {
+      modelFetches.delete(pi);
+    },
+  );
+  return fetch;
+}
+
 export const opencodeHarness: Harness<"opencode"> = {
   id: "opencode",
   agentMuxKind: "opencode",
@@ -110,7 +144,13 @@ export const opencodeHarness: Harness<"opencode"> = {
     throw new HerdrError(NOT_IMPLEMENTED, undefined);
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
-  // which this harness does not run.
-  listModels: async ({ pi }) => listOpencodeModels(pi),
+  // which this harness does not run. Reads share the memoized fetch, so the
+  // boot warm and every menu select ride one CLI run. Returned unwrapped, so
+  // every joiner holds the one shared promise — an `async` wrapper would mint
+  // a copy per call.
+  listModels: ({ pi }) => fetchModels(pi),
+  prefetchModels: (pi) => {
+    void fetchModels(pi);
+  },
   teardown: async () => {},
 };

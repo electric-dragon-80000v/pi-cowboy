@@ -24,7 +24,10 @@ import {
 } from "./registration.js";
 import { setupEventListeners } from "./events.js";
 import { startCowSupportProbe } from "./cow-support-launch.js";
-import { startHarnessAvailabilityProbe } from "./harness-availability-launch.js";
+import {
+  prefetchHarnessModels,
+  startHarnessAvailabilityProbe,
+} from "./harness-availability-launch.js";
 
 /** The one reason the extension is unavailable when the session is not inside a git repository. */
 const NOT_INSIDE_GIT_REPOSITORY =
@@ -75,4 +78,7 @@ export default function (pi: ExtensionAPI) {
   startCowSupportProbe(pi);
   // Which harnesses are on PATH decides which stay on offer.
   startHarnessAvailabilityProbe();
+  // Slow model lists start warming now, never awaited; every later listing
+  // joins whatever its harness started.
+  prefetchHarnessModels(pi);
 }

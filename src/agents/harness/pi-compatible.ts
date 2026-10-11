@@ -115,6 +115,8 @@ export function createPiCompatibleHarness(
     // result-dir artifacts the session owns.
     buildArgs: buildPiLaunchArgs,
     listModels: piFamilyListModels,
+    // The catalog is local: nothing to warm.
+    prefetchModels: () => {},
     teardown: async () => {},
     async prepare({
       pi,

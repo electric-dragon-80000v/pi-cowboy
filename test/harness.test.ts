@@ -512,6 +512,28 @@ describe("listModels", () => {
     ]);
   });
 
+  it("shares one CLI run between reads from the same caller", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: "anthropic/claude-opus-4\n",
+      stderr: "",
+    }));
+    const pi = { exec } as unknown as ExtensionAPI;
+    const request = { pi, modelCatalog: CATALOG };
+
+    const [first, second] = await Promise.all([
+      harnessFor("opencode").listModels(request),
+      harnessFor("opencode").listModels(request),
+    ]);
+
+    // One run, and every joiner holds the one shared promise.
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(first).toEqual([
+      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
+    ]);
+  });
+
   it("resolves an empty list and warns when the CLI fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
@@ -608,7 +630,10 @@ describe("listHarnessModelOptions", () => {
     const exec = opencodeExec();
 
     const lists = await listHarnessModelOptions(
-      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
       probed(["pi"]),
     );
 
@@ -620,7 +645,10 @@ describe("listHarnessModelOptions", () => {
     const exec = opencodeExec();
 
     const lists = await listHarnessModelOptions(
-      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
       unprobed(),
     );
 
@@ -656,7 +684,10 @@ describe("listHarnessModelOptions", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const lists = await listHarnessModelOptions(
-      { pi: { exec } as unknown as ExtensionAPI, modelCatalog: CATALOG },
+      {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
       probed(["pi", "opencode"]),
     );
 

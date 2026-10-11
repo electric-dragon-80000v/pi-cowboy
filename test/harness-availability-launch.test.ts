@@ -8,12 +8,18 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   detectHarnessAvailability,
+  prefetchHarnessModels,
   startHarnessAvailabilityProbe,
 } from "../src/harness-availability-launch.js";
-import { getHarnessAvailability } from "../src/shell.js";
+import { harnessFor } from "../src/agents/harness/registry.js";
+import {
+  getHarnessAvailability,
+  setHarnessAvailability,
+} from "../src/shell.js";
 import { probed, unprobed } from "../src/availability.js";
 
 const realPath = process.env.PATH;
@@ -38,6 +44,8 @@ afterEach(() => {
   for (const dir of tmpDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  // No fetch reset: the harness memo is keyed by pi instance, and every
+  // case below news up its own — no case can read another's answer.
 });
 
 describe("detectHarnessAvailability", () => {
@@ -67,5 +75,112 @@ describe("startHarnessAvailabilityProbe", () => {
     startHarnessAvailabilityProbe();
 
     expect(getHarnessAvailability()).toEqual(probed(["pi"]));
+  });
+});
+
+describe("prefetchHarnessModels", () => {
+  /** `pi.exec` answering one model, counted per case. */
+  function answeringPi(
+    stdout: string,
+    code = 0,
+  ): { pi: ExtensionAPI; exec: ReturnType<typeof vi.fn> } {
+    const exec = vi.fn(async () => ({ code, stdout, stderr: "" }));
+    return { pi: { exec } as unknown as ExtensionAPI, exec };
+  }
+
+  /** `listModels` the way registration calls it: pi plus a catalog. */
+  function listOpencode(pi: ExtensionAPI): Promise<unknown> {
+    return harnessFor("opencode").listModels({
+      pi,
+      modelCatalog: { getAvailable: () => [] },
+    });
+  }
+
+  it("starts no fetch where no runnable harness warms one", () => {
+    freshPath();
+    startHarnessAvailabilityProbe();
+    const { pi, exec } = answeringPi("");
+
+    prefetchHarnessModels(pi);
+
+    // pi reads its catalog on demand and warms nothing.
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("starts no fetch while the probe has not proven opencode", () => {
+    // opencode is on PATH, but the shell answers unprobed — and an unproven
+    // harness warms nothing. This stays red if the gate is ever dropped.
+    const dir = freshPath();
+    executable(dir, "opencode");
+    setHarnessAvailability(unprobed());
+    const { pi, exec } = answeringPi("");
+
+    prefetchHarnessModels(pi);
+
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("warms once at boot and later reads join the one run", async () => {
+    const dir = freshPath();
+    executable(dir, "opencode");
+    startHarnessAvailabilityProbe();
+    const { pi, exec } = answeringPi("anthropic/claude-opus-4\n");
+
+    // Boot warms without awaiting, exactly like the probes.
+    prefetchHarnessModels(pi);
+    prefetchHarnessModels(pi);
+    expect(exec).toHaveBeenCalledTimes(1);
+
+    // Registration's read path joins the warm instead of shelling out again.
+    await expect(listOpencode(pi)).resolves.toEqual([
+      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
+    ]);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgets an empty answer so the next read retries", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const dir = freshPath();
+      executable(dir, "opencode");
+      startHarnessAvailabilityProbe();
+      const { pi, exec } = answeringPi("", 1);
+
+      await expect(listOpencode(pi)).resolves.toEqual([]);
+      await Promise.resolve();
+
+      // The next read starts a fresh run instead of pinning the empty row.
+      await expect(listOpencode(pi)).resolves.toEqual([]);
+      expect(exec).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("prefetchHarnessModels", () => {
+  it("warms every runnable harness without naming any, exactly once", () => {
+    const dir = freshPath();
+    executable(dir, "opencode");
+    startHarnessAvailabilityProbe();
+    const exec = vi.fn(() => new Promise(() => {}));
+    const pi = { exec } as unknown as ExtensionAPI;
+
+    prefetchHarnessModels(pi);
+    prefetchHarnessModels(pi);
+
+    // opencode's hook started its memoized fetch; the pi family no-op'd.
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts nothing where the probe proved nothing slow", () => {
+    freshPath();
+    startHarnessAvailabilityProbe();
+    const exec = vi.fn(() => new Promise(() => {}));
+
+    prefetchHarnessModels({ exec } as unknown as ExtensionAPI);
+
+    expect(exec).not.toHaveBeenCalled();
   });
 });

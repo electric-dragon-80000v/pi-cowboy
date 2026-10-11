@@ -31,6 +31,8 @@ const piHarness: Harness<"pi"> = {
   prepare: async () => {},
   buildArgs: buildPiLaunchArgs,
   listModels: piFamilyListModels,
+  // The catalog is local: nothing to warm.
+  prefetchModels: () => {},
   teardown: async () => {},
 };
 

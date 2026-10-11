@@ -4,10 +4,11 @@
  * the flag read, both halves of the switch (register the agent tool's type list
  * and move the names in and out of the active set), the global-layer write, and
  * the `/cowboy` dispatch of `spawn`/`status`/`model`, `enable`/`disable` and its
- * fall-through to the main menu.
+ * fall-through to the main menu, and the opencode fetch that dispatch carries
+ * into the model listing.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Component } from "@earendil-works/pi-tui";
 import type {
   ExtensionAPI,
@@ -19,7 +20,12 @@ import {
   type RawConfig,
 } from "../src/config/config-store.js";
 import type { LoadedConfig } from "../src/config/config-io.js";
-import { getStore, setSessionCtx } from "../src/shell.js";
+import { probed, unprobed } from "../src/availability.js";
+import {
+  getStore,
+  setHarnessAvailability,
+  setSessionCtx,
+} from "../src/shell.js";
 import {
   recordOverlayMount,
   type OverlayCallOptions,
@@ -632,5 +638,75 @@ describe("/cowboy dispatch", () => {
     expect(
       (await cowboyCompletions("model "))?.map((item) => item.value),
     ).toEqual(["model clear", "model openai/gpt", "model anthropic/claude-3"]);
+  });
+});
+
+/**
+ * The main menu's model listing: `/cowboy` is what carries the shell's opencode
+ * fetch into the harness request, so this pins the wiring the launch module's
+ * own test and the harness's own test each hold one end of.
+ */
+describe("the /cowboy model listing", () => {
+  interface CowboyCommand {
+    handler: (args: string, ctx: unknown) => Promise<void>;
+  }
+
+  /** The `/cowboy` command as registered on a pi that answers `opencode models`. */
+  function handlerWithOpencode(exec: unknown): CowboyCommand {
+    let command: CowboyCommand | undefined;
+    const pi = {
+      registerTool: () => {},
+      registerMessageRenderer: () => {},
+      registerCommand: (
+        _name: string,
+        registered: { handler: CowboyCommand["handler"] },
+      ) => {
+        command = registered;
+      },
+      exec,
+    } as unknown as ExtensionAPI;
+    registerCowboyCommand(pi);
+    if (!command)
+      throw new Error("registerCowboyCommand registered no command");
+    return command;
+  }
+
+  afterEach(() => {
+    // The probe answer is shell state this file otherwise never touches: hand
+    // it back at its default so no case outlives itself. The opencode fetch
+    // needs no reset — the harness memoizes by pi instance, and every case
+    // news up its own.
+    setHarnessAvailability(unprobed());
+  });
+
+  it("joins the boot warm, so two menu opens run `opencode models` once", async () => {
+    install({});
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: "anthropic/claude-opus-4\n",
+      stderr: "",
+    }));
+    const { handler } = handlerWithOpencode(exec);
+    const ctx = {
+      ...commandContext(vi.fn()),
+      modelRegistry: {
+        getAvailable: () => [{ provider: "openai", id: "gpt" }],
+      },
+    };
+    const listed = new Map([
+      ["pi", ["openai/gpt"]],
+      ["pig", ["openai/gpt"]],
+      ["pi-bolt", ["openai/gpt"]],
+      ["opencode", ["anthropic/claude-opus-4"]],
+    ]);
+
+    await handler("", ctx);
+    // The second open reads the fetch the first one started, not a new run.
+    await handler("", ctx);
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(1, ctx, listed);
+    expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(2, ctx, listed);
   });
 });
