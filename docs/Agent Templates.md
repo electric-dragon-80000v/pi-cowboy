@@ -72,7 +72,7 @@ include_context_files = true
 # (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too.
 [harness.pi]
 
-# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling is this same pi-family key. default = the first model that is set, falling back to the parent session's model.
+# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling is this same pi-family key. default = the first model that is set, falling back to the parent session's model — which the pi family alone can inherit.
 model = "anthropic/claude-sonnet-4"
 
 # (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
@@ -100,4 +100,4 @@ fork = false
 # variant = "high"
 ```
 
-A pi-family key written flat under `[harness]` — `model` among them — still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` and `[harness.opencode] model` never reach a pi launch, and a `model` written for pi (flat or under `[harness.pi]`) never reaches an opencode launch — that launch falls through to its own default or the parent session's model.
+A pi-family key written flat under `[harness]` — `model` among them — still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` and `[harness.opencode] model` never reach a pi launch, and a `model` written for pi (flat or under `[harness.pi]`) never reaches an opencode launch — that launch falls through to its own default, and the parent session's model is pi's key, so it is never inherited there.

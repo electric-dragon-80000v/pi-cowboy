@@ -199,7 +199,7 @@ A removal that fails does not throw. The branch is removed only after you have m
 
 ## Model resolution
 
-A model set in the `cowboy_agent` call wins over everything; below it come the session overrides, the agent template, the session default, the launching harness's default, and finally the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
+A model set in the `cowboy_agent` call wins over everything; below it come the session overrides, the agent template, the session default, the launching harness's default, and finally — under the pi family — the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
 
 ## Concurrency
 

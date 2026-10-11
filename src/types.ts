@@ -2,7 +2,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
-import type { HarnessId } from "./agents/harness.js";
+import type { ForeignHarnessId, HarnessId } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
 export type ThinkingLevel = ModelThinkingLevel;
@@ -15,11 +15,25 @@ export type ThinkingLevel = ModelThinkingLevel;
 export const DEFAULT_AGENT_TYPE = "general-purpose";
 export const DEFAULT_ORCHESTRATOR_NAME = "default";
 
-/** A resolved spawn model: the catalog entry plus its "provider/id" concurrency key. Absent means inherit the parent. */
-export interface ModelSelection {
-  model: Model<Api>;
-  key: string;
-}
+/**
+ * A resolved spawn model. pi's member is its catalog entry, whose `model.id`
+ * names the run; a foreign harness's member is the key alone plus its display
+ * name, because a key from another harness's list has no `Model` in this
+ * session to carry. Absent means inherit the parent.
+ */
+export type ModelSelection =
+  | {
+      model: Model<Api>;
+      /** The concurrency pool identity, always "provider/id". */
+      key: string;
+    }
+  | {
+      /** The harness whose vocabulary `key` belongs to. */
+      harness: ForeignHarnessId;
+      key: string;
+      /** The display form: the harness list's label for the key, or the key itself. */
+      name: string;
+    };
 
 /** Shared by every spawn/run shape; add a tunable here once. */
 export interface RunTunables {

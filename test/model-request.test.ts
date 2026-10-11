@@ -1,21 +1,26 @@
 /**
  * model-request.test.ts — unit coverage for the tool boundary's model request.
  * The end-to-end wiring is pinned in model-override.test.ts. Pins: provenance
- * is the args KEY (caller's key wins); a caller model is STRICT; the
- * configured value keeps the soft fallback; slashed model ids resolve through
- * the full id; an unauthenticatable model refuses for every source; and only
- * an explicit `{ configured: false }` refuses — a throwing or unrecognized
- * probe is NOT a verdict.
+ * is the args KEY (caller's key wins); a caller model is STRICT on the pi
+ * family; the configured value keeps the soft fallback to the parent; slashed
+ * model ids resolve through the full id; an unauthenticatable model refuses
+ * for every source; and only an explicit `{ configured: false }` refuses — a
+ * throwing or unrecognized probe is NOT a verdict. A foreign harness carries
+ * its key as written: pi's catalog and probe are never consulted, the parent's
+ * model is never inherited, and the harness's own list is advisory.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ModelEntry } from "../src/agents/harness.js";
 import {
   CONFIGURED_MODEL_KEY,
   readModelKey,
   readModelRequest,
   resolveModelRequest,
+  resolveSpawnModel,
   type ModelLookup,
+  type SpawnModelDeps,
 } from "../src/models/model-request.js";
 
 function model(provider: string, id: string): Model<Api> {
@@ -334,5 +339,201 @@ describe("resolveModelRequest — credential rules", () => {
         PARENT,
       ),
     ).toMatchObject({ model: CONFIGURED });
+  });
+});
+
+/** The harness-aware resolution's deps, over a list the case controls. */
+function spawnDeps(
+  overrides: Pick<SpawnModelDeps, "harness"> & Partial<SpawnModelDeps>,
+): SpawnModelDeps {
+  return {
+    registry,
+    parent: PARENT,
+    listModels: async () => [],
+    notify: () => {},
+    ...overrides,
+  };
+}
+
+describe("resolveSpawnModel — a foreign harness's own vocabulary", () => {
+  const FOREIGN_KEY = "anthropic/claude-3";
+
+  it("carries a caller's key as written and never reads pi's catalog or probe", async () => {
+    const find = vi.fn(() => undefined);
+    const probe = vi.fn(() => ({ configured: true }));
+
+    const resolved = await resolveSpawnModel(
+      { source: "call", key: FOREIGN_KEY },
+      spawnDeps({
+        harness: "opencode",
+        registry: { find, getProviderAuthStatus: probe },
+      }),
+    );
+
+    // A pi lookup would have refused this key outright.
+    expect(find).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
+    expect(resolved).toEqual({
+      kind: "foreign",
+      harness: "opencode",
+      modelKey: FOREIGN_KEY,
+      modelName: FOREIGN_KEY,
+    });
+  });
+
+  it("carries a configured default instead of swapping in the parent's model", async () => {
+    const resolved = await resolveSpawnModel(
+      { source: "configured", key: "openai/gpt-4o" },
+      spawnDeps({ harness: "opencode" }),
+    );
+
+    expect(resolved).toEqual({
+      kind: "foreign",
+      harness: "opencode",
+      modelKey: "openai/gpt-4o",
+      modelName: "openai/gpt-4o",
+    });
+  });
+
+  it("inherits nothing: the parent's pi key never reaches a foreign launch", async () => {
+    const listModels = vi.fn(async () => [] as readonly ModelEntry[]);
+
+    const resolved = await resolveSpawnModel(
+      undefined,
+      spawnDeps({ harness: "opencode", listModels }),
+    );
+
+    expect(resolved).toEqual({ kind: "none" });
+    // Nothing to compare a key against, so the harness's list is not read.
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it("warns when the harness's list is non-empty and lacks the key, and carries it anyway", async () => {
+    const notify = vi.fn();
+    const list: readonly ModelEntry[] = [{ key: "openai/gpt-4o" }];
+
+    const resolved = await resolveSpawnModel(
+      { source: "call", key: FOREIGN_KEY },
+      spawnDeps({
+        harness: "opencode",
+        listModels: async () => list,
+        notify,
+      }),
+    );
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]![0]).toBe(
+      `The opencode model list does not include "${FOREIGN_KEY}"; launching with that key anyway.`,
+    );
+    expect(resolved).toMatchObject({
+      kind: "foreign",
+      modelKey: FOREIGN_KEY,
+      modelName: FOREIGN_KEY,
+    });
+  });
+
+  it("says nothing when the harness's list is empty", async () => {
+    const notify = vi.fn();
+
+    const resolved = await resolveSpawnModel(
+      { source: "configured", key: FOREIGN_KEY },
+      spawnDeps({
+        harness: "opencode",
+        listModels: async () => [],
+        notify,
+      }),
+    );
+
+    expect(notify).not.toHaveBeenCalled();
+    expect(resolved).toMatchObject({ kind: "foreign", modelKey: FOREIGN_KEY });
+  });
+
+  it("says nothing when the harness's list could not be produced", async () => {
+    const notify = vi.fn();
+
+    const resolved = await resolveSpawnModel(
+      { source: "configured", key: FOREIGN_KEY },
+      spawnDeps({
+        harness: "opencode",
+        listModels: async () => {
+          throw new Error("opencode models exploded");
+        },
+        notify,
+      }),
+    );
+
+    expect(notify).not.toHaveBeenCalled();
+    expect(resolved).toMatchObject({ kind: "foreign", modelKey: FOREIGN_KEY });
+  });
+
+  it("names the model from the matching list entry", async () => {
+    const list: readonly ModelEntry[] = [
+      { key: "openai/gpt-4o", label: "gpt-4o" },
+    ];
+
+    const resolved = await resolveSpawnModel(
+      { source: "call", key: "openai/gpt-4o" },
+      spawnDeps({ harness: "opencode", listModels: async () => list }),
+    );
+
+    expect(resolved).toMatchObject({
+      modelKey: "openai/gpt-4o",
+      modelName: "gpt-4o",
+    });
+  });
+});
+
+describe("resolveSpawnModel — the pi family keeps pi's rules", () => {
+  it.each(["pi", "pig", "pi-bolt"] as const)(
+    "reads the catalog and the probe for %s, never a list of its own",
+    async (harness) => {
+      const listModels = vi.fn(async () => [] as readonly ModelEntry[]);
+
+      expect(
+        await resolveSpawnModel(
+          { source: "call", key: "override/special-model" },
+          spawnDeps({ harness, listModels }),
+        ),
+      ).toEqual({
+        kind: "resolved",
+        model: OVERRIDE,
+        modelKey: "override/special-model",
+      });
+      expect(listModels).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps the parent pin when no request exists", async () => {
+    expect(
+      await resolveSpawnModel(undefined, spawnDeps({ harness: "pig" })),
+    ).toEqual({
+      kind: "resolved",
+      model: PARENT,
+      modelKey: "parent/parent-1",
+    });
+  });
+
+  it("refuses a caller key the catalog lacks, exactly as the pi path does", async () => {
+    await expect(
+      resolveSpawnModel(
+        { source: "call", key: "ghost/missing" },
+        spawnDeps({ harness: "pi-bolt" }),
+      ),
+    ).rejects.toThrow(
+      'Model "ghost/missing" is not available in this session. Nothing was spawned.',
+    );
+  });
+
+  it("keeps the configured soft fallback to the parent", async () => {
+    expect(
+      await resolveSpawnModel(
+        { source: "configured", key: "config/vanished" },
+        spawnDeps({ harness: "pi" }),
+      ),
+    ).toEqual({
+      kind: "resolved",
+      model: PARENT,
+      modelKey: "parent/parent-1",
+    });
   });
 });

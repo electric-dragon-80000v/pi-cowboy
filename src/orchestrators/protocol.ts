@@ -3,7 +3,8 @@
  * (sandbox → spawn), and the spawned/queued/settled cues.
  *
  * Nothing happens before validation: `parse` resolves agent type,
- * orchestrator, and model (credential probe included) and can throw BEFORE
+ * orchestrator, the harness the launch will use, and the model for that
+ * harness (the pi family's credential probe included) and can throw BEFORE
  * the turn provisions a sandbox — an unusable model never leaves a checkout
  * behind, and a duplicate task name is rejected with the existing attempt
  * left spawned. Every turn returns a dual payload — prose `message` plus
@@ -52,11 +53,13 @@ import {
 import {
   resolveAgentTypeParam,
   resolveDefaultOrchestrator,
+  resolveHarnessType,
   resolveRequestedHarness,
 } from "../agents/spawn-defaults.js";
 import {
   readModelRequest,
-  resolveModelRequest,
+  modelSelectionFor,
+  resolveSpawnModel,
 } from "../models/model-request.js";
 import {
   getCoordinator,
@@ -65,8 +68,13 @@ import {
   getSessionCtx,
   getStore,
 } from "../shell.js";
-import { assertNever, parseThinkingLevel } from "../utils.js";
+import {
+  assertNever,
+  modelSelectionName,
+  parseThinkingLevel,
+} from "../utils.js";
 import type { HarnessId } from "../agents/harness.js";
+import { harnessFor } from "../agents/harness/registry.js";
 import type { OrchestratorConfig } from "./types.js";
 import {
   queuedCueContext,
@@ -287,13 +295,6 @@ export class DelegationProtocol {
     // A configured template name that no longer resolves degrades to `default` instead of failing the spawn.
     const orchestrator = resolveDefaultOrchestrator();
 
-    // An unrunnable caller-supplied model fails here, before touching the in-flight attempt or leaving a checkout behind. Provenance is explicit (ModelRequest), never inferred from the args object.
-    const requested = resolveModelRequest(
-      readModelRequest(params as unknown as Record<string, unknown>),
-      ctx.modelRegistry,
-      ctx.model,
-    );
-
     // Also scan the spawned worktree's .pi/agents/ — it can define a type the parent checkout lacks — unless the target is untrusted. The checkout is not provisioned yet, so only the parent project's directory is scanned here. The type resolves here rather than in `run`, so an unknown name fails the whole batch before any item spawns.
     const resolution = await resolveTypeOrDiscover(
       agentType,
@@ -318,6 +319,27 @@ export class DelegationProtocol {
     // request never falls back to pi. Nothing was spawned either way.
     const requestedHarness = resolveRequestedHarness(params.harness_type);
 
+    // The harness the launch will use, resolved the way the launch resolves it.
+    // A model key belongs to one harness's catalogue, so model resolution reads
+    // this one value rather than resolving a harness of its own.
+    const harness = resolveHarnessType(resolution.key, requestedHarness);
+
+    // An unresolvable model fails here, before touching the in-flight attempt or leaving a checkout behind. Provenance is explicit (ModelRequest), never inferred from the args object.
+    const requested = await resolveSpawnModel(
+      readModelRequest(params as unknown as Record<string, unknown>),
+      {
+        harness,
+        registry: ctx.modelRegistry,
+        parent: ctx.model,
+        listModels: (foreign) =>
+          harnessFor(foreign).listModels({
+            pi: getPiInstance(),
+            modelCatalog: ctx.modelRegistry,
+          }),
+        notify: (message) => ctx.ui.notify(message, "warning"),
+      },
+    );
+
     // Background is the default — delegation never blocks the orchestrator's turn. Only an explicit run_in_background: false opts into foreground.
     const isBackground = params.run_in_background !== false;
 
@@ -331,10 +353,7 @@ export class DelegationProtocol {
       resolvedType: resolution.key,
       orchestrator,
       fork: getAgentConfig(agentType)?.fork ?? false,
-      modelSelection:
-        requested.kind === "resolved"
-          ? { model: requested.model, key: requested.modelKey }
-          : undefined,
+      modelSelection: modelSelectionFor(requested),
       requestedHarness,
       isBackground,
       thinkingOverride: params.thinking,
@@ -356,7 +375,7 @@ export class DelegationProtocol {
       getAgentConfig(resolvedType)?.thinkingLevel ??
       getStore().agent.defaultThinking;
 
-    const modelName = this.intent.modelSelection?.model.id;
+    const modelName = modelSelectionName(this.intent.modelSelection);
 
     const { agentId, spawn } = await getCoordinator().spawn(ctx, {
       spawnId,

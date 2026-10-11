@@ -9,7 +9,9 @@
  *   4. sessionOverrides["default"]     (session default)
  *   5. the launching harness's default (pi's family: agent.default at any layer;
  *      any other harness: agent.defaultModelByHarness[harness], session first)
- *   6. parentModelId                   (inherit from parent; null when the parent has no model)
+ *   6. parentModelId                   (inherit from parent; the pi family only,
+ *      because a parent session runs pi and its key is therefore pi's
+ *      vocabulary — nothing may carry that key to another harness)
  *
  * The tool's per-call `model` parameter sits above this chain: when set, the
  * chain is not consulted; when unset, the chain decides.
@@ -105,7 +107,10 @@ interface ResolveModelOptions {
    * the launch resolves it, post-availability-fallback.
    */
   harnessDefault: string | null;
-  /** Null when the parent session has no model: nothing further to inherit. */
+  /**
+   * The parent session's model key — pi's vocabulary, since a parent session
+   * runs pi. Read by the pi family alone; null when the parent has no model.
+   */
   parentModelId: string | null;
   sessionOverrides?: SessionModelOverrides;
 }
@@ -170,7 +175,12 @@ export function resolveModelSource(options: ResolveModelOptions): {
   for (const [source, value] of candidates) {
     if (isValidModelValue(value)) return { model: value, source };
   }
-  return { model: parentModelId, source: "parent" };
+  // The parent's key is pi's, so only a pi-family launch can inherit it: any
+  // other harness's launch must carry a key of its own catalogue or none.
+  return {
+    model: harnessFamily === "pi" ? parentModelId : null,
+    source: "parent",
+  };
 }
 
 /** Model-only projection of resolveModelSource(). Null when nothing resolves. */

@@ -20,19 +20,30 @@ import { probed, unprobed } from "../src/availability.js";
 import { setHarnessAvailability } from "../src/shell.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
-const { configuredAgent, getManagerMock } = vi.hoisted(() => ({
-  configuredAgent: {} as { defaultOrchestrator?: string },
-  // Any item that reaches `run` needs the manager; these suites assert that
-  // validation refuses before then, so reaching it is the failure.
-  getManagerMock: vi.fn(() => {
-    throw new Error("the manager was reached before validation refused");
+const { configuredAgent, getManagerMock, getPiInstanceMock } = vi.hoisted(
+  () => ({
+    // `harnessType` is part of the real store's resolved settings — a spawn
+    // resolves its harness from it when neither the call nor the template names
+    // one.
+    configuredAgent: { harnessType: "pi" } as {
+      defaultOrchestrator?: string;
+      harnessType: "pi";
+    },
+    // Any item that reaches `run` needs the manager; these suites assert that
+    // validation refuses before then, so reaching it is the failure.
+    getManagerMock: vi.fn(() => {
+      throw new Error("the manager was reached before validation refused");
+    }),
+    // Bound by the parse cases that make the launch read a harness's own list.
+    getPiInstanceMock: vi.fn(),
   }),
-}));
+);
 
 vi.mock("../src/shell.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/shell.js")>()),
   getStore: () => ({ agent: configuredAgent }),
   getManager: getManagerMock,
+  getPiInstance: getPiInstanceMock,
 }));
 
 // 8 Crockford base32 chars, printed whole.
@@ -200,7 +211,9 @@ describe("DelegationProtocol.parse", () => {
     { provider: "override", id: "special-model", name: "special-model" },
   ];
 
-  function ctx(): ExtensionContext {
+  function ctx(
+    notify: (message: string, kind?: string) => void = () => {},
+  ): ExtensionContext {
     return {
       cwd: "/work/repo/src",
       model: undefined,
@@ -210,7 +223,7 @@ describe("DelegationProtocol.parse", () => {
         // Every catalog model authenticates here; credential rules are covered in model-request.test.ts and model-override.test.ts.
         getProviderAuthStatus: () => ({ configured: true }),
       },
-      ui: { notify: () => {} },
+      ui: { notify },
     } as unknown as ExtensionContext;
   }
 
@@ -315,6 +328,104 @@ describe("DelegationProtocol.parse", () => {
         "",
       ),
     ).rejects.toThrow(/not available in this session/);
+  });
+
+  /**
+   * A pi instance whose `opencode models` answers `stdout`. opencode memoizes
+   * its list per caller, so every case that lists opencode reads through an
+   * instance of its own.
+   */
+  function opencodePi(stdout: string): { exec: ReturnType<typeof vi.fn> } {
+    return {
+      exec: vi.fn().mockResolvedValue({ code: 0, stdout, stderr: "" }),
+    };
+  }
+
+  it("carries a caller's opencode key the session's pi catalog does not hold", async () => {
+    // "anthropic/claude-3" is not in this session's catalog: a pi lookup would
+    // refuse it, and opencode's list does not name it either — neither is a
+    // reason to refuse a model the caller asked for.
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    getPiInstanceMock.mockReturnValue(opencodePi("openai/gpt-4o\n"));
+    const notify = vi.fn();
+    try {
+      const protocol = await DelegationProtocol.parse(
+        {
+          prompt: "x",
+          task_name: "fix login",
+          harness_type: "opencode",
+          model: "anthropic/claude-3",
+        },
+        ctx(notify),
+        "",
+      );
+
+      expect(protocol.intent.modelSelection).toEqual({
+        harness: "opencode",
+        key: "anthropic/claude-3",
+        name: "anthropic/claude-3",
+      });
+      expect(notify).toHaveBeenCalledWith(
+        'The opencode model list does not include "anthropic/claude-3"; launching with that key anyway.',
+        "warning",
+      );
+    } finally {
+      setHarnessAvailability(unprobed());
+    }
+  });
+
+  it("names a foreign model from the launching harness's own list, and says nothing when it knows the key", async () => {
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    getPiInstanceMock.mockReturnValue(opencodePi("openai/gpt-4o\n"));
+    const notify = vi.fn();
+    try {
+      const protocol = await DelegationProtocol.parse(
+        {
+          prompt: "x",
+          task_name: "fix login",
+          harness_type: "opencode",
+          model: "openai/gpt-4o",
+        },
+        ctx(notify),
+        "",
+      );
+
+      expect(protocol.intent.modelSelection).toEqual({
+        harness: "opencode",
+        key: "openai/gpt-4o",
+        name: "gpt-4o",
+      });
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      setHarnessAvailability(unprobed());
+    }
+  });
+
+  it("carries a foreign key silently when the launching harness's list is empty", async () => {
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    getPiInstanceMock.mockReturnValue(opencodePi(""));
+    const notify = vi.fn();
+    try {
+      const protocol = await DelegationProtocol.parse(
+        {
+          prompt: "x",
+          task_name: "fix login",
+          harness_type: "opencode",
+          model: "anthropic/claude-3",
+        },
+        ctx(notify),
+        "",
+      );
+
+      expect(protocol.intent.modelSelection).toEqual({
+        harness: "opencode",
+        key: "anthropic/claude-3",
+        name: "anthropic/claude-3",
+      });
+      expect(notify).not.toHaveBeenCalled();
+    } finally {
+      setHarnessAvailability(unprobed());
+    }
   });
 
   it("fails an unknown agent type at parse, before anything is provisioned", async () => {

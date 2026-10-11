@@ -27,7 +27,7 @@ import {
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
 import type { HarnessModelOptions } from "../../agents/harness/registry.js";
-import { findModelInRegistry } from "../../utils.js";
+import { findModelInRegistry, modelSelectionName } from "../../utils.js";
 import { agentBulletPrefix } from "../format.js";
 import {
   getManager,
@@ -429,7 +429,7 @@ export async function showSpawnAgentMenu(
         hostRef: sandbox?.hostRef,
         projectTrusted: sandbox?.projectTrusted,
         invocation: {
-          modelName: configuration.modelSelection?.model.id,
+          modelName: modelSelectionName(configuration.modelSelection),
           thinkingLevel: configuration.thinkingLevel,
           runInBackground: configuration.runInBackground,
           fork: configuration.fork,

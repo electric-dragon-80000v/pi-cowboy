@@ -350,7 +350,39 @@ describe("model resolution — the harness default's position", () => {
         undefined,
         "opencode",
       ),
+    ).toBeNull();
+  });
+
+  it("never hands the parent's pi key to an opencode launch", () => {
+    // The parent session runs pi, so its key names pi's catalogue: nothing but
+    // a pi-family launch can inherit it, whatever the chain resolved.
+    const store = new ConfigStore(memoryIO({}).io);
+
+    expect(
+      store.modelFor(
+        "general-purpose",
+        "parent/parent-1",
+        undefined,
+        "opencode",
+      ),
+    ).toBeNull();
+    // The pi family keeps inheriting it — same store, same parent, pi harness.
+    expect(
+      store.modelFor("general-purpose", "parent/parent-1", undefined, "pi"),
     ).toBe("parent/parent-1");
+  });
+
+  it("carries the configured opencode default rather than the parent's model", () => {
+    const store = storeWithOpencodeDefault();
+
+    expect(
+      store.modelFor(
+        "general-purpose",
+        "parent/parent-1",
+        undefined,
+        "opencode",
+      ),
+    ).toBe(OPENCODE_DEFAULT);
   });
 });
 
