@@ -273,6 +273,27 @@ describe("buildLaunchPlan CLI flags", () => {
     );
   });
 
+  it("dispatches opencode through its own family's request, which is unmapped", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "opencode" }));
+    const pi = {
+      exec: vi.fn().mockResolvedValue({ code: 1, stdout: "" }),
+    } as unknown as ExtensionAPI;
+    const ctx = {
+      cwd,
+      getSystemPrompt: () => "parent prompt",
+      ui: { notify },
+    } as unknown as ExtensionContext;
+
+    await expect(
+      buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
+        description: "test task",
+        agentId: "runner-opencode",
+        harness: "opencode",
+        cwd,
+      }),
+    ).rejects.toThrow(/not implemented yet/);
+  });
+
   it("keeps the subagent marker detectable from the produced argv", async () => {
     const { cwd, notify } = setup(undefined);
     const plan = await launch("general-purpose", cwd, notify);

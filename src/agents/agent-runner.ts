@@ -29,9 +29,9 @@ import {
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
 import {
-  isPiFamilyHarness,
   type ExtensionLaunchMode,
   type HarnessId,
+  type PiLaunchInputs,
   type SkillLaunchMode,
   type SubagentLaunchInputs,
   type ToolSelection,
@@ -237,6 +237,37 @@ interface LaunchExtras {
   agentGuidance?: string;
 }
 
+/**
+ * The harness's argv, by family. The switch is exhaustive over `HarnessId`, so a
+ * kind added to `HARNESS_IDS` without a branch here fails to compile instead of
+ * falling through to another family's request.
+ */
+function buildHarnessArgs(
+  harnessType: HarnessId,
+  sharedInputs: SubagentLaunchInputs,
+  piInputs: PiLaunchInputs,
+): string[] {
+  switch (harnessType) {
+    case "pi":
+    case "pig":
+    case "pi-bolt":
+      return harnessFor(harnessType).buildArgs({
+        ...sharedInputs,
+        family: "pi",
+        ...piInputs,
+      });
+    case "opencode":
+      return harnessFor(harnessType).buildArgs({
+        ...sharedInputs,
+        family: "opencode",
+      });
+    default: {
+      const unhandled: never = harnessType;
+      throw new Error(`unhandled harness: ${String(unhandled)}`);
+    }
+  }
+}
+
 /** The child pi owns extension discovery and tool validation; this only forwards configuration. */
 export async function buildLaunchPlan(
   pi: ExtensionAPI,
@@ -377,20 +408,14 @@ export async function buildLaunchPlan(
     modelKey: options.modelSelection?.key ?? null,
     toolSelection,
   };
-  const piArgs = isPiFamilyHarness(harnessType)
-    ? harnessFor(harnessType).buildArgs({
-        ...sharedInputs,
-        family: "pi",
-        thinkingLevel: options.thinkingLevel ?? null,
-        forkSessionFile: forkSessionFile ?? null,
-        skills: skillMode,
-        extensions: extMode,
-        projectTrusted: options.projectTrusted !== false,
-      })
-    : harnessFor(harnessType).buildArgs({
-        ...sharedInputs,
-        family: "opencode",
-      });
+  const piInputs: PiLaunchInputs = {
+    thinkingLevel: options.thinkingLevel ?? null,
+    forkSessionFile: forkSessionFile ?? null,
+    skills: skillMode,
+    extensions: extMode,
+    projectTrusted: options.projectTrusted !== false,
+  };
+  const piArgs = buildHarnessArgs(harnessType, sharedInputs, piInputs);
 
   for (const msg of warnings) {
     ctx.ui.notify(`[cowboy] ${msg}`, "warning");
