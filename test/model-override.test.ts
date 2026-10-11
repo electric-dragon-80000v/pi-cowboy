@@ -208,6 +208,9 @@ beforeEach(() => {
       worktreeRoot,
       worktreeMaterialization: "copy-on-write",
       defaultThinking: undefined,
+      // The resolved harness a spawn reads when neither the call nor the
+      // template names one; a template's own `harness_type` wins over it.
+      harnessType: "pi",
     },
     modelFor: configuredModelMock,
   });
@@ -376,7 +379,8 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
  * own resolution rather than a mock's answer.
  */
 describe("cowboy_agent — the harness default at the global default's position", () => {
-  const OPENCODE_DEFAULT = "override/special-model";
+  /** A key pi's catalog does not hold: only opencode's own list can name it. */
+  const OPENCODE_DEFAULT = "openai/gpt-4o";
 
   /** A store over one in-memory global layer, with no project target. */
   function realStore(agent: Record<string, unknown>): ConfigStore {
@@ -400,14 +404,18 @@ describe("cowboy_agent — the harness default at the global default's position"
     setHarnessAvailability(unprobed());
   });
 
-  it("resolves the harness default with nothing else set", async () => {
+  it("carries the configured opencode default instead of the parent's pi model", async () => {
     getAgentConfigMock.mockReturnValue({ harnessType: "opencode" });
     getStoreMock.mockReturnValue(
       realStore({ defaultModelByHarness: { opencode: OPENCODE_DEFAULT } }),
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
+      modelSelection: {
+        harness: "opencode",
+        key: OPENCODE_DEFAULT,
+        name: OPENCODE_DEFAULT,
+      },
     });
   });
 
@@ -434,7 +442,11 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+      modelSelection: {
+        harness: "opencode",
+        key: CONFIGURED_KEY,
+        name: CONFIGURED_KEY,
+      },
     });
   });
 
@@ -450,7 +462,37 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
+      modelSelection: {
+        harness: "opencode",
+        key: OPENCODE_DEFAULT,
+        name: OPENCODE_DEFAULT,
+      },
+    });
+  });
+
+  it("never puts the parent's pi key on an opencode launch", async () => {
+    // Nothing configures an opencode model, so the chain's parent slot would
+    // hand over pi's key — the one thing no opencode launch may carry.
+    getAgentConfigMock.mockReturnValue({ harnessType: "opencode" });
+    getStoreMock.mockReturnValue(realStore({}));
+
+    const options = await runTool();
+
+    expect(options.modelSelection).toBeUndefined();
+  });
+
+  it("carries a caller's opencode key instead of refusing it", async () => {
+    getStoreMock.mockReturnValue(realStore({}));
+
+    await expect(
+      runTool({ harness_type: "opencode", model: OPENCODE_DEFAULT }),
+    ).resolves.toMatchObject({
+      modelSelection: {
+        harness: "opencode",
+        key: OPENCODE_DEFAULT,
+        name: OPENCODE_DEFAULT,
+      },
+      invocation: { modelName: OPENCODE_DEFAULT },
     });
   });
 });

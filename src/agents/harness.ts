@@ -68,6 +68,12 @@ export const PI_FAMILY_HARNESS_IDS = ["pi", "pig", "pi-bolt"] as const;
 export type PiFamilyHarnessId = (typeof PI_FAMILY_HARNESS_IDS)[number];
 
 /**
+ * A harness that runs a binary of its own rather than pi: its model keys name
+ * its own catalogue, so this session's pi catalog can never answer for one.
+ */
+export type ForeignHarnessId = Exclude<HarnessId, PiFamilyHarnessId>;
+
+/**
  * Whether this harness runs the pi binary (see PI_FAMILY_HARNESS_IDS). Narrowing,
  * so the branch that builds the pi family's launch request is typed against a
  * pi-family harness.

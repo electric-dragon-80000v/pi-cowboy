@@ -150,11 +150,11 @@ A `cowboy_agent` call can override this per item with its `harness_type` paramet
 
 The default model per harness, keyed by harness id: each value is that harness's own `"provider/model-id"` key or `null`. It fills the per-harness default slot in [Model keys](#model-keys). A session entry set from the model settings screen sits above the project layer, which sits above the global layer.
 
-The pi family runs one binary and shares one default, so only a harness outside it needs an entry: `agent.default` serves `pi`, `pig`, and `pi-bolt`. A missing or `null` entry means that harness has no default, so the chain falls through to the parent session. Because each entry names one harness, the project map merges into the global map entry by entry: a project value for one harness overrides the global value for that harness and leaves the global values for the others intact.
+The pi family runs one binary and shares one default, so only a harness outside it needs an entry: `agent.default` serves `pi`, `pig`, and `pi-bolt`. A missing or `null` entry means that harness has no default; the parent session's model is pi's, so no other harness inherits it, and that launch runs whatever its own binary defaults to. Because each entry names one harness, the project map merges into the global map entry by entry: a project value for one harness overrides the global value for that harness and leaves the global values for the others intact.
 
 ### Model keys
 
-`agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>` contain a model as `"provider/model-id"`. With a value of `null`, pi-cowboy uses the model of the parent session.
+`agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>` contain a model as `"provider/model-id"`. With a value of `null`, the chain falls through to the next entry; the parent session's model is inherited only by a pi-family launch.
 
 Model resolution order, highest precedence first:
 
@@ -164,9 +164,11 @@ Model resolution order, highest precedence first:
 4. The agent template's model for the launching harness's family: the flat `[harness] model` and `[harness.pi] model` spellings both write the pi family's entry, and `[harness.opencode] model` writes opencode's. The template never contributes a key that the launching family's catalogue did not define.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
-7. The parent session model.
+7. The parent session model — for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.
 
-Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to the launching harness's default and then to the parent session.
+A launch under a harness outside the pi family carries its model key as written: the key is that harness's own vocabulary, and pi-cowboy hands it over without translating it through pi's catalogue. It reads that harness's own model list only to warn when the list does not know the key, never to refuse it.
+
+Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to the launching harness's default, and then — under pi — to the parent session.
 
 Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, and then to the launching harness's default — `agent.default` under pi.
 

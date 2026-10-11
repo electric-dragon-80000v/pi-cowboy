@@ -4,7 +4,7 @@
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ThinkingLevel } from "./types.js";
+import type { ModelSelection, ThinkingLevel } from "./types.js";
 
 /** Alphanumeric, hyphen, underscore, dot — no leading dot. */
 export function isUnsafeName(name: string): boolean {
@@ -74,6 +74,19 @@ export function findModelInRegistry(
   if (!parsed) return fallback;
   return registry.find(parsed.provider, parsed.modelId) ?? fallback;
 }
+
+/**
+ * The name a spawn's model records and displays: pi's catalog id, or a foreign
+ * selection's own name — the launching harness's label for the key, or the key
+ * itself when that harness's list did not name it.
+ */
+export function modelSelectionName(
+  selection: ModelSelection | undefined,
+): string | undefined {
+  if (!selection) return undefined;
+  return "model" in selection ? selection.model.id : selection.name;
+}
+
 /** Shared by agent-runner and worktree-validator. */
 export const GIT_EXEC_TIMEOUT_MS = 5000;
 
