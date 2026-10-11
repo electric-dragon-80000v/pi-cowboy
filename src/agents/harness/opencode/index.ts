@@ -11,12 +11,15 @@
  * `listModels` is the one thing opencode already answers for, so its default
  * model is configurable today. It shells `opencode models` through `pi.exec`
  * (children inherit the session environment, as every other child here does)
- * and parses the output defensively: the real format is UNVERIFIED — there is no
- * opencode install in this repository to run it against — so the parse assumes
- * one `provider/model-id` per line, with blank lines and `#` comments between
- * them, and any other shape resolves to an empty list with a warning rather
- * than an exception. A settings menu must never fail to open because a list
- * command misbehaved.
+ * and parses the output defensively. The real format — verified against the
+ * installed CLI by test/opencode-staging.integration.test.ts — is one bare
+ * `provider/model-id` per line with no decoration, the provider carrying no
+ * slash and the model id allowed to (a real id such as
+ * `groq/canopylabs/orpheus-…` does). The parser also tolerates blank lines and
+ * `#` comments, which that verified output never contained; any other shape
+ * resolves to an empty list with a warning rather than an exception, because a
+ * settings menu must never fail to open when a list command misbehaves. The
+ * integration test is what keeps the verified shape true as opencode changes.
  *
  * What lands with the implementation: the opencode CLI mapping in `buildArgs`
  * and opencode's own model settings. The strict `[harness.opencode]` table

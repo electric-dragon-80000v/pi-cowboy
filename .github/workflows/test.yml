@@ -161,6 +161,53 @@ jobs:
       - name: Run integration tests
         run: pnpm run test:integration-no-cow
 
+  # opencode is someone else's binary and its config formats are undocumented, so
+  # the one thing that can prove the staging module still works is a real
+  # opencode — and the one thing that keeps it honest is installing the latest
+  # release every run. The install is deliberately unpinned: a new opencode that
+  # stops reading the staged files, or that no longer lets the npm seed
+  # short-circuit its dependency install, must redden CI on the release that
+  # breaks it, not on a version someone remembered to bump. A dedicated job
+  # keeps that signal separate from the herdr/btrfs integration signal, needs no
+  # clone-capable volume, and pins nothing.
+  integration-opencode:
+    name: Integration Tests (latest opencode)
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm and Node.js 24.20.0
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@24.20.0
+          cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
+
+      - name: Install dependencies
+        run: HUSKY=0 pnpm install --frozen-lockfile
+
+      # The official installer resolves the newest release and, under
+      # GITHUB_ACTIONS, appends its bin directory to $GITHUB_PATH for the steps
+      # below. `--no-modify-path` keeps it out of the shell rc files, which the
+      # runner's later shells never read anyway.
+      - name: Install the latest opencode
+        run: curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+
+      # A broken install must fail the job here, not let the test skip over it.
+      - name: Verify the opencode binary
+        run: opencode --version
+
+      # PI_COWBOY_REQUIRE_OPENCODE turns a missing binary into a failing test
+      # instead of a silent skip, so the only way this job passes is by running
+      # the assertions above.
+      - name: Run the opencode staging integration test
+        env:
+          PI_COWBOY_REQUIRE_OPENCODE: "1"
+        run: pnpm exec vitest run --project integration-no-cow test/opencode-staging.integration.test.ts
+
   # Both integration projects on a btrfs loop device, so the clone path actually
   # clones. The tests' temp repos land on the volume through TMPDIR
   # (os.tmpdir() honours it).
