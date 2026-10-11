@@ -32,6 +32,7 @@ const START_OPTIONS = {
   name: "cow-abc",
   paneId: "w1:p2",
   piArgs: ["-p", "briefing"],
+  agentMuxKind: "pi" as const,
 };
 
 const START_ARGS = [
@@ -57,11 +58,11 @@ describe("agent start constants", () => {
   });
 });
 
-describe("HerdrAgents.startPiAgent", () => {
-  it("starts pi in the pane with the briefing after `--`", async () => {
+describe("HerdrAgents.startAgent", () => {
+  it("starts the harness's process in the pane with the briefing after `--`", async () => {
     const { pi, calls } = recordingPi([ok({})]);
     await expect(
-      agentsFor(pi).startPiAgent(START_OPTIONS),
+      agentsFor(pi).startAgent(START_OPTIONS),
     ).resolves.toBeUndefined();
     expect(calls).toEqual([
       {
@@ -69,6 +70,22 @@ describe("HerdrAgents.startPiAgent", () => {
         args: START_ARGS,
         opts: { timeout: AGENT_START_TIMEOUT_MS + 30_000 },
       },
+    ]);
+  });
+
+  it("starts under the requested agent kind rather than a hardcoded pi", async () => {
+    const { pi, calls } = recordingPi([ok({})]);
+    await agentsFor(pi).startAgent({
+      ...START_OPTIONS,
+      agentMuxKind: "opencode",
+    });
+
+    expect(calls[0]!.args.slice(0, 5)).toEqual([
+      "agent",
+      "start",
+      "cow-abc",
+      "--kind",
+      "opencode",
     ]);
   });
 
@@ -88,7 +105,7 @@ describe("HerdrAgents.startPiAgent", () => {
     });
 
     vi.useFakeTimers();
-    const promise = agentsFor(pi).startPiAgent(START_OPTIONS);
+    const promise = agentsFor(pi).startAgent(START_OPTIONS);
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(promise).resolves.toBeUndefined();
     expect(calls).toBe(3);
@@ -102,7 +119,7 @@ describe("HerdrAgents.startPiAgent", () => {
     });
 
     await expect(
-      agentsFor(pi).startPiAgent(START_OPTIONS),
+      agentsFor(pi).startAgent(START_OPTIONS),
     ).resolves.toBeUndefined();
     expect(calls).toBe(1);
   });
@@ -115,7 +132,7 @@ describe("HerdrAgents.startPiAgent", () => {
       return fail("server_error", "boom");
     });
 
-    await expect(agentsFor(pi).startPiAgent(START_OPTIONS)).rejects.toThrow(
+    await expect(agentsFor(pi).startAgent(START_OPTIONS)).rejects.toThrow(
       HerdrError,
     );
     expect(starts).toBe(1);
@@ -141,7 +158,7 @@ describe("HerdrAgents.startPiAgent", () => {
     });
 
     await expect(
-      agentsFor(pi).startPiAgent(START_OPTIONS),
+      agentsFor(pi).startAgent(START_OPTIONS),
     ).resolves.toBeUndefined();
     expect(probes).toBe(1);
   });
@@ -155,7 +172,7 @@ describe("HerdrAgents.startPiAgent", () => {
       );
     });
 
-    await expect(agentsFor(pi).startPiAgent(START_OPTIONS)).rejects.toThrow(
+    await expect(agentsFor(pi).startAgent(START_OPTIONS)).rejects.toThrow(
       /no longer owns the target terminal/,
     );
   });
@@ -176,7 +193,7 @@ describe("HerdrAgents.startPiAgent", () => {
     });
 
     vi.useFakeTimers();
-    const promise = agentsFor(pi).startPiAgent(START_OPTIONS);
+    const promise = agentsFor(pi).startAgent(START_OPTIONS);
     const assertion = expect(promise).rejects.toThrow(
       /failed after 5 attempts/,
     );

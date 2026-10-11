@@ -77,13 +77,25 @@ export interface LiveAttempt {
   readonly name: string;
 }
 
+/**
+ * The agent kind a host starts its process as, in the mux's own vocabulary. The
+ * mux matches the process it detects in the pane against the requested kind —
+ * herdr does, at `agent start` — so the kind has to be the one the launched
+ * binary is detected as.
+ */
+export type AgentMuxKind = "pi" | "claude" | "codex" | "opencode";
+
 export interface AgentHost {
   /** Obtain a host address: adopts the checkout (`worktree open`) or creates a fresh placement in the current workspace. */
   hostAt(request: ViewRequest): Promise<AgentHostRef>;
-  /** Launch the child process into the host. `piArgs` already carries `--system-prompt <file>` and the `@<task-file>` message. */
+  /**
+   * Launch the child process into the host. `piArgs` already carries
+   * `--system-prompt <file>` and the `@<task-file>` message; `agentMuxKind` is the
+   * kind the mux must detect the process as.
+   */
   start(
     ref: AgentHostRef,
-    options: { name: string; piArgs: string[] },
+    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind },
   ): Promise<void>;
   /** Live snapshot, or undefined when the host is gone. */
   observe(ref: AgentHostRef): Promise<HostObservation | undefined>;

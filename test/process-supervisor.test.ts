@@ -19,6 +19,7 @@ import {
 import type {
   AgentHost,
   AgentHostRef,
+  AgentMuxKind,
   DeliverOutcome,
   LiveAttempt,
 } from "../src/agents/agent-host.js";
@@ -39,7 +40,7 @@ interface AgentSnapshot {
 class FakeAgentHost implements AgentHost {
   startCalls: Array<{
     ref: AgentHostRef;
-    options: { name: string; piArgs: string[] };
+    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind };
   }> = [];
   stopCalls: Array<{
     ref: AgentHostRef;
@@ -81,7 +82,7 @@ class FakeAgentHost implements AgentHost {
 
   async start(
     ref: AgentHostRef,
-    options: { name: string; piArgs: string[] },
+    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind },
   ): Promise<void> {
     this.startCalls.push({ ref, options });
   }
@@ -138,6 +139,7 @@ const PLAN: SubagentLaunchPlan = {
   name: "cow-smoke-deadbeef",
   cwd: "/tmp/wt",
   piArgs: ["-p", "@briefing.md"],
+  agentMuxKind: "pi",
   taskSlug: "smoke",
 };
 const PANE = "w1:p1";
@@ -217,7 +219,14 @@ describe("ProcessSupervisorEngine.start", () => {
     const { host, supervisor } = makeFixture();
     await supervisor.start(PLAN, REF);
     expect(host.startCalls).toEqual([
-      { ref: REF, options: { name: PLAN.name, piArgs: PLAN.piArgs } },
+      {
+        ref: REF,
+        options: {
+          name: PLAN.name,
+          piArgs: PLAN.piArgs,
+          agentMuxKind: PLAN.agentMuxKind,
+        },
+      },
     ]);
     // The host is the caller's: no creation, and the briefing already rides in piArgs.
     expect(host.hostAtCalls).toBe(0);

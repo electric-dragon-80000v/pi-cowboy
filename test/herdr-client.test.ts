@@ -40,7 +40,7 @@ const FLAT_SURFACE = [
   "renameTab",
   "runHerdr",
   "sendAgentKeys",
-  "startPiAgent",
+  "startAgent",
   "stopAgentAndWait",
   "strField",
   "submitAgentPrompt",

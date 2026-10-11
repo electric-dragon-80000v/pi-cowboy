@@ -17,7 +17,7 @@ import {
   findTaskAttempts,
   getAgentInfo,
   runHerdr,
-  startPiAgent,
+  startAgent,
   stopAgentAndWait,
 } from "../src/infrastructure/herdr-client.js";
 import {
@@ -313,7 +313,7 @@ describe("createAgentTab", () => {
   });
 });
 
-describe("startPiAgent", () => {
+describe("startAgent", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -344,10 +344,11 @@ describe("startPiAgent", () => {
     });
 
     vi.useFakeTimers();
-    const promise = startPiAgent(pi, {
+    const promise = startAgent(pi, {
       name: "cow-abc",
       paneId: "w1:p2",
       piArgs: ["-p", "briefing"],
+      agentMuxKind: "pi",
     });
     await vi.advanceTimersByTimeAsync(30_000);
     await promise;
@@ -369,7 +370,12 @@ describe("startPiAgent", () => {
     });
 
     await expect(
-      startPiAgent(pi, { name: "cow-x", paneId: "w1:p1", piArgs: [] }),
+      startAgent(pi, {
+        name: "cow-x",
+        paneId: "w1:p1",
+        piArgs: [],
+        agentMuxKind: "pi",
+      }),
     ).resolves.toBeUndefined();
     expect(calls).toBe(1);
   });
@@ -387,10 +393,11 @@ describe("startPiAgent", () => {
     }));
 
     vi.useFakeTimers();
-    const promise = startPiAgent(pi, {
+    const promise = startAgent(pi, {
       name: "cow-x",
       paneId: "w1:p1",
       piArgs: [],
+      agentMuxKind: "pi",
     });
     // Attach the handler before advancing, or the rejection is unhandled.
     const assertion = expect(promise).rejects.toThrow(

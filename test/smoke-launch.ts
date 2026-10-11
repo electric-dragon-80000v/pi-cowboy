@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import {
   getCurrentWorkspaceId,
   createAgentTab,
-  startPiAgent,
+  startAgent,
   getAgentInfo,
   closePane,
 } from "../src/infrastructure/herdr-client.js";
@@ -80,7 +80,12 @@ async function main() {
     "--no-session",
     `@${subagentTaskFileFor(AGENT_ID)}`,
   ];
-  await startPiAgent(pi as never, { name: AGENT_ID, paneId, piArgs });
+  await startAgent(pi as never, {
+    name: AGENT_ID,
+    paneId,
+    piArgs,
+    agentMuxKind: "pi",
+  });
   console.log("pi started in pane");
 
   const deadline = Date.now() + 90_000;

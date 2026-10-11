@@ -16,7 +16,11 @@ import {
   type SpawnOptions,
 } from "../src/agents/subagent-session.js";
 import { formatResultContent } from "../src/orchestrators/protocol.js";
-import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
+import type {
+  AgentHost,
+  AgentHostRef,
+  AgentMuxKind,
+} from "../src/agents/agent-host.js";
 import { AgentSandbox } from "../src/spawn/sandbox.js";
 import type {
   DeliverableReport,
@@ -178,7 +182,7 @@ function makeFakeHost(options: FakeHostOptions = {}) {
   const hostAtCalls: Array<Record<string, unknown>> = [];
   const startCalls: Array<{
     ref: AgentHostRef;
-    options: { name: string; piArgs: string[] };
+    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind };
   }> = [];
   const stopCalls: StopCall[] = [];
   const releaseCalls: ReleaseCall[] = [];
@@ -192,7 +196,11 @@ function makeFakeHost(options: FakeHostOptions = {}) {
     },
     start: async (
       startedRef: AgentHostRef,
-      startOptions: { name: string; piArgs: string[] },
+      startOptions: {
+        name: string;
+        piArgs: string[];
+        agentMuxKind: AgentMuxKind;
+      },
     ) => {
       startCalls.push({ ref: startedRef, options: startOptions });
     },
@@ -473,6 +481,7 @@ describe("SubagentSession harness seam", () => {
   ): void {
     harnessForMock.mockReturnValue({
       id: "pi",
+      agentMuxKind: "pi",
       available: () => true,
       prepare: async () => {},
       buildArgs: (request: never) => request,

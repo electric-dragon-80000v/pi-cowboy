@@ -10,6 +10,7 @@
 
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentMuxKind } from "../../agents/agent-host.js";
 import { createLogger } from "../../logger.js";
 // isTaskAgentName lives in src/predicates.ts (shared leaf) so this layer never
 // imports across into spawn/.
@@ -80,15 +81,17 @@ export class HerdrAgents {
   constructor(private readonly transport: HerdrTransport) {}
 
   /**
-   * Start pi in the pane as a herdr agent. Returns when herdr accepted the spawn —
-   * NOT when pi is ready. Readiness timeouts return normally (the name is
-   * registered and pi is booting; retrying would start a second agent); transient
-   * pre-start rejections are retried with backoff; permanent errors propagate.
+   * Start the harness's process in the pane as a herdr agent of its kind. Returns
+   * when herdr accepted the spawn — NOT when the child is ready. Readiness timeouts
+   * return normally (the name is registered and the child is booting; retrying
+   * would start a second agent); transient pre-start rejections are retried with
+   * backoff; permanent errors propagate.
    */
-  async startPiAgent(options: {
+  async startAgent(options: {
     name: string;
     paneId: string;
     piArgs: string[];
+    agentMuxKind: AgentMuxKind;
   }): Promise<void> {
     let lastError: unknown;
     const started = await pollUntil<true>(
@@ -100,7 +103,7 @@ export class HerdrAgents {
               "start",
               options.name,
               "--kind",
-              "pi",
+              options.agentMuxKind,
               "--pane",
               options.paneId,
               "--timeout",
@@ -366,11 +369,16 @@ function agentNamespace(pi: ExtensionAPI): HerdrAgents {
   return new HerdrAgents(new HerdrTransport(pi));
 }
 
-export async function startPiAgent(
+export async function startAgent(
   pi: ExtensionAPI,
-  options: { name: string; paneId: string; piArgs: string[] },
+  options: {
+    name: string;
+    paneId: string;
+    piArgs: string[];
+    agentMuxKind: AgentMuxKind;
+  },
 ): Promise<void> {
-  return agentNamespace(pi).startPiAgent(options);
+  return agentNamespace(pi).startAgent(options);
 }
 
 export async function listAgentRecords(

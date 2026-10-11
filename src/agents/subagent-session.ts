@@ -552,6 +552,7 @@ export class SubagentSession {
           name: agentName,
           cwd: plan.cwd,
           piArgs: plan.piArgs,
+          agentMuxKind: harness.agentMuxKind,
           taskSlug: options.taskSlug,
         },
         ref,

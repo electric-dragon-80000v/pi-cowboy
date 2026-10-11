@@ -26,7 +26,11 @@
 
 import { createLogger } from "../logger.js";
 import { errorMessage } from "../utils.js";
-import type { AgentHost, AgentHostRef } from "../agents/agent-host.js";
+import type {
+  AgentHost,
+  AgentHostRef,
+  AgentMuxKind,
+} from "../agents/agent-host.js";
 import type { StopInitiator } from "../types.js";
 import type { DeliverableReport, DeliverableSource } from "./deliverable.js";
 
@@ -36,6 +40,8 @@ export interface SubagentLaunchPlan {
   name?: string;
   cwd?: string;
   piArgs: string[];
+  /** The mux agent kind the launched process must be detected as. */
+  agentMuxKind: AgentMuxKind;
   taskSlug?: string;
 }
 
@@ -142,6 +148,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
       await this.host.start(ref, {
         name: plan.name ?? "subagent",
         piArgs: plan.piArgs,
+        agentMuxKind: plan.agentMuxKind,
       });
     } catch (err) {
       // A failed launch is not a run: revert so the caller may retry, unless

@@ -94,6 +94,7 @@ async function listOpencodeModels(
 
 export const opencodeHarness: Harness = {
   id: "opencode",
+  agentMuxKind: "opencode",
   available: () => commandPath("opencode") !== undefined,
   async prepare(): Promise<void> {
     throw new HerdrError(NOT_IMPLEMENTED, undefined);

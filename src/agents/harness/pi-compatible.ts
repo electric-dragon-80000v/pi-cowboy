@@ -131,6 +131,9 @@ export function createPiCompatibleHarness(spec: PiCompatibleSpec): Harness {
 
   return {
     id: spec.id,
+    // The pane's `pi` forwards to this binary, so herdr's pi detection is what
+    // sees the child process.
+    agentMuxKind: "pi",
     // The launcher runs `spec.binary` inside the pane, so a machine without it
     // can never launch this harness — however well the preparation itself would
     // go.

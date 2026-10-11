@@ -26,6 +26,7 @@ import { opencodeHarness } from "./opencode.js";
  */
 const piHarness: Harness = {
   id: "pi",
+  agentMuxKind: "pi",
   available: () => true,
   prepare: async () => {},
   buildArgs: buildPiLaunchArgs,

@@ -32,7 +32,7 @@ import {
   renamePane,
   renameTab,
   runHerdr,
-  startPiAgent,
+  startAgent,
   stopAgentAndWait,
   strField,
   submitAgentPrompt,
@@ -171,10 +171,11 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
     },
 
     start: (ref, options) =>
-      startPiAgent(pi, {
+      startAgent(pi, {
         name: options.name,
         paneId: ref.paneId,
         piArgs: options.piArgs,
+        agentMuxKind: options.agentMuxKind,
       }),
 
     observe: async (ref) => {

@@ -1,9 +1,10 @@
 /**
  * harness.ts — the harness contract: which process launches a subagent, and how.
  *
- * A harness owns three things: bringing its host pane into the state it
- * launches in (`prepare`), the argv the pane runs (`buildArgs`), and undoing
- * any state it left on the filesystem (`teardown`). What every harness family
+ * A harness owns four things: the mux agent kind its process launches as
+ * (`agentMuxKind`), bringing its host pane into the state it launches in
+ * (`prepare`), the argv the pane runs (`buildArgs`), and undoing any state it
+ * left on the filesystem (`teardown`). What every harness family
  * has in common lives here as `SubagentLaunchInputs`; what one family alone
  * uses (today, pi's CLI flags) lives beside it as that family's inputs, so a
  * second family adds a request member — never an optional field, a passthrough
@@ -33,6 +34,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isAvailable, isProven, type Availability } from "../availability.js";
+import type { AgentMuxKind } from "./agent-host.js";
 
 /**
  * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
@@ -230,6 +232,13 @@ export type HarnessListModels = (
 /** One harness implementation. */
 export interface Harness {
   readonly id: HarnessId;
+  /**
+   * The agent kind this harness launches as, in the mux's vocabulary; the only
+   * place a kind appears as a literal. A harness whose binary is not pi's can
+   * only launch under its own kind, because the mux matches the detected process
+   * against it.
+   */
+  readonly agentMuxKind: AgentMuxKind;
   /**
    * Whether this machine can launch the harness, read at probe time. False keeps
    * the harness out of the setting, and a template that still names it falls back
