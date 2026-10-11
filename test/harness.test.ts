@@ -21,6 +21,7 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   runnableHarnessIds,
+  type HarnessPrepareRequest,
   type PiFamilyLaunchRequest,
   type SubagentLaunchInputs,
   resolveHarness,
@@ -50,6 +51,26 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 });
 
 const PI = {} as unknown as ExtensionAPI;
+
+/**
+ * A prepare for a pane: the pi-compatible launcher reads the pane, not the
+ * launch, so its inputs only have to be present, not meaningful.
+ */
+function prepareRequest(paneId: string): HarnessPrepareRequest {
+  return {
+    pi: PI,
+    paneId,
+    cwd: "/repo",
+    launch: {
+      subagentId: "session-1",
+      systemPromptFile: "/tmp/system.md",
+      taskFile: "/tmp/task.md",
+      resultFile: "/tmp/result.md",
+      modelKey: null,
+      toolSelection: { kind: "default" },
+    },
+  };
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -178,13 +199,13 @@ describe("prepare", () => {
   });
 
   it("does nothing for pi: real pi is already the pane's `pi`", async () => {
-    await harnessFor("pi").prepare({ pi: PI, paneId: "w1:p1", cwd: "/repo" });
+    await harnessFor("pi").prepare(prepareRequest("w1:p1"));
     expect(runInPaneMock).not.toHaveBeenCalled();
     expect(waitForPaneOutputMock).not.toHaveBeenCalled();
   });
 
   it("plants the pi launcher in the pane for pig and confirms its body landed", async () => {
-    await harnessFor("pig").prepare({ pi: PI, paneId: "w1:p9", cwd: "/repo" });
+    await harnessFor("pig").prepare(prepareRequest("w1:p9"));
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       1,
       PI,
@@ -206,11 +227,7 @@ describe("prepare", () => {
   });
 
   it("plants its own pi launcher in the pane for pi-bolt and confirms its body landed", async () => {
-    await harnessFor("pi-bolt").prepare({
-      pi: PI,
-      paneId: "w1:p9",
-      cwd: "/repo",
-    });
+    await harnessFor("pi-bolt").prepare(prepareRequest("w1:p9"));
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       1,
       PI,
@@ -232,15 +249,11 @@ describe("prepare", () => {
   });
 
   it("verifies each pi-compatible harness against its own signature", async () => {
-    await harnessFor("pig").prepare({ pi: PI, paneId: "w1:p1", cwd: "/repo" });
+    await harnessFor("pig").prepare(prepareRequest("w1:p1"));
     const pigVerify = runInPaneMock.mock.calls[1][2];
     runInPaneMock.mockClear();
 
-    await harnessFor("pi-bolt").prepare({
-      pi: PI,
-      paneId: "w1:p2",
-      cwd: "/repo",
-    });
+    await harnessFor("pi-bolt").prepare(prepareRequest("w1:p2"));
     const boltVerify = runInPaneMock.mock.calls[1][2];
 
     expect(pigVerify).toContain("PIG_LAUNCHER_8f9a2b");
@@ -250,7 +263,7 @@ describe("prepare", () => {
 
   it("refuses opencode: there is no launcher to plant until it is implemented", async () => {
     await expect(
-      harnessFor("opencode").prepare({ pi: PI, paneId: "w1:p9", cwd: "/repo" }),
+      harnessFor("opencode").prepare(prepareRequest("w1:p9")),
     ).rejects.toThrow(/not implemented yet/);
     expect(runInPaneMock).not.toHaveBeenCalled();
     expect(waitForPaneOutputMock).not.toHaveBeenCalled();
@@ -260,11 +273,7 @@ describe("prepare", () => {
     vi.useFakeTimers();
     waitForPaneOutputMock.mockRejectedValue(new Error("timed out waiting"));
 
-    const promise = harnessFor("pi-bolt").prepare({
-      pi: PI,
-      paneId: "w1:p9",
-      cwd: "/repo",
-    });
+    const promise = harnessFor("pi-bolt").prepare(prepareRequest("w1:p9"));
     const assertion = expect(promise).rejects.toThrow(
       /the pi launcher never landed/,
     );

@@ -203,19 +203,18 @@ export interface SubagentLaunchPlan {
   name?: string;
   /** Working directory for the pane (resolved worktree path or parent cwd). */
   cwd: string;
-  systemPrompt?: string;
   /**
-   * Absolute path pi receives in `--system-prompt`. pi reads a file whenever
-   * the value names an existing path, so the multi-line prompt never crosses
-   * herdr's single-line shell encoder.
+   * The system prompt text itself, as written to `launch.systemPromptFile`.
    */
-  systemPromptFile?: string;
+  systemPrompt?: string;
   /** Legacy name: the complete argv the harness built, whatever binary it launches — the supervisor and herdr seams both spell it `piArgs`. */
   piArgs: string[];
-
-  resultFile?: string;
-  /** `null` = no model override was requested. */
-  modelKey: string | null;
+  /**
+   * The family-neutral launch inputs `piArgs` was built from, and the same
+   * object a harness's `prepare` receives: one construction site, so a field
+   * the launch adds reaches both without a second copy to keep in step.
+   */
+  launch: SubagentLaunchInputs;
   taskSlug?: string;
   /** The harness that owns the pane `piArgs` launches into. */
   harness: HarnessId;
@@ -425,10 +424,8 @@ export async function buildLaunchPlan(
     name: agentId,
     cwd: effectiveCwd,
     systemPrompt,
-    systemPromptFile: systemFile,
     piArgs,
-    resultFile,
-    modelKey: options.modelSelection?.key ?? null,
+    launch: sharedInputs,
     harness: harnessType,
   };
 }

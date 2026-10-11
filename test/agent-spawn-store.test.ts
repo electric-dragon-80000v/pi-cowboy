@@ -216,8 +216,15 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
   buildLaunchPlanMock.mockResolvedValue({
     cwd: "/repo",
     initialMessage: "@/tmp/briefing.md",
-    resultFile: "/tmp/result.md",
     piArgs: [],
+    launch: {
+      subagentId: "stub-plan",
+      systemPromptFile: "/tmp/system.md",
+      taskFile: "/tmp/task.md",
+      resultFile: "/tmp/result.md",
+      modelKey: null,
+      toolSelection: { kind: "default" },
+    },
     harness: "pi",
   });
   const id = manager.spawn(

@@ -81,6 +81,27 @@ vi.mock("../src/shell.js", async (importOriginal) => {
   };
 });
 
+/**
+ * The plan the stubbed `buildLaunchPlan` answers with: the staged files a launch
+ * carries, of which the session reads the result file.
+ */
+function stubLaunchPlan() {
+  return {
+    cwd: "/repo",
+    initialMessage: "@/tmp/briefing.md",
+    piArgs: [],
+    launch: {
+      subagentId: "stub-plan",
+      systemPromptFile: "/tmp/system.md",
+      taskFile: "/tmp/task.md",
+      resultFile: "/tmp/result.md",
+      modelKey: null,
+      toolSelection: { kind: "default" },
+    },
+    harness: "pi",
+  };
+}
+
 /** Each test starts from an empty shell-owned store. */
 beforeEach(() => {
   for (const spawn of shared.store.list()) shared.store.drop(spawn.id);
@@ -155,13 +176,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
         }) as unknown as AgentHost,
       createDeliverable: () => new ScriptedDeliverable("completed"),
     });
-    buildLaunchPlanMock.mockResolvedValue({
-      cwd: "/repo",
-      initialMessage: "@/tmp/briefing.md",
-      resultFile: "/tmp/result.md",
-      piArgs: [],
-      harness: "pi",
-    });
+    buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
     const id = manager.spawn(
       {} as never,
       {} as never,
@@ -224,13 +239,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
         }) as unknown as AgentHost,
       createDeliverable: () => new ScriptedDeliverable("completed"),
     });
-    buildLaunchPlanMock.mockResolvedValue({
-      cwd: "/repo",
-      initialMessage: "@/tmp/briefing.md",
-      resultFile: "/tmp/result.md",
-      piArgs: [],
-      harness: "pi",
-    });
+    buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
 
     buildLaunchPlanMock.mockClear();
     const guidance = "Review your own diff before committing.";
@@ -304,13 +313,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     manager.setOnFollowUp((followedUp, deliverable) =>
       followUps.push({ id: followedUp.id, deliverable }),
     );
-    buildLaunchPlanMock.mockResolvedValue({
-      cwd: "/repo",
-      initialMessage: "@/tmp/briefing.md",
-      resultFile: "/tmp/result.md",
-      piArgs: [],
-      harness: "pi",
-    });
+    buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
 
     const id = manager.spawn(
       {} as never,
@@ -397,13 +400,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       transport,
     );
     manager.setOnComplete((spawn) => nudges.push(spawn));
-    buildLaunchPlanMock.mockResolvedValue({
-      cwd: "/repo",
-      initialMessage: "@/tmp/briefing.md",
-      resultFile: "/tmp/result.md",
-      piArgs: [],
-      harness: "pi",
-    });
+    buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
 
     const id = manager.spawn(
       {} as never,
@@ -544,13 +541,7 @@ describe("AgentManager fleet routing", () => {
     getStoreMock.mockReset().mockReturnValue({
       agent: { harnessType: "pi" },
     });
-    buildLaunchPlanMock.mockReset().mockResolvedValue({
-      cwd: "/repo",
-      initialMessage: "@/tmp/briefing.md",
-      resultFile: "/tmp/result.md",
-      piArgs: [],
-      harness: "pi",
-    });
+    buildLaunchPlanMock.mockReset().mockResolvedValue(stubLaunchPlan());
   });
 
   afterEach(() => vi.useRealTimers());

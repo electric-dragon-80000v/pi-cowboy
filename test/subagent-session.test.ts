@@ -37,6 +37,7 @@ import {
   ConcurrencyPools,
   type PoolReservation,
 } from "../src/concurrency-pools.js";
+import type { HarnessPrepareRequest } from "../src/agents/harness.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
 /** A paired model selection for the given "provider/modelId" concurrency key. */
@@ -327,8 +328,15 @@ beforeEach(() => {
   getStoreMock.mockReset().mockReturnValue({ agent: {} });
   buildLaunchPlanMock.mockReset().mockResolvedValue({
     cwd: "/repo",
-    resultFile: path.join(resultDir, "result.md"),
     piArgs: ["--system-prompt", "/tmp/system.md", "--approve", "@task.md"],
+    launch: {
+      subagentId: "session-1",
+      systemPromptFile: path.join(resultDir, "system.md"),
+      taskFile: path.join(resultDir, "task.md"),
+      resultFile: path.join(resultDir, "result.md"),
+      modelKey: null,
+      toolSelection: { kind: "default" },
+    },
     harness: "pi",
   });
 });
@@ -472,8 +480,9 @@ describe("SubagentSession launch failure", () => {
  */
 describe("SubagentSession harness seam", () => {
   const teardownCalls: unknown[] = [];
+  const prepareCalls: HarnessPrepareRequest[] = [];
 
-  /** Stand in the resolved harness; records teardown requests it receives. */
+  /** Stand in the resolved harness; records the prepare and teardown requests it receives. */
   function stubHarness(
     teardown: (request: never) => Promise<void> = async (request) => {
       teardownCalls.push(request);
@@ -483,7 +492,9 @@ describe("SubagentSession harness seam", () => {
       id: "pi",
       agentMuxKind: "pi",
       available: () => true,
-      prepare: async () => {},
+      prepare: async (request: HarnessPrepareRequest) => {
+        prepareCalls.push(request);
+      },
       buildArgs: (request: never) => request,
       teardown,
     });
@@ -514,6 +525,7 @@ describe("SubagentSession harness seam", () => {
 
   beforeEach(() => {
     teardownCalls.length = 0;
+    prepareCalls.length = 0;
   });
 
   afterEach(() => {
@@ -552,6 +564,30 @@ describe("SubagentSession harness seam", () => {
             "@task.md",
           ],
         }),
+      }),
+    ]);
+  });
+
+  it("hands prepare the launch the plan staged", async () => {
+    const { fake, session } = stubbedRun();
+    stubHarness();
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    // The session re-stages nothing: the task file, the system prompt, and the
+    // subagent id reach the harness as the plan built them.
+    expect(prepareCalls).toEqual([
+      expect.objectContaining({
+        paneId: fake.ref.paneId,
+        cwd: "/repo",
+        launch: {
+          subagentId: "session-1",
+          systemPromptFile: path.join(resultDir, "system.md"),
+          taskFile: path.join(resultDir, "task.md"),
+          resultFile: path.join(resultDir, "result.md"),
+          modelKey: null,
+          toolSelection: { kind: "default" },
+        },
       }),
     ]);
   });

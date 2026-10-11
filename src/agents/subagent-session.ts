@@ -520,7 +520,7 @@ export class SubagentSession {
           agentGuidance: options.orchestration.guidance,
         },
       );
-      const launch: AgentLaunchState = { resultFile: plan.resultFile! };
+      const launch: AgentLaunchState = { resultFile: plan.launch.resultFile };
       this.launchState = launch;
       launchCwd = plan.cwd;
       const harness = harnessFor(plan.harness);
@@ -539,7 +539,12 @@ export class SubagentSession {
       // this harness's pane state down, regardless of later config changes.
       this.spawn.execution.harness = plan.harness;
       // The pane exists now, so the harness can bring it into its launch state.
-      await harness.prepare({ pi, paneId: ref.paneId, cwd: plan.cwd });
+      await harness.prepare({
+        pi,
+        paneId: ref.paneId,
+        cwd: plan.cwd,
+        launch: plan.launch,
+      });
       const supervisor = createPaneSupervisor({
         host,
         resultFile: launch.resultFile,

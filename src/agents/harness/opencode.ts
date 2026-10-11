@@ -26,7 +26,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { commandPath } from "../../infrastructure/exec-path.js";
 import { HerdrError } from "../../infrastructure/herdr-client.js";
 import { parseModelKey } from "../../utils.js";
-import type { Harness, ModelEntry, OpencodeLaunchRequest } from "../harness.js";
+import type {
+  Harness,
+  HarnessPrepareRequest,
+  ModelEntry,
+  OpencodeLaunchRequest,
+} from "../harness.js";
 
 const NOT_IMPLEMENTED =
   "the opencode harness is not implemented yet; use pi, pig, or pi-bolt meanwhile";
@@ -95,7 +100,7 @@ export const opencodeHarness: Harness<"opencode"> = {
   id: "opencode",
   agentMuxKind: "opencode",
   available: () => commandPath("opencode") !== undefined,
-  async prepare(): Promise<void> {
+  async prepare(_request: HarnessPrepareRequest): Promise<void> {
     throw new HerdrError(NOT_IMPLEMENTED, undefined);
   },
   buildArgs(_request: OpencodeLaunchRequest): string[] {

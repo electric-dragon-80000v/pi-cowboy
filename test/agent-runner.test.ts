@@ -168,7 +168,7 @@ describe("buildLaunchPlan CLI flags", () => {
     const flag = plan.piArgs.indexOf("--model");
     expect(flag).toBeGreaterThanOrEqual(0);
     expect(plan.piArgs[flag + 1]).toBe("override/special-model");
-    expect(plan.modelKey).toBe("override/special-model");
+    expect(plan.launch.modelKey).toBe("override/special-model");
   });
 
   it("does not add extension or tool flags with no agent config", async () => {
@@ -193,7 +193,7 @@ describe("buildLaunchPlan CLI flags", () => {
     const { cwd, notify } = setup(undefined);
     const plan = await launch("general-purpose", cwd, notify);
 
-    expect(plan.modelKey).toBeNull();
+    expect(plan.launch.modelKey).toBeNull();
     expect(plan.piArgs).not.toContain("--model");
   });
 
@@ -569,7 +569,7 @@ describe("buildLaunchPlan system prompt split", () => {
 
     expect(path.isAbsolute(value)).toBe(true);
     expect(fs.existsSync(value)).toBe(true);
-    expect(plan.systemPromptFile).toBe(value);
+    expect(plan.launch.systemPromptFile).toBe(value);
     expect(fs.readFileSync(value, "utf-8")).toBe(plan.systemPrompt);
   });
 
@@ -621,7 +621,7 @@ describe("buildLaunchPlan system prompt split", () => {
     expect(system).toContain(
       "write your complete final answer, once, to the file:",
     );
-    expect(system).toContain(plan.resultFile!);
+    expect(system).toContain(plan.launch.resultFile);
     // The parent reads the deliverable back on this exact wording.
     expect(system).toContain("That write is your last action.");
     expect(readTask(plan)).toBe("do the task");
@@ -687,7 +687,7 @@ describe("buildLaunchPlan system prompt split", () => {
       const modeOf = (target: string): number =>
         fs.statSync(target).mode & 0o777;
       expect(modeOf(path.join(subagentResultDir(), agentId))).toBe(0o700);
-      expect(modeOf(plan.systemPromptFile!)).toBe(0o600);
+      expect(modeOf(plan.launch.systemPromptFile)).toBe(0o600);
       const taskFile = plan.piArgs.at(-1)!.slice(1);
       expect(modeOf(taskFile)).toBe(0o600);
     } finally {

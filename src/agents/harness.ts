@@ -220,6 +220,13 @@ export interface HarnessPrepareRequest {
   readonly pi: ExtensionAPI;
   readonly paneId: string;
   readonly cwd: string;
+  /**
+   * The launch these inputs belong to: the task file the pane must read, the
+   * system prompt file, the subagent id a launcher names itself after. What a
+   * harness stages or names, not how it builds argv — a family's CLI flags
+   * belong to `buildArgs`, so this stays family-neutral.
+   */
+  readonly launch: SubagentLaunchInputs;
 }
 
 /**
