@@ -21,7 +21,9 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   runnableHarnessIds,
+  type HarnessId,
   type HarnessPrepareRequest,
+  type LaunchRequestFor,
   type PiFamilyLaunchRequest,
   type SubagentLaunchInputs,
   resolveHarness,
@@ -52,24 +54,49 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 
 const PI = {} as unknown as ExtensionAPI;
 
+/** The launch inputs every family's request shares. */
+function sharedInputs(): SubagentLaunchInputs {
+  return {
+    subagentId: "esp02hpw",
+    systemPromptFile: "/spawn/esp02hpw/system.md",
+    taskFile: "/spawn/esp02hpw/task.md",
+    resultFile: "/spawn/esp02hpw/result.md",
+    modelKey: null,
+    toolSelection: { kind: "default" },
+  };
+}
+
+/** The pi family's launch request, with every optional arm absent. */
+const PI_FAMILY_LAUNCH: PiFamilyLaunchRequest = {
+  ...sharedInputs(),
+  family: "pi",
+  thinkingLevel: null,
+  forkSessionFile: null,
+  skills: { kind: "default" },
+  extensions: { kind: "default" },
+  projectTrusted: true,
+};
+
 /**
- * A prepare for a pane: the pi-compatible launcher reads the pane, not the
+ * The launch each harness is handed: its own family's request. Keyed like the
+ * registry, so a prepare is handed the member its family reads.
+ */
+const LAUNCHES: { [K in HarnessId]: LaunchRequestFor<K> } = {
+  pi: PI_FAMILY_LAUNCH,
+  pig: PI_FAMILY_LAUNCH,
+  "pi-bolt": PI_FAMILY_LAUNCH,
+  opencode: { ...sharedInputs(), family: "opencode", variant: null },
+};
+
+/**
+ * A prepare for one harness: the pi-compatible launcher reads the pane, not the
  * launch, so its inputs only have to be present, not meaningful.
  */
-function prepareRequest(paneId: string): HarnessPrepareRequest {
-  return {
-    pi: PI,
-    paneId,
-    cwd: "/repo",
-    launch: {
-      subagentId: "session-1",
-      systemPromptFile: "/tmp/system.md",
-      taskFile: "/tmp/task.md",
-      resultFile: "/tmp/result.md",
-      modelKey: null,
-      toolSelection: { kind: "default" },
-    },
-  };
+function prepareRequest<K extends HarnessId>(
+  id: K,
+  paneId: string,
+): HarnessPrepareRequest<K> {
+  return { pi: PI, paneId, cwd: "/repo", launch: LAUNCHES[id] };
 }
 
 afterEach(() => {
@@ -199,13 +226,13 @@ describe("prepare", () => {
   });
 
   it("does nothing for pi: real pi is already the pane's `pi`", async () => {
-    await harnessFor("pi").prepare(prepareRequest("w1:p1"));
+    await harnessFor("pi").prepare(prepareRequest("pi", "w1:p1"));
     expect(runInPaneMock).not.toHaveBeenCalled();
     expect(waitForPaneOutputMock).not.toHaveBeenCalled();
   });
 
   it("plants the pi launcher in the pane for pig and confirms its body landed", async () => {
-    await harnessFor("pig").prepare(prepareRequest("w1:p9"));
+    await harnessFor("pig").prepare(prepareRequest("pig", "w1:p9"));
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       1,
       PI,
@@ -227,7 +254,7 @@ describe("prepare", () => {
   });
 
   it("plants its own pi launcher in the pane for pi-bolt and confirms its body landed", async () => {
-    await harnessFor("pi-bolt").prepare(prepareRequest("w1:p9"));
+    await harnessFor("pi-bolt").prepare(prepareRequest("pi-bolt", "w1:p9"));
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       1,
       PI,
@@ -249,11 +276,11 @@ describe("prepare", () => {
   });
 
   it("verifies each pi-compatible harness against its own signature", async () => {
-    await harnessFor("pig").prepare(prepareRequest("w1:p1"));
+    await harnessFor("pig").prepare(prepareRequest("pig", "w1:p1"));
     const pigVerify = runInPaneMock.mock.calls[1][2];
     runInPaneMock.mockClear();
 
-    await harnessFor("pi-bolt").prepare(prepareRequest("w1:p2"));
+    await harnessFor("pi-bolt").prepare(prepareRequest("pi-bolt", "w1:p2"));
     const boltVerify = runInPaneMock.mock.calls[1][2];
 
     expect(pigVerify).toContain("PIG_LAUNCHER_8f9a2b");
@@ -263,7 +290,7 @@ describe("prepare", () => {
 
   it("refuses opencode: there is no launcher to plant until it is implemented", async () => {
     await expect(
-      harnessFor("opencode").prepare(prepareRequest("w1:p9")),
+      harnessFor("opencode").prepare(prepareRequest("opencode", "w1:p9")),
     ).rejects.toThrow(/not implemented yet/);
     expect(runInPaneMock).not.toHaveBeenCalled();
     expect(waitForPaneOutputMock).not.toHaveBeenCalled();
@@ -273,7 +300,9 @@ describe("prepare", () => {
     vi.useFakeTimers();
     waitForPaneOutputMock.mockRejectedValue(new Error("timed out waiting"));
 
-    const promise = harnessFor("pi-bolt").prepare(prepareRequest("w1:p9"));
+    const promise = harnessFor("pi-bolt").prepare(
+      prepareRequest("pi-bolt", "w1:p9"),
+    );
     const assertion = expect(promise).rejects.toThrow(
       /the pi launcher never landed/,
     );
@@ -286,18 +315,6 @@ describe("prepare", () => {
 });
 
 describe("buildArgs", () => {
-  /** The launch inputs every family's request shares. */
-  function sharedInputs(): SubagentLaunchInputs {
-    return {
-      subagentId: "esp02hpw",
-      systemPromptFile: "/spawn/esp02hpw/system.md",
-      taskFile: "/spawn/esp02hpw/task.md",
-      resultFile: "/spawn/esp02hpw/result.md",
-      modelKey: null,
-      toolSelection: { kind: "default" },
-    };
-  }
-
   /** A pi-family launch request with every optional arm absent. */
   function request(
     overrides: Partial<PiFamilyLaunchRequest> = {},
@@ -340,6 +357,7 @@ describe("buildArgs", () => {
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
+        variant: null,
       }),
     ).toThrow(/not implemented yet/);
   });

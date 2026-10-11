@@ -11,6 +11,8 @@ import {
   buildLaunchPlan,
   type SubagentLaunchPlan,
 } from "../src/agents/agent-runner.js";
+import type { OpencodeLaunchRequest } from "../src/agents/harness.js";
+import { harnessFor } from "../src/agents/harness/registry.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import {
   ConfigStore,
@@ -292,6 +294,90 @@ describe("buildLaunchPlan CLI flags", () => {
         cwd,
       }),
     ).rejects.toThrow(/not implemented yet/);
+  });
+
+  /**
+   * The request buildLaunchPlan hands the opencode harness. Its buildArgs has no
+   * CLI mapping to answer with, so the stub records the request and answers an
+   * empty argv, which lets the plan reach the test.
+   */
+  function captureOpencodeBuildArgs(): {
+    requests: OpencodeLaunchRequest[];
+    restore: () => void;
+  } {
+    const requests: OpencodeLaunchRequest[] = [];
+    const spy = vi
+      .spyOn(harnessFor("opencode"), "buildArgs")
+      .mockImplementation((request) => {
+        requests.push(request);
+        return [];
+      });
+    return { requests, restore: () => spy.mockRestore() };
+  }
+
+  it("keys the plan's launch to the pi family, with no other family's inputs", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "pi" }));
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.launch).toMatchObject({
+      family: "pi",
+      subagentId: "runner-test",
+      modelKey: null,
+      toolSelection: { kind: "default" },
+      thinkingLevel: null,
+      forkSessionFile: null,
+      skills: { kind: "default" },
+      extensions: { kind: "default" },
+      projectTrusted: true,
+    });
+    expect(plan.launch).not.toHaveProperty("variant");
+  });
+
+  it("hands opencode its own family's request, carrying the template's variant", async () => {
+    const { cwd, notify } = setup(
+      makeAgent({ harnessType: "opencode", variant: "high" }),
+    );
+    const capture = captureOpencodeBuildArgs();
+
+    const plan = await launch("test-agent", cwd, notify);
+    capture.restore();
+
+    expect(plan.harness).toBe("opencode");
+    expect(plan.launch).toEqual({
+      family: "opencode",
+      subagentId: "runner-test",
+      systemPromptFile: expect.any(String),
+      taskFile: expect.any(String),
+      resultFile: expect.any(String),
+      modelKey: null,
+      toolSelection: { kind: "default" },
+      variant: "high",
+    });
+    // One object: the argv and the plan were built from the same request.
+    expect(capture.requests[0]).toBe(plan.launch);
+  });
+
+  it("carries no variant and no pi flag when the template sets none", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "opencode" }));
+    const capture = captureOpencodeBuildArgs();
+
+    const plan = await launch("test-agent", cwd, notify);
+    capture.restore();
+
+    expect(plan.launch).toMatchObject({ family: "opencode", variant: null });
+    // Exactly the shared inputs plus opencode's own: no pi input rides this
+    // request.
+    expect(Object.keys(plan.launch).sort()).toEqual([
+      "family",
+      "modelKey",
+      "resultFile",
+      "subagentId",
+      "systemPromptFile",
+      "taskFile",
+      "toolSelection",
+      "variant",
+    ]);
   });
 
   it("keeps the subagent marker detectable from the produced argv", async () => {

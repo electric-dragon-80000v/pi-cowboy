@@ -33,6 +33,12 @@ const PI_HARNESS_SHAPE = {
 
 const PiHarnessSchema = z.strictObject(PI_HARNESS_SHAPE);
 
+/** opencode's own `[harness.opencode]` keys; no other family reads them. */
+const OpencodeHarnessSchema = z.strictObject({
+  /** The reasoning-effort variant opencode's agent definition carries (the `--variant` of `opencode run`, which is not a flag of the command pi-cowboy launches). */
+  variant: z.string().optional(),
+});
+
 /**
  * The `[harness]` table describes the child process, not the agent's identity
  * or its worktree. Family-neutral keys sit here, each family translating them
@@ -52,11 +58,13 @@ const HarnessSchema = z
     /** Whether the child's system prompt carries the repo's AGENTS.md context files. */
     include_context_files: z.boolean().optional(),
     pi: PiHarnessSchema.optional(),
+    opencode: OpencodeHarnessSchema.optional(),
     ...PI_HARNESS_SHAPE,
   })
-  .transform(({ pi, ...flat }) => ({
+  .transform(({ pi, opencode, ...flat }) => ({
     ...flat,
     ...compactDefined(pi ?? {}),
+    ...compactDefined(opencode ?? {}),
   }));
 
 export const AgentTemplateSchema = z.strictObject({

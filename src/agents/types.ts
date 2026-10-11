@@ -43,6 +43,8 @@ interface BaseAgentConfig {
   inlinedSkills?: string[];
   model?: string;
   thinkingLevel?: ThinkingLevel;
+  /** opencode's reasoning-effort variant: what its agent definition carries into `opencode run --variant`. Undefined = none requested. */
+  variant?: string;
   systemPrompt: string;
   /** Include pi's context files in this agent's system prompt. Undefined = use global config. */
   includeContextFiles?: boolean;

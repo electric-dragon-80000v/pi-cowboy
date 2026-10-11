@@ -218,12 +218,18 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     initialMessage: "@/tmp/briefing.md",
     piArgs: [],
     launch: {
+      family: "pi",
       subagentId: "stub-plan",
       systemPromptFile: "/tmp/system.md",
       taskFile: "/tmp/task.md",
       resultFile: "/tmp/result.md",
       modelKey: null,
       toolSelection: { kind: "default" },
+      thinkingLevel: null,
+      forkSessionFile: null,
+      skills: { kind: "default" },
+      extensions: { kind: "default" },
+      projectTrusted: true,
     },
     harness: "pi",
   });

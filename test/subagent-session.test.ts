@@ -15,6 +15,7 @@ import {
   type SubagentSessionDeps,
   type SpawnOptions,
 } from "../src/agents/subagent-session.js";
+import type { SubagentLaunchPlan } from "../src/agents/agent-runner.js";
 import { formatResultContent } from "../src/orchestrators/protocol.js";
 import type {
   AgentHost,
@@ -318,6 +319,12 @@ function makeSession(options: HarnessOptions = {}) {
   };
 }
 
+/**
+ * The plan the stubbed `buildLaunchPlan` answers with, kept as one object so a
+ * test can compare identity with what `prepare` was handed.
+ */
+let stubPlan: SubagentLaunchPlan;
+
 /** Fake timers plus a per-test result dir: the revive path recreates it on disk. */
 let resultDir: string;
 
@@ -326,19 +333,26 @@ beforeEach(() => {
   resultDir = fs.mkdtempSync(path.join(os.tmpdir(), "cowboy-session-"));
   getPiInstanceMock.mockReset().mockReturnValue({});
   getStoreMock.mockReset().mockReturnValue({ agent: {} });
-  buildLaunchPlanMock.mockReset().mockResolvedValue({
+  stubPlan = {
     cwd: "/repo",
     piArgs: ["--system-prompt", "/tmp/system.md", "--approve", "@task.md"],
     launch: {
+      family: "pi",
       subagentId: "session-1",
       systemPromptFile: path.join(resultDir, "system.md"),
       taskFile: path.join(resultDir, "task.md"),
       resultFile: path.join(resultDir, "result.md"),
       modelKey: null,
       toolSelection: { kind: "default" },
+      thinkingLevel: null,
+      forkSessionFile: null,
+      skills: { kind: "default" },
+      extensions: { kind: "default" },
+      projectTrusted: true,
     },
     harness: "pi",
-  });
+  };
+  buildLaunchPlanMock.mockReset().mockResolvedValue(stubPlan);
 });
 
 afterEach(() => {
@@ -568,28 +582,22 @@ describe("SubagentSession harness seam", () => {
     ]);
   });
 
-  it("hands prepare the launch the plan staged", async () => {
+  it("hands prepare the family launch request the plan built", async () => {
     const { fake, session } = stubbedRun();
     stubHarness();
     session.start();
     await driveRun(DRIVE_COMPLETED_MS);
 
-    // The session re-stages nothing: the task file, the system prompt, and the
-    // subagent id reach the harness as the plan built them.
+    // The session re-stages nothing: prepare receives the plan's own request
+    // object, family tag and all, not a second copy of its inputs.
     expect(prepareCalls).toEqual([
       expect.objectContaining({
         paneId: fake.ref.paneId,
         cwd: "/repo",
-        launch: {
-          subagentId: "session-1",
-          systemPromptFile: path.join(resultDir, "system.md"),
-          taskFile: path.join(resultDir, "task.md"),
-          resultFile: path.join(resultDir, "result.md"),
-          modelKey: null,
-          toolSelection: { kind: "default" },
-        },
+        launch: stubPlan.launch,
       }),
     ]);
+    expect(prepareCalls[0]!.launch).toBe(stubPlan.launch);
   });
 
   it("tears the recorded harness down, guarded, when the launch fails past prepare", async () => {
