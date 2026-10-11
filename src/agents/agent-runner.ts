@@ -31,6 +31,8 @@ import {
 import {
   type ExtensionLaunchMode,
   type HarnessId,
+  type HarnessLaunchRequest,
+  type OpencodeLaunchInputs,
   type PiLaunchInputs,
   type SkillLaunchMode,
   type SubagentLaunchInputs,
@@ -210,11 +212,11 @@ export interface SubagentLaunchPlan {
   /** Legacy name: the complete argv the harness built, whatever binary it launches — the supervisor and herdr seams both spell it `piArgs`. */
   piArgs: string[];
   /**
-   * The family-neutral launch inputs `piArgs` was built from, and the same
-   * object a harness's `prepare` receives: one construction site, so a field
-   * the launch adds reaches both without a second copy to keep in step.
+   * The family launch request `piArgs` was built from, and the same object a
+   * harness's `prepare` receives: one construction site, so a field the launch
+   * adds reaches both without a second copy to keep in step.
    */
-  launch: SubagentLaunchInputs;
+  launch: HarnessLaunchRequest;
   taskSlug?: string;
   /** The harness that owns the pane `piArgs` launches into. */
   harness: HarnessId;
@@ -237,32 +239,45 @@ interface LaunchExtras {
 }
 
 /**
- * The harness's argv, by family. The switch is exhaustive over `HarnessId`, so a
- * kind added to `HARNESS_IDS` without a branch here fails to compile instead of
- * falling through to another family's request.
+ * The launch request for one harness, by family. The switch is exhaustive over
+ * `HarnessId`, so a kind added to `HARNESS_IDS` without a branch here fails to
+ * compile instead of being handed another family's request.
  */
-function buildHarnessArgs(
+function buildLaunchRequest(
   harnessType: HarnessId,
   sharedInputs: SubagentLaunchInputs,
   piInputs: PiLaunchInputs,
-): string[] {
+  opencodeInputs: OpencodeLaunchInputs,
+): HarnessLaunchRequest {
   switch (harnessType) {
     case "pi":
     case "pig":
     case "pi-bolt":
-      return harnessFor(harnessType).buildArgs({
-        ...sharedInputs,
-        family: "pi",
-        ...piInputs,
-      });
+      return { ...sharedInputs, family: "pi", ...piInputs };
     case "opencode":
-      return harnessFor(harnessType).buildArgs({
-        ...sharedInputs,
-        family: "opencode",
-      });
+      return { ...sharedInputs, family: "opencode", ...opencodeInputs };
     default: {
       const unhandled: never = harnessType;
       throw new Error(`unhandled harness: ${String(unhandled)}`);
+    }
+  }
+}
+
+/**
+ * The harness's argv, from the request this launch carries. The request's own
+ * family tag selects the harness, so one family's argv cannot be built from
+ * another family's inputs; the switch is exhaustive over the tag, so a family
+ * added to `HarnessLaunchRequest` without a branch fails to compile.
+ */
+function buildHarnessArgs(request: HarnessLaunchRequest): string[] {
+  switch (request.family) {
+    case "pi":
+      return harnessFor("pi").buildArgs(request);
+    case "opencode":
+      return harnessFor("opencode").buildArgs(request);
+    default: {
+      const unhandled: never = request;
+      throw new Error(`unhandled harness family: ${String(unhandled)}`);
     }
   }
 }
@@ -397,8 +412,10 @@ export async function buildLaunchPlan(
   }
 
   // The harness owns the argv — including how the task rides — because the
-  // CLI surface is the harness's, not the orchestrator's. The request is keyed by
-  // family, so pi's flags only ever reach a pi-family harness.
+  // CLI surface is the harness's, not the orchestrator's. One request is built
+  // here, keyed by family, and the argv is built from that same object: pi's
+  // flags only ever reach a pi-family harness, and opencode's variant only
+  // reaches opencode's.
   const sharedInputs: SubagentLaunchInputs = {
     subagentId: agentId,
     systemPromptFile: systemFile,
@@ -414,7 +431,16 @@ export async function buildLaunchPlan(
     extensions: extMode,
     projectTrusted: options.projectTrusted !== false,
   };
-  const piArgs = buildHarnessArgs(harnessType, sharedInputs, piInputs);
+  const opencodeInputs: OpencodeLaunchInputs = {
+    variant: agentConfig?.variant ?? null,
+  };
+  const launch = buildLaunchRequest(
+    harnessType,
+    sharedInputs,
+    piInputs,
+    opencodeInputs,
+  );
+  const piArgs = buildHarnessArgs(launch);
 
   for (const msg of warnings) {
     ctx.ui.notify(`[cowboy] ${msg}`, "warning");
@@ -425,7 +451,7 @@ export async function buildLaunchPlan(
     cwd: effectiveCwd,
     systemPrompt,
     piArgs,
-    launch: sharedInputs,
+    launch,
     harness: harnessType,
   };
 }

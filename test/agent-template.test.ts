@@ -186,6 +186,50 @@ describe("AgentTemplateSchema harness family split", () => {
     expect(parsed.harness).toMatchObject({ skills: false, fork: true });
   });
 
+  it("reads opencode-only keys from [harness.opencode]", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness.opencode]", 'variant = "high"'].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({ variant: "high" });
+  });
+
+  it("merges the opencode slice with the family-neutral and pi slices field by field", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'model = "anthropic/claude-sonnet-4"',
+        'thinking = "low"',
+        "[harness.opencode]",
+        'variant = "max"',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness).toMatchObject({
+      model: "anthropic/claude-sonnet-4",
+      thinking: "low",
+      variant: "max",
+    });
+  });
+
+  it("leaves variant undefined when the template omits it", () => {
+    expect(parseAgentFile('name = "x"').harness?.variant).toBeUndefined();
+  });
+
+  it("rejects variant under the flat [harness] table and inside [harness.pi]", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness]\nvariant = "high"'),
+      ),
+    ).toBe('harness: Unrecognized key: "variant"');
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi]\nvariant = "high"'),
+      ),
+    ).toBe('harness.pi: Unrecognized key: "variant"');
+  });
+
   it("rejects an unknown [harness.<family>] table", () => {
     expect(
       parseError(() =>
@@ -202,12 +246,20 @@ describe("AgentTemplateSchema harness family split", () => {
     ).toBe('harness.pi: Unrecognized key: "python"');
   });
 
-  it("rejects a pi-only key inside a future family table", () => {
+  it("rejects an unknown key inside [harness.opencode]", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.opencode]\nmodel = "x"'),
+      ),
+    ).toBe('harness.opencode: Unrecognized key: "model"');
+  });
+
+  it("rejects a pi-only key inside the opencode table", () => {
     expect(
       parseError(() =>
         parseAgentFile('name = "x"\n[harness.opencode]\nthinking = "high"'),
       ),
-    ).toBe('harness: Unrecognized key: "opencode"');
+    ).toBe('harness.opencode: Unrecognized key: "thinking"');
   });
 });
 

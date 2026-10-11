@@ -5,12 +5,15 @@
  * (`agentMuxKind`), bringing its host pane into the state it launches in
  * (`prepare`), the argv the pane runs (`buildArgs`), and undoing any state it
  * left on the filesystem (`teardown`). What every harness family has in common
- * lives here as `SubagentLaunchInputs`; what one family alone uses (today,
- * pi's CLI flags) lives beside it as that family's inputs, so a second family
- * adds a request member — never an optional field, a passthrough schema, or a
- * raw config record on a shared type. Each harness's implementation lives
- * beside this module (harness/pig.ts, harness/pi-bolt.ts, harness/opencode.ts)
- * and is selected through harness/registry.ts.
+ * lives here as `SubagentLaunchInputs`; what one family alone uses (pi's CLI
+ * flags, opencode's variant) lives beside it as that family's inputs, so a
+ * second family adds a request member — never an optional field, a passthrough
+ * schema, or a raw config record on a shared type. One request carries one
+ * family's launch, and both `buildArgs` and `prepare` read it, so nothing a
+ * harness is handed belongs to a family it does not launch. Each harness's
+ * implementation lives beside this module (harness/pig.ts,
+ * harness/pi-bolt.ts, harness/opencode.ts) and is selected through
+ * harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
  * a template written where a harness exists must still load where it does not.
@@ -26,9 +29,8 @@
  * harness implementation, and — where that family needs them — a member on
  * `HarnessLaunchRequest` and a strict `[harness.<family>]` table for its own
  * slice of the template (never passthrough; parsed options are typed and merged
- * per field like every other template field). A family whose `prepare` needs
- * launch context (a harness that stages files before launch) widens
- * `HarnessPrepareRequest` in the same change — the fields arrive with their
+ * per field like every other template field). That member is the whole of what
+ * the family's `buildArgs` and `prepare` read, so the fields arrive with their
  * first reader, never before.
  */
 
@@ -168,6 +170,16 @@ export interface PiLaunchInputs {
   readonly projectTrusted: boolean;
 }
 
+/** opencode CLI specifics; no other harness family reads these. */
+export interface OpencodeLaunchInputs {
+  /**
+   * `null` = no variant was requested. `--variant` exists on `opencode run`,
+   * which pi-cowboy does not launch, so the variant reaches the CLI only through
+   * the agent definition this harness prepares.
+   */
+  readonly variant: string | null;
+}
+
 /**
  * The launch-request families: the pi family (pi, pig, pi-bolt) and opencode.
  * Filtered from the mux's kinds rather than re-declared, so the two vocabularies
@@ -187,26 +199,27 @@ export type PiFamilyLaunchRequest = HarnessFamilyTag<"pi"> &
   PiLaunchInputs;
 
 /**
- * opencode's argv request: the shared launch inputs alone, because opencode's
- * CLI mapping is not written.
+ * opencode's argv request: the shared launch inputs plus opencode's own CLI
+ * specifics.
  */
 export type OpencodeLaunchRequest = HarnessFamilyTag<"opencode"> &
-  SubagentLaunchInputs;
+  SubagentLaunchInputs &
+  OpencodeLaunchInputs;
 
 /**
- * The argv-building request, keyed by family: pi's flags are what a `"pi"`
- * request is, so they cannot ride to a harness that never mapped them. A new
- * family adds a member — and, if its `prepare` needs launch context, widens
- * `HarnessPrepareRequest` in the same change — never an optional field on an
- * existing member.
+ * The launch request, keyed by family: pi's flags are what a `"pi"` request is,
+ * so they cannot ride to a harness that never mapped them. One is built per
+ * launch, and both `buildArgs` and `prepare` read that same object. A new family
+ * adds a member — never an optional field on an existing member.
  */
 export type HarnessLaunchRequest =
   PiFamilyLaunchRequest | OpencodeLaunchRequest;
 
 /**
- * The launch request one harness id builds argv from. Keyed by id, so a harness
- * added to `HARNESS_IDS` without a request fails to compile; the pi family
- * shares one member because they all run the pi binary.
+ * The launch request one harness id reads: the argv it builds and the pane
+ * state it prepares. Keyed by id, so a harness added to `HARNESS_IDS` without a
+ * request fails to compile; the pi family shares one member because they all
+ * run the pi binary.
  */
 export type LaunchRequestFor<K extends HarnessId> = {
   pi: PiFamilyLaunchRequest;
@@ -216,17 +229,17 @@ export type LaunchRequestFor<K extends HarnessId> = {
 }[K];
 
 /** What a harness needs to bring its host pane into the state it launches in. */
-export interface HarnessPrepareRequest {
+export interface HarnessPrepareRequest<K extends HarnessId = HarnessId> {
   readonly pi: ExtensionAPI;
   readonly paneId: string;
   readonly cwd: string;
   /**
-   * The launch these inputs belong to: the task file the pane must read, the
-   * system prompt file, the subagent id a launcher names itself after. What a
-   * harness stages or names, not how it builds argv — a family's CLI flags
-   * belong to `buildArgs`, so this stays family-neutral.
+   * The launch this pane is prepared for: the task file the pane must read, the
+   * system prompt file, the subagent id a launcher names itself after — the same
+   * request `buildArgs` was given, so this family's own inputs reach this
+   * family's harness and no other's.
    */
-  readonly launch: SubagentLaunchInputs;
+  readonly launch: LaunchRequestFor<K>;
 }
 
 /**
@@ -300,10 +313,11 @@ export interface Harness<K extends HarnessId = HarnessId> {
    */
   available(): boolean;
   /**
-   * Bring the pane into the state this harness launches in. Idempotent;
-   * throws when the state could not be established.
+   * Bring the pane into the state this harness launches in, for the launch this
+   * family's own request describes. Idempotent; throws when the state could not
+   * be established.
    */
-  prepare(request: HarnessPrepareRequest): Promise<void>;
+  prepare(request: HarnessPrepareRequest<K>): Promise<void>;
   /**
    * The complete argv the pane runs, including how the task rides (the pi
    * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.

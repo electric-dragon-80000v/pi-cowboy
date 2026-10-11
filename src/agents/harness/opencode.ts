@@ -18,8 +18,11 @@
  * than an exception. A settings menu must never fail to open because a list
  * command misbehaved.
  *
- * What lands with the implementation: the opencode CLI mapping in `buildArgs`,
- * opencode's own model settings, and its strict `[harness.opencode]` table.
+ * What lands with the implementation: the opencode CLI mapping in `buildArgs`
+ * and opencode's own model settings. The strict `[harness.opencode]` table
+ * already carries `variant`, which has no argv route: `--variant` exists on
+ * `opencode run`, not on the top-level command pi-cowboy launches, so it must
+ * ride the agent definition this harness prepares.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -100,7 +103,7 @@ export const opencodeHarness: Harness<"opencode"> = {
   id: "opencode",
   agentMuxKind: "opencode",
   available: () => commandPath("opencode") !== undefined,
-  async prepare(_request: HarnessPrepareRequest): Promise<void> {
+  async prepare(_request: HarnessPrepareRequest<"opencode">): Promise<void> {
     throw new HerdrError(NOT_IMPLEMENTED, undefined);
   },
   buildArgs(_request: OpencodeLaunchRequest): string[] {

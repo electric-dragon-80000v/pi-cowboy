@@ -136,6 +136,7 @@ function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
     inlinedSkills: harness?.inlined_skills,
     model: harness?.model,
     thinkingLevel: harness?.thinking,
+    variant: harness?.variant,
     hidden: template.hidden,
     fork: harness?.fork,
     includeContextFiles: harness?.include_context_files,

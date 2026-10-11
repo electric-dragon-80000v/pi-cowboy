@@ -72,7 +72,7 @@ tools = ["read", "bash", "grep", "find"]
 # (optional) Sets if the agent's system prompt carries pi's context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too. opencode's slice of the table is not implemented yet.
+# (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too.
 [harness.pi]
 
 # (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
@@ -89,6 +89,12 @@ inlined_skills = []
 
 # (optional) Fork the parent session into the agent (`pi --fork <sessionFile>`). default = false
 fork = false
+
+# (optional) Settings only opencode reads. Its launch is not implemented yet, so nothing acts on these keys today.
+[harness.opencode]
+
+# (optional) Reasoning-effort variant opencode's agent definition carries: the `--variant` of `opencode run`, a flag the top-level command pi-cowboy launches does not take. Example values: "minimal", "high", "max". default = none
+# variant = "high"
 ```
 
-A pi-only key written flat under `[harness]` still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins.
+A pi-only key written flat under `[harness]` still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` never reaches a pi launch.

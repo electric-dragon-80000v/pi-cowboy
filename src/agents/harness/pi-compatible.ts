@@ -116,7 +116,10 @@ export function createPiCompatibleHarness(
     buildArgs: buildPiLaunchArgs,
     listModels: piFamilyListModels,
     teardown: async () => {},
-    async prepare({ pi, paneId }: HarnessPrepareRequest): Promise<void> {
+    async prepare({
+      pi,
+      paneId,
+    }: HarnessPrepareRequest<PiFamilyHarnessId>): Promise<void> {
       await installPaneLauncher(pi, paneId, {
         commandName: "pi",
         body: `export HERDR_AGENT=pi; ${spec.binary} "$@"`,

@@ -490,4 +490,52 @@ describe("mergeAgents harness family split", () => {
     expect(config.thinkingLevel).toBe("high");
     expect(config.fork).toBe(true);
   });
+
+  it("maps opencode-only keys from [harness.opencode] into the agent config", () => {
+    const merged = mergeAgents(
+      new Map(),
+      [
+        parseAgentFile(
+          'name = "split"\nharness_type = "opencode"\n[harness]\nmodel = "m"\n[harness.opencode]\nvariant = "high"',
+        ),
+      ],
+      [],
+      [],
+    );
+    const config = merged.get("split")!;
+
+    expect(config.harnessType).toBe("opencode");
+    expect(config.model).toBe("m");
+    expect(config.variant).toBe("high");
+    expect(config.thinkingLevel).toBeUndefined();
+  });
+
+  it("keeps an earlier layer's variant when a later override omits it", () => {
+    const user = [
+      parseAgentFile(
+        'name = "oc"\nharness_type = "opencode"\n[harness.opencode]\nvariant = "high"',
+      ),
+    ];
+    const project = [parseAgentFile('name = "oc"\n[harness]\nmodel = "m"')];
+
+    const merged = mergeAgents(new Map(), user, [], project);
+    const config = merged.get("oc")!;
+
+    expect(config.variant).toBe("high");
+    expect(config.harnessType).toBe("opencode");
+    expect(config.model).toBe("m");
+  });
+
+  it("lets a later layer set its own variant", () => {
+    const user = [
+      parseAgentFile('name = "oc"\n[harness.opencode]\nvariant = "low"'),
+    ];
+    const project = [
+      parseAgentFile('name = "oc"\n[harness.opencode]\nvariant = "max"'),
+    ];
+
+    expect(mergeAgents(new Map(), user, [], project).get("oc")?.variant).toBe(
+      "max",
+    );
+  });
 });
