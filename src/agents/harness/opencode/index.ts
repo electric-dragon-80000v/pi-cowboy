@@ -1,5 +1,5 @@
 /**
- * harness/opencode.ts — the opencode harness: detected on PATH, not launched.
+ * harness/opencode/index.ts — the opencode harness: detected on PATH, not launched.
  *
  * opencode is not a pi-compatible binary, so nothing here can reuse the
  * pi-compatible factory: `prepare` and `buildArgs` throw a not-yet-implemented
@@ -22,19 +22,20 @@
  * and opencode's own model settings. The strict `[harness.opencode]` table
  * already carries `variant`, which has no argv route: `--variant` exists on
  * `opencode run`, not on the top-level command pi-cowboy launches, so it must
- * ride the agent definition this harness prepares.
+ * ride the agent definition this harness prepares — which this module's
+ * siblings stage (staging.ts, definition.ts, npm-seed.ts, permissions.ts).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { commandPath } from "../../infrastructure/exec-path.js";
-import { HerdrError } from "../../infrastructure/herdr-client.js";
-import { parseModelKey } from "../../utils.js";
+import { commandPath } from "../../../infrastructure/exec-path.js";
+import { HerdrError } from "../../../infrastructure/herdr-client.js";
+import { parseModelKey } from "../../../utils.js";
 import type {
   Harness,
   HarnessPrepareRequest,
   ModelEntry,
   OpencodeLaunchRequest,
-} from "../harness.js";
+} from "../../harness.js";
 
 const NOT_IMPLEMENTED =
   "the opencode harness is not implemented yet; use pi, pig, or pi-bolt meanwhile";
