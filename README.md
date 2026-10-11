@@ -198,7 +198,7 @@ A removal that fails does not throw. The branch is removed only after you have m
 
 ## Model resolution
 
-A model set in the `cowboy_agent` call wins over everything; below it come the session overrides, the agent template, and finally the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
+A model set in the `cowboy_agent` call wins over everything; below it come the session overrides, the agent template, the session default, the launching harness's default, and finally the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
 
 ## Concurrency
 
@@ -275,6 +275,8 @@ Every running agent holds a place in every concurrency limit that applies to it:
 It can be. For a single small task the overhead can cost more time than the task itself. pi-cowboy is built for many tasks at once, where that overhead is amortized by parallelization.
 
 To avoid the overhead, pi-cowboy has support for [pig](https://github.com/MichaelKinsy/PiG), a drop-in replacement for pi written in Go, and for [pi-bolt](https://github.com/opensec-git/Pi-Bolt), faster, lighter Pi variant compiled ahead of time. They start up fast and have a lower memory footprint. See `agent.harnessType` in [Configuration](docs/Configuration.md).
+
+pi-cowboy also detects opencode wherever its binary is on `PATH`. Its models list, so its default model is configurable, but launching an agent under it is not implemented yet.
 
 ### I don't like the emojis, can I turn them off?
 
