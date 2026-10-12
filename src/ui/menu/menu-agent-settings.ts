@@ -59,7 +59,7 @@ import {
  */
 function harnessDescription(availability: Availability<HarnessId>): string {
   const base =
-    "Harness that launches agents whose template omits harness_type. pi = the real pi binary; pig and pi-bolt = pi-compatible binaries launched through a shell function in the agent's own pane.";
+    "Harness that launches agents whose template omits harness_type. pi = the real pi binary; pig and pi-bolt = pi-compatible binaries launched through a shell function in the agent's own pane; opencode and codex = binaries of their own launched as their interactive UIs in the agent's own pane.";
   const missing = HARNESS_IDS.filter(
     (id) => id !== "pi" && !isAvailable(id, availability),
   );

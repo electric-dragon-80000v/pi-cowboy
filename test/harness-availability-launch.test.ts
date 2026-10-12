@@ -60,9 +60,10 @@ describe("detectHarnessAvailability", () => {
     executable(dir, "pi-bolt");
     executable(dir, "pig");
     executable(dir, "opencode");
+    executable(dir, "codex");
 
     expect(detectHarnessAvailability()).toEqual(
-      probed(["pi", "pig", "pi-bolt", "opencode"]),
+      probed(["pi", "pig", "pi-bolt", "opencode", "codex"]),
     );
   });
 });

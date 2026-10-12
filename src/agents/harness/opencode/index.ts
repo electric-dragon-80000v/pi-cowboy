@@ -38,7 +38,11 @@ import type {
   ModelEntry,
   OpencodeLaunchRequest,
 } from "../../harness.js";
-import { installPaneLauncher, type PaneProof } from "../pane-launcher.js";
+import {
+  installPaneLauncher,
+  singleQuoteShellWord,
+  type PaneProof,
+} from "../pane-launcher.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
@@ -72,21 +76,11 @@ const LAUNCHER_READY_MARKER = "OPENCODE_VERIFIED";
  */
 function launcherBody(configDir: string, taskFile: string): string {
   return [
-    `export OPENCODE_CONFIG_DIR=${singleQuote(configDir)}`,
+    `export OPENCODE_CONFIG_DIR=${singleQuoteShellWord(configDir)}`,
     "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
     "export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1",
-    `command opencode "$@" < ${singleQuote(taskFile)}`,
+    `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
   ].join("; ");
-}
-
-/**
- * A value as one POSIX shell word: single quotes around it, and the `'\''` dance
- * for any single quote inside. Every path this harness passes is its own temp
- * path, but the launcher is a shell command herdr types into the pane, so the
- * value is quoted rather than trusted.
- */
-function singleQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /**
@@ -106,7 +100,7 @@ function singleQuote(value: string): string {
 function definitionProof(subagentId: string): PaneProof {
   const listed = `${subagentId} (primary)`;
   return {
-    command: `${OPENCODE_COMMAND} agent list | grep -x ${singleQuote(listed)}`,
+    command: `${OPENCODE_COMMAND} agent list | grep -x ${singleQuoteShellWord(listed)}`,
     output: listed,
     timeoutMs: AGENT_LIST_TIMEOUT_MS,
     failure: `failed to prepare the pane: \`${OPENCODE_COMMAND} agent list\` never printed ${listed} — the definition staged for ${subagentId} is missing, unreadable, or not a primary agent, and opencode would fall back to its own default agent. The agent did not start.`,

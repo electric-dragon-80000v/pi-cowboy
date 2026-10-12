@@ -163,6 +163,14 @@ describe("AgentTemplateSchema harness family split", () => {
     expect(parsed.harness?.modelsByFamily).toEqual({ opencode: "oc/model" });
   });
 
+  it("reads model from [harness.codex] into that family's entry alone", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness.codex]", 'model = "cx/model"'].join("\n"),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({ codex: "cx/model" });
+  });
+
   it("keeps the two families' models apart", () => {
     const parsed = parseAgentFile(
       [
@@ -336,9 +344,9 @@ describe("AgentTemplateSchema harness family split", () => {
   it("rejects an unknown [harness.<family>] table", () => {
     expect(
       parseError(() =>
-        parseAgentFile('name = "x"\n[harness.codex]\nmodel = 1'),
+        parseAgentFile('name = "x"\n[harness.ghost]\nmodel = 1'),
       ),
-    ).toBe('harness: Unrecognized key: "codex"');
+    ).toBe('harness: Unrecognized key: "ghost"');
   });
 
   it("rejects an unknown key inside [harness.pi]", () => {
@@ -373,6 +381,24 @@ describe("AgentTemplateSchema harness family split", () => {
         parseAgentFile('name = "x"\n[harness.opencode]\nthinking = "high"'),
       ),
     ).toBe('harness.opencode: Unrecognized key: "thinking"');
+  });
+
+  it("rejects tool arms inside [harness.codex]: codex has no tools flag to read them", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.codex]\ntools = ["read"]'),
+      ),
+    ).toBe('harness.codex: Unrecognized key: "tools"');
+  });
+
+  it("rejects a wrongly-typed model inside [harness.codex], naming the key", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.codex]\nmodel = 12'),
+      ),
+    ).toBe(
+      "harness.codex.model: Invalid input: expected string, received number",
+    );
   });
 });
 

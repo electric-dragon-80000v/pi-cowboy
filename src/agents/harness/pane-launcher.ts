@@ -26,6 +26,16 @@ import {
 } from "../../infrastructure/herdr-client.js";
 import { sleep } from "../../utils.js";
 
+/**
+ * A value as one POSIX shell word: single quotes around it, and the `'\''`
+ * dance for any single quote inside. Every path a harness passes is its own
+ * staging path, but a launcher is a shell command herdr types into the pane,
+ * so the value is quoted rather than trusted.
+ */
+export function singleQuoteShellWord(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 /** Bounded install attempts: a `pane run` before the shell is at its prompt is silently lost. */
 const INSTALL_MAX_ATTEMPTS = 5;
 const INSTALL_OUTPUT_TIMEOUT_MS = 2_000;

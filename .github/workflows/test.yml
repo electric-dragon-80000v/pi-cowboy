@@ -208,6 +208,51 @@ jobs:
           PI_COWBOY_REQUIRE_OPENCODE: "1"
         run: pnpm exec vitest run --project integration-no-cow test/opencode-staging.integration.test.ts
 
+  # codex is someone else's binary and its config-override parsing is
+  # undocumented, so the one thing that can prove the launch flags still work
+  # is a real codex — and the one thing that keeps it honest is installing the
+  # latest release every run. The install is deliberately unpinned: a new codex
+  # that stops reading `model_instructions_file`, or that changes the bundled
+  # catalog shape the model list parses, must redden CI on the release that
+  # breaks it, not on a version someone remembered to bump. A dedicated job
+  # keeps that signal separate from the herdr/btrfs integration signal, needs
+  # no clone-capable volume, and pins nothing.
+  integration-codex:
+    name: Integration Tests (latest codex)
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm and Node.js 24.20.0
+        uses: pnpm/setup@v3
+        with:
+          runtime: node@24.20.0
+          cache: true # the pnpm store, keyed on pnpm-lock.yaml's content hash
+          # pnpm and Node only; installing is the explicit step below.
+          install: false
+
+      - name: Install dependencies
+        run: HUSKY=0 pnpm install --frozen-lockfile
+
+      # The npm distribution is codex's official cross-platform install; its
+      # bin lands on the runner PATH for the steps below.
+      - name: Install the latest codex
+        run: npm install -g @openai/codex
+
+      # A broken install must fail the job here, not let the test skip over it.
+      - name: Verify the codex binary
+        run: codex --version
+
+      # PI_COWBOY_REQUIRE_CODEX turns a missing binary into a failing test
+      # instead of a silent skip, so the only way this job passes is by running
+      # the assertions above.
+      - name: Run the codex harness integration test
+        env:
+          PI_COWBOY_REQUIRE_CODEX: "1"
+        run: pnpm exec vitest run --project integration-no-cow test/codex-harness.integration.test.ts
+
   # Both integration projects on a btrfs loop device, so the clone path actually
   # clones. The tests' temp repos land on the volume through TMPDIR
   # (os.tmpdir() honours it).

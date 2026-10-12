@@ -91,7 +91,7 @@ describe("defaultModelByHarness — file validation", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain("agent.defaultModelByHarness.cow");
     expect(warn.mock.calls[0]![0]).toContain(
-      'expected "pi" | "pig" | "pi-bolt" | "opencode"',
+      'expected "pi" | "pig" | "pi-bolt" | "opencode" | "codex"',
     );
   });
 

@@ -11,7 +11,10 @@ import {
   buildLaunchPlan,
   type SubagentLaunchPlan,
 } from "../src/agents/agent-runner.js";
-import type { OpencodeLaunchRequest } from "../src/agents/harness.js";
+import type {
+  CodexLaunchRequest,
+  OpencodeLaunchRequest,
+} from "../src/agents/harness.js";
 import { harnessFor } from "../src/agents/harness/registry.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import {
@@ -298,6 +301,62 @@ describe("buildLaunchPlan CLI flags", () => {
     // is staged rather than named on this argv.
     expect(plan.piArgs).toEqual(["--mini", "--agent", "runner-opencode"]);
     expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
+  });
+
+  it("dispatches codex through its own family's request", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.harness).toBe("codex");
+    expect(plan.launch).toMatchObject({
+      family: "codex",
+      subagentId: "runner-test",
+      modelKey: null,
+      toolSelection: { kind: "default" },
+      projectTrusted: true,
+    });
+    // Exactly the shared inputs plus codex's own: no pi or opencode input
+    // rides this request.
+    expect(Object.keys(plan.launch).sort()).toEqual([
+      "family",
+      "modelKey",
+      "projectTrusted",
+      "resultFile",
+      "subagentId",
+      "systemPromptFile",
+      "taskFile",
+      "toolSelection",
+    ]);
+    // codex's own CLI: the instructions override, no project docs, and no pi
+    // flag on the argv. The task rides the launcher's positional prompt, so
+    // it is staged rather than named on this argv.
+    expect(plan.piArgs[0]).toBe("-c");
+    expect(plan.piArgs).toEqual(
+      expect.arrayContaining(["-s", "workspace-write", "-a", "never"]),
+    );
+    expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
+  });
+
+  it("hands codex its own family's request object for argv and prepare alike", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
+    const spy = vi.spyOn(harnessFor("codex"), "buildArgs");
+
+    const plan = await launch("test-agent", cwd, notify);
+    const requests = spy.mock.calls.map(([request]) => request);
+    spy.mockRestore();
+
+    expect(requests[0]).toBe(plan.launch);
+    expect(plan.launch).toEqual({
+      family: "codex",
+      subagentId: "runner-test",
+      systemPromptFile: expect.any(String),
+      taskFile: expect.any(String),
+      resultFile: expect.any(String),
+      modelKey: null,
+      toolSelection: { kind: "default" },
+      projectTrusted: true,
+    } satisfies CodexLaunchRequest);
   });
 
   /**

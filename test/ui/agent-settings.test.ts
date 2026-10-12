@@ -224,7 +224,9 @@ describe("Agent settings — default harness", () => {
     shellState.harnessAvailability = probed<HarnessId>(["pi"]);
     const narrowed = openAgentSettings();
     narrowed.focus("Default harness");
-    expect(narrowed.text()).toContain("Not on PATH: pig, pi-bolt, opencode.");
+    // The row description wraps; the missing-harness list lands whole on its
+    // own line.
+    expect(narrowed.text()).toContain("PATH: pig, pi-bolt, opencode, codex.");
 
     shellState.harnessAvailability = unprobed<HarnessId>();
     const everyHarness = openAgentSettings();
@@ -305,6 +307,11 @@ describe("Agent settings — toggles", () => {
     await session.settle();
     expect(session.activeRow()?.value).toBe("opencode");
     expect(memory.store.agent.harnessType).toBe("opencode");
+
+    session.press(KEY.enter);
+    await session.settle();
+    expect(session.activeRow()?.value).toBe("codex");
+    expect(memory.store.agent.harnessType).toBe("codex");
 
     session.press(KEY.enter);
     await session.settle();

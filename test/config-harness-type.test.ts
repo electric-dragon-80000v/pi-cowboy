@@ -47,7 +47,7 @@ function memoryIO(
 }
 
 describe("harnessType — file validation", () => {
-  it.each(["pi", "pig", "pi-bolt", "opencode"])(
+  it.each(["pi", "pig", "pi-bolt", "opencode", "codex"])(
     "keeps the valid harness %s",
     (value) => {
       const cleaned = validateRawLayer(
@@ -70,7 +70,7 @@ describe("harnessType — file validation", () => {
     expect(cleaned.agent?.harnessType).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toContain(
-      'expected "pi" | "pig" | "pi-bolt" | "opencode"',
+      'expected "pi" | "pig" | "pi-bolt" | "opencode" | "codex"',
     );
     expect(warn.mock.calls[0][0]).toContain('"agent.harnessType"');
   });

@@ -7,18 +7,18 @@
  * left on the filesystem (`teardown`), and warming a slow model list at boot
  * (`prefetchModels`). What every harness family has in common
  * lives here as `SubagentLaunchInputs`; what one family alone uses (pi's CLI
- * flags, opencode's variant) lives beside it as that family's inputs, so a
- * second family adds a request member — never an optional field, a passthrough
- * schema, or a raw config record on a shared type. One request carries one
- * family's launch, and both `buildArgs` and `prepare` read it, so nothing a
- * harness is handed belongs to a family it does not launch. The listing request
- * below (`HarnessListModelsRequest`) is the one shared request that breaks that
- * shape, because one call answers for every runnable harness at once: a
- * family's own input rides it as a field named after that family, never as a
- * member a caller has to pick. Each harness's
- * implementation lives beside this module (harness/pig.ts,
- * harness/pi-bolt.ts, harness/opencode/index.ts) and is selected through
- * harness/registry.ts.
+ * flags, opencode's variant, codex's project trust) lives beside it as that
+ * family's inputs, so a second family adds a request member — never an
+ * optional field, a passthrough schema, or a raw config record on a shared
+ * type. One request carries one family's launch, and both `buildArgs` and
+ * `prepare` read it, so nothing a harness is handed belongs to a family it
+ * does not launch. The listing request below (`HarnessListModelsRequest`) is
+ * the one shared request that breaks that shape, because one call answers for
+ * every runnable harness at once: a family's own input rides it as a field
+ * named after that family, never as a member a caller has to pick. Each
+ * harness's implementation lives beside this module (harness/pig.ts,
+ * harness/pi-bolt.ts, harness/opencode/index.ts, harness/codex.ts) and is
+ * selected through harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
  * a template written where a harness exists must still load where it does not.
@@ -48,9 +48,17 @@ import type { AgentMuxKind } from "./agent-host.js";
  *
  * `opencode` runs a binary of its own rather than pi: it is probed like every
  * other harness and shows up wherever its binary is on PATH, and its own
- * implementation stages the agent definition its launch reads.
+ * implementation stages the agent definition its launch reads. `codex` is the
+ * same kind of harness: probed by its binary, with its launch reading the
+ * staged system prompt file through a config override.
  */
-export const HARNESS_IDS = ["pi", "pig", "pi-bolt", "opencode"] as const;
+export const HARNESS_IDS = [
+  "pi",
+  "pig",
+  "pi-bolt",
+  "opencode",
+  "codex",
+] as const;
 
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
@@ -88,6 +96,7 @@ const HARNESS_DISPLAY_NAMES: Record<HarnessId, string> = {
   pig: "PiG",
   "pi-bolt": "Pi-Bolt",
   opencode: "OpenCode",
+  codex: "Codex",
 };
 
 /** The display form of one harness, for the rows that configure it. */
@@ -191,13 +200,25 @@ export interface OpencodeLaunchInputs {
   readonly variant: string | null;
 }
 
+/** codex CLI specifics; no other harness family reads these. */
+export interface CodexLaunchInputs {
+  /**
+   * Whether the project is trusted: where pi passes `--approve`, codex asks
+   * never; where pi passes `--no-approve`, codex asks on request. The sandbox
+   * is not here — the child's report file lives outside the workspace, so it
+   * stays `workspace-write` whatever the trust.
+   */
+  readonly projectTrusted: boolean;
+}
+
 /**
- * The launch-request families: the pi family (pi, pig, pi-bolt) and opencode.
+ * The launch-request families: the pi family (pi, pig, pi-bolt), opencode,
+ * and codex.
  * Filtered from the mux's kinds rather than re-declared, so the two vocabularies
  * cannot drift apart; each member of `HarnessLaunchRequest` carries one as its
  * `family` tag.
  */
-export type HarnessFamily = Extract<AgentMuxKind, "pi" | "opencode">;
+export type HarnessFamily = Extract<AgentMuxKind, "pi" | "opencode" | "codex">;
 
 /** The family tag one launch request carries; the tag alone selects the member. */
 interface HarnessFamilyTag<F extends HarnessFamily> {
@@ -218,13 +239,21 @@ export type OpencodeLaunchRequest = HarnessFamilyTag<"opencode"> &
   OpencodeLaunchInputs;
 
 /**
+ * codex's argv request: the shared launch inputs plus codex's own CLI
+ * specifics.
+ */
+export type CodexLaunchRequest = HarnessFamilyTag<"codex"> &
+  SubagentLaunchInputs &
+  CodexLaunchInputs;
+
+/**
  * The launch request, keyed by family: pi's flags are what a `"pi"` request is,
  * so they cannot ride to a harness that never mapped them. One is built per
  * launch, and both `buildArgs` and `prepare` read that same object. A new family
  * adds a member — never an optional field on an existing member.
  */
 export type HarnessLaunchRequest =
-  PiFamilyLaunchRequest | OpencodeLaunchRequest;
+  PiFamilyLaunchRequest | OpencodeLaunchRequest | CodexLaunchRequest;
 
 /**
  * The launch request one harness id reads: the argv it builds and the pane
@@ -237,6 +266,7 @@ export type LaunchRequestFor<K extends HarnessId> = {
   pig: PiFamilyLaunchRequest;
   "pi-bolt": PiFamilyLaunchRequest;
   opencode: OpencodeLaunchRequest;
+  codex: CodexLaunchRequest;
 }[K];
 
 /** What a harness needs to bring its host pane into the state it launches in. */
@@ -347,10 +377,11 @@ export interface Harness<K extends HarnessId = HarnessId> {
   teardown(request: HarnessTeardownRequest): Promise<void>;
   /**
    * The models this harness can run, listed on demand — when a menu opens, and
-   * when the spawn wizard opens. The pi family reads its catalog live on every
-   * call. opencode answers from its memoized fetch, so the boot warm and every
-   * menu select share one CLI run; an empty answer is never retained, so a
-   * failed list retries on the next read instead of pinning an empty row.
+   * when the spawn wizard opens. The pi family reads its catalog live on
+   * every call. opencode and codex answer from their memoized fetches, so the
+   * boot warm and every menu select share one CLI run; an empty answer is
+   * never retained, so a failed list retries on the next read instead of
+   * pinning an empty row.
    */
   listModels(request: HarnessListModelsRequest): Promise<readonly ModelEntry[]>;
   /**

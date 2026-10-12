@@ -29,6 +29,7 @@ import {
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
 import {
+  type CodexLaunchInputs,
   type ExtensionLaunchMode,
   type HarnessId,
   type HarnessLaunchRequest,
@@ -250,6 +251,7 @@ function buildLaunchRequest(
   sharedInputs: SubagentLaunchInputs,
   piInputs: PiLaunchInputs,
   opencodeInputs: OpencodeLaunchInputs,
+  codexInputs: CodexLaunchInputs,
 ): HarnessLaunchRequest {
   switch (harnessType) {
     case "pi":
@@ -258,6 +260,8 @@ function buildLaunchRequest(
       return { ...sharedInputs, family: "pi", ...piInputs };
     case "opencode":
       return { ...sharedInputs, family: "opencode", ...opencodeInputs };
+    case "codex":
+      return { ...sharedInputs, family: "codex", ...codexInputs };
     default: {
       const unhandled: never = harnessType;
       throw new Error(`unhandled harness: ${String(unhandled)}`);
@@ -277,6 +281,8 @@ function buildHarnessArgs(request: HarnessLaunchRequest): string[] {
       return harnessFor("pi").buildArgs(request);
     case "opencode":
       return harnessFor("opencode").buildArgs(request);
+    case "codex":
+      return harnessFor("codex").buildArgs(request);
     default: {
       const unhandled: never = request;
       throw new Error(`unhandled harness family: ${String(unhandled)}`);
@@ -421,8 +427,8 @@ export async function buildLaunchPlan(
   // The harness owns the argv — including how the task rides — because the
   // CLI surface is the harness's, not the orchestrator's. One request is built
   // here, keyed by family, and the argv is built from that same object: pi's
-  // flags only ever reach a pi-family harness, and opencode's variant only
-  // reaches opencode's.
+  // flags only ever reach a pi-family harness, opencode's variant only
+  // reaches opencode's, and codex's trust only reaches codex.
   const sharedInputs: SubagentLaunchInputs = {
     subagentId: agentId,
     systemPromptFile: systemFile,
@@ -441,11 +447,15 @@ export async function buildLaunchPlan(
   const opencodeInputs: OpencodeLaunchInputs = {
     variant: agentConfig?.variant ?? null,
   };
+  const codexInputs: CodexLaunchInputs = {
+    projectTrusted: options.projectTrusted !== false,
+  };
   const launch = buildLaunchRequest(
     harnessType,
     sharedInputs,
     piInputs,
     opencodeInputs,
+    codexInputs,
   );
   const piArgs = buildHarnessArgs(launch);
 

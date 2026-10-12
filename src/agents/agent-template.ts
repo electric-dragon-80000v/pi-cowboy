@@ -26,8 +26,9 @@ const filterList = z.union([z.boolean(), z.array(z.string())]);
  * only ever be right for one family and wrong for the rest. The flat spelling
  * stays loadable as the pi family's own, and the transform files it under
  * `pi` like any other pi key. The same holds for `tools` / `exclude_tools`: a
- * name list is catalogue-scoped, so the flat spelling is pi's and opencode
- * reads only its own table's pair.
+ * name list is catalogue-scoped, so the flat spelling is pi's, opencode
+ * reads only its own table's pair, and codex — which has no tools flag —
+ * reads only its own table's model.
  */
 const PI_HARNESS_SHAPE = {
   /** A model key in pi's catalogue, as "provider/model-id". */
@@ -57,6 +58,16 @@ const OpencodeHarnessSchema = z.strictObject({
   tools: z.array(z.string()).optional(),
   /** Tools withheld from an opencode launch, as opencode's permission keys. */
   exclude_tools: z.array(z.string()).optional(),
+});
+
+/**
+ * codex's own `[harness.codex]` keys; no other family reads them. codex has
+ * no tools flag, so the table carries the model alone — a tool pair here
+ * would have no reader.
+ */
+const CodexHarnessSchema = z.strictObject({
+  /** A model key in codex's catalogue, as "provider/model-id". */
+  model: z.string().optional(),
 });
 
 /** One family's tool arms as parsed, arbitrated to the single filter a launch reads: whitelist wins when both arms are set. */
@@ -90,9 +101,10 @@ const HarnessSchema = z
     include_context_files: z.boolean().optional(),
     pi: PiHarnessSchema.optional(),
     opencode: OpencodeHarnessSchema.optional(),
+    codex: CodexHarnessSchema.optional(),
     ...PI_HARNESS_SHAPE,
   })
-  .transform(({ pi, opencode, ...flat }) => {
+  .transform(({ pi, opencode, codex, ...flat }) => {
     const {
       model: flatModel,
       tools: flatTools,
@@ -111,8 +123,13 @@ const HarnessSchema = z
       exclude_tools: opencodeExcludeTools,
       ...opencodeSlice
     } = compactDefined(opencode ?? {});
+    const { model: codexModel, ...codexSlice } = compactDefined(codex ?? {});
     const modelsByFamily: Partial<Record<HarnessFamily, string>> =
-      compactDefined({ pi: piModel ?? flatModel, opencode: opencodeModel });
+      compactDefined({
+        pi: piModel ?? flatModel,
+        opencode: opencodeModel,
+        codex: codexModel,
+      });
     const toolsByFamily: ToolsByFamily = compactDefined({
       pi: toToolFilter(
         piTools ?? flatTools,
@@ -124,6 +141,7 @@ const HarnessSchema = z
       ...sharedFlat,
       ...piSlice,
       ...opencodeSlice,
+      ...codexSlice,
       ...(Object.keys(modelsByFamily).length > 0 ? { modelsByFamily } : {}),
       ...(Object.keys(toolsByFamily).length > 0 ? { toolsByFamily } : {}),
     };

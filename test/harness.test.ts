@@ -23,6 +23,7 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   runnableHarnessIds,
+  type CodexLaunchRequest,
   type HarnessId,
   type HarnessPrepareRequest,
   type LaunchRequestFor,
@@ -119,6 +120,7 @@ const LAUNCHES: { [K in HarnessId]: LaunchRequestFor<K> } = {
   pig: PI_FAMILY_LAUNCH,
   "pi-bolt": PI_FAMILY_LAUNCH,
   opencode: { ...sharedInputs(), family: "opencode", variant: null },
+  codex: { ...sharedInputs(), family: "codex", projectTrusted: true },
 };
 
 /**
@@ -151,8 +153,14 @@ afterEach(() => {
 });
 
 describe("harness ids", () => {
-  it("offers pi, pig, pi-bolt, and opencode, defaulting to pi", () => {
-    expect([...HARNESS_IDS]).toEqual(["pi", "pig", "pi-bolt", "opencode"]);
+  it("offers pi, pig, pi-bolt, opencode, and codex, defaulting to pi", () => {
+    expect([...HARNESS_IDS]).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "opencode",
+      "codex",
+    ]);
     expect(DEFAULT_HARNESS).toBe("pi");
   });
 });
@@ -223,6 +231,14 @@ describe("available", () => {
 
     executable(dir, "opencode");
     expect(harnessFor("opencode").available()).toBe(true);
+  });
+
+  it("finds codex by its binary name", () => {
+    const dir = freshPath();
+    expect(harnessFor("codex").available()).toBe(false);
+
+    executable(dir, "codex");
+    expect(harnessFor("codex").available()).toBe(true);
   });
 
   it("follows a symlink to the binary, as a shell would", () => {
@@ -478,6 +494,72 @@ describe("prepare: opencode", () => {
   });
 });
 
+/**
+ * The codex launch: the task cannot ride the argv, so the launcher appends it
+ * as the TUI's positional prompt. These cases hand the harness a real task
+ * file and read the launcher back, rather than stubbing anything out.
+ */
+describe("prepare: codex", () => {
+  let taskFile: string;
+
+  beforeEach(() => {
+    runInPaneMock.mockReset().mockResolvedValue(undefined);
+    waitForPaneOutputMock.mockReset().mockResolvedValue(undefined);
+    taskFile = inTmpRoot("prompt.md");
+    writeFileSync(taskFile, "do the thing\n\nand the second thing\n");
+  });
+
+  /** The launch this file prepares codex for. */
+  function codexLaunch(): CodexLaunchRequest {
+    return {
+      ...sharedInputs(),
+      family: "codex",
+      projectTrusted: true,
+      taskFile,
+    };
+  }
+
+  /** Prepare one codex launch into a pane. */
+  function prepareCodex(paneId = "w1:p9"): Promise<void> {
+    return harnessFor("codex").prepare({
+      pi: PI,
+      paneId,
+      cwd: "/repo",
+      launch: codexLaunch(),
+    });
+  }
+
+  it("plants the launcher that appends the task as the positional prompt", async () => {
+    await prepareCodex();
+
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `codex() { : "CODEX_LAUNCHER_3f8a1c"; command codex "$@" "$(cat '${taskFile}')"; }`,
+    );
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      2,
+      PI,
+      "w1:p9",
+      'typeset -f codex 2>/dev/null | grep -q "CODEX_LAUNCHER_3f8a1c" && echo CODEX_""VERIFIED',
+    );
+    expect(waitForPaneOutputMock).toHaveBeenCalledWith(
+      PI,
+      "w1:p9",
+      "CODEX_VERIFIED",
+      expect.any(Number),
+    );
+  });
+
+  it("proves nothing past the launcher: the function is the whole of the pane state", async () => {
+    await prepareCodex();
+
+    // One define plus one verify; codex stages nothing to read back.
+    expect(runInPaneMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("buildArgs", () => {
   /** A pi-family launch request with every optional arm absent. */
   function request(
@@ -560,6 +642,79 @@ describe("buildArgs", () => {
 
     expect(args).not.toContain("--variant");
     expect(args).not.toContain("high");
+  });
+
+  /** A codex launch request with every optional arm absent. */
+  function codexRequest(
+    overrides: Partial<CodexLaunchRequest> = {},
+  ): CodexLaunchRequest {
+    return {
+      ...sharedInputs(),
+      family: "codex",
+      projectTrusted: true,
+      ...overrides,
+    };
+  }
+
+  it("starts codex's interactive CLI with the staged instructions and no project docs", () => {
+    expect(harnessFor("codex").buildArgs(codexRequest())).toEqual([
+      "-c",
+      'model_instructions_file="/spawn/esp02hpw/system.md"',
+      "-c",
+      "project_doc_max_bytes=0",
+      "-s",
+      "workspace-write",
+      "-a",
+      "never",
+    ]);
+  });
+
+  it("quotes the instructions path as a TOML string, so a staging path with spaces survives", () => {
+    const args = harnessFor("codex").buildArgs(
+      codexRequest({ systemPromptFile: "/tmp/dir with space/system.md" }),
+    );
+
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "-c",
+        'model_instructions_file="/tmp/dir with space/system.md"',
+      ]),
+    );
+  });
+
+  it("asks on request on an untrusted project, never on a trusted one", () => {
+    expect(
+      harnessFor("codex").buildArgs(codexRequest({ projectTrusted: false })),
+    ).toEqual(expect.arrayContaining(["-a", "on-request"]));
+
+    const trusted = harnessFor("codex").buildArgs(codexRequest());
+    expect(trusted).toEqual(expect.arrayContaining(["-a", "never"]));
+    expect(trusted).not.toContain("on-request");
+  });
+
+  it.each([true, false])(
+    "keeps the workspace writable when trusted=%s: the report file lives outside it",
+    (projectTrusted) => {
+      expect(
+        harnessFor("codex").buildArgs(codexRequest({ projectTrusted })),
+      ).toEqual(expect.arrayContaining(["-s", "workspace-write"]));
+    },
+  );
+
+  it("carries codex's model as its bare slug only when one was resolved", () => {
+    expect(
+      harnessFor("codex").buildArgs(
+        codexRequest({ modelKey: "openai/gpt-6-sol" }),
+      ),
+    ).toEqual(expect.arrayContaining(["-m", "gpt-6-sol"]));
+
+    expect(harnessFor("codex").buildArgs(codexRequest())).not.toContain("-m");
+  });
+
+  it("carries a key outside codex's own catalogue as written rather than refusing it", () => {
+    expect(
+      harnessFor("codex").buildArgs(codexRequest({ modelKey: "other/model" })),
+    ).toEqual(expect.arrayContaining(["-m", "other/model"]));
   });
 
   it("derives the report token from the subagent id, never a second field", () => {
@@ -685,6 +840,16 @@ describe("listModels", () => {
     });
   }
 
+  /** The codex harness's own list, over a `pi.exec` the test supplies. */
+  function codexListModels(
+    exec: unknown,
+  ): Promise<readonly { key: string; label?: string }[]> {
+    return harnessFor("codex").listModels({
+      pi: { exec } as unknown as ExtensionAPI,
+      modelCatalog: CATALOG,
+    });
+  }
+
   it("answers an empty catalog with no entries rather than an error", async () => {
     await expect(
       harnessFor("pi").listModels({
@@ -772,6 +937,99 @@ describe("listModels", () => {
     expect(String(warn.mock.calls[0][0])).toContain("ENOENT");
     warn.mockRestore();
   });
+
+  /** One `codex debug models --bundled` answer in the CLI's own shape. */
+  function bundledCatalog(models: unknown): string {
+    return JSON.stringify({ models });
+  }
+
+  it("asks codex for its bundled catalog and parses listed slugs into openai keys", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: bundledCatalog([
+        { slug: "gpt-6-sol", visibility: "list", display_name: "GPT-6-Sol" },
+        { slug: "gpt-5.6-terra", visibility: "list", display_name: "" },
+        { slug: "daybreak-secret", visibility: "hide", display_name: "X" },
+      ]),
+      stderr: "",
+    }));
+
+    const entries = await codexListModels(exec);
+
+    expect(exec).toHaveBeenCalledWith(
+      "codex",
+      ["debug", "models", "--bundled"],
+      { timeout: expect.any(Number) },
+    );
+    expect(entries).toEqual([
+      { key: "openai/gpt-6-sol", label: "GPT-6-Sol" },
+      { key: "openai/gpt-5.6-terra", label: "gpt-5.6-terra" },
+    ]);
+  });
+
+  it("skips unlisted entries before validating, so a misshapen hidden entry costs nothing", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: bundledCatalog([
+        { slug: "gpt-6-sol", visibility: "list", display_name: "GPT-6-Sol" },
+        { slug: "has spaces", visibility: "hide", display_name: "X" },
+        { visibility: "hide" },
+      ]),
+      stderr: "",
+    }));
+
+    await expect(codexListModels(exec)).resolves.toEqual([
+      { key: "openai/gpt-6-sol", label: "GPT-6-Sol" },
+    ]);
+  });
+
+  it("shares one codex CLI run between reads from the same caller", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: bundledCatalog([
+        { slug: "gpt-6-sol", visibility: "list", display_name: "GPT-6-Sol" },
+      ]),
+      stderr: "",
+    }));
+    const pi = { exec } as unknown as ExtensionAPI;
+    const request = { pi, modelCatalog: CATALOG };
+
+    const [first, second] = await Promise.all([
+      harnessFor("codex").listModels(request),
+      harnessFor("codex").listModels(request),
+    ]);
+
+    // One run, and every joiner holds the one shared promise.
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(second).toBe(first);
+    expect(first).toEqual([{ key: "openai/gpt-6-sol", label: "GPT-6-Sol" }]);
+  });
+
+  it("resolves an empty codex list and warns when the CLI fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+
+    await expect(codexListModels(exec)).resolves.toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("codex");
+    warn.mockRestore();
+  });
+
+  it("resolves an empty codex list and warns on output whose shape is unrecognized", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: "gpt-6-sol\nopenai/gpt-5.6-terra\n",
+      stderr: "",
+    }));
+
+    await expect(codexListModels(exec)).resolves.toEqual([]);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("unrecognized");
+    warn.mockRestore();
+  });
 });
 
 describe("listHarnessModelOptions", () => {
@@ -808,6 +1066,41 @@ describe("listHarnessModelOptions", () => {
       "anthropic/claude-opus-4",
       "openai/gpt-4o",
     ]);
+  });
+
+  it("lists codex's own keys under codex once the probe has confirmed it", async () => {
+    const exec = vi.fn(async (bin: string) => {
+      if (bin === "codex") {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            models: [
+              { slug: "gpt-6-sol", visibility: "list", display_name: "Sol" },
+              { slug: "daybreak-x", visibility: "hide", display_name: "X" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: "anthropic/claude-opus-4\n", stderr: "" };
+    });
+
+    const lists = await listHarnessModelOptions(
+      {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
+      probed(["pi", "opencode", "codex"]),
+    );
+
+    expect([...lists.keys()]).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "opencode",
+      "codex",
+    ]);
+    expect(lists.get("codex")).toEqual(["openai/gpt-6-sol"]);
   });
 
   it("merges the per-harness lists once per key, in vocabulary order", async () => {
@@ -910,6 +1203,12 @@ describe("runnableHarnessIds", () => {
       "pi-bolt",
       "opencode",
     ]);
+    expect(runnableHarnessIds(probed(["pi", "codex"]))).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "codex",
+    ]);
     expect(runnableHarnessIds(probed(["pi"]))).toEqual([
       "pi",
       "pig",
@@ -924,11 +1223,17 @@ describe("runnableHarnessIds", () => {
       "pi-bolt",
       "opencode",
     ]);
+    expect(runnableHarnessIds(probed(["codex", "pi"]))).toEqual([
+      "pi",
+      "pig",
+      "pi-bolt",
+      "codex",
+    ]);
   });
 });
 
 describe("teardown", () => {
-  it.each(["pi", "pig", "pi-bolt"] as const)(
+  it.each(["pi", "pig", "pi-bolt", "codex"] as const)(
     "%s has no filesystem state to undo: the launcher dies with the pane",
     async (id) => {
       await expect(

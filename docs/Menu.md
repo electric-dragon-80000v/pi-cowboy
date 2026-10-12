@@ -26,6 +26,7 @@ Opens from the `Model overrides` row on the main screen.
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Pi Default Model`             | The default model for agents the pi family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution).                    |
 | `OpenCode Default Model`       | The default model for agents launched under opencode. Each harness outside the pi family whose binary is on `PATH` gets its own `<Name> Default Model` row. |
+| `Codex Default Model`          | The default model for agents launched under codex.                                                                                                          |
 | One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                                                                 |
 | `Override another type...`     | Adds an override for an agent type that has none.                                                                                                           |
 | `Clear all model overrides...` | Removes every override.                                                                                                                                     |
