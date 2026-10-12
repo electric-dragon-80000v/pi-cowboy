@@ -1,3 +1,10 @@
+## [0.8.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.1...v0.8.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ui:** notify user when no agent types are available ([c9ad83a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/c9ad83a62257832c3e2a2eecfd325aa9606bbfed))
+
 ## [0.8.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.0...v0.8.1) (2026-10-12)
 
 
