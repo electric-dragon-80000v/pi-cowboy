@@ -1,3 +1,15 @@
+# [0.7.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.6.0...v0.7.0) (2026-10-12)
+
+
+### Bug Fixes
+
+* **test:** enable fsModuleCache in vitest config ([393c99f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/393c99f458e463890145e23a03ce574d48e32a77))
+
+
+### Features
+
+* **templates:** give each harness its own tool filter ([40809e4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/40809e47d670e274a1f14b0d8dc296a60f1f10a9))
+
 # [0.6.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.5.0...v0.6.0) (2026-10-12)
 
 
