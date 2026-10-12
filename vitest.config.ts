@@ -55,6 +55,14 @@ export default defineConfig({
     // `exclude` override cannot silently drop `node_modules/` and start
     // collecting third-party tests.
     exclude: configDefaults.exclude,
+    // Transformed modules are cached under `node_modules/.vitest-cache`, on the
+    // checkout's own volume, instead of the tmp module copies vitest writes to
+    // `os.tmpdir()` for the forks pool. On vitest 5.0.3 a failed tmp-copy write
+    // is swallowed while the module is still marked cached, so every later test
+    // file that imports it dies at import with
+    // `ENOENT: ... <tmpdir>/<id>/ssr/<sha1>` (vitest-dev/vitest#11452). The fs
+    // cache is guarded: an entry that is gone is re-transformed, not served.
+    fsModuleCache: true,
     projects: [
       {
         // `extends: true` inherits the root settings above (vitest 4 semantics:
