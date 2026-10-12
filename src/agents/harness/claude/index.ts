@@ -64,8 +64,12 @@ const STAGED_MARKER = "CLAUDE_STAGED";
  *
  * The rename keeps the consent predicate from ever seeing a key: with
  * `ANTHROPIC_API_KEY` unset it cannot fire, and the key resolves through the
- * staged `apiKeyHelper` instead, which has no approval check. On a keyless
- * run the rename is a no-op, so the launcher deletes the helper's line from
+ * staged `apiKeyHelper` instead, which has no approval check. The `unset` is
+ * load-bearing — a staged helper alone does not suppress the dialog while the
+ * variable is still set (verified against the real CLI: the TUI parks at the
+ * consent prompt). Pane-side, `env` therefore shows `COWBOY_API_KEY` where
+ * the ambient key was: that absence is this line working, not a missing
+ * credential. On a keyless run the rename is a no-op, so the launcher deletes the helper's line from
  * the staged settings — a configured-but-failing helper errors instead of
  * falling through to OAuth, and only an absent helper leaves that path open.
  * The deletion names the line's key rather than its number, so it survives
