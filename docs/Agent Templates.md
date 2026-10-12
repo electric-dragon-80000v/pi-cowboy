@@ -53,13 +53,13 @@ You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". opencode is detected-only: its model list answers, which is why its default model is configurable, but a launch under it is not implemented. A `cowboy_agent` call's `harness_type` overrides this. default = the configured `agent.harnessType`
+# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". "opencode" launches opencode instead of pi; its model list and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. default = the configured `agent.harnessType`
 harness_type = "pi"
 
 # (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way. A model key is not among them, because it names an entry in one harness's model catalogue: it sits with the family that defines it, below.
 [harness]
 
-# (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary. default = every tool
+# (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary: opencode maps `write` and `patch` to its `edit` permission and keeps a pi-only name it does not know as an inert key, so a list of only such names allows nothing. default = every tool
 tools = ["read", "bash", "grep", "find"]
 
 # (optional) `exclude_tools`: every tool except these is available. default = none excluded
@@ -90,13 +90,13 @@ inlined_skills = []
 # (optional) Fork the parent session into the agent (`pi --fork <sessionFile>`). default = false
 fork = false
 
-# (optional) Settings only opencode reads. Its launch is not implemented yet, so nothing acts on these keys today.
+# (optional) Settings only opencode reads.
 [harness.opencode]
 
 # (optional) Model for this agent as "provider/model-id", a key in opencode's catalogue. An opencode launch reads this key; a pi launch never does.
 # model = "anthropic/claude-sonnet-4"
 
-# (optional) Reasoning-effort variant opencode's agent definition carries: the `--variant` of `opencode run`, a flag the top-level command pi-cowboy launches does not take. Example values: "minimal", "high", "max". default = none
+# (optional) Reasoning-effort variant the staged agent definition carries: the `--variant` of `opencode run`, a flag the top-level command pi-cowboy launches does not take. opencode applies it only when the selected model declares that variant name. Example values: "minimal", "high", "max". default = none
 # variant = "high"
 ```
 

@@ -277,7 +277,7 @@ It can be. For a single small task the overhead can cost more time than the task
 
 To avoid the overhead, pi-cowboy has support for [pig](https://github.com/MichaelKinsy/PiG), a drop-in replacement for pi written in Go, and for [pi-bolt](https://github.com/opensec-git/Pi-Bolt), faster, lighter Pi variant compiled ahead of time. They start up fast and have a lower memory footprint. See `agent.harnessType` in [Configuration](docs/Configuration.md).
 
-pi-cowboy also detects opencode wherever its binary is on `PATH`. Its models list, so its default model is configurable, but launching an agent under it is not implemented yet.
+pi-cowboy can also launch [opencode](https://opencode.ai), wherever its binary is on `PATH`. Set `harness_type = "opencode"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs opencode instead of pi.
 
 ### I don't like the emojis, can I turn them off?
 

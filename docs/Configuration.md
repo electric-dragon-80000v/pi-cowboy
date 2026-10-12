@@ -140,7 +140,7 @@ A clean parent has no uncommitted work to carry, so both materializations start 
 
 - `pi` is the binary that already runs the pane.
 - `pig` and `pi-bolt` are pi-compatible binaries launched through a shell function in the agent's own pane, so only their startup differs.
-- `opencode` is detected-only: it appears wherever its binary is on `PATH`, and its model list answers, which is why its default model is configurable, but its CLI mapping is not implemented yet — an agent configured to launch under it fails loudly rather than run another harness's command line.
+- `opencode`
 
 pi-cowboy scans `PATH` once at session start. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all four values on every machine, so a config file or template written where a harness exists still loads where it does not.
 
