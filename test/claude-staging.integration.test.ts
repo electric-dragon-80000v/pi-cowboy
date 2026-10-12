@@ -6,9 +6,10 @@
  * `buildArgs` assembles; this proves the real CLI still accepts both. The
  * tree is staged by the committed module, then a real `claude` is pointed at
  * it with the environment a spawn gives it (`CLAUDE_CONFIG_DIR` plus the
- * launcher's memory suppression) and run non-interactively (`-p`): the run
- * answers through the staged state, so a shape the CLI stopped reading fails
- * here rather than in a pane.
+ * launcher's memory suppression) and run with the task riding positionally
+ * last — the exact shape the pane launcher produces. Stdout here is not a
+ * TTY, so the run answers and exits rather than idling as a TUI; a shape the
+ * CLI stopped reading fails here rather than in a pane.
  *
  * The binary is resolved with `commandPath("claude")` — the same seam the
  * harness's own `available()` probe uses — so the test runs against whatever
@@ -201,9 +202,12 @@ describe.skipIf(!canRunRealClaude)(
       // module names rather than a path this file retyped.
       expect(configDir).toBe(claudeConfigDir(SUBAGENT_ID));
 
-      // The argv the harness builds, with the task riding `-p` the way the
-      // pane launcher rides it positionally: every flag below is one
+      // The argv the harness builds, with the task riding positionally last
+      // the way the pane launcher appends it: every flag below is one
       // `buildArgs` emits, so a flag the CLI stopped accepting fails here.
+      // The tool filter is load-bearing, not incidental: `--tools` /
+      // `--disallowedTools` are variadic, so only a `--`-terminated tail
+      // keeps them from swallowing the task as another tool name.
       const args = harnessFor("claude").buildArgs({
         family: "claude",
         subagentId: SUBAGENT_ID,
@@ -211,11 +215,13 @@ describe.skipIf(!canRunRealClaude)(
         taskFile: taskFile("answer the prompt\n"),
         resultFile: path.join(cwd, "result.md"),
         modelKey: "anthropic/sonnet",
-        toolSelection: { kind: "default" },
+        toolSelection: { kind: "include", names: ["Bash"] },
       });
       const result = await runClaude(configDir, [
         ...args,
-        "-p",
+        // What the pane launcher appends after `"$@"`: the `--` ends option
+        // parsing before the task, and the task rides as one positional word.
+        "--",
         `reply with exactly: ${MARKER}`,
       ]);
 

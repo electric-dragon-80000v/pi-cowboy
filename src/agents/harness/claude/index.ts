@@ -4,8 +4,8 @@
  *
  * claude is not a pi-compatible binary: its task cannot ride the argv at all
  * (herdr rejects multi-line arguments, and a task is multi-line text), so the
- * launcher appends it as the positional initial prompt — `"$(cat
- * '<taskFile>')"` expands inside the pane's shell, where herdr's single-line
+ * launcher appends it as the positional initial prompt — past a `--` that ends
+ * option parsing, `"$(cat '<taskFile>')"` expands inside the pane's shell, where herdr's single-line
  * argv encoding never reaches. `prepare` stages the config directory claude is
  * pointed at (staging.ts), installs that launcher into the pane, and then
  * proves the pane can see the staged files and resolve the binary; `buildArgs`
@@ -65,13 +65,16 @@ const STAGED_MARKER = "CLAUDE_STAGED";
  * and `command` bypasses this very function. The `$(cat …)` expansion is what
  * delivers a multi-line task: herdr encodes the argv it types and refuses
  * multi-line arguments, but this expansion happens inside the pane's shell,
- * past that encoding, as one word of the launched command.
+ * past that encoding, as one word of the launched command. The `--` before it
+ * ends option parsing: `--tools` / `--disallowedTools` are variadic and would
+ * otherwise swallow the task as another tool name (and a task starting with
+ * `-` would parse as a flag), leaving the TUI idle with no initial prompt.
  */
 function launcherBody(configDir: string, taskFile: string): string {
   return [
     `export CLAUDE_CONFIG_DIR=${singleQuote(configDir)}`,
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
-    `command claude "$@" "$(cat ${singleQuote(taskFile)})"`,
+    `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
   ].join("; ");
 }
 

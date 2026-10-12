@@ -228,7 +228,7 @@ describe("prepare", () => {
       1,
       PI,
       "w1:p9",
-      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" "$(cat '${taskFile}')"; }`,
+      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
@@ -246,6 +246,24 @@ describe("prepare", () => {
     // The tree the launcher names is really there.
     expect(existsSync(join(configDir, "settings.json"))).toBe(true);
     expect(existsSync(join(configDir, ".claude.json"))).toBe(true);
+  });
+
+  it("ends option parsing before the task so variadic tool flags cannot swallow it", async () => {
+    await harnessFor("claude").prepare({
+      pi: PI,
+      paneId: "w1:p9",
+      cwd: tmpRoot,
+      launch: launchInputs({
+        taskFile,
+        toolSelection: { kind: "include", names: ["Bash", "Read"] },
+      }),
+    });
+
+    // `--tools` / `--disallowedTools` take `<tools...>`: without the `--`, the
+    // task appended after them would parse as another tool name and the TUI
+    // would start with no initial prompt.
+    const definition = runInPaneMock.mock.calls[0]?.[2] as string;
+    expect(definition).toContain(`-- "$(cat '${taskFile}')"`);
   });
 
   it("proves the pane sees the staged files and resolves the binary", async () => {
