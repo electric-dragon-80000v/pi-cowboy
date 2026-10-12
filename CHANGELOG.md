@@ -1,3 +1,25 @@
+# [0.6.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.5.0...v0.6.0) (2026-10-12)
+
+
+### Bug Fixes
+
+* **agents:** scope an agent template's model key to its harness family ([f5fed47](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f5fed477fdfcc8f3654c01b158823f174ae2e551))
+* **models:** offer each picker only its own harness's models ([6999092](https://github.com/electric-dragon-80000v/pi-cowboy/commit/6999092a6f344f343a1194568a61180f87b29828))
+* **models:** resolve a spawn's model against the launching harness ([bc91d66](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bc91d66de4d28607e19edf4ea0a074ac2f5379da))
+* **ui:** stop claiming an unset model inherits the parent ([356dcca](https://github.com/electric-dragon-80000v/pi-cowboy/commit/356dcca395d6c506af5e184b04fdc60b4686b66d))
+
+
+### Features
+
+* **agents:** accept a per-item harness_type on cowboy_agent ([d6203ea](https://github.com/electric-dragon-80000v/pi-cowboy/commit/d6203ead11b4c45020e5c16c7625b8f36b1d521e))
+* **concurrency:** scope pools by harness and add the harness level ([6d08211](https://github.com/electric-dragon-80000v/pi-cowboy/commit/6d08211008fecfcd75a90e7f7a573f0bdb1fae7d))
+* **harness:** detect opencode without launching it ([434feec](https://github.com/electric-dragon-80000v/pi-cowboy/commit/434feecd83bd8f1feb0e78ee059a3e6b9630ac5a))
+* **harness:** key the launch request by family and stage opencode's variant ([7ca7fb4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/7ca7fb471ff71b34bce6c8e45ce0923cb7b6f04a))
+* **harness:** launch opencode from its staged definition ([ddaa8e2](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ddaa8e21d49ce9691fd17952e5a203fa9e214204))
+* **harness:** own each harness's model list and default model ([3304732](https://github.com/electric-dragon-80000v/pi-cowboy/commit/330473218803b8842ee9ac8391f78ee7f33e4463))
+* **harness:** prefetch opencode models at boot ([8673583](https://github.com/electric-dragon-80000v/pi-cowboy/commit/867358395d7e39d0869677e86eccf9fee5eaf68e))
+* **harness:** stage the opencode config directory ([f8d5755](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f8d5755e45279d78dd306c9edec6a256de816d22))
+
 # [0.5.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.4.1...v0.5.0) (2026-10-10)
 
 
