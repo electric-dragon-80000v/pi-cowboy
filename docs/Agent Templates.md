@@ -53,26 +53,26 @@ You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". "opencode" launches opencode instead of pi; its model list and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. default = the configured `agent.harnessType`
+# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", or "opencode". "opencode" launches opencode instead of pi; its model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. An explicit value has no fallback: a harness this machine cannot launch fails the call instead of falling back to pi. default = the configured `agent.harnessType`
 harness_type = "pi"
 
-# (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: every harness translates them its own way. A model key is not among them, because it names an entry in one harness's model catalogue: it sits with the family that defines it, below.
+# (optional) Per-agent settings for the harness named by `harness_type`. The keys below are family-neutral: each harness translates them. A model key names one harness's catalogue entry, so it sits with that family, below.
 [harness]
 
-# (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary: opencode maps `write` and `patch` to its `edit` permission and keeps a pi-only name it does not know as an inert key, so a list of only such names allows nothing. default = every tool
+# (optional) `tools`: only these tools are available, given as a list of pi tool names. A harness translates the names into its own vocabulary: opencode folds `write`, `patch`, and `edit` into its `edit` permission and keeps a pi-only name it does not know as an inert key, so a list of only such names allows nothing. default = every tool
 tools = ["read", "bash", "grep", "find"]
 
 # (optional) `exclude_tools`: every tool except these is available. default = none excluded
 # Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
 # exclude_tools = ["write"]
 
-# (optional) Sets if the agent's system prompt carries pi's context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
+# (optional) Whether the agent's system prompt carries pi's context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
 # (optional) Settings only the pi family reads. `pig` and `pi-bolt` run the pi binary, so this table covers them too.
 [harness.pi]
 
-# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling is this same pi-family key. default = the first model that is set, falling back to the parent session's model — which the pi family alone can inherit.
+# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling sets this same pi-family key. default = this entry unless a higher-precedence entry in [Model keys](Configuration.md#model-keys) (the session or config per-type override) sets one; below it sit the session default, the launching harness's default, and — for a pi-family launch only — the parent session's model.
 model = "anthropic/claude-sonnet-4"
 
 # (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
@@ -100,4 +100,4 @@ fork = false
 # variant = "high"
 ```
 
-A pi-family key written flat under `[harness]` — `model` among them — still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` and `[harness.opencode] model` never reach a pi launch, and a `model` written for pi (flat or under `[harness.pi]`) never reaches an opencode launch — that launch falls through to its own default, and the parent session's model is pi's key, so it is never inherited there.
+A pi-family key written flat under `[harness]` — `model` among them — still loads, and it means the same slice as `[harness.pi]`. When a template sets the same key both ways, `[harness.pi]` wins. A family table's keys are read only by that family: `[harness.opencode] variant` and `[harness.opencode] model` never reach a pi launch, and a `model` written for pi (flat or under `[harness.pi]`) never reaches an opencode launch. That launch falls through to opencode's default; the parent session's model is pi's key, so an opencode launch never inherits it.

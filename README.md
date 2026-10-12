@@ -150,13 +150,13 @@ Delegates one or more tasks to cowboy agents. Each cowboy agent runs in its own 
 
 `agents[]`:
 
-| Field          | Required | Description                                                                                                                                                                                                                       |
-| -------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`       | yes      | Task instructions for the cowboy agent.                                                                                                                                                                                           |
-| `task_name`    | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                                                                                                                     |
-| `agent_type`   | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                                                                                                               |
-| `model`        | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution).                                                                                             |
-| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, or `opencode`. Overrides the agent template's `harness_type` and the `harnessType` setting. A harness this machine cannot launch fails the call before anything spawns. |
+| Field          | Required | Description                                                                                                                                                                                                                                   |
+| -------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`       | yes      | Task instructions for the cowboy agent.                                                                                                                                                                                                       |
+| `task_name`    | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                                                                                                                                 |
+| `agent_type`   | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                                                                                                                           |
+| `model`        | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution).                                                                                                         |
+| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, or `opencode`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the harness, the call fails before anything spawns. |
 
 ### `steer_cowboy_agent`
 
@@ -199,7 +199,7 @@ A removal that fails does not throw. The branch is removed only after you have m
 
 ## Model resolution
 
-A model set in the `cowboy_agent` call wins over everything; below it come the session overrides, the agent template, the session default, the launching harness's default, and finally — under the pi family — the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
+A model set in the `cowboy_agent` call wins over everything; below it come the session per-type override, the config per-type override, the agent template, the session default, the launching harness's default, and finally — under the pi family — the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
 
 ## Concurrency
 
@@ -207,9 +207,10 @@ A running agent holds a place in every concurrency limit that applies to it. pi-
 
 - **Per-model** — `concurrency.models["<provider>/<model-id>"]`
 - **Per-provider** — `concurrency.providers.<provider>`
+- **Per-harness** — `concurrency.harnesses.<harness-id>`
 - **Global** — `concurrency.default` (default `4`), which every agent counts against
 
-The levels are independent: an agent whose model and provider both have limits counts against both of them and against the global limit, so you have to free room at every level that applies.
+The levels are independent: an agent whose model, provider, and harness all have limits counts against all of them and against the global limit, so you have to free room at every level that applies.
 pi-cowboy starts the first waiting agent whose every level has room: an agent that waits for one limit to clear does not hold back an agent behind it.
 
 An agent with no model selection counts against the global limit alone.
@@ -265,7 +266,7 @@ Orchestrator templates also allow you to customize how the agent communicates wi
 
 ### Why is my agent queued, not running?
 
-Every running agent holds a place in every concurrency limit that applies to it: the limit of its model, the limit of its provider, and the global limit. pi-cowboy queues the other agents until every one of those limits has room. Raise the limit in `/cowboy` > `Settings` > `Concurrency Settings`, or in the `concurrency` config keys. See [Concurrency](#concurrency).
+Every running agent holds a place in every concurrency limit that applies to it: the limit of its model, the limit of its provider, the limit of its harness, and the global limit. Model and provider keys may carry a harness qualifier (`opencode:provider/model`); a bare key names pi's pool. pi-cowboy queues the other agents until every one of those limits has room. Raise the limit in `/cowboy` > `Settings` > `Concurrency Settings`, or in the `concurrency` config keys. See [Concurrency](#concurrency).
 
 ### Why did my worktree survive cleanup?
 
@@ -277,7 +278,7 @@ It can be. For a single small task the overhead can cost more time than the task
 
 To avoid the overhead, pi-cowboy has support for [pig](https://github.com/MichaelKinsy/PiG), a drop-in replacement for pi written in Go, and for [pi-bolt](https://github.com/opensec-git/Pi-Bolt), faster, lighter Pi variant compiled ahead of time. They start up fast and have a lower memory footprint. See `agent.harnessType` in [Configuration](docs/Configuration.md).
 
-pi-cowboy can also launch [opencode](https://opencode.ai), wherever its binary is on `PATH`. Set `harness_type = "opencode"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs opencode instead of pi.
+pi-cowboy can also launch [opencode](https://opencode.ai), where its binary is on `PATH`. Set `harness_type = "opencode"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs opencode instead of pi.
 
 ### I don't like the emojis, can I turn them off?
 

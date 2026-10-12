@@ -69,7 +69,7 @@ Two rules are easier to check against a file than to hold in the head: which key
 | `worktreeMaterialization`  | `"copy-on-write"` \| `"checkout"`                                                   | `"copy-on-write"`   | How a worktree is created from the parent working tree.                                                            |
 | `worktreeCheckoutType`     | `"dirty"` \| `"clean"`                                                              | `"clean"`           | See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).                                                    |
 | `harnessType`              | `"pi"` \| `"pig"` \| `"pi-bolt"` \| `"opencode"`                                    | `"pi"`              | Harness for agents whose template does not set `harness_type`. See [`agent.harnessType`](#agentharnesstype).       |
-| `defaultModelByHarness`    | object                                                                              | unset               | Per-harness default models, keyed by harness id. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness). |
+| `defaultModelByHarness`    | map harness id → string or null                                                     | unset               | Per-harness default models, keyed by harness id. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness). |
 | `agent.<agent-type>`       | string or null                                                                      | unset               | Per-type model override. `null` clears it.                                                                         |
 
 ### `agent.default`
@@ -142,15 +142,17 @@ A clean parent has no uncommitted work to carry, so both materializations start 
 - `pig` and `pi-bolt` are pi-compatible binaries launched through a shell function in the agent's own pane, so only their startup differs.
 - `opencode`
 
-pi-cowboy scans `PATH` once at session start. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all four values on every machine, so a config file or template written where a harness exists still loads where it does not.
+pi-cowboy probes `PATH` once at extension load. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all four values on every machine, so a config file or template written where a harness exists still loads where it does not.
 
-A `cowboy_agent` call can override this per item with its `harness_type` parameter.
+A `cowboy_agent` call can override this per item with its `harness_type` parameter. Unlike the template and config values, an explicit `harness_type` has no fallback: when this machine cannot launch that harness, the call fails instead of falling back to pi.
 
 ### `agent.defaultModelByHarness`
 
 The default model per harness, keyed by harness id: each value is that harness's own `"provider/model-id"` key or `null`. It fills the per-harness default slot in [Model keys](#model-keys). A session entry set from the model settings screen sits above the project layer, which sits above the global layer.
 
-The pi family runs one binary and shares one default, so only a harness outside it needs an entry: `agent.default` serves `pi`, `pig`, and `pi-bolt`. A missing or `null` entry means that harness has no default; the parent session's model is pi's, so no other harness inherits it, and that launch runs whatever its own binary defaults to. Because each entry names one harness, the project map merges into the global map entry by entry: a project value for one harness overrides the global value for that harness and leaves the global values for the others intact.
+The pi family runs one binary and shares one default, so only a harness outside it needs an entry: `agent.default` serves `pi`, `pig`, and `pi-bolt`. A missing or `null` entry means that harness has no default; the parent session's model is pi's, so no other harness inherits it, and that launch runs that binary's own default model.
+
+Merging is entry by entry: a project value for one harness overrides only that harness's global value.
 
 ### Model keys
 
@@ -161,16 +163,16 @@ Model resolution order, highest precedence first:
 1. The `model` in a `cowboy_agent` call.
 2. Session per-type override.
 3. `agent.<agent-type>` in the config.
-4. The agent template's model for the launching harness's family: the flat `[harness] model` and `[harness.pi] model` spellings both write the pi family's entry, and `[harness.opencode] model` writes opencode's. The template never contributes a key that the launching family's catalogue did not define.
+4. The agent template's model for the launching harness's family: the flat `[harness] model` and `[harness.pi] model` spellings both write the pi family's entry, and `[harness.opencode] model` writes opencode's; any other family's key contributes nothing.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
 7. The parent session model — for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.
 
-A launch under a harness outside the pi family carries its model key as written: the key is that harness's own vocabulary, and pi-cowboy hands it over without translating it through pi's catalogue. It reads that harness's own model list only to warn when the list does not know the key, never to refuse it.
+A launch under a harness outside the pi family carries its model key as written: the key is that harness's own vocabulary, and pi-cowboy hands it over without translating it through pi's catalogue. It reads that harness's own model catalogue only to warn when a non-empty catalogue does not know the key, never to refuse it; an empty catalogue (the command failed) warns about nothing and the key is still carried.
 
-Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to the launching harness's default, and then — under pi — to the parent session.
+Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to opencode's default from `agent.defaultModelByHarness`, and never to the parent session's model.
 
-Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, and then to the launching harness's default — `agent.default` under pi.
+Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, then to the launching harness's default — `agent.default` under pi — and then, under pi only, to the parent session's model.
 
 ## `concurrency`
 
