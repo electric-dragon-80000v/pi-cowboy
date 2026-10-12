@@ -16,21 +16,32 @@ export type SubagentType = string;
 export type SystemPromptMode = "replace" | "inherit" | "custom";
 
 /**
- * Tool-visibility filter — mutually exclusive arms (never-props reject
- * both-set configs at compile time).
+ * One family's tool-visibility filter, in that family's own vocabulary —
+ * mutually exclusive arms (never-props reject both-set configs at compile
+ * time, per family).
  *
  * - Whitelist: `tools` (true = all, string[] = listed, false = none).
- *   Entries are bare pi tool names. An extension's tools are named by the
- *   extension, so there is no `ext/tool` syntax to expand.
+ *   Entries are bare tool names in the launching family's catalogue. An
+ *   extension's tools are named by the extension, so there is no `ext/tool`
+ *   syntax to expand.
  * - Blacklist: `excludeTools` (all tools except these); `tools` unset.
  *
- * Parsed .toml templates can still set both arms; see `arbitrateFilters`.
+ * The template transform arbitrates a family's both-arms slice at parse
+ * (whitelist wins), so nothing downstream ever sees both arms set.
  */
-type ToolFilter =
+export type ToolFilter =
   | { tools?: true | string[] | false; excludeTools?: never }
   | { tools?: undefined; excludeTools: string[] };
 
-/** AgentConfig fields independent of the tool filter. */
+/**
+ * A template's tool filters, each under the harness family whose catalogue
+ * defines its names. A list written for one family is invisible to every
+ * other: a launch reads only its own family's entry, and a family the template
+ * does not name launches unfiltered.
+ */
+export type ToolsByFamily = Partial<Record<HarnessFamily, ToolFilter>>;
+
+/** AgentConfig fields; the tool filter rides `toolsByFamily`, one slice per harness family. */
 interface BaseAgentConfig {
   name: string;
   displayName?: string;
@@ -51,6 +62,8 @@ interface BaseAgentConfig {
   inlinedSkills?: string[];
   /** This agent's model keys, one per harness family; a launch reads only its own family's. */
   modelsByFamily?: ModelsByFamily;
+  /** This agent's tool filters, one per harness family; a launch reads only its own family's. */
+  toolsByFamily?: ToolsByFamily;
   thinkingLevel?: ThinkingLevel;
   /** opencode's reasoning-effort variant: what its agent definition carries into `opencode run --variant`. Undefined = none requested. */
   variant?: string;
@@ -69,10 +82,10 @@ interface BaseAgentConfig {
 
 /**
  * Unified agent configuration for default and user-defined agents.
- * Both-set tool-filter configs are type errors (never-props, Effective
- * TypeScript item 63); parsed .toml templates normalize via arbitration.
+ * Both-set tool-filter configs are type errors per family (never-props,
+ * Effective TypeScript item 63); the template transform arbitrates at parse.
  */
-export type AgentConfig = BaseAgentConfig & ToolFilter;
+export type AgentConfig = BaseAgentConfig;
 
 export interface AgentInvocation {
   /** Short display name, e.g. "haiku" — only set when different from parent. */

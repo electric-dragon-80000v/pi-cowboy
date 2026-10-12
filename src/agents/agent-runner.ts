@@ -39,6 +39,7 @@ import {
   type ToolSelection,
 } from "./harness.js";
 import { harnessFor } from "./harness/registry.js";
+import { harnessFamilyOf } from "./harness-family.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -190,8 +191,9 @@ function resolveToolCliEntries(
 ): string[] {
   const resolved = new Set<string>();
   for (const entry of entries) {
-    // pi takes bare tool names. An extension's tools are named by the extension
-    // itself, so there is nothing to qualify here and nothing to strip.
+    // Each family writes bare tool names in its own vocabulary. An
+    // extension's tools are named by the extension itself, so there is
+    // nothing to qualify here and nothing to strip.
     if (!entry) {
       throw new Error(`Empty entry in ${optionName} is not supported`);
     }
@@ -339,17 +341,22 @@ export async function buildLaunchPlan(
   }
   let toolSelection: ToolSelection = { kind: "default" };
   try {
-    if (agentConfig?.tools === false) {
+    // Exactly one harness launches a spawn, so exactly one family's slice
+    // decides: its names are already in that family's vocabulary. A family the
+    // template does not name launches unfiltered — never with another
+    // family's list, and never translated.
+    const filter = agentConfig?.toolsByFamily?.[harnessFamilyOf(harnessType)];
+    if (filter?.tools === false) {
       toolSelection = { kind: "none" };
-    } else if (Array.isArray(agentConfig?.tools)) {
+    } else if (Array.isArray(filter?.tools)) {
       toolSelection = {
         kind: "include",
-        names: resolveToolCliEntries(agentConfig.tools, "tools"),
+        names: resolveToolCliEntries(filter.tools, "tools"),
       };
-    } else if (agentConfig?.excludeTools?.length) {
+    } else if (filter?.excludeTools?.length) {
       toolSelection = {
         kind: "exclude",
-        names: resolveToolCliEntries(agentConfig.excludeTools, "excludeTools"),
+        names: resolveToolCliEntries(filter.excludeTools, "excludeTools"),
       };
     }
   } catch (error) {

@@ -101,19 +101,23 @@ describe("AgentTemplateSchema rejections", () => {
 });
 
 describe("AgentTemplateSchema harness family split", () => {
-  it("reads family-neutral keys from [harness]", () => {
+  it("reads the family-neutral key from [harness]", () => {
     const parsed = parseAgentFile(
-      [
-        'name = "x"',
-        "[harness]",
-        'tools = ["read", "edit"]',
-        "include_context_files = false",
-      ].join("\n"),
+      ['name = "x"', "[harness]", "include_context_files = false"].join("\n"),
     );
 
     expect(parsed.harness).toMatchObject({
-      tools: ["read", "edit"],
       include_context_files: false,
+    });
+  });
+
+  it("files the flat tools under the pi family", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness]", 'tools = ["read", "edit"]'].join("\n"),
+    );
+
+    expect(parsed.harness?.toolsByFamily).toEqual({
+      pi: { tools: ["read", "edit"] },
     });
   });
 
@@ -182,6 +186,14 @@ describe("AgentTemplateSchema harness family split", () => {
     ).toBeUndefined();
   });
 
+  it("leaves toolsByFamily undefined when the template names no tools", () => {
+    expect(parseAgentFile('name = "x"').harness?.toolsByFamily).toBeUndefined();
+    expect(
+      parseAgentFile(['name = "x"', "[harness]", 'model = "m"'].join("\n"))
+        .harness?.toolsByFamily,
+    ).toBeUndefined();
+  });
+
   it("reads pi-only keys from [harness.pi]", () => {
     const parsed = parseAgentFile(
       [
@@ -216,7 +228,7 @@ describe("AgentTemplateSchema harness family split", () => {
     expect(parsed.harness).toMatchObject({
       thinking: "low",
       fork: true,
-      tools: ["read"],
+      toolsByFamily: { pi: { tools: ["read"] } },
     });
   });
 
@@ -227,12 +239,20 @@ describe("AgentTemplateSchema harness family split", () => {
         "[harness]",
         'thinking = "low"',
         "fork = true",
+        'tools = ["read"]',
+        'exclude_tools = ["write"]',
         "[harness.pi]",
         'thinking = "high"',
+        'tools = ["bash"]',
       ].join("\n"),
     );
 
     expect(parsed.harness).toMatchObject({ thinking: "high", fork: true });
+    // The explicit pi tools win per key over the flat tools, and the whitelist
+    // then wins over the flat exclude_tools arm.
+    expect(parsed.harness?.toolsByFamily).toEqual({
+      pi: { tools: ["bash"] },
+    });
   });
 
   it("merges the flat and nested pi slices field by field", () => {
@@ -257,6 +277,24 @@ describe("AgentTemplateSchema harness family split", () => {
     expect(parsed.harness).toMatchObject({ variant: "high" });
   });
 
+  it("reads opencode tool arms into that family's entry alone, whitelist winning", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'tools = ["read", "find"]',
+        "[harness.opencode]",
+        'tools = ["read", "glob"]',
+        'exclude_tools = ["write"]',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness?.toolsByFamily).toEqual({
+      pi: { tools: ["read", "find"] },
+      opencode: { tools: ["read", "glob"] },
+    });
+  });
+
   it("merges the opencode slice with the family-neutral and pi slices field by field", () => {
     const parsed = parseAgentFile(
       [
@@ -264,6 +302,7 @@ describe("AgentTemplateSchema harness family split", () => {
         "[harness]",
         'model = "anthropic/claude-sonnet-4"',
         'thinking = "low"',
+        'exclude_tools = ["write"]',
         "[harness.opencode]",
         'variant = "max"',
       ].join("\n"),
@@ -273,6 +312,7 @@ describe("AgentTemplateSchema harness family split", () => {
       modelsByFamily: { pi: "anthropic/claude-sonnet-4" },
       thinking: "low",
       variant: "max",
+      toolsByFamily: { pi: { excludeTools: ["write"] } },
     });
   });
 
@@ -407,7 +447,10 @@ describe("the shipped Explore agent template", () => {
     expect(parsed.description).toBe(
       "Fast codebase exploration agent (read-only)",
     );
-    expect(parsed.harness?.tools).toEqual(["read", "bash", "grep", "find"]);
+    expect(parsed.harness?.toolsByFamily).toEqual({
+      pi: { tools: ["read", "bash", "grep", "find"] },
+    });
+    expect(parsed.harness?.toolsByFamily).not.toHaveProperty("opencode");
   });
 
   it("keeps its prompt byte-identical, with no added trailing newline", () => {

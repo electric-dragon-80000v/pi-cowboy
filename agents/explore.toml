@@ -36,5 +36,5 @@ Use Bash ONLY for read-only operations: ls, git status, git log, git diff, find,
 - Do not use emojis
 - Be thorough and precise'''
 
-[harness]
+[harness.pi]
 tools = ["read", "bash", "grep", "find"]

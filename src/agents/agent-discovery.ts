@@ -14,7 +14,7 @@ import {
   type TemplateScanWarning,
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
-import type { AgentConfig, ModelsByFamily } from "./types.js";
+import type { AgentConfig, ModelsByFamily, ToolsByFamily } from "./types.js";
 
 /** One parsed agent template. */
 export type AgentTemplateFile = AgentTemplate;
@@ -63,29 +63,6 @@ export function mergeAgents(
   return result;
 }
 
-interface FilterArms {
-  tools?: true | string[] | false;
-  excludeTools?: string[];
-  extensions?: true | string[] | false;
-}
-
-/** Arbitrate the one runtime boundary that can see both tool filter arms (parsed .toml): whitelist (string[]) wins, else blacklist. */
-function arbitrateFilters(config: FilterArms): AgentConfig {
-  const { tools, excludeTools, ...rest } = config;
-  const out: FilterArms = { ...rest };
-
-  if (tools !== undefined && excludeTools !== undefined) {
-    if (Array.isArray(tools)) out.tools = tools;
-    else out.excludeTools = excludeTools;
-  } else {
-    if (tools !== undefined) out.tools = tools;
-    if (excludeTools !== undefined) out.excludeTools = excludeTools;
-  }
-
-  // The arbitration above guarantees a single arm; the compiler cannot infer that.
-  return out as AgentConfig;
-}
-
 function mergeAgentOverrides(
   result: Map<string, AgentConfig>,
   agents: AgentTemplateFile[],
@@ -105,20 +82,22 @@ function mergeAgentOverrides(
         existing.modelsByFamily,
         incoming.modelsByFamily,
       );
-      result.set(
-        template.name,
-        arbitrateFilters({
-          ...existing,
-          ...incoming,
-          ...(modelsByFamily ? { modelsByFamily } : {}),
-          ...identity,
-        }),
+      const toolsByFamily = mergeToolsByFamily(
+        existing.toolsByFamily,
+        incoming.toolsByFamily,
       );
+      result.set(template.name, {
+        ...existing,
+        ...incoming,
+        ...(modelsByFamily ? { modelsByFamily } : {}),
+        ...(toolsByFamily ? { toolsByFamily } : {}),
+        ...identity,
+      });
     } else {
-      result.set(
-        template.name,
-        arbitrateFilters({ ...BASE_DEFAULTS, ...fromTemplate(template) }),
-      );
+      result.set(template.name, {
+        ...BASE_DEFAULTS,
+        ...fromTemplate(template),
+      });
     }
   }
 }
@@ -137,8 +116,20 @@ function mergeModelsByFamily(
 }
 
 /**
- * Only explicitly-set fields (undefined falls through). May carry both filter
- * arms; arbitrated by the caller. An empty `inlined_skills` list is a set value,
+ * Per-family merge of the layers' tool filters: a later layer's slice for one
+ * family replaces that family's and leaves every other family's intact, the
+ * same per-field precedence the rest of the config follows.
+ */
+function mergeToolsByFamily(
+  existing: ToolsByFamily | undefined,
+  incoming: ToolsByFamily | undefined,
+): ToolsByFamily | undefined {
+  const merged = { ...existing, ...incoming };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Only explicitly-set fields (undefined falls through). An empty `inlined_skills` list is a set value,
  * so a higher layer clears inlining with it.
  */
 function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
@@ -148,8 +139,7 @@ function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
     displayName: template.display_name,
     description: template.description,
     harnessType: template.harness_type,
-    tools: harness?.tools,
-    excludeTools: harness?.exclude_tools,
+    toolsByFamily: harness?.toolsByFamily,
     extensions: harness?.extensions,
     skills: harness?.skills,
     inlinedSkills: harness?.inlined_skills,

@@ -160,16 +160,16 @@ describe("opencodePermissions", () => {
     ]);
   });
 
-  it("folds write and patch into opencode's edit permission", () => {
+  it("keeps each name as its own permission key, with no translation", () => {
     const included = opencodePermissions({
       kind: "include",
       names: ["write", "patch"],
     });
-    expect(included).toEqual({ "*": "deny", edit: "allow" });
-    expect(Object.keys(included)).toEqual(["*", "edit"]);
+    expect(included).toEqual({ "*": "deny", write: "allow", patch: "allow" });
+    expect(Object.keys(included)).toEqual(["*", "write", "patch"]);
     expect(
       opencodePermissions({ kind: "exclude", names: ["write", "edit"] }),
-    ).toEqual({ "*": "allow", question: "deny", edit: "deny" });
+    ).toEqual({ "*": "allow", question: "deny", write: "deny", edit: "deny" });
   });
 
   it("passes a name opencode has no permission for through as its own key", () => {
@@ -227,7 +227,7 @@ describe("opencodeAgentMarkdown", () => {
     ).toEqual([
       ["*", "deny"],
       ["read", "allow"],
-      ["edit", "allow"],
+      ["write", "allow"],
     ]);
     expect(
       permissionEntries(markdownFor({ kind: "exclude", names: ["bash"] })),

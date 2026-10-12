@@ -163,7 +163,7 @@ Model resolution order, highest precedence first:
 1. The `model` in a `cowboy_agent` call.
 2. Session per-type override.
 3. `agent.<agent-type>` in the config.
-4. The agent template's model for the launching harness's family: the flat `[harness] model` and `[harness.pi] model` spellings both write the pi family's entry, and `[harness.opencode] model` writes opencode's; any other family's key contributes nothing.
+4. The agent template's model for the launching harness's family: the `[harness.pi] model` key (also accepted flat as `[harness] model`) writes the pi family's entry, and `[harness.opencode] model` writes opencode's; any other family's key contributes nothing.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
 7. The parent session model — for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.

@@ -11,20 +11,23 @@ import { VALID_THINKING_LEVELS } from "../utils.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
 import { compactDefined } from "../templates/template-files.js";
 import { HARNESS_IDS, type HarnessFamily } from "./harness.js";
+import type { ToolFilter, ToolsByFamily } from "./types.js";
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
 
 /**
  * The pi family's own `[harness]` keys, shared by their `[harness.pi]` table
- * and their flat alias at the top level. The family-neutral keys (`tools`,
- * `exclude_tools`, `include_context_files`) stay at the top level; a second
- * family adds its own strict table beside `pi` rather than widening this one.
+ * and their flat alias at the top level. The family-neutral key
+ * (`include_context_files`) stays at the top level; a second family adds its
+ * own strict table beside `pi` rather than widening this one.
  *
  * `model` belongs here with the pi family's keys, not with the neutral ones: a
  * model key names an entry in one harness's catalogue, so a neutral slot could
  * only ever be right for one family and wrong for the rest. The flat spelling
  * stays loadable as the pi family's own, and the transform files it under
- * `pi` like any other pi key.
+ * `pi` like any other pi key. The same holds for `tools` / `exclude_tools`: a
+ * name list is catalogue-scoped, so the flat spelling is pi's and opencode
+ * reads only its own table's pair.
  */
 const PI_HARNESS_SHAPE = {
   /** A model key in pi's catalogue, as "provider/model-id". */
@@ -36,6 +39,10 @@ const PI_HARNESS_SHAPE = {
   inlined_skills: z.array(z.string()).optional(),
   /** Fork the parent session into the subagent (`pi --fork <sessionFile>`). */
   fork: z.boolean().optional(),
+  /** Tools available to a pi-family launch, in pi's own vocabulary. */
+  tools: z.array(z.string()).optional(),
+  /** Tools withheld from a pi-family launch, in pi's own vocabulary. */
+  exclude_tools: z.array(z.string()).optional(),
 };
 
 const PiHarnessSchema = z.strictObject(PI_HARNESS_SHAPE);
@@ -46,25 +53,39 @@ const OpencodeHarnessSchema = z.strictObject({
   model: z.string().optional(),
   /** The reasoning-effort variant opencode's agent definition carries (the `--variant` of `opencode run`, which is not a flag of the command pi-cowboy launches). */
   variant: z.string().optional(),
+  /** Tools available to an opencode launch, as opencode's permission keys. */
+  tools: z.array(z.string()).optional(),
+  /** Tools withheld from an opencode launch, as opencode's permission keys. */
+  exclude_tools: z.array(z.string()).optional(),
 });
+
+/** One family's tool arms as parsed, arbitrated to the single filter a launch reads: whitelist wins when both arms are set. */
+function toToolFilter(
+  tools: string[] | undefined,
+  excludeTools: string[] | undefined,
+): ToolFilter | undefined {
+  if (tools !== undefined) return { tools };
+  if (excludeTools !== undefined) return { excludeTools };
+  return undefined;
+}
 
 /**
  * The `[harness]` table describes the child process, not the agent's identity
- * or its worktree. Family-neutral keys sit here, each family translating them
- * its own way; a family's own keys sit under `[harness.<family>]`, and a model
- * key sits with the family whose catalogue defines it.
+ * or its worktree. The one family-neutral key (`include_context_files`) sits
+ * here; every catalogue-scoped key sits with its family — a model key with the
+ * family whose catalogue defines it, a tool list with the family whose names
+ * it is written in — under `[harness.<family>]`, with pi's spellings also
+ * loadable flat.
  *
  * A pi-only key written flat under `[harness]` means the same slice as
  * `[harness.pi]`, so both spellings load; an explicit `[harness.pi]` value wins
- * over its flat twin. The transform collapses the family tables into the one
- * shape the resolution code reads, so the on-disk keying stops at this
- * boundary — and it keeps the model keys keyed by family, so the key a launch
- * reads is the one its own catalogue wrote.
+ * over its flat twin, per key. The transform collapses the family tables into
+ * the one shape the resolution code reads, so the on-disk keying stops at this
+ * boundary — and it keeps the model keys and the tool filters keyed by family,
+ * so the slice a launch reads is the one its own catalogue wrote.
  */
 const HarnessSchema = z
   .strictObject({
-    tools: z.array(z.string()).optional(),
-    exclude_tools: z.array(z.string()).optional(),
     /** Whether the child's system prompt carries the repo's AGENTS.md context files. */
     include_context_files: z.boolean().optional(),
     pi: PiHarnessSchema.optional(),
@@ -72,18 +93,39 @@ const HarnessSchema = z
     ...PI_HARNESS_SHAPE,
   })
   .transform(({ pi, opencode, ...flat }) => {
-    const { model: flatModel, ...sharedFlat } = flat;
-    const { model: piModel, ...piSlice } = compactDefined(pi ?? {});
-    const { model: opencodeModel, ...opencodeSlice } = compactDefined(
-      opencode ?? {},
-    );
+    const {
+      model: flatModel,
+      tools: flatTools,
+      exclude_tools: flatExcludeTools,
+      ...sharedFlat
+    } = flat;
+    const {
+      model: piModel,
+      tools: piTools,
+      exclude_tools: piExcludeTools,
+      ...piSlice
+    } = compactDefined(pi ?? {});
+    const {
+      model: opencodeModel,
+      tools: opencodeTools,
+      exclude_tools: opencodeExcludeTools,
+      ...opencodeSlice
+    } = compactDefined(opencode ?? {});
     const modelsByFamily: Partial<Record<HarnessFamily, string>> =
       compactDefined({ pi: piModel ?? flatModel, opencode: opencodeModel });
+    const toolsByFamily: ToolsByFamily = compactDefined({
+      pi: toToolFilter(
+        piTools ?? flatTools,
+        piExcludeTools ?? flatExcludeTools,
+      ),
+      opencode: toToolFilter(opencodeTools, opencodeExcludeTools),
+    });
     return {
       ...sharedFlat,
       ...piSlice,
       ...opencodeSlice,
       ...(Object.keys(modelsByFamily).length > 0 ? { modelsByFamily } : {}),
+      ...(Object.keys(toolsByFamily).length > 0 ? { toolsByFamily } : {}),
     };
   });
 

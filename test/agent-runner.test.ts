@@ -432,7 +432,9 @@ describe("buildLaunchPlan CLI flags", () => {
   });
 
   it("passes tool names to pi unchanged", async () => {
-    const { cwd, notify } = setup(makeAgent({ tools: ["read", "web_search"] }));
+    const { cwd, notify } = setup(
+      makeAgent({ toolsByFamily: { pi: { tools: ["read", "web_search"] } } }),
+    );
     const plan = await launch("test-agent", cwd, notify);
 
     expect(plan.piArgs).toContain("--tools");
@@ -440,7 +442,12 @@ describe("buildLaunchPlan CLI flags", () => {
   });
 
   it("keeps a hidden agent's own tools", async () => {
-    const { cwd, notify } = setup(makeAgent({ hidden: true, tools: ["read"] }));
+    const { cwd, notify } = setup(
+      makeAgent({
+        hidden: true,
+        toolsByFamily: { pi: { tools: ["read"] } },
+      }),
+    );
     const plan = await launch("test-agent", cwd, notify);
 
     expect(plan.piArgs).toContain("--tools");
@@ -448,14 +455,18 @@ describe("buildLaunchPlan CLI flags", () => {
   });
 
   it("emits --no-tools for tools: false", async () => {
-    const { cwd, notify } = setup(makeAgent({ tools: false }));
+    const { cwd, notify } = setup(
+      makeAgent({ toolsByFamily: { pi: { tools: false } } }),
+    );
     const plan = await launch("test-agent", cwd, notify);
 
     expect(plan.piArgs).toContain("--no-tools");
   });
 
   it("emits --exclude-tools for an excludeTools list", async () => {
-    const { cwd, notify } = setup(makeAgent({ excludeTools: ["read"] }));
+    const { cwd, notify } = setup(
+      makeAgent({ toolsByFamily: { pi: { excludeTools: ["read"] } } }),
+    );
     const plan = await launch("test-agent", cwd, notify);
 
     expect(plan.piArgs).toContain("--exclude-tools");
@@ -463,7 +474,9 @@ describe("buildLaunchPlan CLI flags", () => {
   });
 
   it("rejects an empty tool name", async () => {
-    const { cwd, notify } = setup(makeAgent({ tools: ["read", ""] }));
+    const { cwd, notify } = setup(
+      makeAgent({ toolsByFamily: { pi: { tools: ["read", ""] } } }),
+    );
 
     await expect(launch("test-agent", cwd, notify)).rejects.toThrow(
       "Empty entry in tools",
@@ -472,6 +485,53 @@ describe("buildLaunchPlan CLI flags", () => {
       expect.stringContaining("Empty entry in tools"),
       "error",
     );
+  });
+
+  it("launches unfiltered under opencode when the template names only a pi slice", async () => {
+    // A name list is catalogue-scoped: pi's slice is invisible to an opencode
+    // launch, so it resolves to no filter rather than a translated one.
+    const { cwd, notify } = setup(
+      makeAgent({
+        harnessType: "opencode",
+        toolsByFamily: { pi: { tools: ["read"] } },
+      }),
+    );
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.harness).toBe("opencode");
+    expect(plan.launch.toolSelection).toEqual({ kind: "default" });
+  });
+
+  it("reads the opencode slice for an opencode launch", async () => {
+    const { cwd, notify } = setup(
+      makeAgent({
+        harnessType: "opencode",
+        toolsByFamily: { opencode: { tools: ["read", "glob"] } },
+      }),
+    );
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.harness).toBe("opencode");
+    expect(plan.launch.toolSelection).toEqual({
+      kind: "include",
+      names: ["read", "glob"],
+    });
+  });
+
+  it("reads an opencode excludeTools slice for an opencode launch", async () => {
+    const { cwd, notify } = setup(
+      makeAgent({
+        harnessType: "opencode",
+        toolsByFamily: { opencode: { excludeTools: ["write"] } },
+      }),
+    );
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.harness).toBe("opencode");
+    expect(plan.launch.toolSelection).toEqual({
+      kind: "exclude",
+      names: ["write"],
+    });
   });
 });
 

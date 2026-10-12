@@ -179,8 +179,6 @@ export function getAllTypes(): string[] {
 export interface ResolvedAgentConfig {
   displayName: string;
   description: string;
-  /** Controls tool schema visibility. true = all, string[] = listed, false = none. */
-  tools?: true | string[] | false;
   extensions: true | string[] | false;
   skills: true | string[] | false;
 }
@@ -215,7 +213,6 @@ export function getConfig(
     return {
       displayName: rest.displayName ?? rest.name,
       description: rest.description,
-      tools: rest.tools,
       ...defaults,
     };
   }

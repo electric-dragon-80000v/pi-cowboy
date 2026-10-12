@@ -31,7 +31,7 @@ describe("parseAgentFile TOML templates", () => {
 
     expect(result).toMatchObject({
       name: "reviewer",
-      harness: { tools: ["read", "edit"] },
+      harness: { toolsByFamily: { pi: { tools: ["read", "edit"] } } },
       system_prompt: "# Instructions\n\n**Be careful.**",
     });
   });
@@ -65,7 +65,10 @@ describe("parseAgentFile TOML templates", () => {
     expect(result).toMatchObject({
       name: "typed",
       hidden: true,
-      harness: { thinking: "high", tools: ["read", "bash"] },
+      harness: {
+        thinking: "high",
+        toolsByFamily: { pi: { tools: ["read", "bash"] } },
+      },
     });
   });
 
@@ -87,7 +90,7 @@ describe("parseAgentFile TOML templates", () => {
         extensions: false,
         skills: ["git"],
         inlined_skills: [],
-        exclude_tools: ["write"],
+        toolsByFamily: { pi: { excludeTools: ["write"] } },
       },
     });
 
@@ -337,7 +340,9 @@ describe("mergeAgents field inheritance", () => {
     const config = merged.get("reviewer")!;
 
     expect(config.modelsByFamily?.pi).toBe("user-model");
-    expect(config.tools).toEqual(["read", "edit"]);
+    expect(config.toolsByFamily).toEqual({
+      pi: { tools: ["read", "edit"] },
+    });
     expect(config.hidden).toBe(true);
   });
 });
@@ -550,6 +555,30 @@ describe("mergeAgents harness family split", () => {
     expect(
       mergeAgents(new Map(), user, [], project).get("oc")?.modelsByFamily,
     ).toEqual({ pi: "pi/m", opencode: "oc/m" });
+  });
+
+  it("lets a later layer replace one family's tool slice and keep the other's", () => {
+    const user = [
+      parseAgentFile(
+        [
+          'name = "sliced"',
+          "[harness]",
+          'tools = ["read"]',
+          "[harness.opencode]",
+          'tools = ["read", "glob"]',
+        ].join("\n"),
+      ),
+    ];
+    const project = [
+      parseAgentFile('name = "sliced"\n[harness]\ntools = ["bash"]'),
+    ];
+
+    expect(
+      mergeAgents(new Map(), user, [], project).get("sliced")?.toolsByFamily,
+    ).toEqual({
+      pi: { tools: ["bash"] },
+      opencode: { tools: ["read", "glob"] },
+    });
   });
 
   it("lets a later layer set its own variant", () => {

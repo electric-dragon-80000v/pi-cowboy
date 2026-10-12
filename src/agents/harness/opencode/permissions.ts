@@ -1,5 +1,10 @@
 /**
- * opencode/permissions.ts — pi's tool selection as opencode's permission map.
+ * opencode/permissions.ts — this launch's tool selection as opencode's
+ * permission map.
+ *
+ * Names arrive in opencode's own vocabulary — each family's slice is written in
+ * the catalogue that defines it, so a launch reads only its own family's — and
+ * become permission keys as written, with no translation.
  *
  * opencode decides whether a tool may run by the last permission rule that
  * matches, taken in the map's own key order, so the order is part of the answer:
@@ -15,18 +20,6 @@ const ALL_TOOLS = "*";
 
 /** opencode's permission for asking the user a question. */
 const QUESTION = "question";
-
-/**
- * pi tool names with no permission of their own in opencode: `write`, `edit`,
- * and `patch` are one `edit` permission there. Every other name passes through
- * unchanged, so a pi tool opencode does not know becomes an inert permission key
- * rather than a silent allow.
- */
-const EDIT_PERMISSION_TOOLS = new Set(["write", "patch"]);
-
-function permissionKey(toolName: string): string {
-  return EDIT_PERMISSION_TOOLS.has(toolName) ? "edit" : toolName;
-}
 
 /**
  * `ToolSelection` -> opencode's permission map.
@@ -50,14 +43,14 @@ export function opencodePermissions(
     case "include":
       permissions[ALL_TOOLS] = "deny";
       for (const name of toolSelection.names) {
-        permissions[permissionKey(name)] = "allow";
+        permissions[name] = "allow";
       }
       return permissions;
     case "exclude":
       permissions[ALL_TOOLS] = "allow";
       permissions[QUESTION] = "deny";
       for (const name of toolSelection.names) {
-        permissions[permissionKey(name)] = "deny";
+        permissions[name] = "deny";
       }
       return permissions;
   }
