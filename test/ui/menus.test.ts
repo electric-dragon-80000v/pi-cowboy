@@ -367,6 +367,17 @@ describe("Agents menu — the hosted spawn-defaults rows", () => {
     });
   });
 
+  it("offers no agent type when none is registered, rather than a stand-in default", async () => {
+    registerAgents(new Map(), { disableDefaultAgents: true });
+    const session = await openMain(200);
+    session.open("Agent");
+
+    expect(session.text()).toContain("No matching items");
+    expect(session.notifications.map((n) => n.message)).toContain(
+      "No agent types available",
+    );
+  });
+
   it("keeps the configured default when the picker is cancelled", async () => {
     const session = await openMain();
     session.open("Agent");

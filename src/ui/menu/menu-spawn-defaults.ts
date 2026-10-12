@@ -23,8 +23,9 @@ function createAgentTypeSubmenu(
   theme: Theme,
 ): SubmenuFactory {
   return (_currentValue, done) => {
-    const available = getAvailableTypes();
-    const names = available.length > 0 ? available : [DEFAULT_AGENT_TYPE];
+    const names = getAvailableTypes();
+    // An empty registry has nothing to pick; a stand-in default would persist a type no spawn can resolve.
+    if (names.length === 0) notify("No agent types available", "error");
     const items = names.map((name) => ({
       value: name,
       label: name,
