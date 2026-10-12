@@ -1,3 +1,19 @@
+# [0.8.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.7.0...v0.8.0) (2026-10-12)
+
+
+### Bug Fixes
+
+* **ci:** add global npm bin path to workflow execution path ([f63fe64](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f63fe64b914a8bc63358624d5166a6b502a1134e))
+* **harness:** end claude option parsing before the appended task ([bcd8ea6](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bcd8ea67ddb3de95c2419170b1da3995d42cda5b))
+* **harness:** prove the pane's claude binary past the launcher function ([75529ae](https://github.com/electric-dragon-80000v/pi-cowboy/commit/75529ae87f275ef80e6e414e29aaa7c3c00b1199))
+
+
+### Features
+
+* **harness:** authenticate claude through a staged apiKeyHelper ([b4e4083](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b4e4083d4d64537df9d8c9275b790fb382772f97))
+* **harness:** launch claude from its staged prompt ([0410760](https://github.com/electric-dragon-80000v/pi-cowboy/commit/04107601d03634344e55072bfd7485ceea62ea6c))
+* **harness:** launch codex from the staged system prompt ([8511b13](https://github.com/electric-dragon-80000v/pi-cowboy/commit/8511b138423cf796d75d1f5f25bc08048fad1473))
+
 # [0.7.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.6.0...v0.7.0) (2026-10-12)
 
 
