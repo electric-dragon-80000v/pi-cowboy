@@ -23,25 +23,31 @@ const PROMPT_DESCRIPTION =
 const TASK_NAME_DESCRIPTION =
   'REQUIRED. Short 2-3 word task name (e.g. "fix login flow"). This single value names the agent\'s branch/tab/worktree/agent so you can recognize it at a glance, and the extension appends a unique spawn id so parallel spawns — and every entry in a batch — are always distinct. Limits: 3 words, 19 characters when slugged (lowercase, dashes). A longer name throws with the exact overshoot — retry with a shorter name. Missing name throws too. The same name twice in one call is rejected before anything spawns.';
 
-const AGENT_TYPE_DESCRIPTION =
-  'Optional agent type; when omitted the configured default agent type is used ("general-purpose" unless changed in settings). An unknown or ambiguous name is rejected before any agent in the batch spawns. Available: general-purpose,Explore';
-
 const MODEL_DESCRIPTION =
-  'Optional model for THIS agent as "provider/model-id". Leave it unset (the default) to use the configured default for this session and agent type — the usual case. Pass it when the user asked for a specific model for this task. When a previous attempt failed with a provider/model error, pass a different model here and instruct the agent in plain text to continue where the failed attempt left off. A model that is not in this session\'s registry fails the call before anything is spawned — leave it unset to use the configured default instead.';
+  'Optional model for THIS agent as "provider/model-id". Omit it, or pass null, to leave it unset and use the configured default for this session and agent type — the usual case, and never a value to guess at. Pass it when the user asked for a specific model for this task. When a previous attempt failed with a provider/model error, pass a different model here and instruct the agent in plain text to continue where the failed attempt left off. A model that is not in this session\'s registry fails the call before anything is spawned.';
 
-const HARNESS_TYPE_DESCRIPTION = `Optional harness that launches THIS agent, overriding the agent template's harness_type and the configured default harness. Available: ${HARNESS_IDS.join(", ")}. Leave it unset (the default) to use the agent template's harness_type, then the configured default. A harness this machine cannot launch fails the call before anything is spawned — unlike the configured default, an explicit request never falls back to pi.`;
+const HARNESS_TYPE_DESCRIPTION = `Optional harness that launches THIS agent, overriding the agent template's harness_type and the configured default harness. Available: ${HARNESS_IDS.join(", ")}. Omit it, or pass null, to leave it unset and use the agent template's harness_type, then the configured default — never pass a harness the user did not ask for. A harness this machine cannot launch fails the call before anything is spawned — unlike the configured default, an explicit request never falls back to pi.`;
 
-/** One spawn's parameters: prompt + task_name required, agent_type/model/harness_type optional. */
+/**
+ * One spawn's parameters: prompt + task_name required; agent_type/model/
+ * harness_type optional, where null means the same as omitting them. Strict
+ * constrained sampling rewrites each optional property into a required
+ * `X | null`, so null is the only way to send "unset" there.
+ */
 const CowboyAgentParamsSchema = Type.Object(
   {
     prompt: Type.String({ description: PROMPT_DESCRIPTION }),
     task_name: Type.String({ description: TASK_NAME_DESCRIPTION }),
-    agent_type: Type.Optional(
-      Type.String({ description: AGENT_TYPE_DESCRIPTION }),
+    agent_type: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    model: Type.Optional(
+      Type.Union([Type.String(), Type.Null()], {
+        description: MODEL_DESCRIPTION,
+      }),
     ),
-    model: Type.Optional(Type.String({ description: MODEL_DESCRIPTION })),
     harness_type: Type.Optional(
-      Type.String({ description: HARNESS_TYPE_DESCRIPTION }),
+      Type.Union([Type.String(), Type.Null()], {
+        description: HARNESS_TYPE_DESCRIPTION,
+      }),
     ),
   },
   { additionalProperties: false, required: ["prompt", "task_name"] },

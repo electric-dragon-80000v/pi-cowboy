@@ -1,16 +1,21 @@
 /**
  * registration-schema.test.ts — the cowboy_agent tool's batched parameter
  * shape. Pins: `agents` is the required array (minItems 1), the per-item
- * `model` field is a nullable union, the call-level `run_in_background` is
- * a nullable union (the cross-field rule lives in the parse layer, not the
- * schema), the per-item `prompt` description names the commit-after-approval
- * contract, and the long description names the batching contract.
+ * `agent_type`/`model`/`harness_type` fields are nullable unions whose `null`
+ * means unset — strict constrained sampling turns every optional property into
+ * a required `X | null`, so `null` is the only way to send "unset" there — the
+ * call-level `run_in_background` is a nullable union (the cross-field rule
+ * lives in the parse layer, not the schema), the per-item `prompt` description
+ * names the commit-after-approval contract, and the long description names the
+ * batching contract.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { isRecord } from "../src/predicates.js";
 import { registerAgentTool, registerTools } from "../src/registration.js";
+import { registerAgents } from "../src/agents/agent-types.js";
+import type { AgentConfig } from "../src/agents/types.js";
 
 interface CapturedTool {
   name: string;
@@ -43,12 +48,28 @@ function captureAgentTool(): CapturedTool {
   return captured;
 }
 
+/** The description of a string property or of a nullable-string union. */
 function stringMember(property: unknown): { description?: string } | undefined {
-  if (!isRecord(property) || property.type !== "string") return undefined;
+  if (!isRecord(property)) return undefined;
+  const isString = property.type === "string";
+  const isNullableString =
+    Array.isArray(property.anyOf) &&
+    property.anyOf.some(
+      (variant) => isRecord(variant) && variant.type === "string",
+    );
+  if (!isString && !isNullableString) return undefined;
   const description = property.description;
   return {
     description: typeof description === "string" ? description : undefined,
   };
+}
+
+/** The variant types of a property's `anyOf`, or undefined when it has none. */
+function unionTypes(property: unknown): string[] | undefined {
+  if (!isRecord(property) || !Array.isArray(property.anyOf)) return undefined;
+  return property.anyOf.map((variant) =>
+    isRecord(variant) && typeof variant.type === "string" ? variant.type : "",
+  );
 }
 
 function captureTools(): CapturedTool[] {
@@ -76,6 +97,16 @@ function itemRequired(tool: CapturedTool): string[] | undefined {
   return agents?.items.required;
 }
 
+/** The registered `agent_type` description, which registration builds from the registry. */
+function agentTypeParam(): string {
+  const tool = captureAgentTool();
+  return stringMember(itemProperties(tool)?.agent_type)?.description ?? "";
+}
+
+function agent(name: string): AgentConfig {
+  return { name, description: `${name} agent`, systemPrompt: "" };
+}
+
 describe("cowboy_agent registration", () => {
   it("requires an `agents` array of at least one item", () => {
     const tool = captureAgentTool();
@@ -85,20 +116,41 @@ describe("cowboy_agent registration", () => {
     expect(tool.parameters.required).toEqual(["agents"]);
   });
 
-  it("exposes per-item `model` as an optional string, never required", () => {
-    const tool = captureAgentTool();
-    const model = itemProperties(tool)?.model;
-    expect(model).toBeDefined();
-    expect(isRecord(model) ? model.type : undefined).toBe("string");
-    expect(itemRequired(tool) ?? []).not.toContain("model");
-  });
+  it.each(["agent_type", "model", "harness_type"])(
+    "exposes per-item `%s` as an optional nullable string, never required",
+    (key) => {
+      const tool = captureAgentTool();
+      expect(unionTypes(itemProperties(tool)?.[key])?.sort()).toEqual([
+        "null",
+        "string",
+      ]);
+      expect(itemRequired(tool) ?? []).not.toContain(key);
+    },
+  );
 
-  it("exposes per-item `harness_type` as an optional string, never required", () => {
-    const tool = captureAgentTool();
-    const harnessType = itemProperties(tool)?.harness_type;
-    expect(harnessType).toBeDefined();
-    expect(isRecord(harnessType) ? harnessType.type : undefined).toBe("string");
-    expect(itemRequired(tool) ?? []).not.toContain("harness_type");
+  it.each(["agent_type", "model", "harness_type"])(
+    "names null as the unset default in `%s`'s description",
+    (key) => {
+      const tool = captureAgentTool();
+      const description =
+        stringMember(itemProperties(tool)?.[key])?.description ?? "";
+      expect(description).toMatch(/^Optional\b/);
+      expect(description).toContain("null");
+    },
+  );
+
+  it("lists the registered agent types, and omits the list when there are none", () => {
+    registerAgents(new Map(), { disableDefaultAgents: true });
+    expect(agentTypeParam()).not.toContain("Available:");
+
+    registerAgents(
+      new Map([
+        ["general-purpose", agent("general-purpose")],
+        ["Explore", agent("Explore")],
+      ]),
+      { disableDefaultAgents: true },
+    );
+    expect(agentTypeParam()).toContain("Available: general-purpose,Explore");
   });
 
   it("documents `harness_type` as the override, listing the harnesses and the no-fallback rule", () => {

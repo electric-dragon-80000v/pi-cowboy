@@ -55,24 +55,22 @@ const CONSTRAINED_SAMPLING = {
 
 /**
  * Rebuild the per-item `agent_type` description so it lists the agent types
- * known at registration time. The shape — and therefore the derived type in
- * `cowboy-agents.schema.ts` — is unchanged; only the description text differs.
+ * known at registration time — a session with the built-in types disabled and
+ * no templates of its own has none to list. The shape mirrors
+ * `cowboy-agents.schema.ts`, nullable union included, so the derived type holds.
  */
 function cowboyAgentsSchemaWithTypes(
   types: readonly string[],
 ): typeof CowboyAgentsSchema {
-  const agentTypeDescription =
-    types.length > 0
-      ? `Optional agent type; when omitted the configured default agent type is used ("general-purpose" unless changed in settings). An unknown or ambiguous name is rejected before any agent in the batch spawns. Available: ${types.join(",")}`
-      : `Optional agent type; when omitted the configured default agent type is used ("general-purpose" unless changed in settings). An unknown or ambiguous name is rejected before any agent in the batch spawns.`;
-
   const params = Type.Object(
     {
       prompt: CowboyAgentsSchema.properties.agents.items.properties.prompt,
       task_name:
         CowboyAgentsSchema.properties.agents.items.properties.task_name,
       agent_type: Type.Optional(
-        Type.String({ description: agentTypeDescription }),
+        Type.Union([Type.String(), Type.Null()], {
+          description: `Optional agent type. Omit it, or pass null, to use the configured default agent type — never pass a type the user did not ask for. An unknown or ambiguous name is rejected before any agent in the batch spawns.${types.length > 0 ? ` Available: ${types.join(",")}` : ""}`,
+        }),
       ),
       model: CowboyAgentsSchema.properties.agents.items.properties.model,
       harness_type:
