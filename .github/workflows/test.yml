@@ -236,10 +236,16 @@ jobs:
       - name: Install dependencies
         run: HUSKY=0 pnpm install --frozen-lockfile
 
-      # The npm distribution is codex's official cross-platform install; its
-      # bin lands on the runner PATH for the steps below.
+      # The npm distribution is codex's official cross-platform install. npm
+      # takes its global prefix from the node binary that runs it, and
+      # pnpm/setup's node shim comes first on PATH, so the prefix is pnpm's
+      # runtime store under $PNPM_HOME: codex's bin lands beside the runtime's
+      # own node, in a directory PATH does not already carry. The prefix's bin
+      # directory is what makes `codex` reachable in the steps below.
       - name: Install the latest codex
-        run: npm install -g @openai/codex
+        run: |
+          npm install -g @openai/codex
+          echo "$(npm prefix -g)/bin" >> "$GITHUB_PATH"
 
       # A broken install must fail the job here, not let the test skip over it.
       - name: Verify the codex binary
