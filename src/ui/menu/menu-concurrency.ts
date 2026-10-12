@@ -5,7 +5,11 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
+import {
+  SettingsList,
+  type Component,
+  type SettingItem,
+} from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
 import {
   harnessDisplayName,
@@ -16,15 +20,11 @@ import type { HarnessModelOptions } from "../../agents/harness/registry.js";
 import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
-import type { SelectOption } from "../searchable-select.js";
 import type { Theme } from "../types.js";
 import {
-  SEPARATOR_ID,
   buildSettingsListTheme,
-  buildModelOptions,
-  createSearchableSelect,
-  extractConfiguredModels,
-  mergedModelsForHarness,
+  installSeparatorSkip,
+  withVimKeys,
 } from "./helpers.js";
 import { createNumericSubmenu } from "./submenus/numeric-input.js";
 import {
@@ -38,7 +38,7 @@ import {
   type TargetChoice,
 } from "./submenus/target-select.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { ScreenHost } from "./screen-host.js";
+import { asListFields, asSubmenuComponent, ScreenHost } from "./screen-host.js";
 
 /** A concurrency level the menu reads and writes. */
 type ConcurrencySection = "default" | "harnesses" | "providers" | "models";
@@ -175,50 +175,295 @@ export async function showConcurrencySettingsMenu(
         })(currentValue, done);
       };
 
-    // Searchable-pick an option, then target → numeric value.
-    const addPickThenValueSubmenu =
-      (
-        options: SelectOption[],
-        onPick: (key: string, target: SetTarget, parsed: number) => void,
-      ): SettingItem["submenu"] =>
-      (currentValue, done) =>
-        createSearchableSelect(
-          options,
-          {
-            // A limit needs a key, so an inherit row cancels.
-            onSelect: (key) => {
-              if (key == null) return done();
-              return targetThenValueSubmenu("1", (target, parsed) =>
-                onPick(key, target, parsed),
-              )(currentValue, done);
+    /**
+     * A nested SettingsList hosted as one row's submenu. Inner picks rebuild
+     * the nested list in place; closing it completes with a value so the
+     * hosting list repaints (e.g. the clear-all row appears after a first set).
+     */
+    const nestedListSubmenu =
+      (buildNested: () => SettingItem[]): SettingItem["submenu"] =>
+      (_currentValue, done) => {
+        const buildFresh = (): SettingItem[] => buildNested();
+        // Assigned after construction; the onSelect closure refreshes in place.
+        let list: SettingsList;
+        const listComponent = withVimKeys(
+          new SettingsList(
+            buildFresh(),
+            15,
+            buildSettingsListTheme(theme),
+            (_id, _value) => {
+              const fields = asListFields<SettingItem>(
+                list as unknown as Component,
+              );
+              const fresh = buildFresh();
+              fields.items = fresh;
+              fields.filteredItems = fresh;
+              fields.submenuComponent = null;
+              fields.selectedIndex = 0;
             },
-            onCancel: () => done(),
-          },
-          theme,
+            () => done("closed"),
+          ),
         );
+        list = listComponent as unknown as SettingsList;
+        installSeparatorSkip(
+          asListFields<SettingItem>(list as unknown as Component),
+        );
+        return asSubmenuComponent(listComponent);
+      };
 
-    /** One configured limit row: value, provenance tag, and set/clear flow. */
-    const limitRow = (options: {
-      id: string;
-      label: string;
-      description: string;
-      limit: number;
-      section: ConcurrencySection;
-      key?: string;
-      onSet: (target: SetTarget, parsed: number) => void;
-      onRemove: (target: TargetChoice) => void;
-    }): SettingItem => ({
-      id: options.id,
-      label: options.label,
-      currentValue: `${options.limit} slots${limitTag(options.section, options.key)}`,
-      description: options.description,
-      submenu: limitSubmenu(
-        options.limit,
-        options.onSet,
-        options.onRemove,
-        entryLevels(options.section, options.key),
-      ),
-    });
+    /** One harness's row inside the per-harness list, set or unset. */
+    const harnessLimitRow = (harness: HarnessId): SettingItem => {
+      const live = getStore();
+      const limit = live.concurrency.harnesses[harness];
+      const label = harnessDisplayName(harness);
+      const description = `Concurrent agents of every model launched under ${harness}.`;
+      if (limit === undefined) {
+        return {
+          id: `harness:${harness}`,
+          label,
+          currentValue: "unset",
+          description,
+          submenu: targetThenValueSubmenu("1", (target, parsed) => {
+            getStore().mutate.concurrency.setHarness(harness, parsed, target);
+            ctx.ui.notify(
+              `${harness} concurrency set to ${parsed} (${target})`,
+              "info",
+            );
+          }),
+        };
+      }
+      const tag = layerHas(live.sessionConcurrency, "harnesses", harness)
+        ? " [session]"
+        : layerHas(live.projectConcurrency, "harnesses", harness)
+          ? " [project]"
+          : "";
+      return {
+        id: `harness:${harness}`,
+        label,
+        currentValue: `${limit} slots${tag}`,
+        description,
+        submenu: limitSubmenu(
+          limit,
+          (target, parsed) => {
+            getStore().mutate.concurrency.setHarness(harness, parsed, target);
+            ctx.ui.notify(
+              `${label} concurrency set to ${parsed} (${target})`,
+              "info",
+            );
+          },
+          (target) => {
+            getStore().mutate.concurrency.removeHarness(harness, target);
+            ctx.ui.notify(
+              `Removed per-harness limit for ${harness} (${target})`,
+              "info",
+            );
+          },
+          {
+            session: layerHas(live.sessionConcurrency, "harnesses", harness),
+            global: layerHas(live.globalConcurrency, "harnesses", harness),
+            project: layerHas(live.projectConcurrency, "harnesses", harness),
+          },
+        ),
+      };
+    };
+
+    /** Harnesses for the per-harness list: runnable plus already-configured. */
+    const harnessListItems = (): SettingItem[] => {
+      const live = getStore();
+      const ordered = [...harnessIds];
+      for (const key of Object.keys(live.concurrency.harnesses)) {
+        const harness = parseHarnessId(key);
+        if (harness !== undefined && !ordered.includes(harness)) {
+          ordered.push(harness);
+        }
+      }
+      return ordered.map((harness) => harnessLimitRow(harness));
+    };
+
+    /** Candidate provider names for one harness, from its own model list. */
+    const providerOptionsFor = (harness: HarnessId): string[] => {
+      const modelKeys = harnessModelOptions.get(harness) ?? [];
+      return [
+        ...new Set(
+          modelKeys
+            .map((key) => parseModelKey(key)?.provider)
+            .filter((provider): provider is string => provider !== undefined),
+        ),
+      ].sort();
+    };
+
+    /** One provider row inside a harness's provider list, set or unset. */
+    const providerLimitRow = (harness: HarnessId, key: string): SettingItem => {
+      const live = getStore();
+      const limit = live.concurrency.providers[key];
+      const description = `Concurrent slots reserved for agents under ${harness} using the ${parsePoolKey(key)?.provider ?? key} provider.`;
+      if (limit === undefined) {
+        return {
+          id: `provider:${key}`,
+          label: key,
+          currentValue: "unset",
+          description,
+          submenu: targetThenValueSubmenu("1", (target, parsed) => {
+            getStore().mutate.concurrency.setProvider(key, parsed, target);
+            ctx.ui.notify(
+              `${key} concurrency set to ${parsed} (${target})`,
+              "info",
+            );
+          }),
+        };
+      }
+      const tag = layerHas(live.sessionConcurrency, "providers", key)
+        ? " [session]"
+        : layerHas(live.projectConcurrency, "providers", key)
+          ? " [project]"
+          : "";
+      return {
+        id: `provider:${key}`,
+        label: key,
+        currentValue: `${limit} slots${tag}`,
+        description,
+        submenu: limitSubmenu(
+          limit,
+          (target, parsed) => {
+            getStore().mutate.concurrency.setProvider(key, parsed, target);
+            ctx.ui.notify(
+              `${key} concurrency set to ${parsed} (${target})`,
+              "info",
+            );
+          },
+          (target) => {
+            getStore().mutate.concurrency.removeProvider(key, target);
+            ctx.ui.notify(
+              `Removed per-provider limit for ${key} (${target})`,
+              "info",
+            );
+          },
+          {
+            session: layerHas(live.sessionConcurrency, "providers", key),
+            global: layerHas(live.globalConcurrency, "providers", key),
+            project: layerHas(live.projectConcurrency, "providers", key),
+          },
+        ),
+      };
+    };
+
+    /** A harness's provider list: candidates plus already-configured keys. */
+    const providerListItems = (harness: HarnessId): SettingItem[] => {
+      const live = getStore();
+      const configured =
+        groupKeysByHarness(Object.keys(live.concurrency.providers)).get(
+          harness,
+        ) ?? [];
+      const candidates = providerOptionsFor(harness).map((provider) =>
+        qualifiedKey(harness, provider),
+      );
+      const keys = [...new Set([...candidates, ...configured])].sort();
+      return keys.map((key) => providerLimitRow(harness, key));
+    };
+
+    /** One model row inside a harness's model list, set or unset. */
+    const modelLimitRow = (harness: HarnessId, key: string): SettingItem => {
+      const live = getStore();
+      const limit = live.concurrency.models[key];
+      const parsed = parsePoolKey(key);
+      const modelName = parsed?.kind === "model" ? parsed.model : key;
+      const description = `Concurrent slots reserved for agents under ${harness} using the ${modelName} model.`;
+      if (limit === undefined) {
+        return {
+          id: `model:${key}`,
+          label: key,
+          currentValue: "unset",
+          description,
+          submenu: targetThenValueSubmenu("1", (target, parsedValue) => {
+            getStore().mutate.concurrency.setModel(key, parsedValue, target);
+            ctx.ui.notify(
+              `${key} concurrency set to ${parsedValue} (${target})`,
+              "info",
+            );
+          }),
+        };
+      }
+      const tag = layerHas(live.sessionConcurrency, "models", key)
+        ? " [session]"
+        : layerHas(live.projectConcurrency, "models", key)
+          ? " [project]"
+          : "";
+      return {
+        id: `model:${key}`,
+        label: key,
+        currentValue: `${limit} slots${tag}`,
+        description,
+        submenu: limitSubmenu(
+          limit,
+          (target, parsedValue) => {
+            getStore().mutate.concurrency.setModel(key, parsedValue, target);
+            ctx.ui.notify(
+              `${key} concurrency set to ${parsedValue} (${target})`,
+              "info",
+            );
+          },
+          (target) => {
+            getStore().mutate.concurrency.removeModel(key, target);
+            ctx.ui.notify(
+              `Removed per-model limit for ${key} (${target})`,
+              "info",
+            );
+          },
+          {
+            session: layerHas(live.sessionConcurrency, "models", key),
+            global: layerHas(live.globalConcurrency, "models", key),
+            project: layerHas(live.projectConcurrency, "models", key),
+          },
+        ),
+      };
+    };
+
+    /** A harness's model list: candidates plus already-configured keys. */
+    const modelListItems = (harness: HarnessId): SettingItem[] => {
+      const live = getStore();
+      const configured =
+        groupKeysByHarness(Object.keys(live.concurrency.models)).get(harness) ??
+        [];
+      const candidates = (harnessModelOptions.get(harness) ?? []).map((key) =>
+        qualifiedKey(harness, key),
+      );
+      const keys = [...new Set([...candidates, ...configured])].sort();
+      return keys.map((key) => modelLimitRow(harness, key));
+    };
+
+    /** Harness picker rows; each opens that harness's provider or model list. */
+    const harnessPickerItems = (
+      kind: "providers" | "models",
+    ): SettingItem[] => {
+      const live = getStore();
+      const configured =
+        kind === "providers"
+          ? groupKeysByHarness(Object.keys(live.concurrency.providers))
+          : groupKeysByHarness(Object.keys(live.concurrency.models));
+      return sectionHarnesses(harnessIds, configured)
+        .filter((harness) => {
+          const hasConfigured = (configured.get(harness) ?? []).length > 0;
+          if (kind === "providers")
+            return hasConfigured || providerOptionsFor(harness).length > 0;
+          return (
+            hasConfigured || (harnessModelOptions.get(harness) ?? []).length > 0
+          );
+        })
+        .map((harness) => ({
+          id: `${kind}-harness:${harness}`,
+          label: harnessDisplayName(harness),
+          currentValue: "",
+          description:
+            kind === "providers"
+              ? `Provider limits under ${harness}.`
+              : `Model limits under ${harness}.`,
+          submenu: nestedListSubmenu(() =>
+            kind === "providers"
+              ? providerListItems(harness)
+              : modelListItems(harness),
+          ),
+        }));
+    };
 
     // ── Global default ──
     const defaultLimit = store.concurrency.default;
@@ -248,229 +493,30 @@ export async function showConcurrencySettingsMenu(
       ),
     });
 
-    // ── Per-harness limits ──
-    items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
+    // ── Nested limit sections ──
     items.push({
-      id: SEPARATOR_ID,
-      label: theme.bold(theme.fg("accent", "Per-harness limits")),
+      id: "harnessLimits",
+      label: "Per-harness limits",
       currentValue: "",
+      description: "Cap how many agents run at once under a single harness.",
+      submenu: nestedListSubmenu(harnessListItems),
     });
-    const harnessLimits = store.concurrency.harnesses;
-    for (const key of Object.keys(harnessLimits)) {
-      const harness = parseHarnessId(key);
-      if (harness === undefined) continue;
-      const limit = harnessLimits[harness];
-      if (limit === undefined) continue;
-      const label = harnessDisplayName(harness);
-      items.push(
-        limitRow({
-          id: `harness:${harness}`,
-          label,
-          description: `Concurrent agents of every model launched under ${harness}.`,
-          limit,
-          section: "harnesses",
-          key: harness,
-          onSet: (target, parsed) => {
-            store.mutate.concurrency.setHarness(harness, parsed, target);
-            ctx.ui.notify(
-              `${label} concurrency set to ${parsed} (${target})`,
-              "info",
-            );
-          },
-          onRemove: (target) => {
-            store.mutate.concurrency.removeHarness(harness, target);
-            ctx.ui.notify(
-              `Removed per-harness limit for ${harness} (${target})`,
-              "info",
-            );
-          },
-        }),
-      );
-    }
     items.push({
-      id: SEPARATOR_ID,
-      label: "─────────────────────────",
-      currentValue: "────────",
-    });
-    if (harnessIds.length > 0) {
-      items.push({
-        id: "addHarnessLimit",
-        label: "Add per-harness limit...",
-        currentValue: "",
-        description: "Cap how many agents run at once under a single harness.",
-        submenu: addPickThenValueSubmenu(
-          harnessIds.map((id) => ({
-            value: id,
-            label: harnessDisplayName(id),
-          })),
-          (harnessId, target, parsed) => {
-            const harness = harnessId as HarnessId;
-            store.mutate.concurrency.setHarness(harness, parsed, target);
-            ctx.ui.notify(
-              `${harness} concurrency set to ${parsed} (${target})`,
-              "info",
-            );
-          },
-        ),
-      });
-    }
-
-    // ── Per-provider limits, one section per harness ──
-    items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
-    items.push({
-      id: SEPARATOR_ID,
-      label: theme.bold(theme.fg("accent", "Per-provider limits")),
+      id: "providerLimits",
+      label: "Per-provider limits",
       currentValue: "",
+      description: "Cap how many agents run at once for a single provider.",
+      submenu: nestedListSubmenu(() => harnessPickerItems("providers")),
     });
-    const configuredProviders = groupKeysByHarness(
-      Object.keys(store.concurrency.providers),
-    );
-    for (const harness of sectionHarnesses(harnessIds, configuredProviders)) {
-      const configured = configuredProviders.get(harness) ?? [];
-      const modelKeys = harnessModelOptions.get(harness) ?? [];
-      const providerOptions = [
-        ...new Set(
-          modelKeys
-            .map((key) => parseModelKey(key)?.provider)
-            .filter((provider): provider is string => provider !== undefined),
-        ),
-      ].sort();
-      if (configured.length === 0 && providerOptions.length === 0) continue;
-      items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
-      items.push({
-        id: SEPARATOR_ID,
-        label: theme.fg("muted", harnessDisplayName(harness)),
-        currentValue: "",
-      });
-      for (const key of configured) {
-        const limit = store.concurrency.providers[key];
-        if (limit === undefined) continue;
-        items.push(
-          limitRow({
-            id: `provider:${key}`,
-            label: key,
-            description: `Concurrent slots reserved for agents under ${harness} using the ${parsePoolKey(key)?.provider ?? key} provider.`,
-            limit,
-            section: "providers",
-            key,
-            onSet: (target, parsed) => {
-              store.mutate.concurrency.setProvider(key, parsed, target);
-              ctx.ui.notify(
-                `${key} concurrency set to ${parsed} (${target})`,
-                "info",
-              );
-            },
-            onRemove: (target) => {
-              store.mutate.concurrency.removeProvider(key, target);
-              ctx.ui.notify(
-                `Removed per-provider limit for ${key} (${target})`,
-                "info",
-              );
-            },
-          }),
-        );
-      }
-      if (providerOptions.length > 0) {
-        items.push({
-          id: `addProviderLimit:${harness}`,
-          label: `Add ${harnessDisplayName(harness)} provider limit...`,
-          currentValue: "",
-          description: `Cap how many agents run at once for a single provider under ${harness}.`,
-          submenu: addPickThenValueSubmenu(
-            providerOptions.map((o) => ({ value: o, label: o })),
-            (provider, target, parsed) => {
-              const key = qualifiedKey(harness, provider);
-              store.mutate.concurrency.setProvider(key, parsed, target);
-              ctx.ui.notify(
-                `${key} concurrency set to ${parsed} (${target})`,
-                "info",
-              );
-            },
-          ),
-        });
-      }
-    }
-
-    // ── Per-model limits, one section per harness ──
-    items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
     items.push({
-      id: SEPARATOR_ID,
-      label: theme.bold(theme.fg("accent", "Per-model limits")),
+      id: "modelLimits",
+      label: "Per-model limits",
       currentValue: "",
+      description: "Cap how many agents run at once for a single model.",
+      submenu: nestedListSubmenu(() => harnessPickerItems("models")),
     });
-    const configuredModels = groupKeysByHarness(
-      Object.keys(store.concurrency.models),
-    );
-    const agentConfiguredModels = extractConfiguredModels(
-      store.agentConfigSnapshot(),
-    );
-    for (const harness of sectionHarnesses(harnessIds, configuredModels)) {
-      const configured = configuredModels.get(harness) ?? [];
-      const modelKeys = harnessModelOptions.get(harness) ?? [];
-      if (configured.length === 0 && modelKeys.length === 0) continue;
-      items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
-      items.push({
-        id: SEPARATOR_ID,
-        label: theme.fg("muted", harnessDisplayName(harness)),
-        currentValue: "",
-      });
-      for (const key of configured) {
-        const limit = store.concurrency.models[key];
-        if (limit === undefined) continue;
-        const parsed = parsePoolKey(key);
-        const modelName = parsed?.kind === "model" ? parsed.model : key;
-        items.push(
-          limitRow({
-            id: `model:${key}`,
-            label: key,
-            description: `Concurrent slots reserved for agents under ${harness} using the ${modelName} model.`,
-            limit,
-            section: "models",
-            key,
-            onSet: (target, parsed) => {
-              store.mutate.concurrency.setModel(key, parsed, target);
-              ctx.ui.notify(
-                `${key} concurrency set to ${parsed} (${target})`,
-                "info",
-              );
-            },
-            onRemove: (target) => {
-              store.mutate.concurrency.removeModel(key, target);
-              ctx.ui.notify(
-                `Removed per-model limit for ${key} (${target})`,
-                "info",
-              );
-            },
-          }),
-        );
-      }
-      if (modelKeys.length > 0) {
-        items.push({
-          id: `addModelLimit:${harness}`,
-          label: `Add ${harnessDisplayName(harness)} model limit...`,
-          currentValue: "",
-          description: `Cap how many agents run at once for a single model under ${harness}.`,
-          submenu: addPickThenValueSubmenu(
-            buildModelOptions(
-              modelKeys,
-              null,
-              mergedModelsForHarness(harness, agentConfiguredModels),
-            ),
-            (modelKey, target, parsed) => {
-              const key = qualifiedKey(harness, modelKey);
-              store.mutate.concurrency.setModel(key, parsed, target);
-              ctx.ui.notify(
-                `${key} concurrency set to ${parsed} (${target})`,
-                "info",
-              );
-            },
-          ),
-        });
-      }
-    }
 
     // ── Clear all ──
-    items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
     // One level is offered only when it carries entries; the row hides when none do.
     const availableLevels: AvailableLevels = {
       session: store.hasSessionConcurrencySettings,
