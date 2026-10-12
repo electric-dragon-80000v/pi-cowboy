@@ -274,7 +274,7 @@ describe("prepare", () => {
       3,
       PI,
       "w1:p9",
-      `test -r '${configDir}/settings.json' && test -r '${taskFile}' && command -v claude >/dev/null && echo CLAUDE_""STAGED`,
+      `test -r '${configDir}/settings.json' && test -r '${taskFile}' && (unset -f claude; command -v claude >/dev/null) && echo CLAUDE_""STAGED`,
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
       PI,

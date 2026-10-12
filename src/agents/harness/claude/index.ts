@@ -94,16 +94,21 @@ function singleQuote(value: string): string {
  *
  * `command -v` (not `claude --version`) proves the binary resolves on the
  * pane's `PATH` — which need not match the parent's — without booting the CLI
- * into a networked update check. The `test -r` pair proves the staged settings
- * and the task file the launcher names are visible from the pane; without
- * them the TUI would park at its onboarding or trust dialog, which nothing in
- * the argv or exit status reports. The marker is broken with a `""` so only
- * the shell's evaluation of the command — not the command line's own echo,
- * which `wait-output` also sees — produces the contiguous token.
+ * into a networked update check. The lookup runs past an `unset -f` in a
+ * subshell because `command -v` resolves functions before `PATH`: without it
+ * the check would pass on the launcher this install just defined, even with
+ * no binary anywhere, and the failure below could never fire. The subshell
+ * keeps the installed launcher intact for the launch that follows. The
+ * `test -r` pair proves the staged settings and the task file the launcher
+ * names are visible from the pane; without them the TUI would park at its
+ * onboarding or trust dialog, which nothing in the argv or exit status
+ * reports. The marker is broken with a `""` so only the shell's evaluation
+ * of the command — not the command line's own echo, which `wait-output` also
+ * sees — produces the contiguous token.
  */
 function stagedProof(configDir: string, taskFile: string): PaneProof {
   return {
-    command: `test -r ${singleQuote(claudeSettingsFile(configDir))} && test -r ${singleQuote(taskFile)} && command -v claude >/dev/null && echo CLAUDE_""STAGED`,
+    command: `test -r ${singleQuote(claudeSettingsFile(configDir))} && test -r ${singleQuote(taskFile)} && (unset -f ${CLAUDE_COMMAND}; command -v ${CLAUDE_COMMAND} >/dev/null) && echo CLAUDE_""STAGED`,
     output: STAGED_MARKER,
     timeoutMs: STAGED_PROOF_TIMEOUT_MS,
     failure: `failed to prepare the pane: the pane never proved it can see the staged claude state — the settings ${claudeSettingsFile(configDir)}, the task ${taskFile}, or the claude binary on its PATH. The agent did not start.`,
