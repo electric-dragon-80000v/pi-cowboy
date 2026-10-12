@@ -132,8 +132,12 @@ describe("writeClaudeStaging", () => {
       readFileSync(join(dir, "settings.json"), "utf-8"),
     );
     // The theme skips the syntax-theme picker; the persisted acceptance is the
-    // half of `--dangerously-skip-permissions` the argv cannot carry.
+    // half of `--dangerously-skip-permissions` the argv cannot carry. The
+    // helper carries no key material — only the variable the launcher fills —
+    // so the consent predicate, which reads `ANTHROPIC_API_KEY`, never fires
+    // once the launcher renames it away.
     expect(settings).toEqual({
+      apiKeyHelper: `printf '%s' "$COWBOY_API_KEY"`,
       theme: "dark",
       skipDangerousModePermissionPrompt: true,
     });
@@ -148,6 +152,29 @@ describe("writeClaudeStaging", () => {
       projects: {
         [realpathSync.native(tmpRoot)]: { hasTrustDialogAccepted: true },
       },
+    });
+  });
+
+  it("keeps the helper on exactly one line, whose removal leaves valid settings", () => {
+    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const text = readFileSync(join(dir, "settings.json"), "utf-8");
+
+    // The pane-side trim deletes the helper's line by key name (see the
+    // launcher), so the staged file must keep the helper deletable by line:
+    // one line carries it, and everything else parses without it.
+    const helperLines = text
+      .split("\n")
+      .filter((line) => line.includes("apiKeyHelper"));
+    expect(helperLines).toEqual([
+      `  "apiKeyHelper": "printf '%s' \\"$COWBOY_API_KEY\\"",`,
+    ]);
+    const withoutHelper = text
+      .split("\n")
+      .filter((line) => !line.includes("apiKeyHelper"))
+      .join("\n");
+    expect(JSON.parse(withoutHelper)).toEqual({
+      theme: "dark",
+      skipDangerousModePermissionPrompt: true,
     });
   });
 
@@ -169,6 +196,14 @@ describe("writeClaudeStaging", () => {
     const stateText = readFileSync(join(dir, ".claude.json"), "utf-8");
     expect(stateText).not.toContain("customApiKeyResponses");
     expect(stateText).not.toContain("approved");
+  });
+
+  it("stages byte-identical settings: every byte is accounted for, so no key material can hide in it", () => {
+    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+
+    expect(readFileSync(join(dir, "settings.json"), "utf-8")).toBe(
+      `{\n  "apiKeyHelper": "printf '%s' \\"$COWBOY_API_KEY\\"",\n  "theme": "dark",\n  "skipDangerousModePermissionPrompt": true\n}\n`,
+    );
   });
 
   it("replaces the staging a previous call wrote", () => {
@@ -228,7 +263,7 @@ describe("prepare", () => {
       1,
       PI,
       "w1:p9",
-      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
+      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,

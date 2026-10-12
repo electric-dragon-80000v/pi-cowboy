@@ -74,6 +74,9 @@ const claudeRequired = process.env[REQUIRE_ENV_VAR] === "1";
 /** This file runs only where the binary and the credentials both exist. */
 const canRunRealClaude = !claudeMissing && !credentialsMissing;
 
+/** This negative case needs only the binary: a keyless run answers nothing. */
+const canRunKeylessClaude = !claudeMissing;
+
 /** One finished CLI run; the exit code is part of the evidence, never thrown away. */
 interface CliRun {
   readonly code: number;
@@ -148,6 +151,34 @@ function launchEnv(configDir: string): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * The pane's exact wiring for a key-carrying run: the launcher renames the
+ * ambient key out of `ANTHROPIC_API_KEY` — the variable the consent predicate
+ * reads — into `COWBOY_API_KEY`, which only the staged helper reads. Reading
+ * the value here forwards the launching environment the way the pane inherits
+ * it; no value reaches any assertion or log (see `redactKeys`).
+ */
+function keyCarryingEnv(configDir: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...launchEnv(configDir),
+    COWBOY_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+  };
+  delete env.ANTHROPIC_API_KEY;
+  return env;
+}
+
+/**
+ * A run with no key anywhere: every variable a key could ride in on is
+ * removed, so the only auth answer is the staged helper's (or its failure).
+ */
+function keylessEnv(configDir: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...launchEnv(configDir) };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.COWBOY_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  return env;
+}
+
 /** Write a system prompt file in this test's root and return its path. */
 function promptFile(text: string): string {
   const file = path.join(cwd, "system.md");
@@ -169,11 +200,12 @@ const MODEL_RUN_TIMEOUT_MS = 100_000;
 async function runClaude(
   configDir: string,
   args: readonly string[],
+  env: NodeJS.ProcessEnv,
 ): Promise<CliRun> {
   const bin = claudeBinary();
   try {
     const { stdout, stderr } = await execFileAsync(bin, [...args], {
-      env: launchEnv(configDir),
+      env,
       cwd,
       timeout: MODEL_RUN_TIMEOUT_MS,
     });
@@ -217,13 +249,19 @@ describe.skipIf(!canRunRealClaude)(
         modelKey: "anthropic/sonnet",
         toolSelection: { kind: "include", names: ["Bash"] },
       });
-      const result = await runClaude(configDir, [
-        ...args,
-        // What the pane launcher appends after `"$@"`: the `--` ends option
-        // parsing before the task, and the task rides as one positional word.
-        "--",
-        `reply with exactly: ${MARKER}`,
-      ]);
+      const result = await runClaude(
+        configDir,
+        [
+          ...args,
+          // What the pane launcher appends after `"$@"`: the `--` ends option
+          // parsing before the task, and the task rides as one positional word.
+          "--",
+          `reply with exactly: ${MARKER}`,
+        ],
+        // The key reaches claude only through the staged helper: the consent
+        // predicate cannot fire on a variable that is not set.
+        keyCarryingEnv(configDir),
+      );
 
       expect(result.code, redactKeys(result.stderr)).toBe(0);
       expect(redactKeys(result.stdout)).toContain(MARKER);
@@ -236,6 +274,38 @@ describe.skipIf(!canRunRealClaude)(
       removeClaudeStaging(SUBAGENT_ID);
 
       expect(fs.existsSync(configDir)).toBe(false);
+    });
+  },
+);
+
+describe.skipIf(!canRunKeylessClaude)(
+  "claude staging without credentials",
+  () => {
+    it("fails loudly on the helper when no key reaches it, instead of falling through", async () => {
+      const configDir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd });
+
+      // The no-key launch the pane performs after trimming nothing: the
+      // staged helper is still configured, so it — not some silent fallback —
+      // must be what answers for the missing key. Only the failure text is
+      // pinned, never the exit shape.
+      const result = await runClaude(
+        configDir,
+        [
+          "--system-prompt-file",
+          promptFile(SYSTEM_PROMPT),
+          "--dangerously-skip-permissions",
+          "--setting-sources",
+          "user",
+          "--strict-mcp-config",
+          "-p",
+          MARKER,
+        ],
+        keylessEnv(configDir),
+      );
+
+      expect(redactKeys(`${result.stdout}\n${result.stderr}`)).toContain(
+        "apiKeyHelper",
+      );
     });
   },
 );

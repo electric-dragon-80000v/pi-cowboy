@@ -58,10 +58,19 @@ export function claudeSettingsFile(configDir: string): string {
  * interactive session (without it every launch parks at the responsibility
  * dialog). Nothing else: the model, the permissions mode and the MCP policy
  * ride the argv, so the file carries only answers the argv has no route for.
+ *
+ * `apiKeyHelper` is first and occupies exactly one line: it names no key
+ * material (only the variable the launcher fills), and the launcher deletes
+ * precisely that line on a keyless run, where a configured-but-failing helper
+ * would error instead of falling through to OAuth.
  */
 function settingsJson(): string {
   return `${JSON.stringify(
-    { theme: "dark", skipDangerousModePermissionPrompt: true },
+    {
+      apiKeyHelper: `printf '%s' "$COWBOY_API_KEY"`,
+      theme: "dark",
+      skipDangerousModePermissionPrompt: true,
+    },
     null,
     2,
   )}\n`;

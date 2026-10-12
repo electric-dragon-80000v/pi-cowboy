@@ -56,10 +56,22 @@ const LAUNCHER_READY_MARKER = "CLAUDE_VERIFIED";
 const STAGED_MARKER = "CLAUDE_STAGED";
 
 /**
- * The launcher body: claude's config directory and the memory suppression a
- * spawn needs (pi-cowboy renders context into the system prompt itself, so the
- * worktree's memory files would only load twice), then the real binary with
- * the pane's own arguments and the task as its positional initial prompt.
+ * The launcher body: the credential rename first, then claude's config
+ * directory and the memory suppression a spawn needs (pi-cowboy renders
+ * context into the system prompt itself, so the worktree's memory files would
+ * only load twice), then the real binary with the pane's own arguments and
+ * the task as its positional initial prompt.
+ *
+ * The rename keeps the consent predicate from ever seeing a key: with
+ * `ANTHROPIC_API_KEY` unset it cannot fire, and the key resolves through the
+ * staged `apiKeyHelper` instead, which has no approval check. On a keyless
+ * run the rename is a no-op, so the launcher deletes the helper's line from
+ * the staged settings — a configured-but-failing helper errors instead of
+ * falling through to OAuth, and only an absent helper leaves that path open.
+ * The deletion names the line's key rather than its number, so it survives
+ * reformatting as long as the helper keeps its own line (see staging.ts);
+ * `grep` + `mv` are POSIX-portable where `sed -i` is not, and a failed trim
+ * leaves the file untouched (loud helper error) rather than half-edited.
  *
  * Bare `claude` keeps the pane's `PATH` the authority on which binary runs,
  * and `command` bypasses this very function. The `$(cat …)` expansion is what
@@ -71,7 +83,10 @@ const STAGED_MARKER = "CLAUDE_STAGED";
  * `-` would parse as a flag), leaving the TUI idle with no initial prompt.
  */
 function launcherBody(configDir: string, taskFile: string): string {
+  const settings = singleQuote(claudeSettingsFile(configDir));
+  const trimmed = singleQuote(`${claudeSettingsFile(configDir)}.tmp`);
   return [
+    `if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' ${settings} > ${trimmed} && mv ${trimmed} ${settings}; fi`,
     `export CLAUDE_CONFIG_DIR=${singleQuote(configDir)}`,
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
     `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
