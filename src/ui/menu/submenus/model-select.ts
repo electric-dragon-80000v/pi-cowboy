@@ -53,7 +53,7 @@ type ModelSelectSubmenuOptions = ModelSelectSubmenuBase &
 export function createModelSelectSubmenu(
   options: ModelSelectSubmenuOptions,
 ): (currentValue: string, done: (selectedValue?: string) => void) => Component {
-  // Null (inherit) pre-selects the inherit row; a model id pre-selects its row.
+  // Null pre-selects the (none) row; a model id pre-selects its row.
   const currentModel = options.currentModel ?? null;
 
   const onClear = options.showClear === true ? options.onClear : undefined;
@@ -83,7 +83,7 @@ export function createModelSelectSubmenu(
         {
           onSelect: (modelValue) => {
             options.onSet(target, modelValue);
-            // The library forwards only a DEFINED value, so the null inherit
+            // The library forwards only a DEFINED value, so the null (none)
             // row must complete the level picker explicitly.
             if (modelValue == null) completePicker();
             else subDone(modelValue);

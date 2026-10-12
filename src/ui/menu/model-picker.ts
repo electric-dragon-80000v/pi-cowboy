@@ -140,7 +140,7 @@ export async function cowboyCompletions(
         value: "model clear",
         label: "clear",
         description:
-          "Clear the session model override (inherit parent/configured default)",
+          "Clear the session model override (the configured chain decides)",
       },
       ...models.map((entry) => {
         const parsed = parseModelKey(entry.key);
@@ -229,7 +229,7 @@ export async function handleModelArg(
   if (value === "clear") {
     store.mutate.session.clearOverride("default");
     ctx.ui.notify(
-      "Subagent model override cleared (session) — inherits parent/configured default",
+      "Subagent model override cleared (session) — the configured chain decides",
       "info",
     );
     return;

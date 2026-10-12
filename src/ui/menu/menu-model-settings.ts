@@ -68,12 +68,9 @@ function defaultRowValue(
   sessionDefault: string | null,
   effectiveDefault: string | null,
   hasProjectDefault: boolean,
-  parentModelId: string | null,
 ): string {
   if (sessionDefault != null) return `${sessionDefault} [session]`;
-  // Nothing configures a default, so the chain falls through to the parent's model.
-  if (effectiveDefault == null)
-    return parentModelId == null ? "(no model)" : "(inherits parent)";
+  if (effectiveDefault == null) return "(none)";
   return hasProjectDefault ? `${effectiveDefault} [project]` : effectiveDefault;
 }
 
@@ -103,7 +100,7 @@ interface ModelOverrideRowOptions {
   harnessModelOptions: HarnessModelOptions;
   notify: Notify;
   /**
-   * Repaint the hosting list. Needed for inherit picks, which complete with no value
+   * Repaint the hosting list. Needed for (none) picks, which complete with no value
    * (SettingsList only rebuilds on a DEFINED value).
    */
   refresh: () => void;
@@ -116,7 +113,7 @@ function createModelOverridePlumbing(
   const projectOffered = store.isProjectWritable;
   const configuredModels = extractConfiguredModels(store.agentConfigSnapshot());
 
-  // Inherit picks null, which clears the key at the picked layer (ADR-0008 delete semantics).
+  // A null pick clears the key at the picked layer (ADR-0008 delete semantics).
   const modelOverrideOnSelect =
     (
       key: string,
@@ -126,16 +123,16 @@ function createModelOverridePlumbing(
       model: string | null,
     ) => void) =>
     (target, model) => {
-      const inherits = model === null;
-      if (inherits) store.mutate.agent.clearModelOverride(key, target);
+      const cleared = model === null;
+      if (cleared) store.mutate.agent.clearModelOverride(key, target);
       else store.mutate.agent.setModelOverride(key, model, target);
       notify(
-        inherits
-          ? `${label} inherits parent model`
+        cleared
+          ? `${label} cleared (${target}) — the configured chain decides`
           : `${label} model set to ${model} (${target})`,
         "info",
       );
-      if (inherits) refresh();
+      if (cleared) refresh();
     };
 
   const clearOverrideOnSelect =
@@ -211,7 +208,6 @@ interface HarnessDefaultRowOptions {
   ctx: ExtensionCommandContext;
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  parentModelId: string | null;
   /**
    * Repaint the hosting list. Needed for inherit picks, which complete with no
    * value (SettingsList only rebuilds on a DEFINED value, and the picked value
@@ -228,8 +224,7 @@ interface HarnessDefaultRowOptions {
 function buildHarnessDefaultRow(
   options: HarnessDefaultRowOptions,
 ): SettingItem {
-  const { harnessId, modelOptions, ctx, store, theme, parentModelId, refresh } =
-    options;
+  const { harnessId, modelOptions, ctx, store, theme, refresh } = options;
   const label = `${harnessDisplayName(harnessId)} Default Model`;
   const notify: Notify = (message, type) => ctx.ui.notify(message, type);
   const sessionValue = store.hasSessionHarnessDefaultModel(harnessId);
@@ -247,7 +242,6 @@ function buildHarnessDefaultRow(
       sessionValue ? effective : null,
       effective,
       harnessLevels.project,
-      parentModelId,
     ),
     description: `Model used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
     submenu: createModelSelectSubmenu({
@@ -264,7 +258,7 @@ function buildHarnessDefaultRow(
         store.mutate.agent.setHarnessDefaultModel(harnessId, model, target);
         notify(
           model === null
-            ? `${label} inherits parent model`
+            ? `${label} cleared (${target}) — the configured chain decides`
             : `${label} set to ${model} (${target})`,
           "info",
         );
@@ -323,7 +317,7 @@ function buildModelSettingsList(
       theme,
       harnessModelOptions,
       notify: (message, type) => ctx.ui.notify(message, type),
-      // Inherit picks complete with no value, so refresh the row here.
+      // A (none) pick completes with no value, so refresh the row here.
       refresh: () => rebuild?.(buildItems(theme)),
     });
 
@@ -339,7 +333,6 @@ function buildModelSettingsList(
       sessionDefault,
       effectiveDefault,
       store.hasProjectModelKey("default"),
-      parentModelId,
     );
     const defaultLevels = levelsFor("default");
 
@@ -366,7 +359,6 @@ function buildModelSettingsList(
           ctx,
           store,
           theme,
-          parentModelId,
           refresh: () => rebuild?.(buildItems(theme)),
         }),
       );
@@ -545,13 +537,10 @@ export function buildModelOverridesRow(
 ): SettingItem {
   const { ctx, store, theme, harnessModelOptions, piDefaultThinking } = options;
   const defaultDisplay = () => {
-    const session = getSessionCtx();
-    const parentModel = session.model ?? ctx.model;
     return defaultRowValue(
       store.sessionDefaultModel,
       store.agentConfigSnapshot().default,
       store.hasProjectModelKey("default"),
-      parentModel ? `${parentModel.provider}/${parentModel.id}` : null,
     );
   };
 

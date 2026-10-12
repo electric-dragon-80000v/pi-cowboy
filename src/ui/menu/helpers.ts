@@ -119,7 +119,7 @@ export function installSeparatorSkip<T extends NavigableItem>(
   rawIndexes.set(list, seedIndex(list.items, initialIndex));
 }
 /**
- * SelectOptions from "provider/model-id" strings, inherit row first.
+ * SelectOptions from "provider/model-id" strings, (none) row first.
  * With currentModel/mergedModels: current, then merged, then the rest.
  *
  * `mergedModels` is the picker's own offering beside its harness's list — pi's
@@ -132,7 +132,7 @@ export function buildModelOptions(
   mergedModels: readonly string[],
 ): SelectOption[] {
   const items: SelectOption[] = [
-    { value: null, label: "(inherits parent)", provider: "" },
+    { value: null, label: "(none)", provider: "" },
   ];
 
   const parsed: SelectOption[] = [];

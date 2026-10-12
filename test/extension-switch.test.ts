@@ -526,7 +526,7 @@ describe("/cowboy dispatch", () => {
     await captureCommand().handler("model clear", commandContext(notify));
 
     expect(notify).toHaveBeenCalledWith(
-      "Subagent model override cleared (session) — inherits parent/configured default",
+      "Subagent model override cleared (session) — the configured chain decides",
       "info",
     );
   });

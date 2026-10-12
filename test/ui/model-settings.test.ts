@@ -97,7 +97,7 @@ beforeEach(() => {
       ],
     ]),
   );
-  // No session model, so the parent id is null and rows render "(no model)".
+  // An unset default holds nothing, so the row renders "(none)".
   setSession({
     cwd: "/repo",
     model: undefined,
@@ -120,7 +120,7 @@ describe("Model Settings — structure on a fresh config", () => {
   });
 
   const rowTable = [
-    ["Pi Default Model", "(no model)"],
+    ["Pi Default Model", "(none)"],
     ["Override another type...", ""],
   ] as const;
 
@@ -134,7 +134,7 @@ describe("Model Settings — structure on a fresh config", () => {
     });
   }
 
-  it("names the parent as the source when the session has a model to inherit", async () => {
+  it("shows (none) when only the parent has a model", async () => {
     setSession({
       cwd: "/repo",
       model: reasoningModel("anthropic", "claude-3"),
@@ -145,7 +145,7 @@ describe("Model Settings — structure on a fresh config", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "(inherits parent)",
+      value: "(none)",
     });
   });
 });
@@ -546,8 +546,8 @@ describe("Model Settings — per-harness default rows", () => {
         {
           expect: {
             rows: [
-              ["Pi Default Model", "(no model)"],
-              ["OpenCode Default Model", "(no model)"],
+              ["Pi Default Model", "(none)"],
+              ["OpenCode Default Model", "(none)"],
             ],
           },
         },
@@ -614,14 +614,14 @@ describe("Model Settings — per-harness default rows", () => {
     });
   });
 
-  it("persists an inherit pick as a real null entry", async () => {
+  it("persists a (none) pick as a real null entry", async () => {
     installStore({
       global: {
         agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
       },
     });
     installOpencode();
-    // A parent model, so the inherit row has something to name.
+    // A parent model is set, yet the row offers (none): the pick clears the key.
     setSession({
       cwd: "/repo",
       model: reasoningModel("anthropic", "claude-3"),
@@ -634,19 +634,21 @@ describe("Model Settings — per-harness default rows", () => {
       [
         { open: "OpenCode Default Model" },
         { open: "Global" },
-        { open: "(inherits parent)" },
+        { open: "(none)" },
         {
           expect: {
             active: "OpenCode Default Model",
-            activeValue: "(inherits parent)",
-            notified: ["OpenCode Default Model inherits parent model"],
+            activeValue: "(none)",
+            notified: [
+              "OpenCode Default Model cleared (global) — the configured chain decides",
+            ],
             store: (store) =>
               expect(store.defaultModelForHarness("opencode")).toBeNull(),
           },
         },
       ],
       memory.store,
-      "opencode inherits parent at global",
+      "opencode (none) pick at global",
     );
 
     // Null is an answer the file carries, not an absent key.
@@ -772,7 +774,7 @@ describe("Model Settings — a picker offers only its harness's models", () => {
         { open: "Global" },
         {
           expect: {
-            shows: ["(inherits parent)"],
+            shows: ["(none)"],
             hides: [
               "claude-3 [anthropic]",
               "gpt-4 [openai]",

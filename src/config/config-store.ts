@@ -222,9 +222,9 @@ export class ConfigStore {
    * One harness's default model, session over project over global. The pi
    * family's own `default` key answers for it; every other harness reads its
    * entry in `defaultModelByHarness`. Null when that harness has no default,
-   * which leaves the chain to the parent.
+   * which leaves the rest of the chain to answer.
    *
-   * A session entry set to null (the picker's "inherits parent") reads as no
+   * A session entry set to null (the picker's "(none)") reads as no
    * session entry, exactly as the session default model does: it unpins the
    * session, leaving the configured layers to answer.
    */

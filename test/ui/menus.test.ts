@@ -144,7 +144,7 @@ describe("Agents menu — structure", () => {
   });
 
   const rowTable = [
-    ["Model overrides", "(no model)"],
+    ["Model overrides", "(none)"],
     ["Default orchestrator", "default"],
     ["Agent", "general-purpose"],
     ["Status", ""],
@@ -202,7 +202,7 @@ describe("Agents menu — the Model overrides row", () => {
         {
           expect: {
             shows: [
-              /\(inherits parent\)\s+✓/,
+              /\(none\)\s+✓/,
               "claude-3 [anthropic]",
               "gpt-4 [openai]",
               "gpt-4o [openai]",
@@ -288,18 +288,18 @@ describe("Agents menu — the Model overrides row", () => {
     ]);
   });
 
-  it("clears the default at the picked layer through the inherit entry", async () => {
+  it("clears the default at the picked layer through the (none) entry", async () => {
     installStore({ global: { agent: { default: "openai/gpt-4" } } });
     const session = await openMain();
 
     session.open("Model overrides");
     session.open("Pi Default Model");
     session.open("Global");
-    session.open("(inherits parent)");
+    session.open("(none)");
     await session.settle();
 
     expect(session.notifications.map((n) => n.message)).toContain(
-      "default inherits parent model",
+      "default cleared (global) — the configured chain decides",
     );
     expect(memory.store.agentConfigSnapshot().default).toBeNull();
     expect(memory.lastLayer()).toBe("global");
@@ -308,7 +308,7 @@ describe("Agents menu — the Model overrides row", () => {
     // so the level picker completes itself and rebuilds the row behind it.
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "(no model)",
+      value: "(none)",
     });
 
     session.press(KEY.escape);
@@ -316,7 +316,7 @@ describe("Agents menu — the Model overrides row", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Model overrides",
-      value: "(no model)",
+      value: "(none)",
     });
   });
 });
