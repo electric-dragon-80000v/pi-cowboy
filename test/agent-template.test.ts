@@ -341,6 +341,52 @@ describe("AgentTemplateSchema harness family split", () => {
     ).toBe('harness.pi: Unrecognized key: "variant"');
   });
 
+  it("reads model from [harness.claude] into that family's entry alone", () => {
+    const parsed = parseAgentFile(
+      ['name = "x"', "[harness.claude]", 'model = "anthropic/sonnet"'].join(
+        "\n",
+      ),
+    );
+
+    expect(parsed.harness?.modelsByFamily).toEqual({
+      claude: "anthropic/sonnet",
+    });
+  });
+
+  it("reads claude tool arms into that family's entry alone, whitelist winning", () => {
+    const parsed = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'tools = ["read", "find"]',
+        "[harness.claude]",
+        'tools = ["Bash", "Read"]',
+        'exclude_tools = ["Write"]',
+      ].join("\n"),
+    );
+
+    expect(parsed.harness?.toolsByFamily).toEqual({
+      pi: { tools: ["read", "find"] },
+      claude: { tools: ["Bash", "Read"] },
+    });
+  });
+
+  it("rejects an unknown key inside [harness.claude]", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.claude]\nvariant = "high"'),
+      ),
+    ).toBe('harness.claude: Unrecognized key: "variant"');
+  });
+
+  it("rejects a pi-only key inside the claude table", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.claude]\nthinking = "high"'),
+      ),
+    ).toBe('harness.claude: Unrecognized key: "thinking"');
+  });
+
   it("rejects an unknown [harness.<family>] table", () => {
     expect(
       parseError(() =>

@@ -18,6 +18,7 @@ import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
 import { opencodeHarness } from "./opencode/index.js";
 import { codexHarness } from "./codex.js";
+import { claudeHarness } from "./claude/index.js";
 
 /**
  * Real pi is already the pane shell's `pi`: it is always launchable, and there
@@ -44,6 +45,7 @@ const HARNESSES: { [K in HarnessId]: Harness<K> } = {
   "pi-bolt": piBoltHarness,
   opencode: opencodeHarness,
   codex: codexHarness,
+  claude: claudeHarness,
 };
 
 /** The implementation for one harness id, typed to that harness's launch request. */

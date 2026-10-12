@@ -156,7 +156,7 @@ Delegates one or more tasks to cowboy agents. Each cowboy agent runs in its own 
 | `task_name`    | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                                                                                                                                 |
 | `agent_type`   | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                                                                                                                           |
 | `model`        | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution).                                                                                                         |
-| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, or `codex`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the harness, the call fails before anything spawns. |
+| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, or `claude`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the harness, the call fails before anything spawns. |
 
 ### `steer_cowboy_agent`
 
@@ -281,6 +281,8 @@ To avoid the overhead, pi-cowboy has support for [pig](https://github.com/Michae
 pi-cowboy can also launch [opencode](https://opencode.ai), where its binary is on `PATH`. Set `harness_type = "opencode"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs opencode instead of pi.
 
 pi-cowboy can also launch [codex](https://developers.openai.com/codex), where its binary is on `PATH`. Set `harness_type = "codex"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs codex instead of pi.
+
+pi-cowboy can also launch [Claude Code](https://code.claude.com/docs), where its `claude` binary is on `PATH`. Set `harness_type = "claude"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs the interactive Claude Code TUI instead of pi. Its model catalogue is claude's own (`anthropic/sonnet`, `anthropic/opus`, `anthropic/haiku`), and its tool lists are written in claude's own tool names under `[harness.claude]`.
 
 ### I don't like the emojis, can I turn them off?
 

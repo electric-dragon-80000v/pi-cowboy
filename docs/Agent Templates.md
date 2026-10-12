@@ -53,7 +53,7 @@ You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", "opencode", or "codex". "opencode" launches opencode instead of pi; "codex" launches codex instead of pi; either way its model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. An explicit value has no fallback: a harness this machine cannot launch fails the call instead of falling back to pi. default = the configured `agent.harnessType`
+# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", "opencode", "codex", or "claude". "opencode" launches opencode instead of pi; "codex" launches codex instead of pi; "claude" launches the interactive Claude Code TUI instead of pi. Each foreign harness's model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. An explicit value has no fallback: a harness this machine cannot launch fails the call instead of falling back to pi. default = the configured `agent.harnessType`
 harness_type = "pi"
 
 # (optional) Family-neutral settings for the harness that launches this agent, whichever family it is. These shape the shared system prompt the launch stages, not one family's CLI.
@@ -62,7 +62,7 @@ harness_type = "pi"
 # (optional) Whether the agent's system prompt carries the context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` run the pi binary, so this table covers them too. Each family's tool list is written in that harness's own names — pi's names here, opencode's permission keys under `[harness.opencode]` below — and a launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
+# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` run the pi binary, so this table covers them too. Each family's tool list is written in that harness's own names — pi's names here, opencode's permission keys under `[harness.opencode]`, claude's tool names under `[harness.claude]` — and a launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
 [harness.pi]
 
 # (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
@@ -111,6 +111,21 @@ fork = false
 
 # (optional) Model for this agent as "provider/model-id", a key in codex's catalogue. A codex launch reads this key and passes its slug to the CLI's `-m` flag; a pi launch never does.
 # model = "openai/gpt-6-sol"
+
+# (optional) Settings only claude reads. Its tool lists are claude's own tool names, carried onto `--tools` / `--disallowedTools` exactly as written; its model key is an `anthropic/<alias>` entry, and the launch strips the prefix to the bare alias the CLI takes.
+[harness.claude]
+
+# (optional) Model for this agent as "provider/model-id", a key in claude's catalogue. A claude launch reads this key; a pi launch never does.
+# model = "anthropic/sonnet"
+
+# (optional) `tools`: only these tools are available, given as claude's tool names (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Task`, …). default = every tool
+# tools = ["Bash", "Read", "Glob"]
+
+# (optional) `exclude_tools`: every tool except these is available. default = none excluded
+# Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
+# exclude_tools = ["Bash"]
 ```
 
-A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]` keys never reach a pi launch, and pi's keys never reach an opencode launch, which falls through to opencode's default instead — the parent session's model is pi's key, so an opencode launch never inherits it either. `[harness.codex]` holds a model alone, read the same way: a codex launch never inherits the parent session's model either.
+A claude launch never lets the pane see `ANTHROPIC_API_KEY`: the launcher renames it to `COWBOY_API_KEY` — which only the staged `apiKeyHelper` reads — and unsets the original, because claude asks for consent on an environment key it has no approval for, and a staged helper alone does not suppress that dialog while the variable is still set. A pane-side `env` therefore shows `COWBOY_API_KEY`, not `ANTHROPIC_API_KEY`: that absence is the harness working, not a missing credential. Without a key in the environment the helper line is removed from the staged settings instead, leaving OAuth/keychain login untouched.
+
+A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]`, `[harness.codex]` and `[harness.claude]` keys never reach a pi launch, and pi's keys never reach an opencode, codex or claude launch, each of which falls through to its own default instead — the parent session's model is pi's key, so none of the foreign launches inherits it either.

@@ -262,6 +262,8 @@ function buildLaunchRequest(
       return { ...sharedInputs, family: "opencode", ...opencodeInputs };
     case "codex":
       return { ...sharedInputs, family: "codex", ...codexInputs };
+    case "claude":
+      return { ...sharedInputs, family: "claude" };
     default: {
       const unhandled: never = harnessType;
       throw new Error(`unhandled harness: ${String(unhandled)}`);
@@ -283,6 +285,8 @@ function buildHarnessArgs(request: HarnessLaunchRequest): string[] {
       return harnessFor("opencode").buildArgs(request);
     case "codex":
       return harnessFor("codex").buildArgs(request);
+    case "claude":
+      return harnessFor("claude").buildArgs(request);
     default: {
       const unhandled: never = request;
       throw new Error(`unhandled harness family: ${String(unhandled)}`);

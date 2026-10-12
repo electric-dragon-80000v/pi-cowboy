@@ -17,8 +17,8 @@
  * every runnable harness at once: a family's own input rides it as a field
  * named after that family, never as a member a caller has to pick. Each
  * harness's implementation lives beside this module (harness/pig.ts,
- * harness/pi-bolt.ts, harness/opencode/index.ts, harness/codex.ts) and is
- * selected through harness/registry.ts.
+ * harness/pi-bolt.ts, harness/opencode/index.ts, harness/codex.ts,
+ * harness/claude/index.ts) and is selected through harness/registry.ts.
  *
  * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
  * a template written where a harness exists must still load where it does not.
@@ -50,7 +50,8 @@ import type { AgentMuxKind } from "./agent-host.js";
  * other harness and shows up wherever its binary is on PATH, and its own
  * implementation stages the agent definition its launch reads. `codex` is the
  * same kind of harness: probed by its binary, with its launch reading the
- * staged system prompt file through a config override.
+ * staged system prompt file through a config override. `claude` is the same
+ * shape with a staged config directory instead of a staged definition.
  */
 export const HARNESS_IDS = [
   "pi",
@@ -58,6 +59,7 @@ export const HARNESS_IDS = [
   "pi-bolt",
   "opencode",
   "codex",
+  "claude",
 ] as const;
 
 export type HarnessId = (typeof HARNESS_IDS)[number];
@@ -97,6 +99,7 @@ const HARNESS_DISPLAY_NAMES: Record<HarnessId, string> = {
   "pi-bolt": "Pi-Bolt",
   opencode: "OpenCode",
   codex: "Codex",
+  claude: "Claude",
 };
 
 /** The display form of one harness, for the rows that configure it. */
@@ -213,12 +216,14 @@ export interface CodexLaunchInputs {
 
 /**
  * The launch-request families: the pi family (pi, pig, pi-bolt), opencode,
- * and codex.
- * Filtered from the mux's kinds rather than re-declared, so the two vocabularies
- * cannot drift apart; each member of `HarnessLaunchRequest` carries one as its
- * `family` tag.
+ * codex and claude. Filtered from the mux's kinds rather than re-declared, so
+ * the two vocabularies cannot drift apart; each member of `HarnessLaunchRequest`
+ * carries one as its `family` tag.
  */
-export type HarnessFamily = Extract<AgentMuxKind, "pi" | "opencode" | "codex">;
+export type HarnessFamily = Extract<
+  AgentMuxKind,
+  "pi" | "opencode" | "codex" | "claude"
+>;
 
 /** The family tag one launch request carries; the tag alone selects the member. */
 interface HarnessFamilyTag<F extends HarnessFamily> {
@@ -247,13 +252,26 @@ export type CodexLaunchRequest = HarnessFamilyTag<"codex"> &
   CodexLaunchInputs;
 
 /**
+ * claude's argv request: the shared launch inputs alone. claude reads no
+ * family-specific inputs — its model key and tool selection already ride the
+ * shared inputs, the system prompt rides a staged file the argv names, and the
+ * task rides the pane launcher — so the member is the tag plus the shared
+ * shape, with no third conjunct to grow stale.
+ */
+export type ClaudeLaunchRequest = HarnessFamilyTag<"claude"> &
+  SubagentLaunchInputs;
+
+/**
  * The launch request, keyed by family: pi's flags are what a `"pi"` request is,
  * so they cannot ride to a harness that never mapped them. One is built per
  * launch, and both `buildArgs` and `prepare` read that same object. A new family
  * adds a member — never an optional field on an existing member.
  */
 export type HarnessLaunchRequest =
-  PiFamilyLaunchRequest | OpencodeLaunchRequest | CodexLaunchRequest;
+  | PiFamilyLaunchRequest
+  | OpencodeLaunchRequest
+  | CodexLaunchRequest
+  | ClaudeLaunchRequest;
 
 /**
  * The launch request one harness id reads: the argv it builds and the pane
@@ -267,6 +285,7 @@ export type LaunchRequestFor<K extends HarnessId> = {
   "pi-bolt": PiFamilyLaunchRequest;
   opencode: OpencodeLaunchRequest;
   codex: CodexLaunchRequest;
+  claude: ClaudeLaunchRequest;
 }[K];
 
 /** What a harness needs to bring its host pane into the state it launches in. */

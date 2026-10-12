@@ -466,7 +466,7 @@ describe("DelegationProtocol.parse", () => {
         "",
       ),
     ).rejects.toThrow(
-      'Unknown harness_type "ghost": valid harnesses are pi, pig, pi-bolt, opencode, codex. Nothing was spawned',
+      'Unknown harness_type "ghost": valid harnesses are pi, pig, pi-bolt, opencode, codex, claude. Nothing was spawned',
     );
   });
 

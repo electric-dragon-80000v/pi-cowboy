@@ -121,6 +121,7 @@ const LAUNCHES: { [K in HarnessId]: LaunchRequestFor<K> } = {
   "pi-bolt": PI_FAMILY_LAUNCH,
   opencode: { ...sharedInputs(), family: "opencode", variant: null },
   codex: { ...sharedInputs(), family: "codex", projectTrusted: true },
+  claude: { ...sharedInputs(), family: "claude" },
 };
 
 /**
@@ -153,13 +154,14 @@ afterEach(() => {
 });
 
 describe("harness ids", () => {
-  it("offers pi, pig, pi-bolt, opencode, and codex, defaulting to pi", () => {
+  it("offers pi, pig, pi-bolt, opencode, codex, and claude, defaulting to pi", () => {
     expect([...HARNESS_IDS]).toEqual([
       "pi",
       "pig",
       "pi-bolt",
       "opencode",
       "codex",
+      "claude",
     ]);
     expect(DEFAULT_HARNESS).toBe("pi");
   });
