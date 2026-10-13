@@ -11,7 +11,7 @@ pi-cowboy loads the shared and project directories only when the project is trus
 
 Precedence is `default` < `extension` < `user` < `shared` < `project`, and pi-cowboy matches an override by `name`.
 
-Merging is per field: a set field wins, and an unset field falls through to the next lower layer. `display_name` and `description` identify the file, so the highest layer that carries the name replaces both of them.
+Merging is per field: a set field wins, and an unset field falls through to the next lower layer. `display_name` and `description` identify the file, so a same-named file replaces both, even when it leaves one unset: an unset `display_name` falls back to `name`, and an unset `description` becomes empty.
 
 pi-cowboy skips a file without a `name`. It also skips a file with invalid TOML or an unknown key, and reports a one-line warning.
 
