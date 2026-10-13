@@ -30,7 +30,7 @@ The directories are scanned once, at session start, so a file you add now appear
 
 ## Cues
 
-Cues set what the orchestrator is told when one of its delegations starts or ends. A cue is one named template in the `[cues]` table. A cue event is what renders it: `spawned`, `queued`, or `settled`.
+Cues set what the orchestrator is told as one of its delegations is acknowledged, queued, or settled. A cue is one named template in the `[cues]` table. A cue event is what renders it: `spawned`, `queued`, or `settled`.
 
 Each cue event supplies its own variables, and a cue can use only the variables of that event. A variable the event does not supply fails the file, and so do a Mustache partial such as `{{> name}}` and a delimiter change with `{{=<% %>=}}`; pi-cowboy skips such a file with a warning.
 

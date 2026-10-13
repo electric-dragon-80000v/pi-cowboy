@@ -29,7 +29,7 @@ Keys nest inside the two top-level objects, `agent` and `concurrency`. A minimal
 
 The project values override the global values. The global values override the built-in defaults. Each file contains only its own keys. You can also set concurrency limits for the running session from the menu. No session limit is stored in either file. Both files stay exactly as you wrote them: pi-cowboy never writes the merged result back, and it never overwrites a malformed one. If a file is malformed, fix it or delete it by hand.
 
-The project file can contain only model keys and concurrency keys. Model keys are `agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>`. Thinking is a separate key: `agent.defaultThinking`. Outside the table below, pi-cowboy reads any agent key as a per-type model override and ignores every other key in the project file. pi-cowboy never writes the file of an untrusted project.
+The project file can contain only model keys, `agent.defaultThinking`, and concurrency keys. Model keys are `agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>`. Outside the table below, pi-cowboy reads any other agent key as a per-type model override and ignores every other key in the project file. pi-cowboy never writes the file of an untrusted project.
 
 pi-cowboy ignores an invalid value and reports a warning. The warning names the file, the key, the value found, and the value expected. The built-in default then applies.
 

@@ -46,13 +46,13 @@ Rows for OpenCode, Claude, and Codex appear only when that harness's binary is o
 
 The screen title is `Settings`.
 
-| Row                    | What it does                                     |
-| ---------------------- | ------------------------------------------------ |
-| `Concurrency Settings` | Opens the `Concurrency Settings` screen.         |
-| `Agent behavior`       | Opens the `Agent settings` screen.               |
-| `System prompt`        | Opens the `System Prompt` screen.                |
-| `Show cowboy 🤠`       | Turns the cowboy marker in the corner on or off. |
-| `Grazing 🐄`           | Turns the grazing cows on or off.                |
+| Row                    | What it does                             |
+| ---------------------- | ---------------------------------------- |
+| `Concurrency Settings` | Opens the `Concurrency Settings` screen. |
+| `Agent behavior`       | Opens the `Agent settings` screen.       |
+| `System prompt`        | Opens the `System Prompt` screen.        |
+| `Show cowboy 🤠`       | Turns the cowboy marker on or off.       |
+| `Grazing 🐄`           | Turns the grazing cows on or off.        |
 
 ## `/cowboy` > `Settings` > `Concurrency Settings`
 

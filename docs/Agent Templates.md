@@ -11,7 +11,7 @@ pi-cowboy loads the shared and project directories only when the project is trus
 
 Precedence is `default` < `extension` < `user` < `shared` < `project`, and pi-cowboy matches an override by `name`.
 
-Merging is per field: a set field wins, and an unset field falls through to the next lower layer. `display_name` and `description` identify the file, so a same-named file replaces both, even when it leaves one unset: an unset `display_name` falls back to `name`, and an unset `description` becomes empty.
+Merging is per field: a set field wins, and an unset field falls through to the next lower layer. The exception is `display_name` and `description`, which identify the file: a same-named file replaces both, even when it leaves one unset. An unset `display_name` then falls back to `name`, and an unset `description` becomes empty.
 
 pi-cowboy skips a file without a `name`. It also skips a file with invalid TOML or an unknown key, and reports a one-line warning.
 
@@ -126,6 +126,6 @@ fork = false
 # exclude_tools = ["Bash"]
 ```
 
-A claude launch never lets the pane see `ANTHROPIC_API_KEY`. The launcher renames it to `COWBOY_API_KEY`, which only the staged `apiKeyHelper` reads, and unsets the original. Claude asks for consent on an environment key it has no approval for, and a staged helper does not suppress that dialog while the variable is still set. So a pane-side `env` shows `COWBOY_API_KEY` and no `ANTHROPIC_API_KEY`, which is expected. Without a key in the environment the helper line is removed from the staged settings instead, leaving OAuth/keychain login untouched.
+A claude launch does not pass `ANTHROPIC_API_KEY` to the pane. The launcher renames it to `COWBOY_API_KEY`, which only the staged `apiKeyHelper` reads, so a pane-side `env` shows `COWBOY_API_KEY` and no `ANTHROPIC_API_KEY`. The rename keeps claude's consent prompt for environment keys from appearing. Without a key in the environment, the helper line is removed from the staged settings instead, leaving OAuth and keychain login untouched.
 
 A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]`, `[harness.codex]` and `[harness.claude]` keys never reach a pi launch, and pi's keys never reach an opencode, codex or claude launch, each of which falls through to its own default instead. The parent session's model is pi's key, so no foreign launch inherits it either.
