@@ -1,3 +1,10 @@
+## [0.8.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.5...v0.8.6) (2026-10-13)
+
+
+### Bug Fixes
+
+* remove with-code-review agent template from the distribution ([04ca951](https://github.com/electric-dragon-80000v/pi-cowboy/commit/04ca951d21820ebefdfd173d00910f125baeb7a9))
+
 ## [0.8.5](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.4...v0.8.5) (2026-10-13)
 
 
