@@ -1,3 +1,10 @@
+# [0.9.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.6...v0.9.0) (2026-10-13)
+
+
+### Features
+
+* remove the Clear affordance in favor of cleanup ([ead540a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ead540a52866d0b11279c7ff92a704dea701344d))
+
 ## [0.8.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.5...v0.8.6) (2026-10-13)
 
 
