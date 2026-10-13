@@ -14,6 +14,10 @@ import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
 import type { RawConfig } from "./config-io.js";
+import {
+  CONCURRENCY_LIMIT_EXPECTED,
+  isConcurrencyLimit,
+} from "./concurrency-limit.js";
 
 interface KeySpec {
   schema: TSchema;
@@ -25,7 +29,6 @@ const MODEL_KEY: KeySpec = {
   expected: "string or null",
 };
 const BOOL: KeySpec = { schema: Type.Boolean(), expected: "boolean" };
-const NUM: KeySpec = { schema: Type.Number(), expected: "number" };
 const SYSTEM_PROMPT_MODE: KeySpec = {
   schema: Type.Union([
     Type.Literal("replace"),
@@ -217,7 +220,7 @@ function cleanHarnessDefaultModels(
   return Object.keys(kept).length > 0 ? kept : undefined;
 }
 
-/** Plain typeof checks: every value here is a bare number. */
+/** Zod-checked: a concurrency limit is a positive integer. */
 function cleanConcurrencySection(
   concurrency: unknown,
   filePath: string,
@@ -228,14 +231,14 @@ function cleanConcurrencySection(
     return kept;
   }
   if (concurrency.default !== undefined) {
-    if (typeof concurrency.default === "number")
+    if (isConcurrencyLimit(concurrency.default))
       kept.default = concurrency.default;
     else
       warnIncompatible(
         filePath,
         "concurrency.default",
         concurrency.default,
-        NUM.expected,
+        CONCURRENCY_LIMIT_EXPECTED,
       );
   }
 
@@ -261,13 +264,13 @@ function cleanConcurrencySection(
           );
           continue;
         }
-        if (typeof value === "number") keptHarnesses[harness] = value;
+        if (isConcurrencyLimit(value)) keptHarnesses[harness] = value;
         else
           warnIncompatible(
             filePath,
             `concurrency.harnesses.${key}`,
             value,
-            NUM.expected,
+            CONCURRENCY_LIMIT_EXPECTED,
           );
       }
       if (Object.keys(keptHarnesses).length > 0) kept.harnesses = keptHarnesses;
@@ -312,13 +315,13 @@ function cleanConcurrencySection(
         );
         continue;
       }
-      if (typeof value === "number") keptEntries[key] = value;
+      if (isConcurrencyLimit(value)) keptEntries[key] = value;
       else
         warnIncompatible(
           filePath,
           `concurrency.${section}.${key}`,
           value,
-          NUM.expected,
+          CONCURRENCY_LIMIT_EXPECTED,
         );
     }
     if (Object.keys(keptEntries).length > 0) kept[section] = keptEntries;

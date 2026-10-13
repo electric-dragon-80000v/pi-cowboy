@@ -21,6 +21,7 @@ import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
 import type { Theme } from "../types.js";
+import { formatSlotLimit } from "../format.js";
 import {
   buildSettingsListTheme,
   installSeparatorSkip,
@@ -240,7 +241,7 @@ export async function showConcurrencySettingsMenu(
       return {
         id: `harness:${harness}`,
         label,
-        currentValue: `${limit} slots${tag}`,
+        currentValue: formatSlotLimit(limit, tag),
         description,
         submenu: limitSubmenu(
           limit,
@@ -320,7 +321,7 @@ export async function showConcurrencySettingsMenu(
       return {
         id: `provider:${key}`,
         label: key,
-        currentValue: `${limit} slots${tag}`,
+        currentValue: formatSlotLimit(limit, tag),
         description,
         submenu: limitSubmenu(
           limit,
@@ -391,7 +392,7 @@ export async function showConcurrencySettingsMenu(
       return {
         id: `model:${key}`,
         label: key,
-        currentValue: `${limit} slots${tag}`,
+        currentValue: formatSlotLimit(limit, tag),
         description,
         submenu: limitSubmenu(
           limit,

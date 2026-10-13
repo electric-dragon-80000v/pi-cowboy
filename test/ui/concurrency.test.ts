@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
+import { formatSlotLimit } from "../../src/ui/format.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setPi } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
@@ -818,6 +819,107 @@ describe("Concurrency Settings — the harness level", () => {
       memory.store,
       "clear harness limit",
     );
+  });
+});
+
+describe("Concurrency Settings — slot pluralization", () => {
+  it("renders 1 slot for a singular per-harness limit", () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: { concurrency: { harnesses: { pi: 1, opencode: 2 } } },
+    });
+    memory.install();
+
+    const session = openConcurrency();
+    session.open("Per-harness limits");
+
+    expect(session.walkRows()).toContainEqual({
+      label: "Pi",
+      value: "1 slot",
+    });
+    expect(session.walkRows()).toContainEqual({
+      label: "OpenCode",
+      value: "2 slots",
+    });
+  });
+
+  it("renders 1 slot for a singular per-provider limit", () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: {
+        concurrency: { providers: { anthropic: 1, "opencode:google": 2 } },
+      },
+    });
+    memory.install();
+
+    const piSession = openConcurrency();
+    piSession.open("Per-provider limits");
+    piSession.open("Pi");
+    expect(piSession.walkRows()).toContainEqual({
+      label: "anthropic",
+      value: "1 slot",
+    });
+
+    const opencodeSession = openConcurrency();
+    opencodeSession.open("Per-provider limits");
+    opencodeSession.open("OpenCode");
+    expect(opencodeSession.walkRows()).toContainEqual({
+      label: "opencode:google",
+      value: "2 slots",
+    });
+  });
+
+  it("renders 1 slot for a singular per-model limit", () => {
+    memory = createMemoryStore({
+      projectStatus: "absent",
+      global: {
+        concurrency: {
+          models: {
+            "anthropic/claude-3": 1,
+            "opencode:google/gemini-2": 2,
+          },
+        },
+      },
+    });
+    memory.install();
+
+    const piSession = openConcurrency();
+    piSession.open("Per-model limits");
+    piSession.open("Pi");
+    expect(piSession.walkRows()).toContainEqual({
+      label: "anthropic/claude-3",
+      value: "1 slot",
+    });
+
+    const opencodeSession = openConcurrency();
+    opencodeSession.open("Per-model limits");
+    opencodeSession.open("OpenCode");
+    expect(opencodeSession.walkRows()).toContainEqual({
+      label: "opencode:google/gemini-2",
+      value: "2 slots",
+    });
+  });
+
+  it("keeps the layer tag on the singular form", () => {
+    const session = openConcurrency();
+    memory.store.mutate.concurrency.setHarness("opencode", 1, "session");
+    void session;
+
+    const rebuilt = openConcurrency();
+    rebuilt.open("Per-harness limits");
+
+    expect(rebuilt.walkRows()).toContainEqual({
+      label: "OpenCode",
+      value: "1 slot [session]",
+    });
+  });
+
+  it("formats the shared helper across counts and tags", () => {
+    expect(formatSlotLimit(0)).toBe("0 slots");
+    expect(formatSlotLimit(1)).toBe("1 slot");
+    expect(formatSlotLimit(2)).toBe("2 slots");
+    expect(formatSlotLimit(1, " [session]")).toBe("1 slot [session]");
+    expect(formatSlotLimit(2, " [project]")).toBe("2 slots [project]");
   });
 });
 

@@ -58,3 +58,11 @@ export function truncatePath(path: string, maxLength: number): string {
   if (path.length <= maxLength) return path;
   return "..." + path.slice(path.length - maxLength + 3);
 }
+
+/**
+ * One concurrency limit as a menu value: "1 slot" but "0 slots", "2 slots".
+ * The layer tag (" [session]" / " [project]") rides along unchanged.
+ */
+export function formatSlotLimit(limit: number, tag = ""): string {
+  return `${limit} slot${limit === 1 ? "" : "s"}${tag}`;
+}

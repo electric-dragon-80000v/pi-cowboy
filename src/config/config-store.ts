@@ -46,6 +46,10 @@ import {
   type RawConfig,
   type RawConcurrency,
 } from "./config-io.js";
+import {
+  CONCURRENCY_LIMIT_EXPECTED,
+  ConcurrencyLimitSchema,
+} from "./concurrency-limit.js";
 
 export type { ConfigIO, RawConfig, RawConcurrency } from "./config-io.js";
 
@@ -88,6 +92,20 @@ function nonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
+}
+
+/**
+ * A programmatic write is a caller bug, not a refused target: it throws
+ * before anything is persisted, so a bad limit never reaches the file or the
+ * session layer. The file path instead warns and drops the entry.
+ */
+function assertConcurrencyLimit(n: number): void {
+  const parsed = ConcurrencyLimitSchema.safeParse(n);
+  if (!parsed.success) {
+    throw new RangeError(
+      `Invalid concurrency limit ${JSON.stringify(n)}: expected ${CONCURRENCY_LIMIT_EXPECTED}.`,
+    );
+  }
 }
 
 /**
@@ -466,6 +484,7 @@ export class ConfigStore {
     },
     concurrency: {
       setDefault: (n: number, target: ConfigTarget = "global"): void => {
+        assertConcurrencyLimit(n);
         this.applyConcurrencyWrite(target, (layer) => {
           layer.default = n;
         });
@@ -475,6 +494,7 @@ export class ConfigStore {
         n: number,
         target: ConfigTarget = "global",
       ): void => {
+        assertConcurrencyLimit(n);
         this.applyConcurrencyWrite(target, (layer) => {
           layer.harnesses = { ...layer.harnesses, [harness]: n };
         });
@@ -484,6 +504,7 @@ export class ConfigStore {
         n: number,
         target: ConfigTarget = "global",
       ): void => {
+        assertConcurrencyLimit(n);
         this.applyConcurrencyWrite(target, (layer) => {
           layer.providers = { ...layer.providers, [key]: n };
         });
@@ -493,6 +514,7 @@ export class ConfigStore {
         n: number,
         target: ConfigTarget = "global",
       ): void => {
+        assertConcurrencyLimit(n);
         this.applyConcurrencyWrite(target, (layer) => {
           layer.models = { ...layer.models, [key]: n };
         });

@@ -182,6 +182,65 @@ describe("concurrency keys — file validation", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain("concurrency.harnesses.opencode");
   });
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    "drops a non-positive-integer default (%s) while keeping the valid entries",
+    (bad) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const cleaned = validateRawLayer(
+        {
+          concurrency: {
+            default: bad,
+            harnesses: { opencode: 2 },
+          },
+        },
+        "config.json",
+      );
+
+      expect(cleaned.concurrency?.default).toBeUndefined();
+      expect(cleaned.concurrency?.harnesses).toEqual({ opencode: 2 });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain("concurrency.default");
+      expect(warn.mock.calls[0]![0]).toContain("positive integer");
+    },
+  );
+
+  it("drops a non-positive-integer harness entry and keeps the valid one", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      { concurrency: { harnesses: { pi: 0, opencode: 2 } } },
+      "config.json",
+    );
+
+    expect(cleaned.concurrency?.harnesses).toEqual({ opencode: 2 });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("concurrency.harnesses.pi");
+    expect(warn.mock.calls[0]![0]).toContain("positive integer");
+  });
+
+  it("drops non-positive-integer provider and model entries entry-wise", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      {
+        concurrency: {
+          providers: { anthropic: 0, "opencode:google": 2 },
+          models: { "anthropic/claude-3": 1.5, "ok/model": 3 },
+        },
+      },
+      "config.json",
+    );
+
+    expect(cleaned.concurrency?.providers).toEqual({ "opencode:google": 2 });
+    expect(cleaned.concurrency?.models).toEqual({ "ok/model": 3 });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[0]![0]).toContain("concurrency.providers.anthropic");
+    expect(warn.mock.calls[1]![0]).toContain(
+      "concurrency.models.anthropic/claude-3",
+    );
+  });
 });
 
 describe("concurrency keys — layer merge", () => {
@@ -281,5 +340,47 @@ describe("concurrency keys — store", () => {
     store.mutate.concurrency.clearAll("global");
 
     expect(savedGlobal.at(-1)).toEqual({ agent: { extensionEnabled: false } });
+  });
+
+  it.each([
+    ["setDefault", [0]],
+    ["setHarness", ["opencode", 0]],
+    ["setProvider", ["anthropic", -2]],
+    ["setModel", ["anthropic/claude-3", 1.5]],
+  ] as const)(
+    "%s rejects a non-positive-integer limit without persisting",
+    (method, args) => {
+      const { io, savedGlobal } = memoryIO({});
+      const store = new ConfigStore(io);
+
+      expect(() => {
+        if (method === "setDefault") {
+          store.mutate.concurrency.setDefault(args[0]);
+        } else if (method === "setHarness") {
+          store.mutate.concurrency.setHarness(args[0], args[1]);
+        } else if (method === "setProvider") {
+          store.mutate.concurrency.setProvider(args[0], args[1]);
+        } else {
+          store.mutate.concurrency.setModel(args[0], args[1]);
+        }
+      }).toThrow(RangeError);
+
+      expect(savedGlobal).toHaveLength(0);
+      expect(store.concurrency.default).toBe(4);
+      expect(store.concurrency.harnesses).toEqual({});
+      expect(store.concurrency.providers).toEqual({});
+      expect(store.concurrency.models).toEqual({});
+    },
+  );
+
+  it("rejects a session-targeted bad limit without touching the session layer", () => {
+    const { io } = memoryIO({});
+    const store = new ConfigStore(io);
+
+    expect(() =>
+      store.mutate.concurrency.setHarness("pi", 0, "session"),
+    ).toThrow(/positive integer/);
+    expect(store.sessionConcurrency.harnesses).toBeUndefined();
+    expect(store.concurrency.harnesses).toEqual({});
   });
 });
