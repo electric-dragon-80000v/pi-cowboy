@@ -223,7 +223,7 @@ export async function showConcurrencySettingsMenu(
           label,
           currentValue: "unset",
           description,
-          submenu: targetThenValueSubmenu("1", (target, parsed) => {
+          submenu: targetThenValueSubmenu("", (target, parsed) => {
             getStore().mutate.concurrency.setHarness(harness, parsed, target);
             ctx.ui.notify(
               `${harness} concurrency set to ${parsed} (${target})`,
@@ -303,7 +303,7 @@ export async function showConcurrencySettingsMenu(
           label: key,
           currentValue: "unset",
           description,
-          submenu: targetThenValueSubmenu("1", (target, parsed) => {
+          submenu: targetThenValueSubmenu("", (target, parsed) => {
             getStore().mutate.concurrency.setProvider(key, parsed, target);
             ctx.ui.notify(
               `${key} concurrency set to ${parsed} (${target})`,
@@ -374,7 +374,7 @@ export async function showConcurrencySettingsMenu(
           label: key,
           currentValue: "unset",
           description,
-          submenu: targetThenValueSubmenu("1", (target, parsedValue) => {
+          submenu: targetThenValueSubmenu("", (target, parsedValue) => {
             getStore().mutate.concurrency.setModel(key, parsedValue, target);
             ctx.ui.notify(
               `${key} concurrency set to ${parsedValue} (${target})`,

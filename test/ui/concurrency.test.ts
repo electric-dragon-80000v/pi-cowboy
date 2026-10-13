@@ -553,6 +553,29 @@ describe("Concurrency Settings — per-harness model lists", () => {
     );
   });
 
+  it("opens an unset row's value input empty, so Enter alone changes nothing", async () => {
+    const session = openConcurrency(120);
+
+    await walk(
+      session,
+      [
+        { open: "Per-harness limits" },
+        { open: "OpenCode" },
+        { open: "Global" },
+        { enter: true },
+        {
+          expect: {
+            store: (store) =>
+              expect(store.concurrency.harnesses.opencode).toBeUndefined(),
+            notNotified: ["concurrency set to"],
+          },
+        },
+      ],
+      memory.store,
+      "unset row blank input",
+    );
+  });
+
   it("sets a per-provider limit from an unset row", async () => {
     const session = openConcurrency(120);
 

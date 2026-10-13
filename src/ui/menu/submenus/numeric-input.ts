@@ -32,7 +32,7 @@ export function createNumericSubmenu(
 
   return (initialValue, done) => {
     const input = new Input();
-    input.setValue(initialValue === "(not set)" ? "" : initialValue);
+    input.setValue(initialValue);
     input.onSubmit = (value) => {
       const trimmed = value.trim();
       if (!trimmed || /^unlimited$/i.test(trimmed)) {
@@ -46,7 +46,7 @@ export function createNumericSubmenu(
             return;
           case "optional":
             options.onEmpty?.();
-            done("(not set)");
+            done("");
             return;
         }
       }
