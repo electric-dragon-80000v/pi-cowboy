@@ -18,7 +18,7 @@ import {
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CowCloneError,
   containsPath,
@@ -42,6 +42,7 @@ afterEach(() => {
   for (const dir of tmpDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+  vi.useRealTimers();
 });
 
 /** The real directory listing, a silent probe, and a recording clone. */
@@ -205,7 +206,15 @@ describe("materializeCowClone", () => {
     const target = join(t, "target");
     await mkdir(wt);
     await mkdir(target);
-    symlinkSync(target, join(wt, `.cow-probe-${process.pid}`));
+    // The probe directory carries a UTC timestamp, so freeze the clock to name
+    // the same path it will compute.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const probeDir = join(
+      wt,
+      `.cow-probe-${process.pid}-${new Date().toISOString().replace(/:/g, "-")}`,
+    );
+    symlinkSync(target, probeDir);
 
     const deps = defaultCowCloneDeps(() => {
       throw new Error("the probe must not shell out");
@@ -247,7 +256,10 @@ describe("materializeCowClone", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual(expect.arrayContaining(["--reflink=always"]));
-    expect(existsSync(join(wt, `.cow-probe-${process.pid}`))).toBe(false);
+    // The probe removes its own directory, timestamped name and all.
+    expect(readdirSync(wt).filter((n) => n.startsWith(".cow-probe-"))).toEqual(
+      [],
+    );
   });
 
   it("reports a Linux volume that cannot clone as unsupported, from the probe", async () => {

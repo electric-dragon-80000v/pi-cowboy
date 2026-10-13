@@ -467,6 +467,15 @@ function unsupportedPlatform(): CowCloneError {
 }
 
 /**
+ * The instant the probe runs as an ISO-8601 UTC stamp to the millisecond, with
+ * the colons replaced by hyphens: the probe directory has to be a legal
+ * filename, and a colon is not one on macOS or Windows.
+ */
+function utcTimestamp(): string {
+  return new Date().toISOString().replace(/:/g, "-");
+}
+
+/**
  * Create a small tree inside the worktree, clone it, drop it again. The clone
  * runs before anything is wiped, so an unsupported volume costs nothing.
  */
@@ -477,7 +486,7 @@ async function probe(
   timeoutMs: number,
   clone: CloneOne,
 ): Promise<void> {
-  const root = path.join(wt, `.cow-probe-${process.pid}`);
+  const root = path.join(wt, `.cow-probe-${process.pid}-${utcTimestamp()}`);
   const from = path.join(root, "p");
   try {
     // The worktree is the agent's, links included: the probe may only write under
