@@ -1,3 +1,11 @@
+## [0.8.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.2...v0.8.3) (2026-10-13)
+
+
+### Bug Fixes
+
+* **config,ui:** validate concurrency limits as positive integers, singularize 1 slot ([1a97889](https://github.com/electric-dragon-80000v/pi-cowboy/commit/1a97889653cb1c813c83177c43902d617d9a75cc))
+* **ui:** open unset concurrency rows with an empty value input ([374ec6c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/374ec6c1d79be0fd381886a993b59805c6455367))
+
 ## [0.8.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.1...v0.8.2) (2026-10-12)
 
 
