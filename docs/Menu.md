@@ -18,6 +18,14 @@ The main screen. The screen title is `Agents`.
 | `Settings`             | Opens the `Settings` screen.                                                        |
 | `Enabled`              | Turns the extension on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
 
+The `Agent` row, the `Type` row on Spawn Options, and the `agent_type` parameter of `cowboy_agent` all set the agent type. `Agent` sets the default that applies when a call omits `agent_type`; `Type` sets it for one spawn.
+
+### Turning pi-cowboy off
+
+`/cowboy disable` unloads the tools. Agents that already run keep working.
+
+Run `/cowboy enable`, or flip the `Enabled` row, to turn the extension back on.
+
 ## `/cowboy` > `Model overrides`
 
 The screen title is `Model Settings`. It opens from the `Model overrides` row on the main screen.
@@ -33,12 +41,6 @@ The screen title is `Model Settings`. It opens from the `Model overrides` row on
 | `Clear all model overrides...` | Removes every override.                                                                                                                  |
 
 Rows for OpenCode, Claude, and Codex appear only when that harness's binary is on `PATH`.
-
-## Turning pi-cowboy off
-
-`/cowboy disable` unloads the tools. Agents that already run keep working.
-
-Run `/cowboy enable`, or flip the `Enabled` row, to turn the extension back on.
 
 ## `/cowboy` > `Settings`
 
@@ -117,18 +119,18 @@ Select an agent to open the actions available for it, which depend on the state 
 | `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles. |
 | `View result` | Reads the report the agent wrote.                                                                       |
 | `View error`  | Reads the error from a failed agent.                                                                    |
-| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                  |
-| `Clear`       | Removes a settled agent and its worktree from the list.                                                 |
+| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                  |     | `Clear` | Removes a settled agent from the list and removes its worktree. A worktree with uncommitted changes or unmerged commits is kept, and the message gives the reason. |
 | `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`.    |
 
 The list also carries bulk actions, which sit in a group of their own below the per-agent ones and act on every agent they name.
 
-| Action                          | What it does                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `Stop N active agent(s)`        | Stops every running agent.                                                                                                |
-| `Clean up N settled agent(s)`   | Cleans up every settled agent.                                                                                            |
-| `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has.                                        |
-| `Clear all (remove worktrees)`  | Clears every settled agent, including failed and stopped ones. The label says "all," but active agents are never cleared. |
+| Action                         | What it does                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `Stop N active agent(s)`       | Stops every running agent.                                                                                                |
+| `Clean up N settled agent(s)`  | Cleans up every settled agent.                                                                                            |     | `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has. |
+| `Clear all (remove worktrees)` | Clears every settled agent, including failed and stopped ones. The label says "all," but active agents are never cleared. |
+
+The bulk clears keep a worktree that has uncommitted changes or unmerged commits, the same as `Clear`.
 
 ## `/cowboy spawn` — Spawn Options
 
