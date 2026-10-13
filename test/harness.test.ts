@@ -683,8 +683,9 @@ describe("buildArgs", () => {
     );
   });
 
-  it("bypasses approvals whatever the trust: the pane cannot answer a prompt", () => {
-    for (const projectTrusted of [false, true]) {
+  it.each([false, true])(
+    "bypasses approvals whatever the trust (trusted=%s): the pane cannot answer a prompt",
+    (projectTrusted) => {
       const args = harnessFor("codex").buildArgs(
         codexRequest({ projectTrusted }),
       );
@@ -692,8 +693,8 @@ describe("buildArgs", () => {
         expect.arrayContaining(["--dangerously-bypass-approvals-and-sandbox"]),
       );
       expect(args).not.toContain("-a");
-    }
-  });
+    },
+  );
 
   it.each([true, false])(
     "keeps the workspace writable when trusted=%s: the report file lives outside it",
