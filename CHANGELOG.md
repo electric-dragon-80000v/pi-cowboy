@@ -7,11 +7,10 @@
 
 ## [0.8.4](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.3...v0.8.4) (2026-10-13)
 
-
 ### Bug Fixes
 
-* add --dangerously-bypass-approvals-and-sandbox to codex cli ([90fc78f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/90fc78ff8e7dfe8ac9ea44180b11bae912b776f4))
-* formatting ([61b2656](https://github.com/electric-dragon-80000v/pi-cowboy/commit/61b26566faa78119511404265521939e201a24ca))
+- add --dangerously-bypass-approvals-and-sandbox to codex cli ([90fc78f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/90fc78ff8e7dfe8ac9ea44180b11bae912b776f4))
+- formatting ([61b2656](https://github.com/electric-dragon-80000v/pi-cowboy/commit/61b26566faa78119511404265521939e201a24ca))
 
 ## [0.8.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.2...v0.8.3) (2026-10-13)
 

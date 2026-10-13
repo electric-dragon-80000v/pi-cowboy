@@ -10,7 +10,7 @@ pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for 
 
 - **Improved code understanding:** Give each agent a smaller, isolated subtask. A single focused task with clear guidance leaves little room for error; a long list of tasks and expectations creates more room for drift and over-engineering. Smaller tasks therefore improve code quality and yield results that are easier to review: each agent commits to its own branch, so a subtask is reviewed and merged on its own, separately from the others.
 
-- **Foreign harness support:** pi-cowboy can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode.
+- **Foreign harness support:** pi-cowboy can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Do you need support for something else? Create an issue on [Github](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new).
 
 - **Parallel work with minimal disk overhead:** Multiple agents can edit, build, and run tests concurrently without interfering with each other. Copy-on-write unlocks more parallelism by reducing the disk overhead of the worktrees.
   The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MB, while the repository is 27 GB in total, including untracked files.
@@ -264,6 +264,10 @@ You can switch orchestrators during a session at `/cowboy` > `Default orchestrat
 
 Orchestrator templates also allow you to customize how the agent communicates with the orchestrator. See [Orchestrator Templates](docs/Orchestrator%20Templates.md) for more details.
 
+### Foreign harnesses
+
+pi-cowboy is not limited to Pi; it can also orchestrate Codex, Claude Code, and OpenCode. pi-cowboy auto-detects them, so you can reference them directly (e.g., "Launch an OpenCode agent for this task") or configure them as defaults in your [settings](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
+
 ## FAQ
 
 ### Why is my agent queued, not running?
@@ -279,12 +283,6 @@ Every running agent holds a place in every concurrency limit that applies to it:
 It can be. For a single small task the overhead can cost more time than the task itself. pi-cowboy is built for many tasks at once, where that overhead is amortized by parallelization.
 
 To avoid the overhead, pi-cowboy has support for [pig](https://github.com/MichaelKinsy/PiG), a drop-in replacement for pi written in Go, and for [pi-bolt](https://github.com/opensec-git/Pi-Bolt), faster, lighter Pi variant compiled ahead of time. They start up fast and have a lower memory footprint. See `agent.harnessType` in [Configuration](docs/Configuration.md).
-
-pi-cowboy can also launch [opencode](https://opencode.ai), where its binary is on `PATH`. Set `harness_type = "opencode"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs opencode instead of pi.
-
-pi-cowboy can also launch [codex](https://developers.openai.com/codex), where its binary is on `PATH`. Set `harness_type = "codex"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs codex instead of pi.
-
-pi-cowboy can also launch [Claude Code](https://code.claude.com/docs), where its `claude` binary is on `PATH`. Set `harness_type = "claude"` in a template, or pass `harness_type` on a `cowboy_agent` call, and the agent runs the interactive Claude Code TUI instead of pi. Its model catalogue is claude's own (`anthropic/sonnet`, `anthropic/opus`, `anthropic/haiku`), and its tool lists are written in claude's own tool names under `[harness.claude]`.
 
 ### I don't like the emojis, can I turn them off?
 

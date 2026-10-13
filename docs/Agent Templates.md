@@ -53,7 +53,7 @@ You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", "opencode", "codex", or "claude". "opencode" launches opencode instead of pi; "codex" launches codex instead of pi; "claude" launches the interactive Claude Code TUI instead of pi. Each foreign harness's model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this. An explicit value has no fallback: a harness this machine cannot launch fails the call instead of falling back to pi. default = the configured `agent.harnessType`
+# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", "opencode", "codex", or "claude". "opencode" launches opencode instead of pi; "codex" launches codex instead of pi; "claude" launches the interactive Claude Code TUI instead of pi. Each foreign harness's model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this, and a call that names a harness this machine cannot launch fails instead of falling back to pi. A template's own harness this machine cannot launch falls back to pi. default = the configured `agent.harnessType`
 harness_type = "pi"
 
 # (optional) Family-neutral settings for the harness that launches this agent, whichever family it is. These shape the shared system prompt the launch stages, not one family's CLI.

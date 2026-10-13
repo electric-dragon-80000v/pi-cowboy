@@ -140,11 +140,13 @@ A clean parent has no uncommitted work to carry, so both materializations start 
 
 - `pi` is the binary that already runs the pane.
 - `pig` and `pi-bolt` are pi-compatible binaries launched through a shell function in the agent's own pane, so only their startup differs.
-- `opencode` is a binary of its own, launched as its minimal interactive UI with the task on stdin. Its model catalogue and default model are its own.
-- `codex` is a binary of its own, launched as its interactive TUI with the task as its positional prompt. Its model catalogue and default model are its own. A repo codex has never trusted stops the first spawn at a folder-trust dialog ("Trust this folder?") that needs one answer in the agent's pane; the answer is saved for the repository's root, so every later spawn — including fresh worktrees — skips it. Separately, a home with unreviewed hooks stops every codex spawn at a "Hooks need review" dialog, whatever the directory: the run waits there until the hooks are trusted in the agent's pane, and herdr reports the parked pane as idle, so nothing detects the stall. Trusting records each hook's hash, so edited hooks ask again; skipping ("Continue without trusting") records nothing and returns on the next spawn.
-- `claude` is a binary of its own, launched as its interactive TUI with the task appended by its pane launcher. Its model catalogue (`anthropic/sonnet`, `anthropic/opus`, `anthropic/haiku`) and default model are its own, and its tool lists are written in claude's own tool names.
+- `opencode` is its own binary, launched as its minimal interactive UI with the task on stdin.
+- `codex` is its own binary, launched as its interactive TUI with the task as its positional prompt.
+- `claude` is its own binary, launched as its interactive TUI with the task appended by its pane launcher. Its tool lists use claude's own tool names.
 
-pi-cowboy probes `PATH` once at extension load. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all five values on every machine, so a config file or template written where a harness exists still loads where it does not.
+`opencode`, `codex`, and `claude` each have their own model catalogue and default model. `pi`, `pig`, and `pi-bolt` use pi's.
+
+pi-cowboy probes `PATH` once at extension load. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all six values on every machine, so a config file or template written where a harness exists still loads where it does not.
 
 A `cowboy_agent` call can override this per item with its `harness_type` parameter. Unlike the template and config values, an explicit `harness_type` has no fallback: when this machine cannot launch that harness, the call fails instead of falling back to pi.
 
