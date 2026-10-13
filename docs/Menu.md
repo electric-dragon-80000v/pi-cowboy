@@ -11,26 +11,28 @@ The main screen. The screen title is `Agents`.
 | Row                    | What it does                                                                        |
 | ---------------------- | ----------------------------------------------------------------------------------- |
 | `Model overrides`      | Opens the `Model Settings` screen.                                                  |
-| `Default orchestrator` | Sets the orchestrator template that every spawn uses.                               |
+| `Default orchestrator` | Sets the orchestrator template for spawns that don't name one.                      |
 | `Agent`                | Sets the agent type used when `cowboy_agent` omits `agent_type`.                    |
 | `Status`               | Opens the `Status` screen. Same as `/cowboy status`.                                |
 | `Spawn agent`          | Opens the spawn wizard. Same as `/cowboy spawn`.                                    |
 | `Settings`             | Opens the `Settings` screen.                                                        |
 | `Enabled`              | Turns the extension on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
 
-## `/cowboy` > `Settings` > `Model Settings`
+## `/cowboy` > `Model overrides`
 
-Opens from the `Model overrides` row on the main screen.
+The screen title is `Model Settings`. It opens from the `Model overrides` row on the main screen.
 
-| Row                            | What it does                                                                                                                                                |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Pi Default Model`             | The default model for agents the pi family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution).                    |
-| `OpenCode Default Model`       | The default model for agents launched under opencode. Each harness outside the pi family whose binary is on `PATH` gets its own `<Name> Default Model` row. |
-| `Claude Default Model`         | The default model for agents launched under claude (an `anthropic/<alias>` key). See [Model resolution](../README.md#model-resolution).                     |
-| `Codex Default Model`          | The default model for agents launched under codex.                                                                                                          |
-| One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                                                                 |
-| `Override another type...`     | Adds an override for an agent type that has none.                                                                                                           |
-| `Clear all model overrides...` | Removes every override.                                                                                                                                     |
+| Row                            | What it does                                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pi Default Model`             | The default model for agents the pi family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution). |
+| `OpenCode Default Model`       | The default model for agents launched under opencode.                                                                                    |
+| `Claude Default Model`         | The default model for agents launched under claude (an `anthropic/<alias>` key). See [Model resolution](../README.md#model-resolution).  |
+| `Codex Default Model`          | The default model for agents launched under codex.                                                                                       |
+| One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                                              |
+| `Override another type...`     | Adds an override for an agent type that has none.                                                                                        |
+| `Clear all model overrides...` | Removes every override.                                                                                                                  |
+
+Rows for OpenCode, Claude, and Codex appear only when that harness's binary is on `PATH`.
 
 ## Turning pi-cowboy off
 
@@ -63,9 +65,9 @@ Each level is a separate limit, and an agent counts against every limit that app
 | `Add per-provider limit...`       | Caps one provider.                                                                                                     |
 | `Per-model limits`                | A heading. Each model below it has one row.                                                                            |
 | `Add per-model limit...`          | Caps one model.                                                                                                        |
-| `Clear all concurrency limits...` | Removes limits at the session, global, or project level. The row appears only when at least one level carries a limit. |
+| `Clear all concurrency limits...` | Removes limits at the session, global, or project scope. The row appears only when at least one level carries a limit. |
 
-Each limit offers a level: session, global, or project. A value that comes from the project layer carries a `[project]` tag.
+Each limit offers a scope: session, global, or project. A value that comes from the project layer carries a `[project]` tag.
 
 ## `/cowboy` > `Settings` > `Agent settings`
 
@@ -78,17 +80,17 @@ Each limit offers a level: session, global, or project. A value that comes from 
 
 **Worktrees**
 
-| Row                        | What it does                                                                                                                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Worktree root`            | The directory that holds every worktree. See [`agent.worktreeRoot`](Configuration.md#agentworktreeroot).                                                                                      |
-| `Worktree materialization` | How a worktree gets its files. `copy-on-write` shares files with the parent; `checkout` shares nothing. See [`agent.worktreeMaterialization`](Configuration.md#agentworktreematerialization). |
-| `Worktree checkout`        | Where a new worktree starts when the parent has uncommitted work. See [`agent.worktreeCheckoutType`](Configuration.md#agentworktreecheckouttype).                                             |
+| Row                        | What it does                                                                                                                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Worktree root`            | The directory that holds every worktree. See [`agent.worktreeRoot`](Configuration.md#agentworktreeroot).                                                                                   |
+| `Worktree materialization` | How a worktree gets its files. `copy-on-write` clones files from the parent; `checkout` clones none. See [`agent.worktreeMaterialization`](Configuration.md#agentworktreematerialization). |
+| `Worktree checkout`        | Where a new worktree starts when the parent has uncommitted work. See [`agent.worktreeCheckoutType`](Configuration.md#agentworktreecheckouttype).                                          |
 
 **Tools**
 
-| Row                      | What it does                                                               |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `Disable default agents` | Skips the built-in agent types next session. Only `.pi/agents` types load. |
+| Row                      | What it does                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `Disable default agents` | Skips the built-in agent types next session. Only agent files from the four template directories load. |
 
 ## `/cowboy` > `Settings` > `System Prompt`
 
@@ -134,7 +136,7 @@ The screen title is `Spawn Options`.
 
 | Row              | What it does                                                                                                                                                                              |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Spawn`          | Asks for the worktree name and the prompt, then launches the agent.                                                                                                                       |
+| `Spawn`          | Asks for the prompt, then launches the agent. For `New worktree`, it also asks for the worktree name.                                                                                     |
 | `Type`           | The agent type for this spawn.                                                                                                                                                            |
 | `Model`          | The model for this spawn.                                                                                                                                                                 |
 | `Background`     | `ON` returns at once. `OFF` waits for the result.                                                                                                                                         |

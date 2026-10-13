@@ -122,8 +122,8 @@ An unset value uses `<agent dir>/pi-cowboy/worktrees`. A relative path resolves 
 
 ### `agent.worktreeMaterialization`
 
-- `copy-on-write` clones the parent working tree and shares the ignored files.
-- `checkout` keeps git's classic checkout. It shares no files with the parent — no cloned inodes — though it can still take over the parent's tracked changes as a diff applied on top. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).
+- `copy-on-write` clones files from the parent instead of checking them out. Which files it carries depends on [`worktreeCheckoutType`](#agentworktreecheckouttype).
+- `checkout` keeps git's classic checkout and clones nothing from the parent, though it can still take over the parent's tracked changes as a diff applied on top. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).
 
 When `copy-on-write` is selected, pi-cowboy first probes the target filesystem. A filesystem without copy-on-write support, such as ext4, falls back to `checkout` instead of failing. Both at session start and whenever you change `agent.worktreeRoot`, the probe runs.
 
@@ -185,6 +185,7 @@ Without a template model, the same `reviewer` falls through to the session defau
 | `default`                      | number | `4`     | Global concurrency limit. Every agent counts against it.     |
 | `providers.<provider>`         | number | unset   | Concurrency limit for one provider, for example `anthropic`. |
 | `models.<provider>/<model-id>` | number | unset   | Concurrency limit for one model.                             |
+| `harnesses.<harness-id>`       | number | unset   | Concurrency limit for one harness, for example `opencode`.   |
 
 Every level is a separate limit, and an agent counts against all the limits that apply to it at once. See [Concurrency](../README.md#concurrency).
 

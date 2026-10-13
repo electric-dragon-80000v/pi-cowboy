@@ -13,7 +13,7 @@ pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for 
 - **Foreign harness support:** pi-cowboy can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Do you need support for something else? Create an issue on [Github](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new).
 
 - **Parallel work with minimal disk overhead:** Multiple agents can edit, build, and run tests concurrently without interfering with each other. Copy-on-write unlocks more parallelism by reducing the disk overhead of the worktrees.
-  The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MB, while the repository is 27 GB in total, including untracked files.
+  The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MiB, while the repository is 27 GiB in total, including untracked files.
 
   | Method                         | Including untracked | Size on disk |
   | ------------------------------ | ------------------- | ------------ |
@@ -73,9 +73,9 @@ Depending on your concurrency settings, some of the tasks queue. The default glo
 
 Each agent runs as a separate pi process in its own Herdr workspace. Open a workspace at any time to monitor the agent or to steer it.
 
-Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session — the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane — which is why pi-cowboy needs a git repository: outside one there is no worktree to open, so the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
+Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session — the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane. pi-cowboy needs a git repository because each agent works in a worktree of it; outside a repository the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
 
-The agents work in separate git worktrees placed under `$HOME/.pi/agent/pi-cowboy/worktrees/`.
+The agents work in separate git worktrees placed under `<agent dir>/pi-cowboy/worktrees/` (`~/.pi/agent` by default).
 
 ##### Agent completion
 
@@ -137,7 +137,7 @@ If pi-cowboy cannot remove one of them, it reports the failure and completes the
 
 <code>/cowboy enable                  # Enables pi-cowboy</code><br>
 
-<code>/cowboy disable.                # Disables pi-cowboy</code>
+<code>/cowboy disable # Disables pi-cowboy</code>
 
 ## Tools
 

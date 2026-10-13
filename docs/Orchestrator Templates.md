@@ -22,7 +22,7 @@ name = "with code review"
 settled = "Code review passed; the changes are ready to merge."
 ```
 
-The base template's `spawned` and `queued` cues still fire; only `settled` is replaced, because cues merge one at a time. Had the same file set `guidance`, the base template's guidance would be replaced outright rather than appended to or merged field by field.
+The base template's `spawned` and `queued` cues still fire; only `settled` is replaced, because cues merge one at a time. Had the same file set `guidance`, its guidance would replace the base template's guidance outright, not merge with it.
 
 `guidance` is copied verbatim into the agent's prompt as the final section. When you omit `guidance`, the base template's guidance applies.
 
@@ -34,7 +34,7 @@ Cues set how the agents talk to the orchestrator. A cue is one named template in
 
 Each cue event supplies its own variables, and a cue can use only the variables of that event.
 
-pi-cowboy rejects a file at load time and reports a warning when a cue uses a variable that its event does not supply, when a cue includes a Mustache partial such as `{{> name}}`, or when a cue changes the template delimiters with `{{=<% %>=}}`.
+pi-cowboy skips the file and reports a warning when a cue uses a variable that its event does not supply, when a cue includes a Mustache partial such as `{{> name}}`, or when a cue changes the template delimiters with `{{=<% %>=}}`.
 
 Every event supplies these four:
 
@@ -74,7 +74,7 @@ The example below shows every field.
 # (required) Template identity. pi-cowboy does not register a file without a name.
 name = "with code review"
 
-# (optional) Name shown in the UI. When you omit it, pi-cowboy uses `name`.
+# (optional) Name shown in the UI. A new template without it shows `name`; an override without it keeps the display name it inherits.
 display_name = "with code review"
 
 # (optional) Instructions for the agent, copied verbatim into the agent prompt. When you omit it, the key inherits the base template's guidance; an empty string clears it.

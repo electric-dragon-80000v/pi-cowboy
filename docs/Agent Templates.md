@@ -62,7 +62,7 @@ harness_type = "pi"
 # (optional) Whether the agent's system prompt carries the context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` run the pi binary, so this table covers them too. Each family's tool list is written in that harness's own names — pi's names here, opencode's permission keys under `[harness.opencode]`, claude's tool names under `[harness.claude]` — and a launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
+# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list is written in that harness's own names — pi's names here, opencode's permission keys under `[harness.opencode]`, claude's tool names under `[harness.claude]` — and a launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
 [harness.pi]
 
 # (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
