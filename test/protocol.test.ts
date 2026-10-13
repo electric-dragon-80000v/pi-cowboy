@@ -273,7 +273,7 @@ describe("DelegationProtocol.parse", () => {
       ctx(),
       "",
     );
-    expect(plain.intent.orchestrator.guidance).toBe("");
+    expect(plain.intent.orchestrator.guidance).toBe("Update your report file each time you make a commit");
   });
 
   it("freezes the validated intent", async () => {

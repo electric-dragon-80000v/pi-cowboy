@@ -32,7 +32,7 @@ export const DEFAULT_ORCHESTRATORS: Record<string, OrchestratorConfig> = {
     name: "default",
     displayName: "Default",
     // The cues already carry the delegation/merge/cleanup wording, so a default delegation adds no guidance section.
-    guidance: "",
+    guidance: "Update your report file each time you make a commit",
     cues: {
       spawned: SPAWNED_CUE,
       queued: QUEUED_CUE,
