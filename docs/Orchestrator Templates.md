@@ -102,5 +102,3 @@ settled = '''
 Error: {{error}}{{/error}}{{#has_worktree}}
 (Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its herdr pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}'''
 ```
-
-The three cue events are the only notifications a spawned agent sends the orchestrator, and a template that omits one inherits the base template's cue for it.

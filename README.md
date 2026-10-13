@@ -73,7 +73,7 @@ Depending on your concurrency settings, some of the tasks queue. The default glo
 
 Each agent runs as a separate pi process in its own Herdr workspace. Open a workspace at any time to monitor the agent or to steer it.
 
-Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session — the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane. pi-cowboy needs a git repository because each agent works in a worktree of it; outside a repository the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
+Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session, the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane. pi-cowboy needs a git repository because each agent works in a worktree of it; outside a repository the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
 
 The agents work in separate git worktrees placed under `<agent dir>/pi-cowboy/worktrees/` (`~/.pi/agent` by default).
 
@@ -163,7 +163,7 @@ Delegates one or more tasks to cowboy agents. Each cowboy agent runs in its own 
 ### `steer_cowboy_agent`
 
 Sends a message to one or more agents. `steer_cowboy_agent` revives a settled agent for another turn: the same agent in its pane picks the message up, and you get another completion message when it settles again.
-A queued agent cannot be steered — it has no pane yet. Neither can an agent whose pane is gone (cleaned up), whose id is unknown, or that is being cleaned up.
+A queued agent cannot be steered, because it has no pane yet. Neither can an agent whose pane is gone (cleaned up), whose id is unknown, or that is being cleaned up.
 
 | Parameter     | Required | Description                           |
 | ------------- | -------- | ------------------------------------- |
@@ -201,16 +201,16 @@ A removal that fails does not throw. The branch is removed only after you have m
 
 ## Model resolution
 
-A model set in the `cowboy_agent` call wins over everything; below it come the session per-type override, the config per-type override, the agent template, the session default, the launching harness's default, and finally — under the pi family — the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
+A model set in the `cowboy_agent` call wins over everything; below it come the session per-type override, the config per-type override, the agent template, the session default, the launching harness's default, and finally, under the pi family, the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
 
 ## Concurrency
 
 A running agent holds a place in every concurrency limit that applies to it. pi-cowboy releases those places when the agent settles, then the next queued agent starts. You can define concurrency limits as follows:
 
-- **Per-model** — `concurrency.models["<provider>/<model-id>"]`
-- **Per-provider** — `concurrency.providers.<provider>`
-- **Per-harness** — `concurrency.harnesses.<harness-id>`
-- **Global** — `concurrency.default` (default `4`), which every agent counts against
+- Per model: `concurrency.models["<provider>/<model-id>"]`
+- Per provider: `concurrency.providers.<provider>`
+- Per harness: `concurrency.harnesses.<harness-id>`
+- Global: `concurrency.default` (default `4`), which every agent counts against
 
 The levels are independent: an agent whose model, provider, and harness all have limits counts against all of them and against the global limit, so you have to free room at every level that applies.
 pi-cowboy starts the first waiting agent whose every level has room: an agent that waits for one limit to clear does not hold back an agent behind it.
@@ -266,7 +266,7 @@ Orchestrator templates also allow you to customize how the agent communicates wi
 
 ### Foreign harnesses
 
-pi-cowboy is not limited to Pi; it can also orchestrate Codex, Claude Code, and OpenCode. pi-cowboy auto-detects them, so you can reference them directly (e.g., "Launch an OpenCode agent for this task") or configure them as defaults in your [settings](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
+pi-cowboy can also orchestrate Codex, Claude Code, and OpenCode. It auto-detects them, so you can reference them directly (e.g., "Launch an OpenCode agent for this task") or configure them as defaults in your [settings](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
 
 ## FAQ
 
@@ -286,7 +286,7 @@ To avoid the overhead, pi-cowboy has support for [pig](https://github.com/Michae
 
 ### I don't like the emojis, can I turn them off?
 
-I don't understand who in their right mind would ever want to do such a thing... but yes. You can disable both the cowboy and the grazing in settings. See [Configuration](docs/Configuration.md).
+Yes. You can disable both the cowboy and the grazing in settings. See [Configuration](docs/Configuration.md).
 
 ## References
 

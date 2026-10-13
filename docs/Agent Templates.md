@@ -62,7 +62,7 @@ harness_type = "pi"
 # (optional) Whether the agent's system prompt carries the context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list is written in that harness's own names — pi's names here, opencode's permission keys under `[harness.opencode]`, claude's tool names under `[harness.claude]` — and a launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
+# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list uses that harness's own names: pi's names here, opencode's permission keys under `[harness.opencode]`, and claude's tool names under `[harness.claude]`. A launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
 [harness.pi]
 
 # (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
@@ -72,7 +72,7 @@ tools = ["read", "bash", "grep", "find"]
 # Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
 # exclude_tools = ["write"]
 
-# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling sets this same pi-family key. default = this entry unless a higher-precedence entry in [Model keys](Configuration.md#model-keys) (the session or config per-type override) sets one; below it sit the session default, the launching harness's default, and — for a pi-family launch only — the parent session's model.
+# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling sets this same pi-family key. default = this entry unless a higher-precedence entry in [Model keys](Configuration.md#model-keys) (the session or config per-type override) sets one; below it sit the session default, the launching harness's default, and, for a pi-family launch only, the parent session's model.
 model = "anthropic/claude-sonnet-4"
 
 # (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
@@ -126,6 +126,6 @@ fork = false
 # exclude_tools = ["Bash"]
 ```
 
-A claude launch never lets the pane see `ANTHROPIC_API_KEY`: the launcher renames it to `COWBOY_API_KEY` — which only the staged `apiKeyHelper` reads — and unsets the original, because claude asks for consent on an environment key it has no approval for, and a staged helper alone does not suppress that dialog while the variable is still set. A pane-side `env` therefore shows `COWBOY_API_KEY`, not `ANTHROPIC_API_KEY`: that absence is the harness working, not a missing credential. Without a key in the environment the helper line is removed from the staged settings instead, leaving OAuth/keychain login untouched.
+A claude launch never lets the pane see `ANTHROPIC_API_KEY`. The launcher renames it to `COWBOY_API_KEY`, which only the staged `apiKeyHelper` reads, and unsets the original. Claude asks for consent on an environment key it has no approval for, and a staged helper does not suppress that dialog while the variable is still set. So a pane-side `env` shows `COWBOY_API_KEY` and no `ANTHROPIC_API_KEY`, which is expected. Without a key in the environment the helper line is removed from the staged settings instead, leaving OAuth/keychain login untouched.
 
-A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]`, `[harness.codex]` and `[harness.claude]` keys never reach a pi launch, and pi's keys never reach an opencode, codex or claude launch, each of which falls through to its own default instead — the parent session's model is pi's key, so none of the foreign launches inherits it either.
+A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]`, `[harness.codex]` and `[harness.claude]` keys never reach a pi launch, and pi's keys never reach an opencode, codex or claude launch, each of which falls through to its own default instead. The parent session's model is pi's key, so no foreign launch inherits it either.

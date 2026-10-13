@@ -2,9 +2,9 @@
 
 `/cowboy` opens a menu of screens. Every row on every one of them is listed below.
 
-The command forms are in the [README](../README.md#commands). The config keys that back most of these rows are in [Configuration](Configuration.md).
+The command forms are in the [README](../README.md#commands). The config keys behind most of these rows are in [Configuration](Configuration.md).
 
-## `/cowboy` — Agents
+## `/cowboy` - Agents
 
 The main screen. The screen title is `Agents`.
 
@@ -18,7 +18,7 @@ The main screen. The screen title is `Agents`.
 | `Settings`             | Opens the `Settings` screen.                                                        |
 | `Enabled`              | Turns the extension on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
 
-The `Agent` row, the `Type` row on Spawn Options, and the `agent_type` parameter of `cowboy_agent` all set the agent type. `Agent` sets the default that applies when a call omits `agent_type`; `Type` sets it for one spawn.
+The `Agent` row, the `Type` row on Spawn Options, and the `agent_type` parameter of `cowboy_agent` all set the agent type. `Agent` sets the default that applies when a call omits `agent_type`. `Type` sets it for one spawn.
 
 ### Turning pi-cowboy off
 
@@ -58,7 +58,7 @@ The screen title is `Settings`.
 
 Sets the number of agents that may run at once.
 
-Each level is a separate limit, and an agent counts against every limit that applies to it. See [`concurrency`](Configuration.md#concurrency).
+Each level is a separate limit. An agent counts against every limit that applies to it. See [`concurrency`](Configuration.md#concurrency).
 
 | Row                               | What it does                                                                                                           |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -106,33 +106,35 @@ Each limit offers a scope: session, global, or project. A value that comes from 
 
 ## `/cowboy worktree`
 
-Creates one worktree under the configured `agent.worktreeRoot`, adopts it in herdr with a workspace, tab, and pane of its own. This worktree is not tracked by pi-cowboy.
+Creates one worktree under the configured `agent.worktreeRoot`, and adopts it in herdr with a workspace, tab, and pane of its own. pi-cowboy does not track this worktree.
 
-## `/cowboy status` — Status
+## `/cowboy status` - Status
 
 The screen title is `Status`. It lists every spawned, queued, and settled agent.
 
-Select an agent to open the actions available for it, which depend on the state of the agent.
+Select an agent to open the actions available for it. The actions depend on the state of the agent.
 
-| Action        | What it does                                                                                            |
-| ------------- | ------------------------------------------------------------------------------------------------------- |
-| `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles. |
-| `View result` | Reads the report the agent wrote.                                                                       |
-| `View error`  | Reads the error from a failed agent.                                                                    |
-| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                  |     | `Clear` | Removes a settled agent from the list and removes its worktree. A worktree with uncommitted changes or unmerged commits is kept, and the message gives the reason. |
-| `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`.    |
+| Action        | What it does                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles.                                                            |
+| `View result` | Reads the report the agent wrote.                                                                                                                                  |
+| `View error`  | Reads the error from a failed agent.                                                                                                                               |
+| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                                                                             |
+| `Clear`       | Removes a settled agent from the list and removes its worktree. A worktree with uncommitted changes or unmerged commits is kept, and the message gives the reason. |
+| `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`.                                                               |
 
-The list also carries bulk actions, which sit in a group of their own below the per-agent ones and act on every agent they name.
+The list also carries bulk actions. They sit in a group of their own below the per-agent ones, and each acts on every agent it names.
 
-| Action                         | What it does                                                                                                              |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `Stop N active agent(s)`       | Stops every running agent.                                                                                                |
-| `Clean up N settled agent(s)`  | Cleans up every settled agent.                                                                                            |     | `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has. |
-| `Clear all (remove worktrees)` | Clears every settled agent, including failed and stopped ones. The label says "all," but active agents are never cleared. |
+| Action                          | What it does                                                                                    |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Stop N active agent(s)`        | Stops every running agent.                                                                      |
+| `Clean up N settled agent(s)`   | Cleans up every settled agent.                                                                  |
+| `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has.              |
+| `Clear all (remove worktrees)`  | Clears every settled agent, including failed and stopped ones. Active agents are never cleared. |
 
 The bulk clears keep a worktree that has uncommitted changes or unmerged commits, the same as `Clear`.
 
-## `/cowboy spawn` — Spawn Options
+## `/cowboy spawn` - Spawn Options
 
 The screen title is `Spawn Options`.
 
@@ -147,7 +149,7 @@ The screen title is `Spawn Options`.
 | `Thinking level` | The thinking level for this spawn. `Inherit` follows the configured default. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking) and [`thinking`](Agent%20Templates.md). |
 | `Description`    | A short label for the agents list. pi-cowboy derives one from the prompt when you leave it empty.                                                                                         |
 
-The `Worktree` picker offers three choices, then one row per existing worktree.
+The `Worktree` picker offers two choices, then one row per existing worktree.
 
 | Choice                        | What it does                                                                                                                  |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |

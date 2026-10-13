@@ -33,7 +33,7 @@ The project file can contain only model keys and concurrency keys. Model keys ar
 
 pi-cowboy ignores an invalid value and reports a warning. The warning names the file, the key, the value found, and the value expected. The built-in default then applies.
 
-Two rules are easier to check against a file than to hold in the head: which keys the project file may contain, and what happens to a value that is not valid. Given this project file:
+This project file shows both rules: which keys the project file may contain, and what happens to a value that is not valid.
 
 ```json
 {
@@ -69,7 +69,7 @@ Two rules are easier to check against a file than to hold in the head: which key
 | `worktreeMaterialization`  | `"copy-on-write"` \| `"checkout"`                                                   | `"copy-on-write"`   | How a worktree is created from the parent working tree.                                                            |
 | `worktreeCheckoutType`     | `"dirty"` \| `"clean"`                                                              | `"clean"`           | See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).                                                    |
 | `harnessType`              | `"pi"` \| `"pig"` \| `"pi-bolt"` \| `"opencode"` \| `"codex"` \| `"claude"`         | `"pi"`              | Harness for agents whose template does not set `harness_type`. See [`agent.harnessType`](#agentharnesstype).       |
-| `defaultModelByHarness`    | map harness id → string or null                                                     | unset               | Per-harness default models, keyed by harness id. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness). |
+| `defaultModelByHarness`    | map from harness id to string or null                                               | unset               | Per-harness default models, keyed by harness id. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness). |
 | `agent.<agent-type>`       | string or null                                                                      | unset               | Per-type model override. `null` clears it.                                                                         |
 
 ### `agent.default`
@@ -110,7 +110,7 @@ This key is the fallback for an agent template that omits `extensions`. When it 
 
 ### `agent.disableDefaultAgents`
 
-pi-cowboy loads only the agent files on disk — the files in the four directories listed in [Agent Templates](Agent%20Templates.md). This key takes effect on the next session.
+pi-cowboy loads only the agent files on disk: the files in the four directories listed in [Agent Templates](Agent%20Templates.md). This key takes effect on the next session.
 
 ### `agent.extensionEnabled`
 
@@ -170,13 +170,13 @@ Model resolution order, highest precedence first:
 4. The agent template's model for the launching harness's family: the `[harness.pi] model` key (also accepted flat as `[harness] model`) writes the pi family's entry, `[harness.opencode] model` writes opencode's, `[harness.codex] model` writes codex's, and `[harness.claude] model` writes claude's; any other family's key contributes nothing.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
-7. The parent session model — for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.
+7. The parent session model, for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.
 
 A launch under a harness outside the pi family carries its model key as written: the key is that harness's own vocabulary, and pi-cowboy hands it over without translating it through pi's catalogue. It reads that harness's own model catalogue only to warn when a non-empty catalogue does not know the key, never to refuse it; an empty catalogue (the command failed) warns about nothing and the key is still carried. Two flags reshape the key at the boundary, and only there: codex's `-m` takes the bare slug, so a codex launch drops the `openai/` provider its stored keys share, and claude's CLI takes a bare alias, so a claude launch drops the `anthropic/` prefix (`anthropic/sonnet` rides as `sonnet`).
 
-Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"` — the pi family's key — uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to opencode's default from `agent.defaultModelByHarness`, and never to the parent session's model.
+Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"`, the pi family's key, uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to opencode's default from `agent.defaultModelByHarness`, and never to the parent session's model.
 
-Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, then to the launching harness's default — `agent.default` under pi — and then, under pi only, to the parent session's model.
+Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, then to the launching harness's default (`agent.default` under pi), and then, under pi only, to the parent session's model.
 
 ## `concurrency`
 
@@ -189,6 +189,6 @@ Without a template model, the same `reviewer` falls through to the session defau
 
 Every level is a separate limit, and an agent counts against all the limits that apply to it at once. See [Concurrency](../README.md#concurrency).
 
-Limits are floored at one. pi-cowboy treats a `0` or a negative number as one at a time, not as "no limit".
+Limits are floored at one: a `0` or a negative number means one agent at a time.
 
 pi-cowboy applies a limit change to the running session immediately. Raising a limit starts queued agents, and removing a limit stops counting against that level alone. Lowering a limit lets running agents finish, but it stops new ones from starting until the running count drops below it.
