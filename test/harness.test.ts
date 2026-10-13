@@ -666,8 +666,7 @@ describe("buildArgs", () => {
       "project_doc_max_bytes=0",
       "-s",
       "workspace-write",
-      "-a",
-      "never",
+      "--dangerously-bypass-approvals-and-sandbox",
     ]);
   });
 
@@ -684,14 +683,16 @@ describe("buildArgs", () => {
     );
   });
 
-  it("asks on request on an untrusted project, never on a trusted one", () => {
-    expect(
-      harnessFor("codex").buildArgs(codexRequest({ projectTrusted: false })),
-    ).toEqual(expect.arrayContaining(["-a", "on-request"]));
-
-    const trusted = harnessFor("codex").buildArgs(codexRequest());
-    expect(trusted).toEqual(expect.arrayContaining(["-a", "never"]));
-    expect(trusted).not.toContain("on-request");
+  it("bypasses approvals whatever the trust: the pane cannot answer a prompt", () => {
+    for (const projectTrusted of [false, true]) {
+      const args = harnessFor("codex").buildArgs(
+        codexRequest({ projectTrusted }),
+      );
+      expect(args).toEqual(
+        expect.arrayContaining(["--dangerously-bypass-approvals-and-sandbox"]),
+      );
+      expect(args).not.toContain("-a");
+    }
   });
 
   it.each([true, false])(

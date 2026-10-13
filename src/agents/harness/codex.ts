@@ -256,8 +256,7 @@ export const codexHarness: Harness<"codex"> = {
       "project_doc_max_bytes=0",
       "-s",
       "workspace-write",
-      "-a",
-      request.projectTrusted ? "never" : "on-request",
+      "--dangerously-bypass-approvals-and-sandbox",
     ];
     const model = codexModelFlag(request.modelKey);
     if (model !== null) args.push("-m", model);

@@ -333,7 +333,11 @@ describe("buildLaunchPlan CLI flags", () => {
     // it is staged rather than named on this argv.
     expect(plan.piArgs[0]).toBe("-c");
     expect(plan.piArgs).toEqual(
-      expect.arrayContaining(["-s", "workspace-write", "-a", "never"]),
+      expect.arrayContaining([
+        "-s",
+        "workspace-write",
+        "--dangerously-bypass-approvals-and-sandbox",
+      ]),
     );
     expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
   });
