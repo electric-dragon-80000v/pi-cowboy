@@ -77,7 +77,6 @@ jobs:
             package.json \
             dist/index.js \
             agents/explore.toml \
-            orchestrators/with-code-review.toml \
             README.md \
             LICENSE; do
             printf '%s\n' "$entries" | grep -qxF "$required" || {
@@ -98,7 +97,8 @@ jobs:
             '\.d\.ts$' \
             '^docs/.*\.md$' \
             '^docs/assets/logo\.png$' \
-            '^docs/assets/logo-pi-package\.png$'; do
+            '^docs/assets/logo-pi-package\.png$' \
+            '^orchestrators/'; do
             if printf '%s\n' "$entries" | grep -qE "$forbidden"; then
               echo "tarball should not contain: $(printf '%s\n' "$entries" | grep -E "$forbidden" | head -1)"
               exit 1

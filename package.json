@@ -36,6 +36,7 @@
     "!dist/**/*.d.ts",
     "agents/",
     "orchestrators/",
+    "!orchestrators/with-code-review.toml",
     "README.md",
     "LICENSE"
   ],
