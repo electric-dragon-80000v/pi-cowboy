@@ -1,12 +1,11 @@
 /**
  * agent-status-menu.test.ts — agent-status menu rows and the calls it makes.
- * Manager/runtime are structural fakes (listAgents, abort, clear, view.focus).
+ * Manager/runtime are structural fakes (listAgents, abort, cleanup, view.focus).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawn } from "../../src/types.js";
 import type { CleanupReport } from "../../src/agents/cleanup-policy.js";
-import type { ClearOutcome } from "../../src/agents/agent-manager.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setCoordinator, setPi, shellState } from "./shell-mock.js";
 
@@ -97,7 +96,6 @@ function errorSpawn(id: string, error = "boom"): AgentSpawn {
 }
 
 const aborted: string[] = [];
-const cleared: string[] = [];
 const cleanedUp: string[] = [];
 const focused: string[] = [];
 /** Next abort verdict, per id (stopped unless set). */
@@ -121,10 +119,6 @@ function fullTeardown(id: string): CleanupReport {
 let cleanupImpl: (id: string) => Promise<CleanupReport> = (id) =>
   Promise.resolve(fullTeardown(id));
 
-/** Next clear outcome (the spawn dropped unless set). */
-let clearImpl: (id: string) => Promise<ClearOutcome> = () =>
-  Promise.resolve({ kind: "cleared" });
-
 function installManager(agents: AgentSpawn[]): void {
   shellState.manager = {
     listAgents: () => agents,
@@ -135,10 +129,6 @@ function installManager(agents: AgentSpawn[]): void {
     cleanup: (id: string) => {
       cleanedUp.push(id);
       return cleanupImpl(id);
-    },
-    clear: (id: string) => {
-      cleared.push(id);
-      return clearImpl(id);
     },
   };
 }
@@ -153,12 +143,10 @@ function openAgentStatus(width = 160): MenuSession {
 beforeEach(() => {
   resetShell();
   aborted.length = 0;
-  cleared.length = 0;
   cleanedUp.length = 0;
   focused.length = 0;
   abortImpl = () => Promise.resolve(true);
   cleanupImpl = (id) => Promise.resolve(fullTeardown(id));
-  clearImpl = () => Promise.resolve({ kind: "cleared" });
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
   setCoordinator(null);
   shellState.runtime = {
@@ -225,18 +213,17 @@ describe("Agent status — the list", () => {
       "✗ cafe9999-errored",
       "Stop 1 active agent(s)",
       "Clean up 2 settled agent(s)",
-      "Clear done (remove worktrees)",
-      "Clear all (remove worktrees)",
+      "Clean up 1 completed agent(s)",
     ]);
   });
 
-  it("hides Clear done when no agent completed", () => {
+  it("hides the completed-only row when no agent completed", () => {
     installManager([spawnedSpawn(), errorSpawn("cafe9999-errored")]);
     const session = openAgentStatus();
 
     const labels = session.walkRows().map((row) => row.label);
-    expect(labels).toContain("Clear all (remove worktrees)");
-    expect(labels).not.toContain("Clear done (remove worktrees)");
+    expect(labels).toContain("Clean up 1 settled agent(s)");
+    expect(labels).not.toContain("Clean up 1 completed agent(s)");
     expect(labels).not.toContain("✓ cafe9999-errored");
     expect(labels).toContain("✗ cafe9999-errored");
   });
@@ -282,91 +269,24 @@ describe("Agent status — group actions", () => {
     });
   });
 
-  it("clears settled agents, removing the completed ones first", async () => {
+  it("cleans up only completed agents through the completed-only row", async () => {
     installManager([
       completedSpawn("beef5678-completed"),
       errorSpawn("cafe9999-errored"),
     ]);
     const session = openAgentStatus();
 
-    session.open("Clear done (remove worktrees)");
+    session.open("Clean up 1 completed agent(s)");
     await session.settle();
 
-    expect(cleared).toEqual(["beef5678-completed"]);
+    expect(cleanedUp).toEqual(["beef5678-completed"]);
     expect(session.notifications.map((n) => n.message)).toEqual([
-      "Clearing 1 completed agent(s) …",
-      "✓ Cleaned up agent beef5678-completed",
+      "Cleaning up 1 completed agent(s) …",
+      "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
     ]);
   });
 
-  it("clears every settled agent through Clear all", async () => {
-    installManager([
-      spawnedSpawn(),
-      completedSpawn("beef5678-completed"),
-      errorSpawn("cafe9999-errored"),
-    ]);
-    const session = openAgentStatus();
-
-    session.open("Clear all (remove worktrees)");
-    await session.settle();
-
-    expect(cleared).toEqual(["beef5678-completed", "cafe9999-errored"]);
-    // Each teardown reports as it lands, so a slow worktree never hides the rest.
-    expect(session.notifications.map((n) => n.message)).toEqual([
-      "Clearing 2 settled agent(s) …",
-      "✓ Cleaned up agent beef5678-completed",
-      "✓ Cleaned up agent cafe9999-errored",
-    ]);
-  });
-
-  it("reports the settled agents a clear could not remove", async () => {
-    installManager([
-      completedSpawn("beef5678-completed"),
-      errorSpawn("cafe9999-errored"),
-    ]);
-    clearImpl = (id) =>
-      id.startsWith("beef")
-        ? Promise.resolve({
-            kind: "kept",
-            path: "/repo/.worktrees/fix-login",
-            reason: { kind: "dirty" },
-          })
-        : Promise.resolve({ kind: "cleared" });
-    const session = openAgentStatus();
-
-    session.open("Clear all (remove worktrees)");
-    await session.settle();
-
-    expect(session.notifications.map((n) => n.message)).toEqual([
-      "Clearing 2 settled agent(s) …",
-      "✓ Kept agent beef5678-completed's worktree — has uncommitted changes (/repo/.worktrees/fix-login)",
-      "✓ Cleaned up agent cafe9999-errored",
-    ]);
-    // The kept worktree is reported as an attention case, not a clean clear.
-    expect(session.notifications[1]!.kind).toBe("warning");
-  });
-
-  it("fails the clear when the removal was not confirmed", async () => {
-    installManager([completedSpawn("beef5678-completed")]);
-    clearImpl = () =>
-      Promise.resolve({
-        kind: "removal-failed",
-        path: "/repo/.worktrees/fix-login",
-        detail: "herdr did not confirm the worktree removal",
-      });
-    const session = openAgentStatus();
-
-    session.open("Clear done (remove worktrees)");
-    await session.settle();
-
-    expect(session.notifications.at(-1)).toEqual({
-      message:
-        "✗ Failed to clear agent beef5678-completed: herdr did not confirm the worktree removal (/repo/.worktrees/fix-login)",
-      kind: "error",
-    });
-  });
-
-  it("cleans up every settled agent and reports each cleanup", async () => {
+  it("cleans up every settled agent through the settled row", async () => {
     installManager([
       spawnedSpawn(),
       completedSpawn("beef5678-completed"),
@@ -380,6 +300,7 @@ describe("Agent status — group actions", () => {
     // The group row never touches the spawned agent.
     expect(cleanedUp).toEqual(["beef5678-completed", "cafe9999-errored"]);
     expect(session.closedScreens).toHaveLength(1);
+    // Each teardown reports as it lands, so a slow worktree never hides the rest.
     expect(session.notifications.map((n) => n.message)).toEqual([
       "Cleaning up 2 settled agent(s) …",
       "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
@@ -402,16 +323,14 @@ describe("Agent status — the per-agent actions list", () => {
     ]);
   });
 
-  it("offers clear instead of stop for a settled agent", () => {
+  it("offers clean up instead of stop for a settled agent", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
     session.open("✓ beef5678-completed");
 
     const labels = session.walkRows().map((row) => row.label);
-    expect(labels).toEqual(["View shell", "View result", "Clear", "Clean up"]);
-    session.focus("Clear");
-    expect(session.text()).toContain("Clear agent and remove its worktree");
+    expect(labels).toEqual(["View shell", "View result", "Clean up"]);
     session.focus("Clean up");
     expect(session.text()).toContain(
       "Close its pane and remove its worktree and merged branch",
@@ -427,7 +346,6 @@ describe("Agent status — the per-agent actions list", () => {
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
       "View error",
-      "Clear",
       "Clean up",
     ]);
   });
@@ -489,21 +407,6 @@ describe("Agent status — the per-agent actions list", () => {
       message: "✗ Failed to stop agent abcd1234-spawned-id: herdr unreachable",
       kind: "error",
     });
-  });
-
-  it("clears the agent from its actions list", async () => {
-    installManager([completedSpawn("beef5678-completed")]);
-    const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
-
-    session.open("Clear");
-    await session.settle();
-
-    expect(cleared).toEqual(["beef5678-completed"]);
-    expect(session.notifications.map((n) => n.message)).toEqual([
-      "Clearing agent beef5678-completed …",
-      "✓ Cleaned up agent beef5678-completed",
-    ]);
   });
 
   it("cleans a settled agent up and closes the menu", async () => {

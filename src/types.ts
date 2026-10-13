@@ -162,7 +162,7 @@ function phasesWhere(over: boolean): readonly AgentPhase[] {
   );
 }
 
-/** Spawns still in flight: the runs stop, steer, and clear act on. */
+/** Spawns still in flight: the runs stop and steer act on. */
 export const ACTIVE_AGENT_PHASES = phasesWhere(false);
 
 /** Ended spawns — settled, or ended before they ever launched — retained until an explicit drop. */
@@ -260,7 +260,7 @@ export type WorktreeRetentionReason =
 /**
  * A run's worktree coordinates: path and branch travel as one, absent for
  * parent-cwd runs. `owned` checkouts are extension-created (provisioned and
- * adopted at launch) and removed on clear; `picked` ones pre-existed — the
+ * adopted at launch) and removed on cleanup; `picked` ones pre-existed — the
  * run works inside them but never owns them, so cleanup leaves them alone.
  * The producer records the ownership it knows; nothing derives it later.
  */

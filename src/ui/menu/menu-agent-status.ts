@@ -25,8 +25,6 @@ import {
 } from "../../types.js";
 
 import { errorMessage } from "../../utils.js";
-import { formatRetentionClause } from "../../infrastructure/git-client.js";
-import type { ClearOutcome, ClearRefusal } from "../../agents/agent-manager.js";
 import {
   getDisplayName,
   agentBulletPrefix,
@@ -276,72 +274,6 @@ function cleanupAgentsOffMenu(
 }
 
 /**
- * Clear agents without holding the menu open, and report each one as its
- * teardown lands. A clear that leaves its worktree behind keeps the spawn
- * listed, so the report names it and why.
- */
-function clearAgentsOffMenu(
-  ctx: ExtensionCommandContext,
-  ids: readonly string[],
-): void {
-  const manager = getManagerOrNull();
-  const subject = agentSubject(ids);
-  const action = actionReport(ctx.ui);
-  if (!manager) {
-    action.failed(`Failed to clear ${subject}`, "manager unavailable");
-    return;
-  }
-  void (async () => {
-    for (const id of ids) {
-      let outcome: ClearOutcome;
-      try {
-        outcome = await manager.clear(id);
-      } catch (err) {
-        action.failed(`Failed to clear agent ${id}`, err);
-        continue;
-      }
-      switch (outcome.kind) {
-        case "cleared":
-          action.succeeded(`Cleaned up agent ${id}`);
-          break;
-        case "kept":
-          action.succeeded(
-            `Kept agent ${id}'s worktree — ${formatRetentionClause(
-              outcome.reason,
-            )} (${outcome.path})`,
-            "warning",
-          );
-          break;
-        case "removal-failed":
-          action.failed(
-            `Failed to clear agent ${id}`,
-            `${outcome.detail} (${outcome.path})`,
-          );
-          break;
-        case "refused":
-          action.failed(
-            `Failed to clear agent ${id}`,
-            refusalText(outcome.reason),
-          );
-          break;
-      }
-    }
-  })();
-}
-
-/** Why a clear refused, in the menu's words. */
-function refusalText(reason: ClearRefusal): string {
-  switch (reason) {
-    case "unknown-id":
-      return "no such agent";
-    case "not-terminal":
-      return "the agent is not settled";
-    case "in-flight":
-      return "another teardown is already running";
-  }
-}
-
-/**
  * Per-agent actions submenu for a delegating component.
  * @param done — return to the parent agent list.
  * @param setActive — swap the delegating component's active child.
@@ -386,14 +318,6 @@ export function buildAgentActionsList(
     items.push({ value: "stop", label: "Stop" });
   } else {
     items.push({
-      value: "clear",
-      label: "Clear",
-      description:
-        spawn.display.worktree?.kind === "owned"
-          ? "Clear agent and remove its worktree"
-          : undefined,
-    });
-    items.push({
       value: "cleanup",
       label: "Clean up",
       description: "Close its pane and remove its worktree and merged branch",
@@ -420,10 +344,6 @@ export function buildAgentActionsList(
       actionReport(ctx.ui).pending(`Stopping agent ${id}`);
       done();
       stopAgentsOffMenu(ctx, [spawn.id]);
-    } else if (item.value === "clear") {
-      actionReport(ctx.ui).pending(`Clearing agent ${id}`);
-      onClose();
-      clearAgentsOffMenu(ctx, [spawn.id]);
     } else if (item.value === "cleanup") {
       // The spawn record goes with the artifacts, so the list it came from is
       // stale either way: close, and report the teardown when it lands.
@@ -439,13 +359,13 @@ export function buildAgentActionsList(
 export async function showAgentStatusMenu(
   ctx: ExtensionCommandContext,
 ): Promise<void> {
-  // Settled spawns outlive their session, so list (and clear) them here.
+  // Settled spawns outlive their session, so list them here.
   const agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
   if (agents.length === 0) {
     ctx.ui.notify("No agents have been spawned this session", "info");
     return;
   }
-  // Active work is never cleared (ADR-0006).
+  // Active work is never cleaned up (ADR-0006).
   const activeAgents = agents.filter((r) => isActivePhase(r.lifecycle.phase));
   const finished = agents.filter((r) => !isActivePhase(r.lifecycle.phase));
   const completed = agents.filter(
@@ -487,22 +407,18 @@ export async function showAgentStatusMenu(
         });
       }
       if (finished.length > 0) {
-        // "Clear done" only when completed agents exist; clearing removes worktrees.
         items.push({ value: SEPARATOR_ID, label: " " });
         items.push({
           value: "__cleanup-finished",
           label: `Clean up ${finished.length} settled agent(s)`,
         });
+        // The completed-only filter over the same path; only when one exists.
         if (completed.length > 0) {
           items.push({
-            value: "__clear-done",
-            label: "Clear done (remove worktrees)",
+            value: "__cleanup-completed",
+            label: `Clean up ${completed.length} completed agent(s)`,
           });
         }
-        items.push({
-          value: "__clear-all",
-          label: "Clear all (remove worktrees)",
-        });
       }
       return items;
     };
@@ -538,23 +454,12 @@ export async function showAgentStatusMenu(
         );
         return;
       }
-      if (item.value === "__clear-all") {
+      if (item.value === "__cleanup-completed") {
         actionReport(ctx.ui).pending(
-          `Clearing ${finished.length} settled agent(s)`,
+          `Cleaning up ${completed.length} completed agent(s)`,
         );
         close();
-        clearAgentsOffMenu(
-          ctx,
-          finished.map((r) => r.id),
-        );
-        return;
-      }
-      if (item.value === "__clear-done") {
-        actionReport(ctx.ui).pending(
-          `Clearing ${completed.length} completed agent(s)`,
-        );
-        close();
-        clearAgentsOffMenu(
+        cleanupAgentsOffMenu(
           ctx,
           completed.map((r) => r.id),
         );

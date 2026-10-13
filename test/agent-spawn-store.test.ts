@@ -653,14 +653,15 @@ describe("spawn retention through the manager", () => {
     expect(shared.store.get(id)).toBeUndefined();
   });
 
-  it("Clear drops the store entry, including for a spawn whose session is gone", async () => {
+  it("cleanup drops the store entry, including for a spawn whose session is gone", async () => {
     const { manager, id } = await spawnAndSettle();
     expect(manager.getSpawn(id)).toBeDefined();
 
     manager.dispose();
     const fresh = new AgentManager(new ConcurrencyPools());
 
-    await expect(fresh.clear(id)).resolves.toEqual({ kind: "cleared" });
+    const report = await fresh.cleanup(id);
+    expect(report.worktree).toEqual({ kind: "none" });
     expect(shared.store.get(id)).toBeUndefined();
     fresh.dispose();
   });

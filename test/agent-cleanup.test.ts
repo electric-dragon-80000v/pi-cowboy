@@ -5,7 +5,6 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import {
   afterEach,
@@ -705,7 +704,7 @@ describe("removeWorktree", () => {
   });
 });
 
-/* ── removeWorktree: Clear coverage ───────────────────────────────────── */
+/* ── removeWorktree: teardown outcomes ────────────────────────────────── */
 
 describe("removeWorktree", () => {
   it("removes a clean, merged worktree and deletes its branch", async () => {
@@ -1910,43 +1909,6 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     expect(report.outcome.kind).toBe("refused");
     expect(fs.existsSync(stagingDir)).toBe(true);
   });
-});
-
-/* ── AgentManager.clear — teardown ordering ───────────────────────────── */
-
-describe("AgentManager.clear — teardown ordering", () => {
-  let manager: AgentManager;
-  /** A real checkout on disk: the teardown probes for it before anything else. */
-  let checkout: string;
-
-  beforeEach(() => {
-    checkout = fs.mkdtempSync(path.join(os.tmpdir(), "cow-clear-order-"));
-    manager = new AgentManager(new ConcurrencyPools());
-    for (const entry of shared.store.list()) shared.store.drop(entry.id);
-    removeHerdrWorktreeMock.mockReset().mockResolvedValue(true);
-    deleteWorktreeBranchMock.mockReset().mockResolvedValue({ kind: "deleted" });
-    isWorktreeDirtyMock.mockReset().mockResolvedValue(false);
-    closePaneMock.mockReset().mockResolvedValue(undefined);
-    resolveMainCheckoutMock.mockReset().mockResolvedValue("/work/repo");
-  });
-
-  afterEach(() => fs.rmSync(checkout, { recursive: true, force: true }));
-
-  afterEach(() => {
-    // The stub is per-suite: later suites see the real harnesses again.
-    harnessForMock.mockImplementation(registry.real!.harnessFor);
-  });
-
-  /** A settled spawn owning `checkout`. */
-  function clearable(): AgentSpawn {
-    const spawn = completed();
-    const worktree = spawn.display.worktree;
-    if (worktree?.kind !== "owned") throw new Error("fixture owns no checkout");
-    worktree.path = checkout;
-    spawn.execution.spawnCtx = { cwd: "/work/repo" } as never;
-    registerSpawn(manager, spawn);
-    return manager.getSpawn(ID)!;
-  }
 
   /** The retention reason recorded on a retained spawn. */
   function retentionOf(id: string): WorktreeRetentionReason | undefined {
@@ -1956,49 +1918,47 @@ describe("AgentManager.clear — teardown ordering", () => {
       : undefined;
   }
 
-  it("drops the spawn only after the checkout is removed", async () => {
-    clearable();
-
-    await expect(manager.clear(ID)).resolves.toEqual({ kind: "cleared" });
-
-    expect(isWorktreeDirtyMock).toHaveBeenCalledWith({}, checkout);
-    expect(removeHerdrWorktreeMock).toHaveBeenCalledWith({}, "w1");
-    expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
-      {},
-      { branch: BRANCH, worktreePath: checkout, repoCwd: "/work/repo" },
-      expect.any(Function),
-    );
-    expect(manager.getSpawn(ID)).toBeUndefined();
-    expect(manager.listAgents()).toEqual([]);
-  });
-
-  it("keeps a dirty checkout's spawn listed, with its reason on the spawn", async () => {
+  it("records the keep reason on the spawn when a dirty tree is kept", async () => {
     isWorktreeDirtyMock.mockResolvedValue(true);
-    const spawn = clearable();
+    registerSpawn(manager, completed());
 
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "kept",
-      path: checkout,
+    const report = await manager.cleanup(ID);
+
+    expect(report.outcome).toEqual({
+      kind: "refused",
       reason: { kind: "dirty" },
     });
-
-    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
-    expect(deleteWorktreeBranchMock).not.toHaveBeenCalled();
-    expect(manager.getSpawn(ID)).toBe(spawn);
-    expect(manager.listAgents().map((entry) => entry.id)).toEqual([ID]);
+    expect(report.worktree).toEqual({ kind: "kept", path: WT_PATH });
+    expect(manager.getSpawn(ID)).toBeDefined();
     expect(retentionOf(ID)).toEqual({ kind: "dirty" });
   });
 
-  it("keeps the spawn listed when the removal fails", async () => {
-    removeHerdrWorktreeMock.mockResolvedValue(false);
-    const spawn = clearable();
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "removal-failed",
-      path: checkout,
-      detail: "herdr did not confirm the worktree removal",
-    });
+  it("records the probe failure on the spawn when an unverifiable tree is kept", async () => {
+    isWorktreeDirtyMock.mockResolvedValue(undefined);
+    registerSpawn(manager, completed());
 
-    expect(manager.getSpawn(ID)).toBe(spawn);
+    const report = await manager.cleanup(ID);
+
+    expect(report.outcome).toEqual({
+      kind: "refused",
+      reason: { kind: "unverifiable", detail: "git status probe failed" },
+    });
+    expect(manager.getSpawn(ID)).toBeDefined();
+    expect(retentionOf(ID)).toEqual({
+      kind: "unverifiable",
+      detail: "git status probe failed",
+    });
+  });
+
+  it("records an unconfirmed removal on the kept spawn", async () => {
+    removeHerdrWorktreeMock.mockResolvedValue(false);
+    registerSpawn(manager, completed());
+
+    const report = await manager.cleanup(ID);
+
+    expect(report.outcome).toEqual({ kind: "torn-down" });
+    expect(report.worktree.kind).toBe("removal-failed");
+    expect(manager.getSpawn(ID)).toBeDefined();
     expect(retentionOf(ID)).toEqual({
       kind: "unverifiable",
       detail:
@@ -2006,124 +1966,17 @@ describe("AgentManager.clear — teardown ordering", () => {
     });
   });
 
-  it("tears the recorded harness's state down before the checkout is probed", async () => {
-    const order: string[] = [];
-    harnessForMock.mockReturnValue({
-      id: "pig",
-      available: () => true,
-      prepare: async () => {},
-      buildArgs: (request: never) => request,
-      teardown: async () => {
-        order.push("teardown");
-      },
-    });
-    const spawn = clearable();
-    spawn.execution.harness = "pig";
-    isWorktreeDirtyMock.mockImplementation(async () => {
-      order.push("probe");
-      return false;
-    });
+  it("records nothing when cleanup refuses a live run", async () => {
+    registerSpawn(manager, spawn());
 
-    await expect(manager.clear(ID)).resolves.toEqual({ kind: "cleared" });
+    const report = await manager.cleanup(ID);
 
-    expect(order).toEqual(["teardown", "probe"]);
-    expect(manager.getSpawn(ID)).toBeUndefined();
+    expect(report.outcome.kind).toBe("refused");
+    expect(manager.getSpawn(ID)).toBeDefined();
+    expect(retentionOf(ID)).toBeUndefined();
   });
 
-  it("keeps an owned checkout no recorded cwd can address", async () => {
-    const spawn = clearable();
-    delete spawn.execution.spawnCtx;
-
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "kept",
-      path: checkout,
-      reason: {
-        kind: "unverifiable",
-        detail: "the run recorded no repository cwd",
-      },
-    });
-
-    expect(isWorktreeDirtyMock).not.toHaveBeenCalled();
-    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
-    expect(manager.getSpawn(ID)).toBe(spawn);
-  });
-
-  it("clears a spawn whose checkout is already gone", async () => {
-    const spawn = clearable();
-    const worktree = spawn.display.worktree;
-    if (worktree?.kind !== "owned") throw new Error("fixture owns no checkout");
-    worktree.path = path.join(checkout, "gone");
-
-    await expect(manager.clear(ID)).resolves.toEqual({ kind: "cleared" });
-
-    expect(isWorktreeDirtyMock).not.toHaveBeenCalled();
-    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
-    expect(manager.getSpawn(ID)).toBeUndefined();
-  });
-
-  it("runs one teardown for a spawn already clearing, and no revive beside it", async () => {
-    let confirmRemoval!: (removed: boolean) => void;
-    const pending = new Promise<boolean>((resolve) => {
-      confirmRemoval = resolve;
-    });
-    removeHerdrWorktreeMock.mockReturnValue(pending);
-    clearable();
-
-    const first = manager.clear(ID);
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "refused",
-      reason: "in-flight",
-    });
-    // A steer would revive the run into the worktree being cleaned up.
-    await expect(manager.steer(ID, "one more turn")).resolves.toEqual({
-      kind: "refused",
-      reason: expect.stringContaining("being cleaned up"),
-    });
-
-    confirmRemoval(true);
-    await expect(first).resolves.toEqual({ kind: "cleared" });
-    expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
-    expect(manager.getSpawn(ID)).toBeUndefined();
-  });
-
-  it("refuses a clear that races a harness teardown already in flight", async () => {
-    let releaseTeardown!: () => void;
-    const pending = new Promise<void>((resolve) => {
-      releaseTeardown = resolve;
-    });
-    harnessForMock.mockReturnValue({
-      id: "pig",
-      available: () => true,
-      prepare: async () => {},
-      buildArgs: (request: never) => request,
-      teardown: () => pending,
-    });
-    const spawn = clearable();
-    spawn.execution.harness = "pig";
-    isWorktreeDirtyMock.mockResolvedValue(false);
-
-    // The claim is taken in the same turn as the check, so a clear arriving
-    // while the teardown runs is refused rather than removing the checkout
-    // twice: every launched run records a harness, so this is the common path.
-    const first = manager.clear(ID);
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "refused",
-      reason: "in-flight",
-    });
-
-    releaseTeardown();
-    await expect(first).resolves.toEqual({ kind: "cleared" });
-    expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses an id no spawn answers", async () => {
-    await expect(manager.clear("deadbeef")).resolves.toEqual({
-      kind: "refused",
-      reason: "unknown-id",
-    });
-  });
-
-  it("waits for an in-flight clear before cleaning the same agent", async () => {
+  it("serializes a cleanup behind an in-flight cleanup of the same agent", async () => {
     let confirmRemoval!: (removed: boolean) => void;
     const pending = new Promise<boolean>((resolve) => {
       confirmRemoval = resolve;
@@ -2131,37 +1984,17 @@ describe("AgentManager.clear — teardown ordering", () => {
     removeHerdrWorktreeMock
       .mockReturnValueOnce(pending)
       .mockResolvedValue(true);
-    clearable();
+    registerSpawn(manager, completed());
 
-    const clear = manager.clear(ID);
-    const cleanup = manager.cleanup(ID);
-
-    confirmRemoval(true);
-    await expect(clear).resolves.toEqual({ kind: "cleared" });
-    // The clear took the spawn, so the waiting cleanup finds nothing to tear down.
-    await expect(cleanup).rejects.toThrow(/not found/);
-    expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("refuses a clear while the same agent is being cleaned up", async () => {
-    let confirmRemoval!: (removed: boolean) => void;
-    const pending = new Promise<boolean>((resolve) => {
-      confirmRemoval = resolve;
-    });
-    removeHerdrWorktreeMock.mockReturnValue(pending);
-    clearable();
-
-    const cleanup = manager.cleanup(ID);
-    await expect(manager.clear(ID)).resolves.toEqual({
-      kind: "refused",
-      reason: "in-flight",
-    });
+    const first = manager.cleanup(ID);
+    const second = manager.cleanup(ID);
 
     confirmRemoval(true);
-    await expect(cleanup).resolves.toMatchObject({
+    await expect(first).resolves.toMatchObject({
       worktree: { kind: "removed" },
     });
+    // The first teardown dropped the spawn, so the waiting cleanup finds nothing.
+    await expect(second).rejects.toThrow(/not found/);
     expect(removeHerdrWorktreeMock).toHaveBeenCalledTimes(1);
-    expect(manager.getSpawn(ID)).toBeUndefined();
   });
 });

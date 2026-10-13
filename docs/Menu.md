@@ -114,25 +114,23 @@ The screen title is `Status`. It lists every spawned, queued, and settled agent.
 
 Select an agent to open the actions available for it. The actions depend on the state of the agent.
 
-| Action        | What it does                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles.                                                            |
-| `View result` | Reads the report the agent wrote.                                                                                                                                  |
-| `View error`  | Reads the error from a failed agent.                                                                                                                               |
-| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                                                                             |
-| `Clear`       | Removes a settled agent from the list and removes its worktree. A worktree with uncommitted changes or unmerged commits is kept, and the message gives the reason. |
-| `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`.                                                               |
+| Action        | What it does                                                                                                                                                                                              |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles.                                                                                                   |
+| `View result` | Reads the report the agent wrote.                                                                                                                                                                         |
+| `View error`  | Reads the error from a failed agent.                                                                                                                                                                      |
+| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                                                                                                                    |
+| `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`. A worktree with uncommitted changes or unverifiable state is kept, and the message gives the reason. |
 
 The list also carries bulk actions. They sit in a group of their own below the per-agent ones, and each acts on every agent it names.
 
-| Action                          | What it does                                                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `Stop N active agent(s)`        | Stops every running agent.                                                                      |
-| `Clean up N settled agent(s)`   | Cleans up every settled agent.                                                                  |
-| `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has.              |
-| `Clear all (remove worktrees)`  | Clears every settled agent, including failed and stopped ones. Active agents are never cleared. |
+| Action                          | What it does                                                                                          |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `Stop N active agent(s)`        | Stops every running agent.                                                                            |
+| `Clean up N settled agent(s)`   | Cleans up every settled agent, including failed and stopped ones. Active agents are never cleaned up. |
+| `Clean up N completed agent(s)` | Cleans up every agent that completed successfully. The row appears only when one has.                 |
 
-The bulk clears keep a worktree that has uncommitted changes or unmerged commits, the same as `Clear`.
+A cleanup that keeps a worktree records the reason on the spawn, so the list still states it.
 
 ## `/cowboy spawn` - Spawn Options
 

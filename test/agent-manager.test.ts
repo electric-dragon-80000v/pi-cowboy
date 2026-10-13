@@ -716,25 +716,29 @@ describe("AgentManager fleet routing", () => {
     manager.dispose();
   });
 
-  it("refuses clear on a queued session and clears it once terminal", async () => {
+  it("refuses cleanup on a queued session and cleans it once terminal", async () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));
     const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
     const id = spawnQueued(manager);
 
-    await expect(manager.clear(id)).resolves.toEqual({
+    const refusal = await manager.cleanup(id);
+    expect(refusal.outcome).toEqual({
       kind: "refused",
-      reason: "not-terminal",
+      reason: { kind: "agent-active", phase: "queued" },
     });
+    expect(manager.getSpawn(id)).toBeDefined();
 
     await manager.abort(id, "user");
 
     // No owned checkout: nothing to tear down, so the spawn drops outright.
-    await expect(manager.clear(id)).resolves.toEqual({ kind: "cleared" });
+    const report = await manager.cleanup(id);
+    expect(report.outcome).toEqual({ kind: "torn-down" });
+    expect(report.worktree).toEqual({ kind: "none" });
     expect(manager.getSpawn(id)).toBeUndefined();
     expect(fake.cancelled).toEqual([id]);
   });
 
-  it("refuses clear on a spawned session", async () => {
+  it("refuses cleanup on a spawned session", async () => {
     const fake = recordingPools(() => ({
       kind: "start" as const,
       reservation: [{ limit: 1, spawned: 0 }],
@@ -750,10 +754,12 @@ describe("AgentManager fleet routing", () => {
       phase: "spawned",
     });
 
-    await expect(manager.clear(id)).resolves.toEqual({
+    const report = await manager.cleanup(id);
+    expect(report.outcome).toEqual({
       kind: "refused",
-      reason: "not-terminal",
+      reason: { kind: "agent-active", phase: "spawned" },
     });
+    expect(manager.getSpawn(id)).toBeDefined();
     manager.dispose();
   });
 

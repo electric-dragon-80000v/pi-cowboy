@@ -1,7 +1,6 @@
 /**
  * agent-manager.ts — Fleet controller for independently running subagents.
- * Exports AgentManager, ClearOutcome/ClearRefusal; re-exports spawn and steer
- * types.
+ * Exports AgentManager; re-exports spawn and steer types.
  */
 
 import type {
@@ -29,7 +28,6 @@ import {
   ALL_AGENT_PHASES,
   hasOutcome,
   lifecycleStartTime,
-  lifecycleStatus,
   type AgentPhase,
   type AgentSpawn,
   type StopInitiator,
@@ -38,14 +36,13 @@ import {
 import { FileDeliverable } from "../subagent/deliverable.js";
 import { removeResultArtifacts } from "../subagent/result-artifacts.js";
 import type { SupervisorTransport } from "../subagent/pane-supervisor.js";
-import { createCleanup, type WorktreeRemovalTarget } from "./agent-cleanup.js";
-import { harnessFor } from "./harness/registry.js";
+import { createCleanup } from "./agent-cleanup.js";
 import {
   createHerdrAgentAssets,
   type AgentAssets,
   type LocateResult,
 } from "./agent-assets.js";
-import type { CleanupReport, WorktreeTarget } from "./cleanup-policy.js";
+import type { CleanupReport } from "./cleanup-policy.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
   SubagentSession,
@@ -70,61 +67,30 @@ type OnAgentComplete = (spawn: AgentSpawn) => void;
 /** A report from an agent that already settled: news beyond its recorded result. */
 type OnAgentFollowUp = (spawn: AgentSpawn, deliverable: string) => void;
 
-/** Why a clear touched nothing: no such spawn, one still live, or one already clearing. */
-export type ClearRefusal = "unknown-id" | "not-terminal" | "in-flight";
-
-/**
- * What one clear did: the spawn dropped with its worktree confirmed gone, or
- * the spawn kept and listed with the reason that checkout survived.
- */
-export type ClearOutcome =
-  | { kind: "cleared" }
-  | { kind: "kept"; path: string; reason: WorktreeRetentionReason }
-  | { kind: "removal-failed"; path: string; detail: string }
-  | { kind: "refused"; reason: ClearRefusal };
-
-/** Where a spawn's owned worktree is cleaned up from; `none` means it owns none. */
-type RemovalAddress =
-  | { kind: "owned"; target: WorktreeRemovalTarget }
-  | { kind: "unaddressable"; path: string }
-  | { kind: "none" };
-
-/**
- * Removal address for a spawn's owned checkout. An owned checkout that no
- * recorded repository cwd can reach is `unaddressable`: its teardown has no
- * place to run, which is not the same as having none left to remove.
- */
-function removalAddressFor(spawn: AgentSpawn): RemovalAddress {
-  const worktree = spawn.display.worktree;
-  if (worktree?.kind !== "owned") return { kind: "none" };
-  const repoCwd = spawn.execution.spawnCtx?.cwd;
-  if (!repoCwd) return { kind: "unaddressable", path: worktree.path };
-  const target: WorktreeTarget = {
-    workspaceId: spawn.execution.host?.workspaceId,
-    worktreePath: worktree.path,
-    repoCwd,
-    branchName: worktree.branch,
-  };
-  const host = spawn.execution.host;
-  return {
-    kind: "owned",
-    target:
-      host === undefined
-        ? { kind: "detached", worktree: target, pane: null }
-        : {
-            kind: "adopted",
-            worktree: { ...target, workspaceId: host.workspaceId },
-            pane: null,
-            ref: host,
-          },
-  };
-}
-
 const log = createLogger("manager");
 
-function isTerminal(spawn: AgentSpawn): boolean {
-  const status = lifecycleStatus(spawn.lifecycle);
-  return status !== "spawned" && status !== "queued";
+/**
+ * The keep reason a cleanup report carries for a spawn that stays listed. A
+ * refusal for a live or contested run names no worktree state, so only a
+ * dirty or unverifiable reason is recordable; an unconfirmed removal is
+ * recorded as unverifiable with the removal's detail.
+ */
+function retentionForReport(
+  report: CleanupReport,
+): WorktreeRetentionReason | undefined {
+  if (report.outcome.kind === "refused") {
+    const reason = report.outcome.reason;
+    return reason.kind === "dirty" || reason.kind === "unverifiable"
+      ? reason
+      : undefined;
+  }
+  if (report.worktree.kind === "removal-failed") {
+    return {
+      kind: "unverifiable",
+      detail: `the removal was not confirmed (${report.worktree.detail})`,
+    };
+  }
+  return undefined;
 }
 
 /** Fleet controller; each session owns exactly one lifecycle. */
@@ -135,8 +101,8 @@ export class AgentManager {
   private onFollowUp?: OnAgentFollowUp;
   /**
    * Teardowns in flight, by agent id. One teardown owns an id's artifacts at a
-   * time: a clear that arrives during one is refused, and a cleanup waits for
-   * the running one instead of racing it for the same checkout.
+   * time: a cleanup that arrives while one runs waits for it instead of racing
+   * it for the same checkout.
    */
   private readonly teardowns = new Map<string, Promise<unknown>>();
   /** The resource limiter the fleet drives directly; sessions charge their capacity to it. */
@@ -314,90 +280,6 @@ export class AgentManager {
       );
   }
 
-  /**
-   * Clear a terminal spawn: tear its owned checkout down first and drop the
-   * spawn only once the removal is confirmed. A kept or failed removal leaves
-   * the spawn listed, with the reason recorded, so the caller can report it and
-   * the operator can retry it. Spawn-keyed so a spawn whose session is gone
-   * stays clearable.
-   */
-  async clear(id: string): Promise<ClearOutcome> {
-    const spawn = getAgentSpawns().get(id);
-    if (!spawn) return { kind: "refused", reason: "unknown-id" };
-    if (!isTerminal(spawn)) return { kind: "refused", reason: "not-terminal" };
-    // The first teardown's verdict is the answer for every clear that arrives
-    // while it runs; a second removal of the same checkout would race the first.
-    if (this.teardowns.has(id)) return { kind: "refused", reason: "in-flight" };
-    // Claimed in the same turn as the check: the invoked removal runs only
-    // its synchronous prefix and returns a pending promise, so a clear
-    // arriving while one runs still reads the claim instead of duplicating it.
-    const removal = this.runClearRemoval(spawn);
-    this.teardowns.set(id, removal);
-    try {
-      return await removal;
-    } finally {
-      // A cleanup may have queued behind this removal and taken the id over.
-      if (this.teardowns.get(id) === removal) this.teardowns.delete(id);
-    }
-  }
-
-  /**
-   * One clear's work, in order: the harness's state leaves the checkout
-   * before the removal path probes or removes anything (see cleanupAgent's
-   * teardown), then the owned checkout goes.
-   */
-  private async runClearRemoval(spawn: AgentSpawn): Promise<ClearOutcome> {
-    if (spawn.execution.harness !== undefined) {
-      await this.teardownHarnessState(spawn);
-    }
-    const address = removalAddressFor(spawn);
-    if (address.kind === "none") {
-      this.dropSpawn(spawn);
-      return { kind: "cleared" };
-    }
-    if (address.kind === "unaddressable") {
-      const reason: WorktreeRetentionReason = {
-        kind: "unverifiable",
-        detail: "the run recorded no repository cwd",
-      };
-      this.recordRetention(spawn, reason);
-      return { kind: "kept", path: address.path, reason };
-    }
-    return this.runRemoval(spawn, address.target);
-  }
-
-  /** Tear one owned checkout down and settle the spawn on what it did. */
-  private async runRemoval(
-    spawn: AgentSpawn,
-    target: WorktreeRemovalTarget,
-  ): Promise<ClearOutcome> {
-    const outcome = await createCleanup(this.assets()).removeWorktree(target);
-    switch (outcome.kind) {
-      case "removed":
-      case "absent":
-        this.dropSpawn(spawn);
-        return { kind: "cleared" };
-      case "kept":
-        this.recordRetention(spawn, outcome.reason);
-        return { kind: "kept", path: outcome.path, reason: outcome.reason };
-      case "removal-failed":
-        this.recordRetention(spawn, {
-          kind: "unverifiable",
-          detail: `the removal was not confirmed (${outcome.detail})`,
-        });
-        log.warn("worktree removal failed after clear", {
-          spawnId: spawn.id,
-          path: outcome.path,
-          detail: outcome.detail,
-        });
-        return {
-          kind: "removal-failed",
-          path: outcome.path,
-          detail: outcome.detail,
-        };
-    }
-  }
-
   async abort(id: string, initiator?: StopInitiator): Promise<boolean> {
     return (await this.sessions.get(id)?.abort(initiator)) ?? false;
   }
@@ -437,36 +319,9 @@ export class AgentManager {
     reason: WorktreeRetentionReason,
   ): void {
     const lifecycle = spawn.lifecycle;
-    // Clear takes only an ended spawn, so the ended phases can carry the reason.
+    // The reason lives on the ended phases; an active spawn records none.
     if (hasOutcome(lifecycle)) {
       lifecycle.worktreeRetentionReason = reason;
-    }
-  }
-
-  /**
-   * Tear down the harness recorded at launch — never a re-resolution: the
-   * harness that prepared the pane is the one that undoes its state.
-   * Best-effort and ordered before the dirty probe — see Harness.teardown.
-   */
-  private async teardownHarnessState(spawn: AgentSpawn): Promise<void> {
-    const harnessId = spawn.execution.harness;
-    if (harnessId === undefined) return;
-    try {
-      await harnessFor(harnessId).teardown({
-        pi: getPiInstance(),
-        paneId: spawn.execution.host?.paneId ?? null,
-        cwd:
-          spawn.display.worktree?.kind === "owned"
-            ? spawn.display.worktree.path
-            : null,
-        subagentId: spawn.id,
-      });
-    } catch (error) {
-      log.warn("harness teardown failed before worktree removal", {
-        spawnId: spawn.id,
-        harness: harnessId,
-        error: errorMessage(error),
-      });
     }
   }
 
@@ -519,6 +374,13 @@ export class AgentManager {
       },
       opts,
     );
+    // A spawn the teardown kept stays listed with the reason its checkout
+    // survived; a dropped spawn has no record left to annotate.
+    const kept = this.getSpawn(id);
+    if (kept !== undefined) {
+      const retention = retentionForReport(report);
+      if (retention !== undefined) this.recordRetention(kept, retention);
+    }
     // A teardown that finished the run takes the staging directory with it even
     // when its spawn is kept (a failed or unconfirmed removal): the artifacts
     // are ephemeral, and a later retry does not read them. A refusal removed
