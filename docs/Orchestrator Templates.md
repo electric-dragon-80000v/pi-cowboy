@@ -78,7 +78,7 @@ name = "with code review"
 display_name = "with code review"
 
 # (optional) Instructions for the agent, copied verbatim into the agent prompt. When you omit it, the key inherits the base template's guidance; an empty string clears it.
-guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. (This applies even if the task prompt says not to commit — commits stay on that branch and are needed for merging.)"
+guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. Never make any commits without user approval"
 
 # (optional) The [cues] table. An event that you leave out falls through to the base template's cue.
 [cues]

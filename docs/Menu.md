@@ -123,12 +123,12 @@ Select an agent to open the actions available for it, which depend on the state 
 
 The list also carries bulk actions, which sit in a group of their own below the per-agent ones and act on every agent they name.
 
-| Action                          | What it does                                  |
-| ------------------------------- | --------------------------------------------- |
-| `Stop N active agent(s)`        | Stops every running agent.                    |
-| `Clean up N settled agent(s)`   | Cleans up every settled agent.                |
-| `Clear done (remove worktrees)` | Clears every agent that ran to completion.    |
-| `Clear all (remove worktrees)`  | Clears every agent that is no longer running. |
+| Action                          | What it does                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Stop N active agent(s)`        | Stops every running agent.                                                                                                |
+| `Clean up N settled agent(s)`   | Cleans up every settled agent.                                                                                            |
+| `Clear done (remove worktrees)` | Clears every agent that completed successfully. The row appears only when one has.                                        |
+| `Clear all (remove worktrees)`  | Clears every settled agent, including failed and stopped ones. The label says "all," but active agents are never cleared. |
 
 ## `/cowboy spawn` — Spawn Options
 
