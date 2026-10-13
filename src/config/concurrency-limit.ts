@@ -9,8 +9,6 @@ import { z } from "zod";
 /** A concurrency slot limit: an integer of at least 1. */
 export const ConcurrencyLimitSchema = z.number().int().min(1);
 
-export type ConcurrencyLimit = z.infer<typeof ConcurrencyLimitSchema>;
-
 /** Expected-clause for warnings and refusals naming this schema. */
 export const CONCURRENCY_LIMIT_EXPECTED = "positive integer";
 

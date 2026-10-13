@@ -166,7 +166,7 @@ interface QueuedSpawn {
 export type SpawnAdmission =
   { kind: "start"; reservation: PoolReservation } | { kind: "queue" };
 
-/** Limits are floored at one: a configured 0 means one at a time, never "no limit". */
+/** A limit is a slot count, never an "unlimited" switch: a pool is floored at one. */
 function clampLimit(limit: number): number {
   return Math.max(1, limit);
 }
