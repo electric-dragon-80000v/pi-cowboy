@@ -27,13 +27,13 @@ Keys nest inside the two top-level objects, `agent` and `concurrency`. A minimal
 
 ## Layers
 
-The project values override the global values. The global values override the built-in defaults. Each file contains only its own keys. You can also set concurrency limits for the running session from the menu. No session limit is stored in either file. Both files stay exactly as you wrote them: pi-cowboy never writes the merged result back, and it never overwrites a malformed one. If a file is malformed, fix it or delete it by hand.
+The project values override the global values, which override the built-in defaults. Each file contains only its own keys. You can also set concurrency limits for the running session from the menu; no session limit is stored in either file.
 
-The project file can contain only model keys, `agent.defaultThinking`, and concurrency keys. Model keys are `agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>`. Outside the table below, pi-cowboy reads any other agent key as a per-type model override and ignores every other key in the project file. pi-cowboy never writes the file of an untrusted project.
+pi-cowboy never writes either file back. It leaves each file exactly as you wrote it, and it never overwrites a malformed one. If a file is malformed, fix it or delete it by hand.
 
-pi-cowboy ignores an invalid value and reports a warning. The warning names the file, the key, the value found, and the value expected. The built-in default then applies.
+The project file can contain only model keys, `agent.defaultThinking`, and concurrency keys. Model keys are `agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>`. Any other `agent` key is read as a per-type model override, and any other key is ignored. pi-cowboy never writes the file of an untrusted project.
 
-This project file shows both rules: which keys the project file may contain, and what happens to a value that is not valid.
+pi-cowboy ignores an invalid value, reports a warning that names the file, the key, and the value found, and applies the built-in default.
 
 ```json
 {
@@ -47,7 +47,7 @@ This project file shows both rules: which keys the project file may contain, and
 }
 ```
 
-`defaultThinking` applies. `defaultAgentType` does not set the spawn default: by the rule above pi-cowboy reads it as the per-type model override for a type named `defaultAgentType`. pi-cowboy ignores `concurrency.default` as invalid, and the built-in global limit of 4 applies.
+Here `defaultThinking` applies. `defaultAgentType` is read as a model override, and the invalid `concurrency.default` falls back to 4.
 
 ## `agent`
 
@@ -78,13 +78,13 @@ Applies when no other rule in [Model keys](#model-keys) applies.
 
 ### The custom system prompt file
 
-The custom system prompt file is a plain Markdown file. pi-cowboy reads it when `agent.systemPromptMode` is `custom`, and its contents become the opening section of the agent's system prompt. The environment block, the context files, the agent instructions, and the skills and guidance sections are appended after them.
+The custom system prompt file is a plain Markdown file. pi-cowboy reads it when `agent.systemPromptMode` is `custom`, and its contents open the agent's system prompt.
 
 If the file is missing or empty, pi-cowboy reports a warning and the agent runs on the `replace` prompt.
 
 ### `agent.systemPromptMode`
 
-The mode decides what text, if any, opens the agent's system prompt. It does not affect the rest of the prompt: the environment block, the context files, the agent instructions, the skills, and the worktree and orchestrator sections are the same in all three modes.
+The mode decides what text, if any, opens the agent's system prompt.
 
 - `replace` (the default) opens with no inherited text, so the agent's prompt is the one pi-cowboy builds from its own sections.
 - `inherit` opens with the prompt of the parent session. If that prompt cannot be read, pi-cowboy reports a warning and the agent runs on the `replace` prompt.
@@ -96,9 +96,7 @@ When this is unset, pi's own default thinking level applies.
 
 ### `agent.includeContextFiles`
 
-pi-cowboy loads pi's context files as shared project context. It loads the agent dir's file first, then one file per directory from the agent's working directory up to the filesystem root, and in each directory the first of `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, and `CLAUDE.MD` wins. An agent template can override this key.
-
-For an agent started in `src/` of a repository that has `AGENTS.md` at its root and `CLAUDE.md` in `src/`, that climb loads the agent dir's file, then `src/CLAUDE.md`, then the root `AGENTS.md`, and stops as soon as the root is reached.
+pi-cowboy loads pi's context files from the agent dir and from each directory between the agent's working directory and the filesystem root. An agent template can override this key.
 
 ### `agent.loadSkillsImplicitly`
 
@@ -123,60 +121,45 @@ An unset value uses `<agent dir>/pi-cowboy/worktrees`. A relative path resolves 
 ### `agent.worktreeMaterialization`
 
 - `copy-on-write` clones files from the parent instead of checking them out. Which files it carries depends on [`worktreeCheckoutType`](#agentworktreecheckouttype).
-- `checkout` keeps git's classic checkout and clones nothing from the parent, though it can still take over the parent's tracked changes as a diff applied on top. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).
+- `checkout` uses git's classic checkout and clones nothing from the parent.
 
-When `copy-on-write` is selected, pi-cowboy first probes the target filesystem. A filesystem without copy-on-write support, such as ext4, falls back to `checkout` instead of failing. Both at session start and whenever you change `agent.worktreeRoot`, the probe runs.
+If the filesystem cannot clone, such as ext4, `copy-on-write` falls back to `checkout` instead of failing.
 
 ### `agent.worktreeCheckoutType`
 
-Sets what a new worktree takes over from a dirty parent working tree. Both materializations honor it; they differ in how much a dirty parent can hand over.
+Decides whether a new worktree carries the parent's uncommitted work. `clean` starts the worktree at HEAD. `dirty` carries the parent's tracked changes, and with `copy-on-write` the untracked files too. A clean parent has nothing to carry, so both settings start the worktree at HEAD.
 
-- With `clean`, the worktree starts at HEAD. `copy-on-write` checks out the tracked files from HEAD and copies only the ignored files; `checkout` is git's plain checkout of HEAD.
-- With `dirty`, a `copy-on-write` worktree clones the whole parent working tree, so its edits and its untracked files ride along; a `checkout` worktree has the parent's tracked changes applied on top, while its untracked and ignored state stays behind.
-
-A clean parent has no uncommitted work to carry, so both materializations start the worktree at HEAD.
+The per-template override is documented in [Agent Templates](Agent%20Templates.md).
 
 ### `agent.harnessType`
 
-- `pi` is the binary that already runs the pane.
-- `pig` and `pi-bolt` are pi-compatible binaries launched through a shell function in the agent's own pane, so only their startup differs.
-- `opencode` is its own binary, launched as its minimal interactive UI with the task on stdin.
-- `codex` is its own binary, launched as its interactive TUI with the task as its positional prompt.
-- `claude` is its own binary, launched as its interactive TUI with the task appended by its pane launcher. Its tool lists use claude's own tool names.
+- `pi`: the default. Runs the pane's pi binary.
+- `pig`, `pi-bolt`: pi-compatible binaries.
+- `opencode`, `codex`, `claude`: their own CLIs, each with its own model catalogue and default model.
 
-`opencode`, `codex`, and `claude` each have their own model catalogue and default model. `pi`, `pig`, and `pi-bolt` use pi's.
+If the harness is not on `PATH`, the setting falls back to `pi`.
 
-pi-cowboy probes `PATH` once at extension load. A `harnessType` setting that is not found on `PATH` falls back to `pi`. The key accepts all six values on every machine, so a config file or template written where a harness exists still loads where it does not.
-
-A `cowboy_agent` call can override this per item with its `harness_type` parameter. Unlike the template and config values, an explicit `harness_type` has no fallback: when this machine cannot launch that harness, the call fails instead of falling back to pi.
+A `cowboy_agent` call can override this per item with its `harness_type` parameter. An explicit `harness_type` does not fall back: when this machine cannot launch that harness, the call fails.
 
 ### `agent.defaultModelByHarness`
 
-The default model per harness, keyed by harness id: each value is that harness's own `"provider/model-id"` key or `null`. It fills the per-harness default slot in [Model keys](#model-keys). A session entry set from the model settings screen sits above the project layer, which sits above the global layer.
-
-The pi family runs one binary and shares one default, so only a harness outside it needs an entry: `agent.default` serves `pi`, `pig`, and `pi-bolt`. A missing or `null` entry means that harness has no default; the parent session's model is pi's, so no other harness inherits it, and that launch runs that binary's own default model.
+The default model per harness, keyed by harness id. Each value is that harness's own `"provider/model-id"` key or `null`. The pi family (`pi`, `pig`, `pi-bolt`) shares `agent.default`, so only other harnesses need an entry. A missing or `null` entry means that harness runs its own default model.
 
 Merging is entry by entry: a project value for one harness overrides only that harness's global value.
 
 ### Model keys
 
-`agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>` contain a model as `"provider/model-id"`. With a value of `null`, the chain falls through to the next entry; the parent session's model is inherited only by a pi-family launch.
+`agent.default`, `agent.defaultModelByHarness`, and `agent.<agent-type>` contain a model as `"provider/model-id"`. A `null` value falls through to the next entry.
 
 Model resolution order, highest precedence first:
 
 1. The `model` in a `cowboy_agent` call.
 2. Session per-type override.
 3. `agent.<agent-type>` in the config.
-4. The agent template's model for the launching harness's family: the `[harness.pi] model` key (also accepted flat as `[harness] model`) writes the pi family's entry, `[harness.opencode] model` writes opencode's, `[harness.codex] model` writes codex's, and `[harness.claude] model` writes claude's; any other family's key contributes nothing.
+4. The agent template's model for the launching harness's family. Keys for other families contribute nothing.
 5. Session default model.
 6. The launching harness's default model: `agent.default` for the pi family, `agent.defaultModelByHarness` for any other harness.
-7. The parent session model, for a pi-family launch only, because a parent session runs pi and its key is therefore pi's vocabulary.
-
-A launch under a harness outside the pi family carries its model key as written: the key is that harness's own vocabulary, and pi-cowboy hands it over without translating it through pi's catalogue. It reads that harness's own model catalogue only to warn when a non-empty catalogue does not know the key, never to refuse it; an empty catalogue (the command failed) warns about nothing and the key is still carried. Two flags reshape the key at the boundary, and only there: codex's `-m` takes the bare slug, so a codex launch drops the `openai/` provider its stored keys share, and claude's CLI takes a bare alias, so a claude launch drops the `anthropic/` prefix (`anthropic/sonnet` rides as `sonnet`).
-
-Run one case through the order: a `reviewer` whose template sets `model = "anthropic/claude-sonnet-4"`, the pi family's key, uses that model under a pi launch, unless `/cowboy` holds a model override for `reviewer` or the config sets `agent.reviewer`. Under an opencode launch that same key contributes nothing, so the chain falls through to opencode's default from `agent.defaultModelByHarness`, and never to the parent session's model.
-
-Without a template model, the same `reviewer` falls through to the session default set by `/cowboy model`, then to the launching harness's default (`agent.default` under pi), and then, under pi only, to the parent session's model.
+7. The parent session model, for a pi-family launch only.
 
 ## `concurrency`
 

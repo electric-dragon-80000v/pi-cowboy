@@ -109,7 +109,7 @@ fork = false
 # (optional) Settings only codex reads: the model alone. codex has no tools flag, so this table carries no tool pair.
 [harness.codex]
 
-# (optional) Model for this agent as "provider/model-id", a key in codex's catalogue. A codex launch reads this key and passes its slug to the CLI's `-m` flag; a pi launch never does.
+# (optional) Model for this agent as "provider/model-id", a key in codex's catalogue. A codex launch reads this key and passes its bare slug to the CLI's `-m` flag, dropping the `openai/` provider; a pi launch never does.
 # model = "openai/gpt-6-sol"
 
 # (optional) Settings only claude reads. Its tool lists are claude's own tool names, carried onto `--tools` / `--disallowedTools` exactly as written; its model key is an `anthropic/<alias>` entry, and the launch strips the prefix to the bare alias the CLI takes.
