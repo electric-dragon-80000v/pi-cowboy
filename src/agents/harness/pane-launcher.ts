@@ -87,11 +87,11 @@ export interface PaneProof {
 }
 
 /**
- * Break the marker with a `""` so only the shell's evaluation of the command —
+ * Split a marker with a `""` so that only the shell's evaluation of a command —
  * not the command line's own echo, which `wait-output` also sees — produces the
  * contiguous token.
  */
-function splitMarker(marker: string): string {
+export function splitMarker(marker: string): string {
   const at = marker.indexOf("_");
   return at === -1
     ? marker

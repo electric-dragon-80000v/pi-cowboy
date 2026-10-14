@@ -41,6 +41,7 @@ import type {
 import {
   installPaneLauncher,
   singleQuoteShellWord,
+  splitMarker,
   type PaneProof,
 } from "../pane-launcher.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
@@ -49,10 +50,10 @@ import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 const LIST_MODELS_TIMEOUT_MS = 10_000;
 
 /**
- * Budget for the pane's `opencode agent list`. The command boots the CLI, so it
- * is slower than a shell builtin but answers in about a second on 1.18.35.
+ * Budget for the pane's definition proof. The probe boots the CLI and a private
+ * server, so it is slower than a shell builtin but answers in a few seconds.
  */
-const AGENT_LIST_TIMEOUT_MS = 15_000;
+const DEFINITION_PROOF_TIMEOUT_MS = 30_000;
 
 /** The command herdr types into the pane; the launcher is installed under it. */
 const OPENCODE_COMMAND = "opencode";
@@ -63,10 +64,25 @@ const LAUNCHER_SIGNATURE = "OPENCODE_LAUNCHER_7d3e91";
 /** Token the verify command echoes once the launcher body is confirmed. */
 const LAUNCHER_READY_MARKER = "OPENCODE_VERIFIED";
 
+/** Token the definition proof echoes once the staged definition is confirmed. */
+const DEFINITION_READY_MARKER = "OPENCODE_DEFINITION_VERIFIED";
+
 /**
- * The launcher body: opencode's config directory and the two switches that keep
- * a spawn from reading anyone else's configuration, then the real binary with
- * the pane's own arguments and the task on stdin.
+ * The model the definition proof asks for: a key no catalogue can resolve, so
+ * the probe is answered by the model rather than by a request.
+ */
+const PROOF_MODEL = "pi-cowboy/opencode-definition-proof";
+
+/** The message the proof submits; it is never sent, because the model is not. */
+const PROOF_MESSAGE = "definition probe";
+
+/** What opencode reports when it resolved the agent but not the model. */
+const MODEL_FAILURE = "Model unavailable";
+
+/**
+ * The launcher body: opencode's config directory and the switch that keeps a
+ * spawn from reading anyone else's configuration, then the real binary with the
+ * pane's own arguments and the task on stdin.
  *
  * Bare `opencode` keeps the pane's `PATH` the authority on which binary runs,
  * and `command` bypasses this very function. The redirect is what delivers a
@@ -78,7 +94,6 @@ function launcherBody(configDir: string, taskFile: string): string {
   return [
     `export OPENCODE_CONFIG_DIR=${singleQuoteShellWord(configDir)}`,
     "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
-    "export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1",
     `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
   ].join("; ");
 }
@@ -87,23 +102,35 @@ function launcherBody(configDir: string, taskFile: string): string {
  * The proof that the staged definition is live, read back through the launcher
  * the pane just took.
  *
- * opencode falls back to its own default agent — no system prompt, no
- * permission map — when the named agent is missing or is not a primary agent,
- * and the fallback is a warning it prints rather than a failure: nothing in the
- * launch's argv or exit status reports one. `opencode agent list` is where the
- * answer can be read. The list is filtered in the pane to the one line this
- * wants: the unfiltered list runs past a thousand lines here (the staged agent
- * sorts last), which is deeper than the output herdr's literal `wait-output`
- * match searches, and `grep -x` pins the verified `^<subagentId> (primary)$`
- * line rather than accepting a mention of the id.
+ * opencode runs its own default agent — no system prompt, no permission rules —
+ * when the named agent is missing or is not a primary agent, and mini reports
+ * that by drawing the requested name over the default agent rather than by
+ * failing: nothing in the launch's argv or exit status says one happened. The
+ * proof asks a private server to resolve the agent, which is the only place the
+ * answer can be read. `--standalone` is load-bearing here: without it the CLI
+ * answers from the shared background server, which was started with another
+ * config directory and does not hold this definition at all.
+ *
+ * The probe names a model no catalogue can resolve, so a definition opencode
+ * read is reported by the model's failure and one it did not read is reported by
+ * the agent's, in that order, without a model request ever being made. The
+ * marker rides split, because the pane echoes the command line it was typed and
+ * that echo must not be able to answer the proof.
  */
 function definitionProof(subagentId: string): PaneProof {
-  const listed = `${subagentId} (primary)`;
+  const command = [
+    `${OPENCODE_COMMAND} run --standalone`,
+    `--agent ${singleQuoteShellWord(subagentId)}`,
+    `--model ${singleQuoteShellWord(PROOF_MODEL)}`,
+    `${singleQuoteShellWord(PROOF_MESSAGE)} 2>&1`,
+    `| grep -q ${singleQuoteShellWord(MODEL_FAILURE)}`,
+    `&& echo ${splitMarker(DEFINITION_READY_MARKER)}`,
+  ].join(" ");
   return {
-    command: `${OPENCODE_COMMAND} agent list | grep -x ${singleQuoteShellWord(listed)}`,
-    output: listed,
-    timeoutMs: AGENT_LIST_TIMEOUT_MS,
-    failure: `failed to prepare the pane: \`${OPENCODE_COMMAND} agent list\` never printed ${listed} — the definition staged for ${subagentId} is missing, unreadable, or not a primary agent, and opencode would fall back to its own default agent. The agent did not start.`,
+    command,
+    output: DEFINITION_READY_MARKER,
+    timeoutMs: DEFINITION_PROOF_TIMEOUT_MS,
+    failure: `failed to prepare the pane: \`${OPENCODE_COMMAND} run --standalone --agent ${subagentId}\` never reported the staged definition — the definition staged for ${subagentId} is missing, unreadable, or not a primary agent, and opencode would run its own default agent instead. The agent did not start.`,
   };
 }
 

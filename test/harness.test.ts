@@ -415,7 +415,7 @@ describe("prepare: opencode", () => {
       1,
       PI,
       "w1:p9",
-      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_CLAUDE_CODE_PROMPT=1; command opencode "$@" < '${taskFile}'; }`,
+      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; command opencode "$@" < '${taskFile}'; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
@@ -431,42 +431,43 @@ describe("prepare: opencode", () => {
     );
 
     // The tree the launcher names is really there, and carries the prompt the
-    // launch handed over plus the variant, which has no argv route.
+    // launch handed over.
     const definition = readFileSync(
       join(configDir, "agent", "esp02hpw.md"),
       "utf-8",
     );
     expect(definition).toContain("You review one diff.");
-    expect(definition).toContain("variant: high");
   });
 
-  it("reads the definition back through `opencode agent list` and requires a primary agent", async () => {
+  it("reads the definition back through a private server and requires the staged agent", async () => {
     await prepareOpencode();
 
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       3,
       PI,
       "w1:p9",
-      "opencode agent list | grep -x 'esp02hpw (primary)'",
+      "opencode run --standalone --agent 'esp02hpw' --model 'pi-cowboy/opencode-definition-proof' 'definition probe' 2>&1 | grep -q 'Model unavailable' && echo OPENCODE_\"\"DEFINITION_VERIFIED",
     );
+    // The marker is waited for unbroken: the pane echoes the command line it is
+    // typed, so the command carries it split.
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
       PI,
       "w1:p9",
-      "esp02hpw (primary)",
+      "OPENCODE_DEFINITION_VERIFIED",
       expect.any(Number),
     );
   });
 
-  it("fails loud when the pane never lists the staged definition as primary", async () => {
+  it("fails loud when the pane never confirms the staged definition", async () => {
     waitForPaneOutputMock.mockImplementation(async (_pi, _pane, match) => {
-      // The launcher's own verification still passes; only the agent list fails.
-      if (typeof match === "string" && match.endsWith("(primary)")) {
+      // The launcher's own verification still passes; only the proof fails.
+      if (match === "OPENCODE_DEFINITION_VERIFIED") {
         throw new Error("timed out waiting for pane output");
       }
     });
 
     await expect(prepareOpencode()).rejects.toThrow(
-      /never printed esp02hpw \(primary\).*did not start/s,
+      /never reported the staged definition.*did not start/s,
     );
   });
 
