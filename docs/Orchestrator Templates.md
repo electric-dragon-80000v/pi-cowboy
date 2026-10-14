@@ -40,12 +40,12 @@ Every custom orchestrator template starts from the built-in `default` template, 
 
 ## Fields
 
-| Field          | Type              | Default                  | Description                                                                                                                        |
-| -------------- | ----------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `name`         | string (required) | (required)               | Template identifier used in configuration and layer merging.                                                                       |
-| `display_name` | string            | `name` (or inherited)    | Label shown in `/cowboy` > `Default orchestrator`.                                                                                 |
-| `guidance`     | string            | inherited from `default` | Instructions appended verbatim as the final section of every spawned agent's system prompt. Set to `""` to clear inherited text.   |
-| `[cues]`       | table             | inherited per event      | Mustache templates for the `spawned`, `queued`, and `settled` events.                                                              |
+| Field          | Type              | Default                  | Description                                                                                                                      |
+| -------------- | ----------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | string (required) | (required)               | Template identifier used in configuration and layer merging.                                                                     |
+| `display_name` | string            | `name` (or inherited)    | Label shown in `/cowboy` > `Default orchestrator`.                                                                               |
+| `guidance`     | string            | inherited from `default` | Instructions appended verbatim as the final section of every spawned agent's system prompt. Set to `""` to clear inherited text. |
+| `[cues]`       | table             | inherited per event      | Mustache templates for the `spawned`, `queued`, and `settled` events.                                                            |
 
 ## Cues
 
@@ -57,29 +57,29 @@ Every cue event provides its own set of allowed variables. Referencing a variabl
 
 All three cue events provide these worktree variables when the agent runs in a worktree. When an agent runs without a worktree, these variables are omitted (rather than set to empty strings), so you can branch on `{{#has_worktree}}...{{/has_worktree}}`:
 
-| Variable          | Description                                      |
-| ----------------- | ------------------------------------------------ |
-| `has_worktree`    | `true` when the agent has a dedicated worktree.  |
-| `worktree_path`   | Filesystem path to the worktree.                 |
-| `worktree_branch` | Git branch checked out in the worktree.          |
+| Variable          | Description                                     |
+| ----------------- | ----------------------------------------------- |
+| `has_worktree`    | `true` when the agent has a dedicated worktree. |
+| `worktree_path`   | Filesystem path to the worktree.                |
+| `worktree_branch` | Git branch checked out in the worktree.         |
 
 ### `spawned` variables
 
 Rendered when a delegation starts immediately:
 
-| Variable   | Description                          |
-| ---------- | ------------------------------------ |
-| `agent_id` | ID of the spawned agent.             |
+| Variable   | Description              |
+| ---------- | ------------------------ |
+| `agent_id` | ID of the spawned agent. |
 
 ### `queued` variables
 
 Rendered when a delegation waits for a concurrency slot to open:
 
-| Variable              | Description                                                                 |
-| --------------------- | --------------------------------------------------------------------------- |
-| `agent_id`            | ID of the queued agent.                                                     |
-| `queue_running`       | Number of agents currently running.                                         |
-| `queue_running_label` | `"agent"` when `queue_running` is `1`, or `"agents"` otherwise.             |
+| Variable              | Description                                                     |
+| --------------------- | --------------------------------------------------------------- |
+| `agent_id`            | ID of the queued agent.                                         |
+| `queue_running`       | Number of agents currently running.                             |
+| `queue_running_label` | `"agent"` when `queue_running` is `1`, or `"agents"` otherwise. |
 
 ### `settled` variables
 
