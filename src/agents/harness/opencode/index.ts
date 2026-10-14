@@ -257,7 +257,7 @@ function opencodeAvailability(): HarnessAvailability {
       return {
         status: "unavailable",
         notice:
-          "The opencode on your PATH did not report a version, pi-cowboy only supports v2.x.x.",
+          "Could not parse the version the opencode on your PATH reports, pi-cowboy only supports v2.x.x.",
       };
     case "absent":
       return { status: "unavailable" };

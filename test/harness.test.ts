@@ -253,14 +253,14 @@ describe("availability", () => {
     });
   });
 
-  it("refuses an opencode that reports no version this can read, and says so", () => {
+  it("refuses an opencode whose version it cannot parse, and says so", () => {
     const dir = freshPath();
     executable(dir, "opencode", "1.0.114");
 
     expect(harnessFor("opencode").availability()).toEqual({
       status: "unavailable",
       notice:
-        "The opencode on your PATH did not report a version, pi-cowboy only supports v2.x.x.",
+        "Could not parse the version the opencode on your PATH reports, pi-cowboy only supports v2.x.x.",
     });
   });
 

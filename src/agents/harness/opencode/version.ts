@@ -25,7 +25,7 @@ const VERSION_TIMEOUT_MS = 5_000;
 export type OpencodeProbe =
   | { readonly kind: "supported"; readonly version: string }
   | { readonly kind: "unsupported"; readonly version: string }
-  /** A binary is there but reported no version this can read. */
+  /** A binary is there, but the version it reports is not one this can parse. */
   | { readonly kind: "unreadable" }
   /** No opencode on PATH. */
   | { readonly kind: "absent" };
