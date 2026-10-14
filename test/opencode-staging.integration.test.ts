@@ -166,11 +166,10 @@ function tempFile(name: string, text: string): string {
 }
 
 /** Stage a spawn's config directory through the committed module. */
-function stage(variant: string | null, toolSelection: ToolSelection): string {
+function stage(toolSelection: ToolSelection): string {
   const configDir = writeOpencodeStaging({
     subagentId: SUBAGENT_ID,
     systemPromptFile: tempFile("system.md", PROMPT),
-    variant,
     toolSelection,
   });
   // The resolver's own path, so every run below points at the directory the
@@ -261,7 +260,7 @@ describe.skipIf(opencodeMissing)(
   "opencode staging against the real CLI",
   () => {
     it("stages the definition and nothing else", () => {
-      const configDir = stage(null, { kind: "default" });
+      const configDir = stage({ kind: "default" });
 
       // The config directory is the spawn's whole opencode world: one agent
       // definition, and nothing opencode reads for another reason. A dependency
@@ -271,7 +270,7 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("resolves the staged agent under a private server", async () => {
-      const configDir = stage(null, { kind: "default" });
+      const configDir = stage({ kind: "default" });
 
       const run = await probeAgent(configDir, SUBAGENT_ID);
 
@@ -282,7 +281,7 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("resolves no agent that was never staged", async () => {
-      const configDir = stage(null, { kind: "default" });
+      const configDir = stage({ kind: "default" });
 
       const run = await probeAgent(configDir, UNSTAGED_ID);
 
@@ -292,7 +291,7 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("builds an interactive invocation the CLI accepts", async () => {
-      const configDir = stage(VARIANT, { kind: "default" });
+      const configDir = stage({ kind: "default" });
       const args = opencodeHarness.buildArgs({
         family: "opencode",
         subagentId: SUBAGENT_ID,
@@ -324,7 +323,7 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("removes everything it staged", async () => {
-      const configDir = stage(null, { kind: "default" });
+      const configDir = stage({ kind: "default" });
       const run = await probeAgent(configDir, SUBAGENT_ID);
       expect(output(run)).toContain(`Model unavailable: ${PROBE_MODEL}`);
       expect(fs.existsSync(configDir)).toBe(true);
@@ -335,7 +334,7 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("parses the real `opencode models` output into provider/model keys", async () => {
-      const configDir = stage(null, { kind: "default" });
+      const configDir = stage({ kind: "default" });
       // A minimal exec-capable stub: the model list reads only stdout and the exit
       // code, and the child runs with the same isolated HOME as every other run.
       // The stub runs the args the harness asked for, so the list is the one the

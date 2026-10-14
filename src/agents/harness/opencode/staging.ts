@@ -34,7 +34,6 @@ export function opencodeConfigDir(subagentId: string): string {
 export function writeOpencodeStaging(input: {
   subagentId: string;
   systemPromptFile: string;
-  variant: string | null;
   toolSelection: ToolSelection;
 }): string {
   const systemPrompt = fs.readFileSync(input.systemPromptFile, "utf-8");
@@ -42,7 +41,6 @@ export function writeOpencodeStaging(input: {
   writeAgentDefinition(configDir, {
     subagentId: input.subagentId,
     systemPrompt,
-    variant: input.variant,
     toolSelection: input.toolSelection,
   });
   return configDir;

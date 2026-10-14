@@ -31,30 +31,26 @@ const AGENT_FILE_SUFFIX = ".md";
 export interface OpencodeAgentDefinition {
   readonly subagentId: string;
   readonly systemPrompt: string;
-  /** `null` = no variant was requested, and the frontmatter carries no key for it. */
-  readonly variant: string | null;
   readonly toolSelection: ToolSelection;
 }
 
 /**
  * The frontmatter opencode reads, in the order it is written.
  *
- * `mode: primary` is load-bearing: opencode falls back to its own default agent,
- * with no prompt at all, when the named agent is not a primary agent.
- * `description` carries the spawn identity, which stays visible in
- * `opencode debug agent <id>`.
+ * `mode: primary` is load-bearing: opencode drops back to its own default agent
+ * — no prompt at all, no rules — for a name that is not a primary agent.
+ * `description` carries the spawn identity, which stays visible wherever
+ * definitions are listed.
  *
- * `lineWidth: 0` writes each value on one line whatever its length: `variant`
- * is model-provided text, and folding a long one would make the scalar's
- * emitted style depend on how long it happens to be.
+ * `lineWidth: 0` writes each rule on one line whatever a template's action name
+ * is, so the name's length cannot decide how the emitter splits a rule.
  */
 function frontmatter(input: OpencodeAgentDefinition): string {
   return stringify(
     {
       description: subagentTokenFor(input.subagentId),
       mode: "primary",
-      permission: opencodePermissions(input.toolSelection),
-      ...(input.variant === null ? {} : { variant: input.variant }),
+      permissions: opencodePermissions(input.toolSelection),
     },
     { lineWidth: 0 },
   );

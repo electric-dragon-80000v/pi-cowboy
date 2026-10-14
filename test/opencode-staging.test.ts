@@ -53,15 +53,11 @@ function stagePrompt(text: string): string {
   return file;
 }
 
-/** A definition for one tool selection; `variant` is absent unless given. */
-function markdownFor(
-  toolSelection: ToolSelection,
-  variant: string | null = null,
-): string {
+/** A definition for one tool selection. */
+function markdownFor(toolSelection: ToolSelection): string {
   return opencodeAgentMarkdown({
     subagentId: SUBAGENT_ID,
     systemPrompt: PROMPT,
-    variant,
     toolSelection,
   });
 }
@@ -84,13 +80,9 @@ function frontmatterValue(markdown: string, key: string): unknown {
   return frontmatterEntries(markdown).find(([name]) => name === key)?.[1];
 }
 
-/** The definition's `permission` map, as its keys and values in file order. */
-function permissionEntries(markdown: string): [string, unknown][] {
-  const permission: unknown = frontmatterValue(markdown, "permission");
-  if (typeof permission !== "object" || permission === null) {
-    throw new Error("the definition's frontmatter has no permission map");
-  }
-  return Object.entries(permission);
+/** The definition's `permissions` list, as the rules in file order. */
+function permissionRules(markdown: string): unknown {
+  return frontmatterValue(markdown, "permissions");
 }
 
 /** The body of a definition: everything after the closing frontmatter line. */
@@ -116,73 +108,49 @@ describe("opencodeConfigDir", () => {
 });
 
 describe("opencodePermissions", () => {
+  const allow = (action: string) => ({
+    action,
+    resource: "*",
+    effect: "allow",
+  });
+  const deny = (action: string) => ({ action, resource: "*", effect: "deny" });
+
   it("allows the catch-all and denies only questions for the default tool set", () => {
-    const permissions = opencodePermissions({ kind: "default" });
-
-    expect(permissions).toEqual({ "*": "allow", question: "deny" });
-    expect(Object.keys(permissions)).toEqual(["*", "question"]);
-  });
-
-  it("denies the catch-all for an empty tool set", () => {
-    const permissions = opencodePermissions({ kind: "none" });
-
-    expect(permissions).toEqual({ "*": "deny" });
-    expect(Object.keys(permissions)).toEqual(["*"]);
-  });
-
-  it("denies the catch-all, then allows each included name", () => {
-    const permissions = opencodePermissions({
-      kind: "include",
-      names: ["read", "bash"],
-    });
-
-    expect(permissions).toEqual({ "*": "deny", read: "allow", bash: "allow" });
-    expect(Object.keys(permissions)).toEqual(["*", "read", "bash"]);
-  });
-
-  it("allows the catch-all, then denies each excluded name", () => {
-    const permissions = opencodePermissions({
-      kind: "exclude",
-      names: ["bash", "todowrite"],
-    });
-
-    expect(permissions).toEqual({
-      "*": "allow",
-      question: "deny",
-      bash: "deny",
-      todowrite: "deny",
-    });
-    expect(Object.keys(permissions)).toEqual([
-      "*",
-      "question",
-      "bash",
-      "todowrite",
+    expect(opencodePermissions({ kind: "default" })).toEqual([
+      allow("*"),
+      deny("question"),
     ]);
   });
 
-  it("keeps each name as its own permission key, with no translation", () => {
-    const included = opencodePermissions({
-      kind: "include",
-      names: ["write", "patch"],
-    });
-    expect(included).toEqual({ "*": "deny", write: "allow", patch: "allow" });
-    expect(Object.keys(included)).toEqual(["*", "write", "patch"]);
-    expect(
-      opencodePermissions({ kind: "exclude", names: ["write", "edit"] }),
-    ).toEqual({ "*": "allow", question: "deny", write: "deny", edit: "deny" });
+  it("denies the catch-all for an empty tool set", () => {
+    expect(opencodePermissions({ kind: "none" })).toEqual([deny("*")]);
   });
 
-  it("passes a name opencode has no permission for through as its own key", () => {
-    const permissions = opencodePermissions({
-      kind: "include",
-      names: ["mcp__herdr__panes"],
-    });
+  it("denies the catch-all, then allows each included name", () => {
+    expect(
+      opencodePermissions({ kind: "include", names: ["read", "shell"] }),
+    ).toEqual([deny("*"), allow("read"), allow("shell")]);
+  });
 
-    expect(permissions).toEqual({
-      "*": "deny",
-      mcp__herdr__panes: "allow",
-    });
-    expect(Object.keys(permissions)).toEqual(["*", "mcp__herdr__panes"]);
+  it("allows the catch-all, then denies each excluded name", () => {
+    expect(
+      opencodePermissions({ kind: "exclude", names: ["shell", "edit"] }),
+    ).toEqual([allow("*"), deny("question"), deny("shell"), deny("edit")]);
+  });
+
+  it("keeps each name as its own rule, with no translation", () => {
+    expect(
+      opencodePermissions({ kind: "include", names: ["edit", "patch"] }),
+    ).toEqual([deny("*"), allow("edit"), allow("patch")]);
+  });
+
+  it("passes a name opencode has no action for through as its own action", () => {
+    expect(
+      opencodePermissions({
+        kind: "include",
+        names: ["mcp__herdr__panes"],
+      }),
+    ).toEqual([deny("*"), allow("mcp__herdr__panes")]);
   });
 });
 
@@ -195,9 +163,13 @@ describe("opencodeAgentMarkdown", () => {
         "---",
         "description: cowboy-subagent-a1b2c3d4",
         "mode: primary",
-        "permission:",
-        '  "*": allow',
-        "  question: deny",
+        "permissions:",
+        '  - action: "*"',
+        '    resource: "*"',
+        "    effect: allow",
+        "  - action: question",
+        '    resource: "*"',
+        "    effect: deny",
         "---",
         "",
         PROMPT,
@@ -211,64 +183,37 @@ describe("opencodeAgentMarkdown", () => {
     expect(frontmatterEntries(markdown)).toEqual([
       ["description", `cowboy-subagent-${SUBAGENT_ID}`],
       ["mode", "primary"],
-      ["permission", { "*": "allow", question: "deny" }],
+      [
+        "permissions",
+        [
+          { action: "*", resource: "*", effect: "allow" },
+          { action: "question", resource: "*", effect: "deny" },
+        ],
+      ],
     ]);
     expect(body(markdown)).toBe(PROMPT);
   });
 
-  it("writes each tool selection's rules into the permission block", () => {
-    expect(permissionEntries(markdownFor({ kind: "none" }))).toEqual([
-      ["*", "deny"],
+  it("writes each tool selection's rules into the permission list", () => {
+    expect(permissionRules(markdownFor({ kind: "none" }))).toEqual([
+      { action: "*", resource: "*", effect: "deny" },
     ]);
     expect(
-      permissionEntries(
-        markdownFor({ kind: "include", names: ["read", "write"] }),
+      permissionRules(
+        markdownFor({ kind: "include", names: ["read", "edit"] }),
       ),
     ).toEqual([
-      ["*", "deny"],
-      ["read", "allow"],
-      ["write", "allow"],
+      { action: "*", resource: "*", effect: "deny" },
+      { action: "read", resource: "*", effect: "allow" },
+      { action: "edit", resource: "*", effect: "allow" },
     ]);
     expect(
-      permissionEntries(markdownFor({ kind: "exclude", names: ["bash"] })),
+      permissionRules(markdownFor({ kind: "exclude", names: ["shell"] })),
     ).toEqual([
-      ["*", "allow"],
-      ["question", "deny"],
-      ["bash", "deny"],
+      { action: "*", resource: "*", effect: "allow" },
+      { action: "question", resource: "*", effect: "deny" },
+      { action: "shell", resource: "*", effect: "deny" },
     ]);
-  });
-
-  it("omits variant when no variant was requested", () => {
-    const markdown = markdownFor({ kind: "default" });
-
-    expect(markdown).not.toContain("variant");
-    expect(frontmatterEntries(markdown).map(([key]) => key)).toEqual([
-      "description",
-      "mode",
-      "permission",
-    ]);
-  });
-
-  it("writes a plain variant bare", () => {
-    const markdown = markdownFor({ kind: "default" }, "xhigh");
-
-    expect(markdown).toContain("\nvariant: xhigh\n");
-    expect(frontmatterValue(markdown, "variant")).toBe("xhigh");
-  });
-
-  it("quotes a variant that is not a plain YAML scalar", () => {
-    const variant = 'needs: "quotes" # and a backslash \\';
-    const markdown = markdownFor({ kind: "default" }, variant);
-
-    expect(frontmatterValue(markdown, "variant")).toBe(variant);
-    expect(body(markdown)).toBe(PROMPT);
-  });
-
-  it("escapes a variant whose only oddity is whitespace", () => {
-    const markdown = markdownFor({ kind: "default" }, "two\nlines");
-
-    expect(frontmatterValue(markdown, "variant")).toBe("two\nlines");
-    expect(body(markdown)).toBe(PROMPT);
   });
 });
 
@@ -277,8 +222,7 @@ describe("writeOpencodeStaging", () => {
     const dir = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
-      variant: "xhigh",
-      toolSelection: { kind: "include", names: ["read", "write"] },
+      toolSelection: { kind: "include", names: ["read", "edit"] },
     });
 
     expect(dir).toBe(opencodeConfigDir(SUBAGENT_ID));
@@ -290,8 +234,7 @@ describe("writeOpencodeStaging", () => {
       opencodeAgentMarkdown({
         subagentId: SUBAGENT_ID,
         systemPrompt: PROMPT,
-        variant: "xhigh",
-        toolSelection: { kind: "include", names: ["read", "write"] },
+        toolSelection: { kind: "include", names: ["read", "edit"] },
       }),
     );
   });
@@ -300,14 +243,12 @@ describe("writeOpencodeStaging", () => {
     const dir = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt("first prompt\n"),
-      variant: null,
       toolSelection: { kind: "default" },
     });
 
     writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt("second prompt\n"),
-      variant: null,
       toolSelection: { kind: "default" },
     });
 
@@ -321,7 +262,6 @@ describe("writeOpencodeStaging", () => {
       writeOpencodeStaging({
         subagentId: SUBAGENT_ID,
         systemPromptFile: missing,
-        variant: null,
         toolSelection: { kind: "default" },
       }),
     ).toThrow();
@@ -334,7 +274,6 @@ describe("removeOpencodeStaging", () => {
     const dir = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
-      variant: null,
       toolSelection: { kind: "default" },
     });
     expect(fs.existsSync(dir)).toBe(true);

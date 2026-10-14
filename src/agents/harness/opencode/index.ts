@@ -251,7 +251,6 @@ export const opencodeHarness: Harness<"opencode"> = {
     const configDir = writeOpencodeStaging({
       subagentId: launch.subagentId,
       systemPromptFile: launch.systemPromptFile,
-      variant: launch.variant,
       toolSelection: launch.toolSelection,
     });
     await installPaneLauncher(pi, paneId, {

@@ -1261,7 +1261,6 @@ describe("teardown", () => {
     writeOpencodeStaging({
       subagentId: "esp02hpw",
       systemPromptFile: stagedPrompt(),
-      variant: null,
       toolSelection: { kind: "default" },
     });
     expect(existsSync(configDir)).toBe(true);
