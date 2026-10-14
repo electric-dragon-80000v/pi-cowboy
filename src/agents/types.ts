@@ -65,7 +65,7 @@ interface BaseAgentConfig {
   /** This agent's tool filters, one per harness family; a launch reads only its own family's. */
   toolsByFamily?: ToolsByFamily;
   thinkingLevel?: ThinkingLevel;
-  /** opencode's reasoning-effort variant: what its agent definition carries into `opencode run --variant`. Undefined = none requested. */
+  /** opencode's reasoning-effort variant, carried on the model as "provider/model#variant". Undefined = none requested. */
   variant?: string;
   systemPrompt: string;
   /** Include pi's context files in this agent's system prompt. Undefined = use global config. */

@@ -409,7 +409,10 @@ describe("buildLaunchPlan CLI flags", () => {
     );
     const capture = captureOpencodeBuildArgs();
 
-    const plan = await launch("test-agent", cwd, notify);
+    const plan = await launch("test-agent", cwd, notify, undefined, {
+      provider: "anthropic",
+      id: "claude-opus-4",
+    });
     const requests = capture.requests();
     capture.restore();
 
@@ -420,7 +423,7 @@ describe("buildLaunchPlan CLI flags", () => {
       systemPromptFile: expect.any(String),
       taskFile: expect.any(String),
       resultFile: expect.any(String),
-      modelKey: null,
+      modelKey: "anthropic/claude-opus-4",
       toolSelection: { kind: "default" },
       variant: "high",
     });

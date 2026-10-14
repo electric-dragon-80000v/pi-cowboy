@@ -196,9 +196,9 @@ export interface PiLaunchInputs {
 /** opencode CLI specifics; no other harness family reads these. */
 export interface OpencodeLaunchInputs {
   /**
-   * `null` = no variant was requested. `--variant` exists on `opencode run`,
-   * which pi-cowboy does not launch, so the variant reaches the CLI only through
-   * the agent definition this harness prepares.
+   * `null` = no variant was requested. A variant has no flag of its own: it
+   * rides the model reference on the argv, so one with no model to join names
+   * nothing.
    */
   readonly variant: string | null;
 }

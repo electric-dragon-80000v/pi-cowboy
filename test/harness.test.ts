@@ -651,6 +651,18 @@ describe("buildArgs", () => {
     );
   });
 
+  it("refuses opencode's variant when the launch resolved no model", () => {
+    // A variant names a member of one model's catalogue, so with no model it
+    // names nothing: opencode would run the session's model and drop the request.
+    expect(() =>
+      harnessFor("opencode").buildArgs({
+        ...sharedInputs(),
+        family: "opencode",
+        variant: "high",
+      }),
+    ).toThrow(/variant/);
+  });
+
   /** A codex launch request with every optional arm absent. */
   function codexRequest(
     overrides: Partial<CodexLaunchRequest> = {},

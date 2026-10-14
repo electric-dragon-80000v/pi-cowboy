@@ -62,7 +62,7 @@ harness_type = "pi"
 # (optional) Whether the agent's system prompt carries the context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list uses that harness's own names: pi's names here, opencode's permission keys under `[harness.opencode]`, and claude's tool names under `[harness.claude]`. A launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
+# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list uses that harness's own names: pi's names here, opencode's permission actions under `[harness.opencode]`, and claude's tool names under `[harness.claude]`. A launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
 [harness.pi]
 
 # (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
@@ -90,20 +90,20 @@ inlined_skills = []
 # (optional) Fork the parent session into the agent (`pi --fork <sessionFile>`). default = false
 fork = false
 
-# (optional) Settings only opencode reads. Its tool lists are opencode's permission keys.
+# (optional) Settings only opencode reads. Its tool lists are opencode's permission actions.
 [harness.opencode]
 
 # (optional) Model for this agent as "provider/model-id", a key in opencode's catalogue. An opencode launch reads this key; a pi launch never does.
 # model = "anthropic/claude-sonnet-4"
 
-# (optional) `tools`: only these tools are available, given as opencode's permission keys. default = every tool
+# (optional) `tools`: only these tools are available, given as opencode's permission actions (`read`, `glob`, `grep`, `edit`, `shell`, `webfetch`, …). default = every tool
 # tools = ["read", "grep", "glob"]
 
 # (optional) `exclude_tools`: every tool except these is available. default = none excluded
 # Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
-# exclude_tools = ["write"]
+# exclude_tools = ["edit"]
 
-# (optional) Reasoning-effort variant the staged agent definition carries: the `--variant` of `opencode run`, a flag the top-level command pi-cowboy launches does not take. opencode applies it only when the selected model declares that variant name. Example values: "minimal", "high", "max". default = none
+# (optional) Reasoning-effort variant, carried on the model as "provider/model#variant". opencode applies it only when the selected model declares that variant name, so a variant with no model fails the launch. Example values: "minimal", "high", "max". default = none
 # variant = "high"
 
 # (optional) Settings only codex reads: the model alone. codex has no tools flag, so this table carries no tool pair.

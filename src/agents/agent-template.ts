@@ -52,11 +52,11 @@ const PiHarnessSchema = z.strictObject(PI_HARNESS_SHAPE);
 const OpencodeHarnessSchema = z.strictObject({
   /** A model key in opencode's catalogue, as "provider/model-id". */
   model: z.string().optional(),
-  /** The reasoning-effort variant opencode's agent definition carries (the `--variant` of `opencode run`, which is not a flag of the command pi-cowboy launches). */
+  /** The reasoning-effort variant, joined to this agent's model as "provider/model#variant". */
   variant: z.string().optional(),
-  /** Tools available to an opencode launch, as opencode's permission keys. */
+  /** Tools available to an opencode launch, as opencode's permission actions. */
   tools: z.array(z.string()).optional(),
-  /** Tools withheld from an opencode launch, as opencode's permission keys. */
+  /** Tools withheld from an opencode launch, as opencode's permission actions. */
   exclude_tools: z.array(z.string()).optional(),
 });
 

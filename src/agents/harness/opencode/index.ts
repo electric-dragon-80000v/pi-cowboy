@@ -272,9 +272,15 @@ export const opencodeHarness: Harness<"opencode"> = {
    */
   buildArgs(request: OpencodeLaunchRequest): string[] {
     const args = ["mini", "--standalone", "--agent", request.subagentId];
-    if (request.modelKey !== null) {
-      args.push("--model", modelReference(request.modelKey, request.variant));
+    if (request.modelKey === null) {
+      if (request.variant !== null) {
+        throw new Error(
+          `the opencode variant ${JSON.stringify(request.variant)} has no model to attach to: opencode takes a variant as part of a model reference (\`provider/model#variant\`), and this launch resolved no model. Give the agent an opencode model, or drop the variant.`,
+        );
+      }
+      return args;
     }
+    args.push("--model", modelReference(request.modelKey, request.variant));
     return args;
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
