@@ -1,3 +1,10 @@
+## [0.10.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.10.0...v0.10.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* grazing cells surviving reload ([fc5f1dc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/fc5f1dc282f4a4dc7a68631e2668053f4f47c816))
+
 # [0.10.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.2...v0.10.0) (2026-10-14)
 
 
