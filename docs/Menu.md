@@ -1,156 +1,155 @@
 # Menu
 
-`/cowboy` opens a menu of screens. Every row on every one of them is listed below.
+Running `/cowboy` opens an interactive menu for inspecting agents, spawning tasks manually, and changing settings. You can also jump straight to specific screens with the CLI subcommands listed in [Commands](../README.md#commands). Most settings in the menu write to the keys documented in [Configuration](Configuration.md).
 
-The command forms are in the [README](../README.md#commands). The config keys behind most of these rows are in [Configuration](Configuration.md).
+## `/cowboy` - Agents (main screen)
 
-## `/cowboy` - Agents
+The main menu opens with the title `Agents`.
 
-The main screen. The screen title is `Agents`.
+| Row                    | What it does                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| `Model overrides`      | Opens the `Model Settings` screen.                                                        |
+| `Default orchestrator` | Sets the orchestrator template used when a spawn does not specify one.                    |
+| `Agent`                | Sets the default agent template used when `cowboy_agent` omits `agent_type`.              |
+| `Status`               | Opens the `Status` screen (same as `/cowboy status`).                                     |
+| `Spawn agent`          | Opens the manual spawn wizard (same as `/cowboy spawn`).                                  |
+| `Settings`             | Opens the `Settings` screen.                                                              |
+| `Enabled`              | Turns `pi-cowboy` on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off).         |
 
-| Row                    | What it does                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------- |
-| `Model overrides`      | Opens the `Model Settings` screen.                                                  |
-| `Default orchestrator` | Sets the orchestrator template for spawns that don't name one.                      |
-| `Agent`                | Sets the agent type used when `cowboy_agent` omits `agent_type`.                    |
-| `Status`               | Opens the `Status` screen. Same as `/cowboy status`.                                |
-| `Spawn agent`          | Opens the spawn wizard. Same as `/cowboy spawn`.                                    |
-| `Settings`             | Opens the `Settings` screen.                                                        |
-| `Enabled`              | Turns the extension on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
-
-The `Agent` row, the `Type` row on Spawn Options, and the `agent_type` parameter of `cowboy_agent` all set the agent type. `Agent` sets the default that applies when a call omits `agent_type`. `Type` sets it for one spawn.
+The `Agent` row on this screen sets the default template for tool calls that omit `agent_type`. To pick a template for a single manual run, use the `Type` row in `Spawn Options` (`/cowboy spawn`).
 
 ### Turning pi-cowboy off
 
-`/cowboy disable` unloads the tools. Agents that already run keep working.
+Running `/cowboy disable` (or flipping `Enabled` to `OFF`) unloads the cowboy tools for the session and collapses the main menu to the `Enabled` switch alone. Agents that are already running continue working in the background, and `/cowboy worktree` remains available.
 
-Run `/cowboy enable`, or flip the `Enabled` row, to turn the extension back on.
+Run `/cowboy enable` or flip `Enabled` back to `ON` to restore the tools and menu.
 
 ## `/cowboy` > `Model overrides`
 
-The screen title is `Model Settings`. It opens from the `Model overrides` row on the main screen.
+Opens the `Model Settings` screen. Each override can be saved at the `session`, `global`, or `project` level, and values from non-global layers display a `[session]` or `[project]` tag.
 
-| Row                            | What it does                                                                                                                             |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `Pi Default Model`             | The default model for agents the pi family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution). |
-| `OpenCode Default Model`       | The default model for agents launched under opencode.                                                                                    |
-| `Claude Default Model`         | The default model for agents launched under claude (an `anthropic/<alias>` key). See [Model resolution](../README.md#model-resolution).  |
-| `Codex Default Model`          | The default model for agents launched under codex.                                                                                       |
-| One row per agent type         | The model for that agent type. Select the row to set or clear its override.                                                              |
-| `Override another type...`     | Adds an override for an agent type that has none.                                                                                        |
-| `Clear all model overrides...` | Removes every override.                                                                                                                  |
+| Row                            | What it does                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pi Default Model`             | Default model for Pi-family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution).                         |
+| `OpenCode Default Model`       | Default model for agents launched under `opencode`.                                                                                               |
+| `Claude Default Model`         | Default model for agents launched under `claude` (`anthropic/<alias>`). See [Model resolution](../README.md#model-resolution).                    |
+| `Codex Default Model`          | Default model for agents launched under `codex`.                                                                                                  |
+| Per-type override rows         | Grouped by resolved model ID. Select an agent type to change or clear its model override.                                                         |
+| `Override another type...`     | Adds a model override for an agent type that currently inherits its model.                                                                        |
+| `Clear all model overrides...` | Clears model overrides at the `session`, `global`, `project`, or `all` level. Shown only when at least one override is set.                       |
 
-Rows for OpenCode, Claude, and Codex appear only when that harness's binary is on `PATH` and is a version pi-cowboy launches — opencode must be 2.x, and a machine with an older one is told so once.
+Default model rows for OpenCode, Claude, and Codex appear only when that harness's binary is installed on `PATH` in a supported version (`opencode` requires 2.x; older versions trigger a one-time notice at session start).
 
 ## `/cowboy` > `Settings`
 
-The screen title is `Settings`.
+Opens the `Settings` screen.
 
-| Row                    | What it does                             |
-| ---------------------- | ---------------------------------------- |
-| `Concurrency Settings` | Opens the `Concurrency Settings` screen. |
-| `Agent behavior`       | Opens the `Agent settings` screen.       |
-| `System prompt`        | Opens the `System Prompt` screen.        |
-| `Show cowboy 🤠`       | Turns the cowboy marker on or off.       |
-| `Grazing 🐄`           | Turns the grazing cows on or off.        |
+| Row                    | What it does                                   |
+| ---------------------- | ---------------------------------------------- |
+| `Concurrency Settings` | Opens the `Concurrency Settings` screen.       |
+| `Agent behavior`       | Opens the `Agent settings` screen.             |
+| `System prompt`        | Opens the `System Prompt` screen.              |
+| `Show cowboy 🤠`       | Toggles the cowboy status indicator on or off. |
+| `Grazing 🐄`           | Toggles the grazing cows indicator on or off.  |
 
 ## `/cowboy` > `Settings` > `Concurrency Settings`
 
-Sets the number of agents that may run at once.
+Caps how many agents can run at the same time. Every level is enforced independently, and a running agent occupies a slot in each limit that applies to it. See [`concurrency`](Configuration.md#concurrency).
 
-Each level is a separate limit. An agent counts against every limit that applies to it. See [`concurrency`](Configuration.md#concurrency).
+| Row                               | What it does                                                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Default concurrency limit`       | Global limit applied to every running agent across all harnesses, providers, and models.                                                        |
+| `Per-harness limits`              | Opens a list of harnesses to cap how many agents can run at once under each harness.                                                            |
+| `Per-provider limits`             | Opens a harness picker, then lists that harness's providers so you can cap concurrent agents per provider.                                      |
+| `Per-model limits`                | Opens a harness picker, then lists that harness's models so you can cap concurrent agents per model.                                            |
+| `Clear all concurrency limits...` | Removes concurrency limits at the `session`, `global`, `project`, or `all` level. Shown only when at least one concurrency override is active.  |
 
-| Row                               | What it does                                                                                                           |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `Default concurrency limit`       | The global limit. Every agent counts against it.                                                                       |
-| `Per-provider limits`             | A heading. Each provider below it has one row.                                                                         |
-| `Add per-provider limit...`       | Caps one provider.                                                                                                     |
-| `Per-model limits`                | A heading. Each model below it has one row.                                                                            |
-| `Add per-model limit...`          | Caps one model.                                                                                                        |
-| `Clear all concurrency limits...` | Removes limits at the session, global, or project scope. The row appears only when at least one level carries a limit. |
+Each limit can be saved at the `session`, `global`, or `project` scope, and active overrides from the session or project layers display a `[session]` or `[project]` tag.
 
-Each limit offers a scope: session, global, or project. A value that comes from the project layer carries a `[project]` tag.
+## `/cowboy` > `Settings` > `Agent behavior`
 
-## `/cowboy` > `Settings` > `Agent settings`
+Opens the `Agent settings` screen, organized into three sections:
 
-**Spawn defaults**
+### Spawn defaults
 
-| Row                      | What it does                                                                                                                                                                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Default thinking level` | The thinking level used when an agent template omits one. `Inherit` leaves the key unset. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                                                                                    |
-| `Default harness`        | The harness that launches agents whose template omits `harness_type`. Offers only the harnesses on `PATH`, and names the ones that are missing. See [`harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
+| Row                      | What it does                                                                                                                                                                                   |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Default thinking level` | Thinking level used when an agent template omits `thinking`. Selecting `inherit` clears the setting. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                     |
+| `Default harness`        | Harness used when an agent template omits `harness_type`. Lists installed harnesses on `PATH` and notes any that are missing. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
 
-**Worktrees**
+### Worktrees
 
-| Row                        | What it does                                                                                                                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Worktree root`            | The directory that holds every worktree. See [`agent.worktreeRoot`](Configuration.md#agentworktreeroot).                                                                                   |
-| `Worktree materialization` | How a worktree gets its files. `copy-on-write` clones files from the parent; `checkout` clones none. See [`agent.worktreeMaterialization`](Configuration.md#agentworktreematerialization). |
-| `Worktree checkout`        | Where a new worktree starts when the parent has uncommitted work. See [`agent.worktreeCheckoutType`](Configuration.md#agentworktreecheckouttype).                                          |
+| Row                        | What it does                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Worktree root`            | Directory where agent worktrees are created. Leave blank to use the default. See [`agent.worktreeRoot`](Configuration.md#agentworktreeroot).                                                      |
+| `Worktree materialization` | How new worktrees are populated: `copy-on-write` clones files from the parent working tree, while `checkout` runs a standard git checkout. See [`agent.worktreeMaterialization`](Configuration.md#agentworktreematerialization). |
+| `Worktree checkout`        | Whether a new worktree starts clean at `HEAD` (`clean`) or carries uncommitted changes from the parent (`dirty`). See [`agent.worktreeCheckoutType`](Configuration.md#agentworktreecheckouttype).  |
 
-**Tools**
+### Tools
 
-| Row                      | What it does                                                                                           |
-| ------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `Disable default agents` | Skips the built-in agent types next session. Only agent files from the four template directories load. |
+| Row                      | What it does                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Disable default agents` | Skips the built-in agent types on the next session so only `.toml` templates from the user, shared, and project directories are loaded.     |
 
-## `/cowboy` > `Settings` > `System Prompt`
+## `/cowboy` > `Settings` > `System prompt`
 
-| Row                          | What it does                                                                                                                                                      |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `System prompt mode`         | How the agent system prompt is built: `replace`, `inherit`, or `custom`. See [`agent.systemPromptMode`](Configuration.md#agentsystempromptmode).                  |
-| `Create prompt file`         | Writes a starter file at the custom prompt path. The row appears only in `custom` mode when the file does not exist yet.                                          |
-| `Include context files`      | Loads pi's context files from the project and from `~/.pi/agent` as shared context. See [`agent.includeContextFiles`](Configuration.md#agentincludecontextfiles). |
-| `Load skills implicitly`     | Gives new agents every skill when their template omits the field. See [`agent.loadSkillsImplicitly`](Configuration.md#agentloadskillsimplicitly).                 |
-| `Load extensions implicitly` | Gives new agents every pi extension when their template omits the field. See [`agent.loadExtensionsImplicitly`](Configuration.md#agentloadextensionsimplicitly).  |
+Opens the `System Prompt` screen.
 
-## `/cowboy worktree`
-
-Creates one worktree under the configured `agent.worktreeRoot`, and adopts it in herdr with a workspace, tab, and pane of its own. pi-cowboy does not track this worktree.
+| Row                          | What it does                                                                                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `System prompt mode`         | How the agent system prompt is built: `replace`, `inherit`, or `custom`. See [`agent.systemPromptMode`](Configuration.md#agentsystempromptmode).                           |
+| `Create prompt file`         | Creates a starter `prompt.md` file. Shown only when `System prompt mode` is `custom` and the file does not exist yet.                                                      |
+| `Include context files`      | Loads `AGENTS.md` context files from the project and `~/.pi/agent` into the agent prompt. See [`agent.includeContextFiles`](Configuration.md#agentincludecontextfiles).     |
+| `Load skills implicitly`     | Gives Pi-family agents all available skills when their template omits `skills`. See [`agent.loadSkillsImplicitly`](Configuration.md#agentloadskillsimplicitly).            |
+| `Load extensions implicitly` | Gives Pi-family agents all available extensions when their template omits `extensions`. See [`agent.loadExtensionsImplicitly`](Configuration.md#agentloadextensionsimplicitly). |
 
 ## `/cowboy status` - Status
 
-The screen title is `Status`. It lists every spawned, queued, and settled agent.
+Lists every spawned, queued, and settled agent from the session. Selecting an agent opens the actions available for its current state:
 
-Select an agent to open the actions available for it. The actions depend on the state of the agent.
+| Action        | What it does                                                                                                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View shell`  | Focuses the agent's Herdr terminal pane (available while the agent is running and after it settles).                                                                              |
+| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                              |
+| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                          |
+| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                     |
+| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Worktrees with uncommitted changes are kept and reported with why.    |
 
-| Action        | What it does                                                                                                                                                                                              |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `View shell`  | Focuses the agent's herdr pane. The screen lists this action while the agent runs and after it settles.                                                                                                   |
-| `View result` | Reads the report the agent wrote.                                                                                                                                                                         |
-| `View error`  | Reads the error from a failed agent.                                                                                                                                                                      |
-| `Stop`        | Stops a running agent. Its worktree and branch stay. Same work as `stop_cowboy_agent`.                                                                                                                    |
-| `Clean up`    | Closes the pane and removes the worktree and the merged branch. Same work as `cleanup_cowboy_agent`. A worktree with uncommitted changes or unverifiable state is kept, and the message gives the reason. |
+Below the individual agents, the list displays bulk actions when applicable:
 
-The list also carries bulk actions. They sit in a group of their own below the per-agent ones, and each acts on every agent it names.
+| Bulk action                     | What it does                                                                                             |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `Stop N active agent(s)`        | Stops all currently running agents.                                                                      |
+| `Clean up N settled agent(s)`   | Cleans up all settled agents (completed, failed, and stopped). Running agents are never touched.         |
+| `Clean up N completed agent(s)` | Cleans up only agents that completed without errors. Shown when at least one completed agent is present. |
 
-| Action                          | What it does                                                                                          |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `Stop N active agent(s)`        | Stops every running agent.                                                                            |
-| `Clean up N settled agent(s)`   | Cleans up every settled agent, including failed and stopped ones. Active agents are never cleaned up. |
-| `Clean up N completed agent(s)` | Cleans up every agent that completed successfully. The row appears only when one has.                 |
-
-A cleanup that keeps a worktree records the reason on the spawn, so the list still states it.
+If a cleanup keeps a worktree (for example, because of uncommitted changes), the reason is recorded on that agent's entry in the status list.
 
 ## `/cowboy spawn` - Spawn Options
 
-The screen title is `Spawn Options`.
+Opens the manual spawn wizard (`Spawn Options`).
 
-| Row              | What it does                                                                                                                                                                              |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Spawn`          | Asks for the prompt, then launches the agent. For `New worktree`, it also asks for the worktree name.                                                                                     |
-| `Type`           | The agent type for this spawn.                                                                                                                                                            |
-| `Model`          | The model for this spawn.                                                                                                                                                                 |
-| `Background`     | `ON` returns at once. `OFF` waits for the result.                                                                                                                                         |
-| `Fork session`   | `Yes` starts the agent from a copy of the current session context.                                                                                                                        |
-| `Worktree`       | Runs the agent in a linked git worktree instead of the parent directory. The row appears only when the session sits inside a git repository.                                              |
-| `Thinking level` | The thinking level for this spawn. `Inherit` follows the configured default. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking) and [`thinking`](Agent%20Templates.md). |
-| `Description`    | A short label for the agents list. pi-cowboy derives one from the prompt when you leave it empty.                                                                                         |
+| Row              | What it does                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Spawn`          | Prompts for the worktree name (if `New worktree` is selected) and the task prompt, then launches the agent.                                                                          |
+| `Type`           | Agent template to use for this spawn.                                                                                                                                                |
+| `Model`          | Model override for this spawn.                                                                                                                                                       |
+| `Background`     | `ON` returns immediately and runs in the background; `OFF` waits for the result in the current turn.                                                                                 |
+| `Fork session`   | `Yes` forks the parent session's conversation context into the spawned agent.                                                                                                        |
+| `Worktree`       | Chooses where the agent works (shown only when inside a Git repository).                                                                                                             |
+| `Thinking level` | Reasoning effort for this spawn. `Inherit` uses the template or configured default. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking) and [`thinking`](Agent%20Templates.md). |
+| `Description`    | Short label shown in the status list. If left blank, `pi-cowboy` derives one from the first line of the prompt.                                                                      |
 
-The `Worktree` picker offers two choices, then one row per existing worktree.
+The `Worktree` row offers:
 
-| Choice                        | What it does                                                                                                                  |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `New worktree`                | Creates a worktree. pi-cowboy asks for its name after you select `Spawn`. The name becomes the branch and the directory name. |
-| `Inherits parent cwd`         | Runs the agent in the current working directory.                                                                              |
-| One row per existing worktree | Runs the agent in a worktree that already exists. Each row shows its branch.                                                  |
+| Choice                        | What it does                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `New worktree`                | Creates a dedicated worktree and branch using the name you enter after selecting `Spawn`.                                            |
+| `Inherits parent cwd`         | Runs the agent directly in the parent session's working directory.                                                                   |
+| Existing worktree rows        | Runs the agent inside an existing linked worktree without taking ownership of it. Each row shows the worktree's checked-out branch.  |
+
+## `/cowboy worktree`
+
+Creates a standalone Git worktree under `agent.worktreeRoot` and opens a dedicated Herdr workspace, tab, and shell pane for it without launching an agent.
+
+You can pass the name inline (`/cowboy worktree my-branch`) or enter it when prompted, then pick a checkout mode (`clean` or `dirty`). Because no agent is attached, this worktree does not appear in `/cowboy status` and is not removed by `cleanup_cowboy_agent`.

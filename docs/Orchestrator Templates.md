@@ -1,19 +1,11 @@
 # Orchestrator Templates
 
-An orchestrator template is a `.toml` file that sets the text pi-cowboy renders into the orchestrator's session when an agent is spawned, queues, or settles. Templates live in one of these directories:
+An orchestrator template is a `.toml` file that customizes two things across every agent you spawn:
 
-- Extension built-ins: `orchestrators/` in the extension package.
-- User: `<agent dir>/orchestrators/`, where the agent dir is `~/.pi/agent` unless `PI_CODING_AGENT_DIR` overrides it.
-- Shared: `<project>/.agents/orchestrators/`.
-- Project: `<project>/.pi/orchestrators/`.
+1. `guidance`: Universal instructions appended verbatim to the end of every spawned agent's system prompt (for example, requiring a code review tool or test suite to run before committing).
+2. `[cues]`: Mustache templates that format the status messages rendered back into the parent session when an agent is `spawned`, `queued`, or `settled`.
 
-The shared and project directories load only when the project is trusted.
-
-Precedence is `default` < `extension` < `user` < `shared` < `project`, and pi-cowboy matches an override by `name`.
-
-Every template starts from the `default` template. pi-cowboy skips a file without a `name`. `display_name` and `guidance` each come whole from the highest layer that sets them; a layer that leaves one unset keeps the value it inherits. Cues merge one event at a time: a template that loads replaces only the cues it defines.
-
-The two merging rules differ, so here is one example. A file in `~/.pi/agent/orchestrators/` that sets only `settled`:
+Here is a minimal orchestrator template that overrides only the `settled` cue:
 
 ```toml
 name = "review gate"
@@ -22,80 +14,105 @@ name = "review gate"
 settled = "Code review passed; the changes are ready to merge."
 ```
 
-The base template's `spawned` and `queued` cues still fire; only `settled` is replaced, because cues merge one at a time. Had the same file set `guidance`, its guidance would replace the base template's guidance outright, not merge with it.
+## File locations
 
-`guidance` is copied verbatim into the agent's prompt as the final section. When you omit `guidance`, the base template's guidance applies.
+`pi-cowboy` scans these four directories for `.toml` orchestrator templates once at session start:
 
-The directories are scanned once, at session start, so a file you add now appears in the template list in your next pi session, not this one. Once it is listed, make it the active template at `/cowboy` > `Default orchestrator`.
+- Extension built-ins: `orchestrators/` inside the `pi-cowboy` package
+- User: `<agent dir>/orchestrators/` (`~/.pi/agent/orchestrators/` by default, or overridden by `PI_CODING_AGENT_DIR`)
+- Shared: `<project>/.agents/orchestrators/` (loaded only when the project is trusted)
+- Project: `<project>/.pi/orchestrators/` (loaded only when the project is trusted)
+
+Because directories are scanned at session start, a new template file appears in the picker on your next `pi` session. Once loaded, select it at `/cowboy` > `Default orchestrator` or set `agent.defaultOrchestrator` in `config.json`.
+
+Every file must define a `name`. `pi-cowboy` skips any file that is missing `name`, contains invalid TOML, or fails cue validation, and prints a one-line warning.
+
+## Merging across layers
+
+Templates are matched across directories by `name`, with higher layers overriding lower ones in this order:
+
+`default` < `extension` < `user` < `shared` < `project`
+
+Every custom orchestrator template starts from the built-in `default` template, so you only need to write the fields you want to change:
+
+- `display_name` and `guidance` are replaced whole by the highest layer that sets them. If a layer omits `guidance`, it inherits the lower layer's `guidance`; setting `guidance = ""` clears it.
+- `[cues]` merge one event at a time (`spawned`, `queued`, `settled`). In the `"review gate"` example above, only `settled` is replaced, while the base template's `spawned` and `queued` cues stay intact.
+
+## Fields
+
+| Field          | Type              | Default                  | Description                                                                                                                        |
+| -------------- | ----------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `name`         | string (required) | (required)               | Template identifier used in configuration and layer merging.                                                                       |
+| `display_name` | string            | `name` (or inherited)    | Label shown in `/cowboy` > `Default orchestrator`.                                                                                 |
+| `guidance`     | string            | inherited from `default` | Instructions appended verbatim as the final section of every spawned agent's system prompt. Set to `""` to clear inherited text.   |
+| `[cues]`       | table             | inherited per event      | Mustache templates for the `spawned`, `queued`, and `settled` events.                                                              |
 
 ## Cues
 
-Cues set what the orchestrator is told as one of its delegations is acknowledged, queued, or settled. A cue is one named template in the `[cues]` table. A cue event is what renders it: `spawned`, `queued`, or `settled`.
+Each cue (`spawned`, `queued`, and `settled`) is a Mustache template rendered without HTML escaping.
 
-Each cue event supplies its own variables, and a cue can use only the variables of that event. A variable the event does not supply fails the file, and so do a Mustache partial such as `{{> name}}` and a delimiter change with `{{=<% %>=}}`; pi-cowboy skips such a file with a warning.
+Every cue event provides its own set of allowed variables. Referencing a variable that does not belong to that event (or using Mustache partials like `{{> name}}` or custom delimiters like `{{=<% %>=}}`) causes `pi-cowboy` to reject and skip the file at load time with a warning.
 
-Every event supplies the three worktree facts. They are absent, not empty, when the spawn has no worktree, which is what `{{#has_worktree}}` branches on.
+### Worktree variables (all events)
 
-- `has_worktree`: Whether the spawn has a worktree.
-- `worktree_path`: The path of that worktree.
-- `worktree_branch`: The branch checked out in that worktree.
+All three cue events provide these worktree variables when the agent runs in a worktree. When an agent runs without a worktree, these variables are omitted (rather than set to empty strings), so you can branch on `{{#has_worktree}}...{{/has_worktree}}`:
 
-### `spawned`
+| Variable          | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `has_worktree`    | `true` when the agent has a dedicated worktree.  |
+| `worktree_path`   | Filesystem path to the worktree.                 |
+| `worktree_branch` | Git branch checked out in the worktree.          |
 
-Rendered when the orchestrator acknowledges a delegation.
+### `spawned` variables
 
-- `agent_id`: The id of the agent behind the delegation.
+Rendered when a delegation starts immediately:
 
-### `queued`
+| Variable   | Description                          |
+| ---------- | ------------------------------------ |
+| `agent_id` | ID of the spawned agent.             |
 
-Rendered when a delegation waits for a concurrency slot.
+### `queued` variables
 
-- `agent_id`: The id of the agent behind the delegation.
-- `queue_running`: How many agents are running right now.
-- `queue_running_label`: `agent` or `agents`, so the count reads correctly in a sentence.
+Rendered when a delegation waits for a concurrency slot to open:
 
-### `settled`
+| Variable              | Description                                                                 |
+| --------------------- | --------------------------------------------------------------------------- |
+| `agent_id`            | ID of the queued agent.                                                     |
+| `queue_running`       | Number of agents currently running.                                         |
+| `queue_running_label` | `"agent"` when `queue_running` is `1`, or `"agents"` otherwise.             |
 
-Rendered when an agent settles. It is the run's own report and names no id, so `agent_id` is not a variable here.
+### `settled` variables
 
-- `result`: The report from a settled agent.
-- `error`: The error message from a failed agent.
-- `status_note`: A note appended to a stopped agent. It names who stopped it and says whether it ever started.
-- `retention`: The reason the worktree was kept instead of removed.
-- `process_alive`: Whether the agent process and its herdr pane are still running.
+Rendered when an agent finishes, fails, or is stopped. Because the completion header already identifies the agent, `agent_id` is not part of the `settled` context:
 
-## Example
+| Variable        | Description                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `result`        | Final report from a completed agent (omitted if empty or if the agent failed/stopped).                            |
+| `error`         | Error message from a failed agent (omitted unless the agent failed).                                              |
+| `status_note`   | Note appended when an agent was stopped, naming who stopped it and whether it had started.                        |
+| `retention`     | Reason the worktree was kept on disk (present only when the agent has a worktree that holds unmerged/dirty work). |
+| `process_alive` | `true` when the agent process and its Herdr pane are still running (present only when the agent has a worktree).  |
 
-The example below shows every field.
+## Complete example
 
 ```toml
-# (required) Template identity. pi-cowboy does not register a file without a name.
 name = "with code review"
-
-# (optional) Name shown in the UI. A new template without it shows `name`; an override without it keeps the display name it inherits.
 display_name = "with code review"
-
-# (optional) Instructions for the agent, copied verbatim into the agent prompt. When you omit it, the key inherits the base template's guidance; an empty string clears it.
 guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. Never make any commits without user approval"
 
-# (optional) The [cues] table. An event that you leave out falls through to the base template's cue.
 [cues]
-
-# (optional) Rendered when a delegation is acknowledged.
 spawned = '''
 Success! You delegated to an agent. A notification will arrive when done - USER: do not poll, don't check status and don't duplicate the delegated work!{{#has_worktree}}
 (Worktree: {{worktree_path}} (branch {{worktree_branch}}) — the agent's commits land on that branch, never on main. Merge it with the merge_cowboy_branch tool when done, then remove the worktree with cleanup_cowboy_agent.){{/has_worktree}}
 
 Agent ID: {{agent_id}}'''
 
-# (optional) Rendered when a delegation waits for a concurrency slot.
 queued = '''
 Agent QUEUED — the concurrency limit is reached ({{queue_running}} {{queue_running_label}} already spawned), so this task is waiting for a slot. It is NOT spawned yet: the process has not started. It will start automatically when another agent settles; you'll get a message when it starts and when it settles. Do NOT re-delegate — this task IS in flight.{{#has_worktree}}
 (Worktree: {{worktree_path}} (branch {{worktree_branch}}) — the agent's commits land on that branch, never on main. Merge it with the merge_cowboy_branch tool when done, then remove the worktree with cleanup_cowboy_agent.){{/has_worktree}}
 
 Agent ID: {{agent_id}}'''
 
-# (optional) Rendered when an agent settles.
 settled = '''
 {{result}}{{#error}}
 

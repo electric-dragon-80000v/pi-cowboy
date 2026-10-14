@@ -1,23 +1,43 @@
 # Agent Templates
 
-An agent template is a `.toml` file in one of these directories:
+An agent template is a `.toml` file that defines a reusable specialist agent with its own system prompt, model, harness, and tool permissions.
 
-- Extension built-ins: `agents/` in the extension package.
-- User: `<agent dir>/agents/`, where the agent dir is `~/.pi/agent` unless `PI_CODING_AGENT_DIR` overrides it.
-- Shared: `<project>/.agents/agents/`.
-- Project: `<project>/.pi/agents/`.
+Here is a minimal template that defines a read-only release notes writer for Pi:
 
-pi-cowboy loads the shared and project directories only when the project is trusted.
+```toml
+name = "release-notes"
+display_name = "Release Notes"
+description = "Prepares release notes for this repository."
+system_prompt = '''
+You prepare release notes for this repository. Read the history and tags
+(git log, git tag) and report the changes as a message.
+'''
 
-Precedence is `default` < `extension` < `user` < `shared` < `project`, and pi-cowboy matches an override by `name`.
+[harness.pi]
+model = "anthropic/claude-sonnet-4"
+tools = ["read", "bash", "grep", "find"]
+```
 
-Merging is per field: a set field wins, and an unset field falls through to the next lower layer. The exception is `display_name` and `description`, which identify the file: a same-named file replaces both, even when it leaves one unset. An unset `display_name` then falls back to `name`, and an unset `description` becomes empty.
+## File locations
 
-pi-cowboy skips a file without a `name`. It also skips a file with invalid TOML or an unknown key, and reports a one-line warning.
+`pi-cowboy` scans four directories for `.toml` agent templates at session start:
+
+- Extension built-ins: `agents/` inside the `pi-cowboy` package
+- User: `<agent dir>/agents/` (`~/.pi/agent/agents/` by default, or overridden by `PI_CODING_AGENT_DIR`)
+- Shared: `<project>/.agents/agents/` (loaded only when the project is trusted)
+- Project: `<project>/.pi/agents/` (loaded only when the project is trusted)
+
+Every template file must define a `name`. `pi-cowboy` skips any file that is missing `name`, contains invalid TOML, or includes an unrecognized key, and prints a one-line warning.
 
 ## Merging across layers
 
-Two files named `release-notes`, one in the extension package and one in `~/.pi/agent/agents/`, merge rather than collide:
+Templates are matched across directories by `name`, with higher layers overriding lower ones in this order:
+
+`default` < `extension` < `user` < `shared` < `project`
+
+When two layers define a template with the same `name`, `pi-cowboy` merges them field by field: any field set in the higher layer replaces the lower layer's value, while omitted fields are inherited from the lower layer.
+
+For example, if the extension ships a `release-notes` template and you create `~/.pi/agent/agents/release-notes.toml` with only a new description:
 
 ```toml
 # ~/.pi/agent/agents/release-notes.toml
@@ -25,107 +45,124 @@ name = "release-notes"
 description = "Prepares release notes for this repository."
 ```
 
-The result carries the user's `description`, because the higher layer sets that field, and the extension's `system_prompt`, because the user's file leaves it unset and it falls through. Nothing is concatenated: a field the user sets replaces the lower layer's value outright.
+The merged template uses your `description` and keeps the extension template's `system_prompt` and `[harness]` settings. Fields are never concatenated; setting a field replaces the inherited value outright.
+
+The only exception to field-by-field inheritance is the pair of identity fields, `display_name` and `description`. Because those two fields label the template in the UI, an override file replaces both of them at once: if your override omits `display_name`, it falls back to `name`, and if it omits `description`, the description becomes empty (`""`).
 
 ## Fields
 
-Every field appears below.
+### Top-level fields
+
+| Field                    | Type                     | Default                        | Description                                                                                                                                                                                                 |
+| ------------------------ | ------------------------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                   | string (required)        | (required)                     | Template identifier used in `cowboy_agent` calls and layer merging.                                                                                                                                         |
+| `display_name`           | string                   | `name`                         | Label shown in the `/cowboy` menu.                                                                                                                                                                          |
+| `description`            | string                   | `""`                           | Short summary of what the agent does.                                                                                                                                                                       |
+| `system_prompt`          | string                   | inherited                      | Instructions for the agent. Omit to inherit from a lower layer; set to `""` to clear an inherited prompt.                                                                                                   |
+| `harness_type`           | harness ID               | `agent.harnessType`            | Harness used to launch this agent: `"pi"`, `"pig"`, `"pi-bolt"`, `"opencode"`, `"codex"`, or `"claude"`. If the machine cannot launch the template's harness, `pi-cowboy` falls back to `"pi"`.             |
+| `worktree_checkout_type` | `"clean"` \| `"dirty"`   | `agent.worktreeCheckoutType`   | Whether a new worktree starts at `HEAD` (`"clean"`) or carries the parent's uncommitted work (`"dirty"`). See [`agent.worktreeCheckoutType`](Configuration.md#agentworktreecheckouttype).                   |
+| `hidden`                 | boolean                  | `false`                        | Hide this template from the `agent_type` list in the UI and tool description while still allowing direct calls by `name`.                                                                                   |
+
+### Shared harness settings (`[harness]`)
+
+Settings placed directly under `[harness]` apply regardless of which harness launches the agent:
+
+| Field                   | Type    | Default                      | Description                                                                                                                        |
+| ----------------------- | ------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `include_context_files` | boolean | `agent.includeContextFiles`  | Whether the agent's staged system prompt includes `AGENTS.md` context files from the project and `<agent dir>`.                    |
+
+### Harness family sections
+
+Because each harness family has its own model catalog, CLI flags, and tool names, model and tool settings are scoped under `[harness.<family>]`. When an agent launches, it reads only the section for its own harness family:
+
+- `[harness.pi]` applies to the Pi family (`pi`, `pig`, and `pi-bolt`).
+- `[harness.opencode]` applies to `opencode`.
+- `[harness.codex]` applies to `codex`.
+- `[harness.claude]` applies to `claude`.
+
+A single template can include sections for multiple families so the agent works seamlessly whichever harness launches it. For backward compatibility, `[harness.pi]` keys may also be written flat under `[harness]`; if a key is set in both places, `[harness.pi]` wins.
+
+#### `[harness.pi]`
+
+| Field            | Type                         | Default                          | Description                                                                                                                                               |
+| ---------------- | ---------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`          | string                       | unset                            | Model from Pi's catalog as `"provider/model-id"`. See [Model keys](Configuration.md#model-keys) for precedence.                                           |
+| `thinking`       | thinking level               | `agent.defaultThinking`          | Reasoning effort: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"`.                                                             |
+| `tools`          | string[]                     | all tools                        | Allowlist of Pi tool names (for example, `["read", "bash", "grep", "find"]`).                                                                             |
+| `exclude_tools`  | string[]                     | none excluded                    | Blocklist of Pi tool names. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                                                         |
+| `skills`         | boolean or string[]          | `agent.loadSkillsImplicitly`     | `true` loads all Pi skills, `false` loads none, or a list of skill names loads only those skills (name, description, and file path).                      |
+| `inlined_skills` | string[]                     | `[]`                             | Skill names whose full Markdown contents are inlined directly into the agent's system prompt.                                                             |
+| `extensions`     | boolean or string[]          | `agent.loadExtensionsImplicitly` | `true` loads all Pi extensions, `false` loads none, or a list of extension names loads only those.                                                        |
+| `fork`           | boolean                      | `false`                          | Fork the parent session context into the spawned agent (`pi --fork <sessionFile>`).                                                                       |
+
+#### `[harness.opencode]`
+
+| Field           | Type     | Default       | Description                                                                                                                                                              |
+| --------------- | -------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `model`         | string   | unset         | Model from OpenCode's catalog as `"provider/model-id"`.                                                                                                                  |
+| `variant`       | string   | none          | Reasoning-effort variant appended as `"provider/model#variant"` (for example, `"minimal"`, `"high"`, `"max"`). Requires `model` to be set and to support that variant.   |
+| `tools`         | string[] | all tools     | Allowlist of OpenCode permission actions (`"read"`, `"glob"`, `"grep"`, `"edit"`, `"shell"`, `"webfetch"`, etc.).                                                        |
+| `exclude_tools` | string[] | none excluded | Blocklist of OpenCode permission actions. If both `tools` and `exclude_tools` are set, `tools` wins.                                                                     |
+
+#### `[harness.codex]`
+
+`codex` does not expose a CLI flag for filtering tools, so `[harness.codex]` configures only the model:
+
+| Field   | Type   | Default | Description                                                                                                                       |
+| ------- | ------ | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `model` | string | unset   | Model from Codex's catalog as `"provider/model-id"` (for example, `"openai/gpt-6-sol"`). `pi-cowboy` strips `openai/` for `-m`.   |
+
+#### `[harness.claude]`
+
+| Field           | Type     | Default       | Description                                                                                                                                          |
+| --------------- | -------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`         | string   | unset         | Model from Claude Code's catalog as `"anthropic/<alias>"` (for example, `"anthropic/sonnet"`). `pi-cowboy` strips `anthropic/` for the CLI.          |
+| `tools`         | string[] | all tools     | Allowlist of Claude Code tool names (`"Bash"`, `"Read"`, `"Write"`, `"Edit"`, `"Glob"`, `"Grep"`, `"Task"`, etc.), passed to `--tools`.              |
+| `exclude_tools` | string[] | none excluded | Blocklist of Claude Code tool names, passed to `--disallowedTools`. If both `tools` and `exclude_tools` are set, `tools` wins.                       |
+
+##### Claude Code API key handling
+
+When launching `claude`, `pi-cowboy` renames `ANTHROPIC_API_KEY` in the pane's environment to `COWBOY_API_KEY` and reads it through a staged `apiKeyHelper`. This prevents Claude Code from halting on its interactive environment-key consent prompt. If `ANTHROPIC_API_KEY` is not set in your environment, `pi-cowboy` omits `apiKeyHelper` so normal OAuth and keychain logins work unchanged.
+
+## Complete example
 
 ```toml
-# (required) Template identity. pi-cowboy does not register a file without a name.
 name = "release-notes"
-
-# (optional) Name shown in the UI. Defaults to `name`.
 display_name = "Release Notes"
-
-# (optional) Short description. default = ""
 description = "Prepares release notes for this repository."
-
-# (optional) Hide this agent from the `agent_type` list. The name still resolves a call. default = false
 hidden = false
-
-# (optional) "clean" or "dirty". Sets what this agent's worktree takes over from a dirty parent working tree: "dirty" carries the parent's tracked changes (plus its untracked files under copy-on-write), "clean" starts the worktree at HEAD. default = the global `agent.worktreeCheckoutType`
 worktree_checkout_type = "clean"
+harness_type = "pi"
 
-# (optional) The agent's system prompt. If omitted, the agent inherits an earlier layer's prompt. An empty string clears it.
 system_prompt = '''
 You prepare release notes for this repository. Read the history and tags
 (git log, git tag) and report the changes as a message.
 '''
 
-# (optional) Harness launching this agent: "pi", "pig", "pi-bolt", "opencode", "codex", or "claude". "opencode" launches opencode instead of pi; "codex" launches codex instead of pi; "claude" launches the interactive Claude Code TUI instead of pi. Each foreign harness's model catalogue and default model are its own. A `cowboy_agent` call's `harness_type` overrides this, and a call that names a harness this machine cannot launch fails instead of falling back to pi. A template's own harness this machine cannot launch falls back to pi. default = the configured `agent.harnessType`
-harness_type = "pi"
-
-# (optional) Family-neutral settings for the harness that launches this agent, whichever family it is. These shape the shared system prompt the launch stages, not one family's CLI.
 [harness]
-
-# (optional) Whether the agent's system prompt carries the context files from the project and from the agent dir. default = the global `agent.includeContextFiles`
 include_context_files = true
 
-# (optional) The pi family's own settings, canonical spelling. `pig` and `pi-bolt` are pi-compatible, so this table covers them too. Each family's tool list uses that harness's own names: pi's names here, opencode's permission actions under `[harness.opencode]`, and claude's tool names under `[harness.claude]`. A launch reads only its own family's slice. codex has no tools flag, so no tool list reaches a codex launch. A family the template does not name launches with every tool. The flat `[harness]` spellings of these same keys are also accepted and mean exactly this table; when a key is written both ways, the `[harness.pi]` one wins.
 [harness.pi]
-
-# (optional) `tools`: only these tools are available, given as a list of pi tool names. default = every tool
-tools = ["read", "bash", "grep", "find"]
-
-# (optional) `exclude_tools`: every tool except these is available. default = none excluded
-# Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
-# exclude_tools = ["write"]
-
-# (optional) Model for this agent as "provider/model-id", a key in pi's catalogue. The flat `[harness] model` spelling sets this same pi-family key. default = this entry unless a higher-precedence entry in [Model keys](Configuration.md#model-keys) (the session or config per-type override) sets one; below it sit the session default, the launching harness's default, and, for a pi-family launch only, the parent session's model.
 model = "anthropic/claude-sonnet-4"
-
-# (optional) Thinking level: "off", "minimal", "low", "medium", "high", "xhigh", or "max". default = the global `agent.defaultThinking`
 thinking = "medium"
-
-# (optional) Extensions: true uses pi's own set, false loads none, or a list of names loads only those. default = the global `agent.loadExtensionsImplicitly`
+tools = ["read", "bash", "grep", "find"]
+# exclude_tools = ["write"]
 extensions = true
-
-# (optional) Skills: true uses pi's own set, false loads none, or a list of names. A skill in the list contributes its name, description, and file path. default = the global `agent.loadSkillsImplicitly`
 skills = ["release-notes"]
-
-# (optional) Skills whose full text is inlined into the system prompt: a list of names. default = [].
 inlined_skills = []
-
-# (optional) Fork the parent session into the agent (`pi --fork <sessionFile>`). default = false
 fork = false
 
-# (optional) Settings only opencode reads. Its tool lists are opencode's permission actions.
 [harness.opencode]
-
-# (optional) Model for this agent as "provider/model-id", a key in opencode's catalogue. An opencode launch reads this key; a pi launch never does.
-# model = "anthropic/claude-sonnet-4"
-
-# (optional) `tools`: only these tools are available, given as opencode's permission actions (`read`, `glob`, `grep`, `edit`, `shell`, `webfetch`, …). default = every tool
-# tools = ["read", "grep", "glob"]
-
-# (optional) `exclude_tools`: every tool except these is available. default = none excluded
-# Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
+model = "anthropic/claude-sonnet-4"
+variant = "high"
+tools = ["read", "grep", "glob"]
 # exclude_tools = ["edit"]
 
-# (optional) Reasoning-effort variant, carried on the model as "provider/model#variant". opencode applies it only when the selected model declares that variant name, so a variant with no model fails the launch. Example values: "minimal", "high", "max". default = none
-# variant = "high"
-
-# (optional) Settings only codex reads: the model alone. codex has no tools flag, so this table carries no tool pair.
 [harness.codex]
+model = "openai/gpt-6-sol"
 
-# (optional) Model for this agent as "provider/model-id", a key in codex's catalogue. A codex launch reads this key and passes its bare slug to the CLI's `-m` flag, dropping the `openai/` provider; a pi launch never does.
-# model = "openai/gpt-6-sol"
-
-# (optional) Settings only claude reads. Its tool lists are claude's own tool names, carried onto `--tools` / `--disallowedTools` exactly as written; its model key is an `anthropic/<alias>` entry, and the launch strips the prefix to the bare alias the CLI takes.
 [harness.claude]
-
-# (optional) Model for this agent as "provider/model-id", a key in claude's catalogue. A claude launch reads this key; a pi launch never does.
-# model = "anthropic/sonnet"
-
-# (optional) `tools`: only these tools are available, given as claude's tool names (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Task`, …). default = every tool
-# tools = ["Bash", "Read", "Glob"]
-
-# (optional) `exclude_tools`: every tool except these is available. default = none excluded
-# Set only one of `tools` and `exclude_tools`. When you set both, `tools` wins.
+model = "anthropic/sonnet"
+tools = ["Bash", "Read", "Glob"]
 # exclude_tools = ["Bash"]
 ```
-
-A claude launch does not pass `ANTHROPIC_API_KEY` to the pane. The launcher renames it to `COWBOY_API_KEY`, which only the staged `apiKeyHelper` reads, so a pane-side `env` shows `COWBOY_API_KEY` and no `ANTHROPIC_API_KEY`. The rename keeps claude's consent prompt for environment keys from appearing. Without a key in the environment, the helper line is removed from the staged settings instead, leaving OAuth and keychain login untouched.
-
-A pi-family key written flat under `[harness]` means the same slice as `[harness.pi]`, and `[harness.pi]` wins when a template sets the same key both ways. A family table's keys are read only by that family: `[harness.opencode]`, `[harness.codex]` and `[harness.claude]` keys never reach a pi launch, and pi's keys never reach an opencode, codex or claude launch, each of which falls through to its own default instead. The parent session's model is pi's key, so no foreign launch inherits it either.

@@ -4,45 +4,53 @@
 
 **License:** MIT
 
-pi-cowboy is an agent orchestrator for [pi](https://pi.dev). It is designed for step-by-step task decomposition and supervision. It coordinates multiple agents in the background while keeping their work visible and actionable. Each agent gets a dedicated pi process and an isolated Herdr workspace backed by its own copy-on-write worktree. pi-cowboy creates those worktrees and cleans them up for you automatically.
+`pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and merge their branches back when they finish.
+
+Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is merged, `pi-cowboy` cleans up the panes, worktrees, and branches for you.
 
 ## Why should I use it?
 
-- **Improved code understanding:** Give each agent a smaller, isolated subtask. A single focused task with clear guidance leaves little room for error; a long list of tasks and expectations creates more room for drift and over-engineering. Smaller tasks therefore improve code quality and yield results that are easier to review: each agent commits to its own branch, so a subtask is reviewed and merged on its own, separately from the others.
+### Focused tasks produce better code
 
-- **Foreign harness support:** pi-cowboy can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Do you need support for something else? Create an issue on [Github](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new).
+Give each agent a smaller, isolated subtask. A single task with clear instructions leaves little room for error, whereas a long list of expectations invites drift and over-engineering. Because each agent commits to its own branch, you can review and merge each subtask on its own.
 
-- **Parallel work with minimal disk overhead:** Multiple agents can edit, build, and run tests concurrently without interfering with each other. Copy-on-write unlocks more parallelism by reducing the disk overhead of the worktrees.
-  The numbers below are from a Git repository containing 153,607 files in total. The tracked files occupy 479 MiB, while the repository is 27 GiB in total, including untracked files.
+### Foreign harness support
 
-  | Method                         | Including untracked | Size on disk |
-  | ------------------------------ | ------------------- | ------------ |
-  | Pi-cowboy's copy-on-write      | yes                 | 75 MiB       |
-  | Classic `git worktree add`     | no                  | 479 MiB      |
-  | Classic wt + copy of untracked | yes                 | 27 GiB       |
+`pi-cowboy` can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Do you need support for something else? Create an issue on [GitHub](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new).
 
-- **Herdr integration:** Each task gets its own shell, a visible pane, and notifications when an agent needs your attention.
+### Parallel work with minimal disk overhead
 
-- **Custom workflows:** You can specify custom workflows via agent and orchestrator templates to fit your environment and working style.
+Multiple agents can edit, build, and run tests at the same time without interfering with each other. Copy-on-write worktrees make high parallelism practical by keeping disk usage small even when your repository has gigabytes of untracked build artifacts or dependencies.
 
-- **Grazing cows and a cowboy on your screen**:
+The numbers below come from a Git repository with 153,607 files in total (479 MiB tracked, 27 GiB total including untracked files):
 
-  ![image-20260930022747492](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/grazing.png)
+| Method                         | Including untracked | Size on disk |
+| ------------------------------ | ------------------- | ------------ |
+| Pi-cowboy's copy-on-write      | yes                 | 75 MiB       |
+| Classic `git worktree add`     | no                  | 479 MiB      |
+| Classic wt + copy of untracked | yes                 | 27 GiB       |
 
-  Who wouldn’t want their agents visualized as cow emojis? Go on… guess. That's exactly right. No one.
+### Live visibility in Herdr
+
+Each task gets its own shell, a visible terminal pane you can open at any time, and notifications when an agent needs your attention.
+
+### Custom workflows
+
+Define reusable [agent templates](#agent-templates) for specialist roles and [orchestrator templates](#orchestrator-templates) to adapt how agents work and report back.
+
+### Grazing cows and a cowboy on your screen
+
+![image-20260930022747492](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/grazing.png)
+
+Who wouldn’t want their agents visualized as cow emojis? Go on… guess. That's exactly right. No one.
 
 ## Requirements
 
-- Linux/macOS
-- `herdr` 0.8 or later
-- `herdr` pi integration
-- macOS also needs `python3` for copy-on-write worktrees
-
-  - macOS has shipped no `python3` since 12.3. Install the Xcode Command Line Tools: `xcode-select --install`
-
-- Copy-on-write capable filesystem (APFS on macOS, BTRFS, and ZFS on Linux)
-
-  - ext4 does not support CoW. If you use ext4, `agent.worktreeMaterialization` falls back to `checkout`.
+- Linux or macOS
+- `herdr` 0.8 or later, with the `herdr` pi integration enabled
+- `python3` on macOS (used for copy-on-write worktrees; macOS has not shipped `python3` since 12.3, so install the Xcode Command Line Tools with `xcode-select --install`)
+- Copy-on-write capable filesystem (APFS on macOS; BTRFS or ZFS on Linux)
+  - `ext4` does not support copy-on-write. On `ext4`, `agent.worktreeMaterialization` falls back to `checkout`.
 
 ## Install
 
@@ -52,34 +60,33 @@ Install from npm:
 
 ## Usage
 
-##### Delegating a task
+`pi-cowboy` activates automatically whenever you run `pi` inside a Git repository.
+
+##### 1. Delegating a task
 
 <hr>
 <code>Based on the security audit, group the relevant files into 10 groups, and launch parallel cowboy agents to address their audit results.</code>
-
 <hr>
 
-pi-cowboy spawns agents for the tasks in the background.
+`pi-cowboy` spawns background agents for the subtasks right away:
 
 <code>✓ Spawned agent b7g2nspx (general-purpose)</code><br>
 <code>✓ Spawned agent 5m1xx7fa (general-purpose)</code><br>
 <code>...</code>
 
-Depending on your concurrency settings, some of the tasks queue. The default global concurrency is 4, so 6 of them queue and start as soon as a spot opens.
+If you spawn more agents than your concurrency limit allows, the extras wait in a queue. With the default global limit of 4, the first 4 agents start immediately and the remaining 6 start as slots open up.
 
-##### Agent isolation
+##### 2. Agent isolation
 
 ![herdr-containers](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/herdr-containers.png)
 
-Each agent runs as a separate pi process in its own Herdr workspace. Open a workspace at any time to monitor the agent or to steer it.
+Each agent runs as a separate process in its own Herdr workspace, inside its own tab and terminal pane. You can switch to an agent's workspace at any time to watch its progress or steer it directly.
 
-Three Herdr terms recur below: a **workspace** is the outermost Herdr container and holds tabs, a **tab** holds panes, and a **pane** is one terminal session, the one the agent's pi process runs in. pi-cowboy gives each agent its own workspace and tab, and puts the agent in that tab's root pane. pi-cowboy needs a git repository because each agent works in a worktree of it; outside a repository the extension stays inactive for that session. The pane id is the durable handle `cleanup_cowboy_agent` uses to find that pane again.
+On disk, each agent works in a dedicated Git worktree under `<agent dir>/pi-cowboy/worktrees/` (`~/.pi/agent` by default).
 
-The agents work in separate git worktrees placed under `<agent dir>/pi-cowboy/worktrees/` (`~/.pi/agent` by default).
+##### 3. Agent completion
 
-##### Agent completion
-
-When an agent settles, its result arrives in the parent session that started it:
+When an agent finishes its turn (settles), its report arrives as a message in the parent session:
 
 <code>✓ [Cowboy agent "general-purpose" b7g2nspx completed]</code><br>
 <br>
@@ -87,26 +94,23 @@ When an agent settles, its result arrives in the parent session that started it:
 <br>
 <code>(Worktree: $HOME/.pi/agent/pi-cowboy/worktrees/cow-audit-perms-b7g2nspx (branch cow-audit-perms-b7g2nspx). The agent process and its herdr pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process. The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.)</code>
 
-The orchestrator then follows your instructions and the agent's report.
+The parent session can then review the report, steer the agent if something needs another pass, or merge the branch.
 
-##### Merging
+##### 4. Merging
 
-pi-cowboy calls the `merge_cowboy_branch` tool, which merges the branch in your repository's main working tree:
+To bring the changes in, the orchestrator calls `merge_cowboy_branch`, which merges the agent's branch into your repository's main working tree:
 
 <code>✓ Merged "cow-audit-perms-b7g2nspx" into "main" in pi-mono.</code>
 
-##### Cleanup
+##### 5. Cleanup
 
-The orchestrator cleans up the branches after merging when your instructions call for it. If it has not, tell it to clean up.
+Once the work is merged, the orchestrator cleans up the agent's resources (or you can ask it to):
 
 <hr>
 <code>Clean up perms audit agent.</code>
-
 <hr>
 
-Clean up comes last. The tool refuses an agent that is still running, removes a branch only once you have merged it, and keeps any worktree that still holds uncommitted changes.
-
-pi-cowboy calls the `cleanup_cowboy_agent` tool, which removes the agent's artifacts and reports the results:
+`cleanup_cowboy_agent` closes the Herdr pane and tab, removes the worktree, and deletes the branch:
 
 <code>✓ Cleaned up agent b7g2nspx:</code><br>
 <code>agent status: completed</code><br>
@@ -114,120 +118,15 @@ pi-cowboy calls the `cleanup_cowboy_agent` tool, which removes the agent's artif
 <code>worktree: removed ($HOME/.pi/agent/pi-cowboy/worktrees/cow-audit-perms-b7g2nspx)</code><br>
 <code>branch: deleted (cow-audit-perms-b7g2nspx)</code>
 
-The `cleanup_cowboy_agent` tool removes the pane, its tab, the worktree, and the branch.
-If pi-cowboy cannot remove one of them, it reports the failure and completes the removals it can.
+Cleanup is safe by default: it refuses to touch an agent that is still running, keeps any worktree that still has uncommitted changes, and deletes the branch only if it has already been merged. If one step cannot be completed, `pi-cowboy` reports the reason and finishes the rest.
 
-## Commands
+## Customizing your workflow
 
-`/cowboy` opens a menu. See [Menu](docs/Menu.md).
+### Agent templates
 
-<code>/cowboy                         # pi-cowboy menu</code><br>
+If you find yourself repeating the same instructions for recurring jobs, you can package them into an agent template with its own system prompt, model, harness, and tool permissions.
 
-<code>/cowboy status                  # List spawned, queued, and settled agents</code><br>
-
-<code>/cowboy spawn                   # Spawn an agent manually</code><br>
-
-<code>/cowboy worktree                # Create a git worktree with no agent attached</code><br>
-
-<code>/cowboy model                   # Model selection for the agents</code><br>
-
-<code>/cowboy model provider/model-id # Set the model for this session</code><br>
-
-<code>/cowboy model clear             # Clear the model set for this session</code><br>
-
-<code>/cowboy enable                  # Enables pi-cowboy</code><br>
-
-<code>/cowboy disable # Disables pi-cowboy</code>
-
-## Tools
-
-### `cowboy_agent`
-
-Delegates one or more tasks to cowboy agents. Each cowboy agent runs in its own pi process and works in its own branch. The call returns immediately, one agent ID per task. Results arrive as a message as each agent settles.
-
-| Parameter           | Required | Description                                                                                      |
-| ------------------- | -------- | ------------------------------------------------------------------------------------------------ |
-| `agents[]`          | yes      | One object per task.                                                                             |
-| `run_in_background` | no       | Set to `false` to wait for the result in the same turn. Only allowed when `agents` has one task. |
-
-`agents[]`:
-
-| Field          | Required | Description                                                                                                                                                                                                                                                      |
-| -------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`       | yes      | Task instructions for the cowboy agent.                                                                                                                                                                                                                          |
-| `task_name`    | yes      | Short 2-3-word name (e.g. "fix login flow") that names the agent's branch, worktree, and tab.                                                                                                                                                                    |
-| `agent_type`   | no       | Agent type to use. Defaults to the type set at `/cowboy` > `Agent`.                                                                                                                                                                                              |
-| `model`        | no       | Model for this cowboy agent as `"provider/model-id"`. Defaults are resolved in the order under [Model resolution](#model-resolution).                                                                                                                            |
-| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, or `claude`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the harness, the call fails before anything spawns. |
-
-### `steer_cowboy_agent`
-
-Sends a message to one or more agents. `steer_cowboy_agent` revives a settled agent for another turn: the same agent in its pane picks the message up, and you get another completion message when it settles again.
-A queued agent cannot be steered, because it has no pane yet. Neither can an agent whose pane is gone (cleaned up), whose id is unknown, or that is being cleaned up.
-
-| Parameter     | Required | Description                           |
-| ------------- | -------- | ------------------------------------- |
-| `agent_ids[]` | yes      | Agent ids to send the message to.     |
-| `message`     | yes      | The message to deliver to each agent. |
-
-### `stop_cowboy_agent`
-
-Stops one or more running agents. The agent's worktree and branch are preserved.
-
-| Parameter     | Required | Description        |
-| ------------- | -------- | ------------------ |
-| `agent_ids[]` | yes      | Agent ids to stop. |
-
-### `merge_cowboy_branch`
-
-Merges one or more settled agent branches into a target branch in your repository's main working tree. A merge conflict stays in place for you to resolve. The main working tree must be on the target branch and have no uncommitted changes.
-
-| Parameter    | Required | Description                                                                     |
-| ------------ | -------- | ------------------------------------------------------------------------------- |
-| `branches[]` | yes      | The `cow-<task>-<id>` branches from the agent results.                          |
-| `target`     | no       | Branch to merge into. Defaults to `main`.                                       |
-| `repo`       | no       | Path inside the repository. Defaults to the parent session's working directory. |
-
-### `cleanup_cowboy_agent`
-
-Removes the pane, its tab, the worktree, and the branch of one or more settled agents.
-The tool reports the result for each agent.
-
-A removal that fails does not throw. The branch is removed only after you have merged it, and a worktree with uncommitted changes is kept and reported instead of removed.
-
-| Parameter     | Required | Description                                                                           |
-| ------------- | -------- | ------------------------------------------------------------------------------------- |
-| `agent_ids[]` | yes      | Agent ids to clean up. `cleanup_cowboy_agent` refuses an agent that is still running. |
-
-## Model resolution
-
-A model set in the `cowboy_agent` call wins over everything; below it come the session per-type override, the config per-type override, the agent template, the session default, the launching harness's default, and finally, under the pi family, the model of the parent session. The authoritative order is in [Configuration](docs/Configuration.md#model-keys).
-
-## Concurrency
-
-A running agent holds a place in every concurrency limit that applies to it. pi-cowboy releases those places when the agent settles, then the next queued agent starts. You can define concurrency limits as follows:
-
-- Per model: `concurrency.models["<provider>/<model-id>"]`
-- Per provider: `concurrency.providers.<provider>`
-- Per harness: `concurrency.harnesses.<harness-id>`
-- Global: `concurrency.default` (default `4`), which every agent counts against
-
-The levels are independent: an agent whose model, provider, and harness all have limits counts against all of them and against the global limit, so you have to free room at every level that applies.
-pi-cowboy starts the first waiting agent whose every level has room: an agent that waits for one limit to clear does not hold back an agent behind it.
-
-An agent with no model selection counts against the global limit alone.
-
-pi-cowboy floors limits at one, so `0` and a negative number both mean one at a time. See [Configuration](docs/Configuration.md#concurrency).
-
-A steered agent that settled and starts again is a second live process. It counts against its limits at once, even when it then exceeds a limit. The message is already in the pane of that agent, so its second turn cannot wait for room.
-
-These settings can be configured via the configuration file or via the menu `/cowboy` > `Settings` > `Concurrency Settings`.
-
-## Agent templates
-
-You can define custom agent templates for tasks that keep coming back and would otherwise make you repeat the same instructions.
-
-As an example, a release notes template may look like this:
+For example, a `release-notes` template looks like this:
 
 ```toml
 name = "release-notes"
@@ -238,20 +137,19 @@ You prepare release notes for this repository. Read the history and tags
 '''
 ```
 
-You can then refer to this in the parent session to trigger it:
+You can then ask for it by name in the parent session:
 
 <hr>
 <code>> Spawn a cowboy agent using release notes template to prepare the release notes for the most recent changes.</code>
-
 <hr>
 
-Agent templates have more configuration options. See [Agent Templates](docs/Agent%20Templates.md) for the full list.
+See [Agent Templates](docs/Agent%20Templates.md) for all template fields and directory locations.
 
-## Orchestrator templates
+### Orchestrator templates
 
-You can define custom orchestrator templates when the same instructions should apply to every agent you spawn, no matter the task.
+While agent templates specialize individual workers, orchestrator templates apply rules across every agent you spawn. They also let you customize the status messages ("cues") sent to the parent session when agents spawn, queue, or settle.
 
-If you have an adversarial review tool installed, you can define an "adversarial-review" orchestrator:
+For instance, if you use an adversarial review tool, you can define an orchestrator template that requires every agent to run it before committing:
 
 ```toml
 name = "adversarial-review"
@@ -260,37 +158,138 @@ Run the adversarial-review tool before you commit, and fix any glaring mistakes 
 '''
 ```
 
-You can switch orchestrators during a session at `/cowboy` > `Default orchestrator`. See [Menu](docs/Menu.md).
-
-Orchestrator templates also allow you to customize how the agent communicates with the orchestrator. See [Orchestrator Templates](docs/Orchestrator%20Templates.md) for more details.
+You can switch the active orchestrator at any time from `/cowboy` > `Default orchestrator`. See [Orchestrator Templates](docs/Orchestrator%20Templates.md) for details.
 
 ### Foreign harnesses
 
-pi-cowboy can also orchestrate Codex, Claude Code, and OpenCode. It auto-detects them, so you can reference them directly (e.g., "Launch an OpenCode agent for this task") or configure them as defaults in your [settings](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
+`pi-cowboy` auto-detects Codex, Claude Code, OpenCode, PiG, and Pi-Bolt when they are installed on your `PATH`. You can request a specific harness directly in your prompt (for example, "Launch an OpenCode agent for this task") or set defaults in your [configuration](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
+
+## Concurrency
+
+You can cap how many agents run at the same time across four independent levels:
+
+- Global: `concurrency.default` (default `4`), which applies to every agent
+- Per harness: `concurrency.harnesses.<harness-id>`
+- Per provider: `concurrency.providers.<provider>`
+- Per model: `concurrency.models["<provider>/<model-id>"]`
+
+A running agent occupies a slot in every limit that applies to it. When the agent settles, it releases those slots and `pi-cowboy` starts the next queued agent that has room at all of its levels. An agent waiting on a busy model limit will not block a queued agent behind it that uses a different model.
+
+If you steer a settled agent, it wakes up in its existing pane and runs immediately, even if that temporarily puts a limit over capacity.
+
+Configure these limits in `config.json` or live in your session via `/cowboy` > `Settings` > `Concurrency Settings`. See [Configuration](docs/Configuration.md#concurrency) for details.
+
+## Model resolution
+
+When `pi-cowboy` spawns an agent, it picks the model using the first match in this order:
+
+1. The `model` parameter passed to the `cowboy_agent` tool call
+2. The session per-type model override (`/cowboy` > `Model overrides`)
+3. The config per-type override (`agent.<agent-type>`)
+4. The model set in the [agent template](docs/Agent%20Templates.md) for the launching harness family
+5. The session default model (`/cowboy model`)
+6. The launching harness's configured default (`agent.default` for the Pi family, or `agent.defaultModelByHarness` for foreign harnesses)
+7. For Pi-family launches, the parent session's active model
+
+See [Configuration](docs/Configuration.md#model-keys) for the full rules.
+
+## Commands
+
+Run `/cowboy` to open the interactive menu, or pass a subcommand directly. See [Menu](docs/Menu.md) for a guide to every screen.
+
+```text
+/cowboy                         # Open the pi-cowboy menu
+/cowboy status                  # List spawned, queued, and settled agents
+/cowboy spawn                   # Spawn an agent manually
+/cowboy worktree                # Create a git worktree with no agent attached
+/cowboy model                   # Pick the default agent model for this session
+/cowboy model provider/model-id # Set the default agent model for this session
+/cowboy model clear             # Clear the session model override
+/cowboy enable                  # Enable pi-cowboy
+/cowboy disable                 # Disable pi-cowboy
+```
+
+## Tools
+
+### `cowboy_agent`
+
+Delegates one or more tasks to cowboy agents. By default, the call returns immediately with an agent ID for each task, and results arrive in the parent session as each agent settles.
+
+| Parameter           | Required | Description                                                                                      |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `agents[]`          | yes      | One object per task.                                                                             |
+| `run_in_background` | no       | Set to `false` to wait for the result in the same turn. Only allowed when `agents` has one task. |
+
+Each item in `agents[]` takes:
+
+| Field          | Required | Description                                                                                                                                                                                                                                                      |
+| -------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`       | yes      | Task instructions for the cowboy agent.                                                                                                                                                                                                                          |
+| `task_name`    | yes      | Short 2-3-word name (e.g. `"fix login flow"`) used to name the agent's branch, worktree, and tab.                                                                                                                                                                |
+| `agent_type`   | no       | Agent template to use. Defaults to the type selected at `/cowboy` > `Agent`.                                                                                                                                                                                     |
+| `model`        | no       | Model for this agent as `"provider/model-id"`. Resolved according to [Model resolution](#model-resolution).                                                                                                                                                      |
+| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, or `claude`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the requested harness, the call fails before spawning. |
+
+### `steer_cowboy_agent`
+
+Sends a follow-up message to one or more agents. If an agent is running, it receives the message before its next model call. If an agent has already settled, steering revives it in the same pane for another turn and delivers a new completion message when it settles again.
+
+Queued agents cannot be steered because they do not have a pane yet. Agents that have already been cleaned up (or are currently being cleaned up) cannot be steered either.
+
+| Parameter     | Required | Description                           |
+| ------------- | -------- | ------------------------------------- |
+| `agent_ids[]` | yes      | Agent IDs to send the message to.     |
+| `message`     | yes      | The message to deliver to each agent. |
+
+### `stop_cowboy_agent`
+
+Interrupts one or more running agents and marks them as stopped. Their worktrees, branches, and panes are preserved so you can inspect or clean them up afterward.
+
+| Parameter     | Required | Description        |
+| ------------- | -------- | ------------------ |
+| `agent_ids[]` | yes      | Agent IDs to stop. |
+
+### `merge_cowboy_branch`
+
+Merges one or more settled agent branches into a target branch in your repository's main working tree. Your main working tree must already be on the target branch with no uncommitted changes. If a merge conflict occurs, `pi-cowboy` leaves the conflict in place so you can resolve it.
+
+| Parameter    | Required | Description                                                                     |
+| ------------ | -------- | ------------------------------------------------------------------------------- |
+| `branches[]` | yes      | The `cow-<task>-<id>` branch names from the agent completion reports.           |
+| `target`     | no       | Branch to merge into. Defaults to `main`.                                       |
+| `repo`       | no       | Path inside the repository. Defaults to the parent session's working directory. |
+
+### `cleanup_cowboy_agent`
+
+Closes the Herdr pane and tab, removes the worktree, and deletes the branch for one or more settled agents. The tool reports the result for each agent.
+
+Cleanup never throws on partial failures: it deletes a branch only after it has been merged, and it keeps any worktree that still has uncommitted changes (reporting why it was kept).
+
+| Parameter     | Required | Description                                                                           |
+| ------------- | -------- | ------------------------------------------------------------------------------------- |
+| `agent_ids[]` | yes      | Agent IDs to clean up. `cleanup_cowboy_agent` refuses an agent that is still running. |
 
 ## FAQ
 
 ### Why is my agent queued, not running?
 
-Every running agent holds a place in every concurrency limit that applies to it: the limit of its model, the limit of its provider, the limit of its harness, and the global limit. Model and provider keys may carry a harness qualifier (`opencode:provider/model`); a bare key names pi's pool. pi-cowboy queues the other agents until every one of those limits has room. Raise the limit in `/cowboy` > `Settings` > `Concurrency Settings`, or in the `concurrency` config keys. See [Concurrency](#concurrency).
+Every running agent occupies a slot in each concurrency limit that applies to it: model, provider, harness, and global (model and provider keys can also be scoped to a harness, like `opencode:provider/model`). `pi-cowboy` queues new agents until all of their applicable limits have room. You can raise limits in `/cowboy` > `Settings` > `Concurrency Settings` or in your config file. See [Concurrency](#concurrency).
 
 ### Why did my worktree survive cleanup?
 
-`cleanup_cowboy_agent` will not remove a worktree that has uncommitted changes or whose state it cannot read. Commit or discard the changes, stop the agent if it is still running, then call the tool again. See [`cleanup_cowboy_agent`](#cleanup_cowboy_agent).
+`cleanup_cowboy_agent` refuses to delete a worktree that still has uncommitted changes or whose git status cannot be verified. Commit or discard the leftover changes, make sure the agent is stopped, and run cleanup again. See [`cleanup_cowboy_agent`](#cleanup_cowboy_agent).
 
 ### Isn't one pi process per agent too much overhead?
 
-It can be. For a single small task the overhead can cost more time than the task itself. pi-cowboy is built for many tasks at once, where that overhead is amortized by parallelization.
+For a single tiny change, spinning up a fresh process can take longer than making the edit directly. `pi-cowboy` is built for running several tasks in parallel, where that startup cost is paid once across all concurrent agents.
 
-To avoid the overhead, pi-cowboy has support for [pig](https://github.com/MichaelKinsy/PiG), a drop-in replacement for pi written in Go, and for [pi-bolt](https://github.com/opensec-git/Pi-Bolt), faster, lighter Pi variant compiled ahead of time. They start up fast and have a lower memory footprint. See `agent.harnessType` in [Configuration](docs/Configuration.md).
+If you want faster startup and lower memory usage, `pi-cowboy` also supports [pig](https://github.com/MichaelKinsy/PiG) (a drop-in Pi replacement written in Go) and [pi-bolt](https://github.com/opensec-git/Pi-Bolt) (an ahead-of-time compiled Pi variant). Set `agent.harnessType` in [Configuration](docs/Configuration.md) to use them.
 
 ### I don't like the emojis, can I turn them off?
 
-Yes. You can disable both the cowboy and the grazing in settings. See [Configuration](docs/Configuration.md).
+Yes. You can disable both the cowboy indicator and the grazing cows in `/cowboy` > `Settings` or in your config file. See [Configuration](docs/Configuration.md).
 
 ## References
-
-The settings, screens and template files mentioned above are documented in these four pages.
 
 - [Configuration](docs/Configuration.md)
 - [Menu](docs/Menu.md)
