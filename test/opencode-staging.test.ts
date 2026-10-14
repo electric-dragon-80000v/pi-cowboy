@@ -273,7 +273,7 @@ describe("opencodeAgentMarkdown", () => {
 });
 
 describe("writeOpencodeStaging", () => {
-  it("writes the definition, the npm seed, and nothing else", () => {
+  it("writes the definition and nothing else", () => {
     const dir = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
@@ -282,12 +282,7 @@ describe("writeOpencodeStaging", () => {
     });
 
     expect(dir).toBe(opencodeConfigDir(SUBAGENT_ID));
-    expect(fs.readdirSync(dir).sort()).toEqual([
-      "agent",
-      "node_modules",
-      "package-lock.json",
-      "package.json",
-    ]);
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent"]);
     expect(fs.readdirSync(join(dir, "agent"))).toEqual([`${SUBAGENT_ID}.md`]);
     expect(
       fs.readFileSync(join(dir, "agent", `${SUBAGENT_ID}.md`), "utf-8"),
@@ -299,43 +294,6 @@ describe("writeOpencodeStaging", () => {
         toolSelection: { kind: "include", names: ["read", "write"] },
       }),
     );
-  });
-
-  it("seeds an empty node_modules beside a manifest and a lock that parse", () => {
-    const dir = writeOpencodeStaging({
-      subagentId: SUBAGENT_ID,
-      systemPromptFile: stagePrompt(PROMPT),
-      variant: null,
-      toolSelection: { kind: "default" },
-    });
-
-    expect(fs.existsSync(join(dir, "node_modules"))).toBe(true);
-    expect(fs.readdirSync(join(dir, "node_modules"))).toEqual([]);
-
-    const manifestText = fs.readFileSync(join(dir, "package.json"), "utf-8");
-    const manifest: unknown = JSON.parse(manifestText);
-    expect(manifest).toEqual({
-      dependencies: { "@opencode-ai/plugin": expect.any(String) },
-    });
-
-    const lockText = fs.readFileSync(join(dir, "package-lock.json"), "utf-8");
-    const lock: unknown = JSON.parse(lockText);
-    expect(lock).toMatchObject({
-      name: "opencode",
-      lockfileVersion: 3,
-      requires: true,
-      packages: {
-        "": {
-          dependencies: { "@opencode-ai/plugin": expect.any(String) },
-        },
-      },
-    });
-
-    const declared = /"@opencode-ai\/plugin": "([^"]+)"/.exec(
-      manifestText,
-    )?.[1];
-    expect(declared).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(lockText).toContain(`"@opencode-ai/plugin": "${declared}"`);
   });
 
   it("replaces a definition the staging tree already holds", () => {

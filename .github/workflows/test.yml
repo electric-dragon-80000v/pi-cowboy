@@ -163,13 +163,13 @@ jobs:
 
   # opencode is someone else's binary and its config formats are undocumented, so
   # the one thing that can prove the staging module still works is a real
-  # opencode — and the one thing that keeps it honest is installing the latest
-  # release every run. The install is deliberately unpinned: a new opencode that
-  # stops reading the staged files, or that no longer lets the npm seed
-  # short-circuit its dependency install, must redden CI on the release that
-  # breaks it, not on a version someone remembered to bump. A dedicated job
-  # keeps that signal separate from the herdr/btrfs integration signal, needs no
-  # clone-capable volume, and pins nothing.
+  # opencode — and the one thing that keeps it honest is installing the current
+  # release every run. OpenCode ships through opencode.ai's own channel, so the
+  # install is deliberately unpinned there: a new release that stops reading the
+  # staged files, or that refuses the argv the harness builds, must redden CI on
+  # the release that breaks it, not on a version someone remembered to bump. A
+  # dedicated job keeps that signal separate from the herdr/btrfs integration
+  # signal, needs no clone-capable volume, and pins nothing.
   integration-opencode:
     name: Integration Tests (latest opencode)
     runs-on: ubuntu-latest
@@ -189,12 +189,12 @@ jobs:
       - name: Install dependencies
         run: HUSKY=0 pnpm install --frozen-lockfile
 
-      # The official installer resolves the newest release and, under
+      # The installer takes its binary from opencode's own update API and, under
       # GITHUB_ACTIONS, appends its bin directory to $GITHUB_PATH for the steps
       # below. `--no-modify-path` keeps it out of the shell rc files, which the
       # runner's later shells never read anyway.
       - name: Install the latest opencode
-        run: curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path
+        run: curl -fsSL https://opencode.ai/v2/install | bash -s -- --no-modify-path
 
       # A broken install must fail the job here, not let the test skip over it.
       - name: Verify the opencode binary

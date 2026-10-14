@@ -607,7 +607,7 @@ describe("buildArgs", () => {
         family: "opencode",
         variant: null,
       }),
-    ).toEqual(["--mini", "--agent", "esp02hpw"]);
+    ).toEqual(["mini", "--standalone", "--agent", "esp02hpw"]);
   });
 
   it("carries opencode's model only when one was resolved", () => {
@@ -619,7 +619,8 @@ describe("buildArgs", () => {
         modelKey: "anthropic/claude-opus-4",
       }),
     ).toEqual([
-      "--mini",
+      "mini",
+      "--standalone",
       "--agent",
       "esp02hpw",
       "--model",
@@ -635,15 +636,18 @@ describe("buildArgs", () => {
     ).not.toContain("--model");
   });
 
-  it("keeps the variant off opencode's argv: it rides the staged definition", () => {
+  it("joins opencode's variant to the model reference", () => {
     const args = harnessFor("opencode").buildArgs({
       ...sharedInputs(),
       family: "opencode",
       variant: "high",
+      modelKey: "anthropic/claude-opus-4",
     });
 
     expect(args).not.toContain("--variant");
-    expect(args).not.toContain("high");
+    expect(args[args.indexOf("--model") + 1]).toBe(
+      "anthropic/claude-opus-4#high",
+    );
   });
 
   /** A codex launch request with every optional arm absent. */
@@ -872,7 +876,7 @@ describe("listModels", () => {
 
     const entries = await opencodeListModels(exec);
 
-    expect(exec).toHaveBeenCalledWith("opencode", ["models"], {
+    expect(exec).toHaveBeenCalledWith("opencode", ["models", "--standalone"], {
       timeout: expect.any(Number),
     });
     expect(entries).toEqual([

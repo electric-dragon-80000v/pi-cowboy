@@ -24,9 +24,9 @@
  * settings menu must never fail to open when a list command misbehaves. The
  * integration test is what keeps the verified shape true as opencode changes.
  *
- * The strict `[harness.opencode]` table carries `variant`, which has no argv
- * route: `--variant` exists on `opencode run`, not on the top-level command
- * pi-cowboy launches, so it rides the agent definition this harness stages.
+ * The strict `[harness.opencode]` table carries `variant`, which joins the model
+ * reference on the argv: a variant has no flag of its own, so `buildArgs`
+ * appends it to the model key as `provider/model#variant`.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -107,6 +107,14 @@ function definitionProof(subagentId: string): PaneProof {
   };
 }
 
+/**
+ * The model reference opencode takes: the key, with the variant joined to it when
+ * one was requested.
+ */
+function modelReference(modelKey: string, variant: string | null): string {
+  return variant === null ? modelKey : `${modelKey}#${variant}`;
+}
+
 /** Warns with the `[subagents]` prefix every other config-plane warning carries. */
 function warnListModels(reason: string): void {
   console.warn(
@@ -142,7 +150,7 @@ async function listOpencodeModels(
 ): Promise<readonly ModelEntry[]> {
   let stdout: string;
   try {
-    const result = await pi.exec("opencode", ["models"], {
+    const result = await pi.exec("opencode", ["models", "--standalone"], {
       timeout: LIST_MODELS_TIMEOUT_MS,
     });
     if (result.code !== 0) {
@@ -228,14 +236,19 @@ export const opencodeHarness: Harness<"opencode"> = {
     });
   },
   /**
-   * `--mini` is the minimal *interactive* UI and is load-bearing: `opencode run`
+   * `mini` is the minimal *interactive* UI and is load-bearing: `opencode run`
    * exits when the session goes idle and never reads the terminal again, so a
-   * later steer would be typed into the pane's shell. The variant is not here —
-   * `--variant` exists only on `opencode run`; it rides the staged definition.
+   * later steer would be typed into the pane's shell. `--standalone` is
+   * load-bearing for the same reason the argv names a subcommand at all: a
+   * launch without it reads the shared background server's config directory,
+   * where the staged definition is not. A variant has no flag of its own — it
+   * joins the model key after `#`.
    */
   buildArgs(request: OpencodeLaunchRequest): string[] {
-    const args = ["--mini", "--agent", request.subagentId];
-    if (request.modelKey !== null) args.push("--model", request.modelKey);
+    const args = ["mini", "--standalone", "--agent", request.subagentId];
+    if (request.modelKey !== null) {
+      args.push("--model", modelReference(request.modelKey, request.variant));
+    }
     return args;
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,

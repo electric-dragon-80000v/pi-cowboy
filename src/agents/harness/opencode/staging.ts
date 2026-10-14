@@ -4,8 +4,7 @@
  *
  * opencode launches with `OPENCODE_CONFIG_DIR` naming this directory and with
  * project config disabled, so everything the spawn gets is what lands here: the
- * definition its prompt is read from (definition.ts) and the npm seed that keeps
- * opencode from installing its plugin (npm-seed.ts). Nothing here launches
+ * definition its prompt is read from (definition.ts). Nothing here launches
  * anything or knows which pane the process will live in.
  */
 
@@ -14,7 +13,6 @@ import * as path from "node:path";
 import { subagentResultDirFor } from "../../../paths.js";
 import type { ToolSelection } from "../../harness.js";
 import { removeAgentDefinition, writeAgentDefinition } from "./definition.js";
-import { removeNpmSeed, writeNpmSeed } from "./npm-seed.js";
 
 /** The config directory's name inside a spawn's staging directory. */
 const CONFIG_DIR_NAME = "opencode";
@@ -31,7 +29,7 @@ export function opencodeConfigDir(subagentId: string): string {
  *
  * The system prompt is read before anything is created, so an unreadable prompt
  * file fails the spawn without leaving a half-built tree behind. A definition
- * file already in place is overwritten, along with both seed files.
+ * file already in place is overwritten.
  */
 export function writeOpencodeStaging(input: {
   subagentId: string;
@@ -47,7 +45,6 @@ export function writeOpencodeStaging(input: {
     variant: input.variant,
     toolSelection: input.toolSelection,
   });
-  writeNpmSeed(configDir);
   return configDir;
 }
 
@@ -59,7 +56,6 @@ export function writeOpencodeStaging(input: {
 export function removeOpencodeStaging(subagentId: string): void {
   const configDir = opencodeConfigDir(subagentId);
   removeAgentDefinition(configDir, subagentId);
-  removeNpmSeed(configDir);
   removeConfigDir(configDir);
 }
 

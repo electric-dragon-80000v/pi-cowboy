@@ -1,29 +1,46 @@
 /**
- * opencode-staging.integration.test.ts — the staging module against the real
- * opencode binary.
+ * opencode-staging.integration.test.ts — the staging module and the launch argv
+ * against the real opencode binary.
  *
  * Unit tests pin the files `writeOpencodeStaging` emits; this proves the real
- * CLI still reads them. opencode's dependency check and its agent-file format
- * are both undocumented implementation details of someone else's binary, so
- * nothing in `src/` can assert them — only a run against the installed CLI can.
- * The tree is staged by the committed module (`writeOpencodeStaging`,
- * `removeOpencodeStaging`, `opencodeConfigDir`), then a real `opencode` is
- * pointed at it with the environment a spawn gives it.
+ * CLI still reads them, and that the argv `buildArgs` assembles is one the real
+ * CLI accepts. opencode's agent-file format and its flag surface are both
+ * undocumented implementation details of someone else's binary, so nothing in
+ * `src/` can assert them — only a run against the installed CLI can. The tree is
+ * staged by the committed module (`writeOpencodeStaging`, `removeOpencodeStaging`,
+ * `opencodeConfigDir`), then a real `opencode` is pointed at it with the
+ * environment a spawn gives it.
+ *
+ * Every run is `--standalone`. opencode keeps its configuration in a shared
+ * background server, and a client that is not standalone reads that server's
+ * config directory instead of the one in its own environment — so a staged
+ * definition is only visible under a private server, and a shared server started
+ * elsewhere answers for another directory entirely. That server also holds one
+ * fixed port per user, so a shared-server run here would collide with a
+ * developer's own opencode. `--standalone` avoids both, and it is the flag the
+ * harness itself launches with.
+ *
+ * Nothing here reads the resolved definition back over the CLI. The commands
+ * that print one (`debug agents`, `debug agent`) are served by the shared
+ * background server rather than by a private one, and the first request after
+ * that server starts answers with an empty agent list — so they are neither
+ * hermetic nor reliable here. The staged definition's contents are pinned by the
+ * unit test instead, and this file proves the two things only a real CLI can:
+ * that it resolves the staged definition at all, and that it does not resolve
+ * one that was never staged.
+ *
+ * Resolution is observed through a model that cannot resolve. opencode resolves
+ * the agent before the model, so `Model unavailable` is the error a staged agent
+ * produces and `Agent not found` is the error a missing one produces. No model
+ * is ever called.
  *
  * The binary is resolved with `commandPath("opencode")` — the same seam the
  * harness's own `available()` probe uses — so the test runs against whatever
  * opencode the machine actually launches, never a path baked in here. HOME is a
- * temp dir: opencode also scans `$HOME/.opencode` and `~/.config/opencode`
+ * temp dir: opencode reads `~/.config/opencode` and keeps its state under `$HOME`
  * unconditionally, and a developer's own providers, plugins and models must not
  * be able to leak into the assertions. XDG_CONFIG_HOME/XDG_DATA_HOME ride under
  * the same temp HOME for the same reason.
- *
- * Every assertion reads config and needs no network: `agent list` and
- * `debug agent` resolve the staged definition, and the no-install canary holds a
- * `debug wait` session open. opencode runs its dependency check during config
- * load but forks the install detached, so a command that exits immediately
- * (such as `agent list`) ends before the install could run — the held-open
- * session is what gives a would-be install the time to appear.
  *
  * A machine without opencode skips this file, so the suite still runs there. CI
  * sets `PI_COWBOY_REQUIRE_OPENCODE=1`, which turns the missing binary into a
@@ -31,11 +48,10 @@
  * never pass by not running these tests.
  */
 
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolSelection } from "../src/agents/harness.js";
@@ -46,25 +62,32 @@ import {
   writeOpencodeStaging,
 } from "../src/agents/harness/opencode/staging.js";
 import { commandPath } from "../src/infrastructure/exec-path.js";
-import { subagentTokenFor } from "../src/paths.js";
-
-const execFileAsync = promisify(execFile);
 
 /** The subagent these tests stage; the shape a spawn id has. */
 const SUBAGENT_ID = "a1b2c3d4";
 
+/** An id no test ever stages, for the negative control. */
+const UNSTAGED_ID = "zzzzzzzz";
+
 /**
  * The system prompt, ending on a non-whitespace character: opencode trims the
- * prompt's trailing whitespace, so a trailing newline would make the verbatim
- * assertion compare against opencode's normalization rather than our body.
+ * prompt's trailing whitespace, so a trailing newline would make the resolved
+ * prompt differ from this body for a reason that is not the staging's.
  */
 const PROMPT = "You review one diff.\n\nReport defects only.";
 
+/** The reasoning-effort variant a launch carries onto its model reference. */
+const VARIANT = "high";
+
 /**
- * A variant that forces an emitter style: the colon, the quotes and the comment
- * marker rule out a bare scalar, and the backslash pins the escaping.
+ * A model key that cannot resolve, under a provider opencode knows. An agent
+ * that resolved is reported by the failure of this key; a key under an unknown
+ * provider would report the provider instead.
  */
-const VARIANT = 'needs: "quotes" # and a backslash \\';
+const PROBE_MODEL = "opencode/nonexistent-model-pi-cowboy";
+
+/** The message the probe submits; it is never sent, because the model is not. */
+const PROBE_MESSAGE = "definition probe";
 
 /**
  * Set to `1` in CI: without an opencode binary on PATH the tests fail instead of
@@ -83,18 +106,6 @@ interface CliRun {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
-}
-
-/** The fields `execFile` rejects with, before they are narrowed. */
-interface ExecRejection {
-  readonly code?: unknown;
-  readonly stdout?: unknown;
-  readonly stderr?: unknown;
-}
-
-/** The rejection's fields when it carries any; an empty record otherwise. */
-function rejectionFields(err: unknown): ExecRejection {
-  return typeof err === "object" && err !== null ? err : {};
 }
 
 /** The binary every run uses, or an error naming how to make its absence fatal. */
@@ -144,13 +155,12 @@ function launchEnv(configDir: string): NodeJS.ProcessEnv {
     XDG_DATA_HOME: path.join(home, ".local", "share"),
     OPENCODE_CONFIG_DIR: configDir,
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-    OPENCODE_DISABLE_CLAUDE_CODE_PROMPT: "1",
   };
 }
 
-/** Write a system prompt file in this test's root and return its path. */
-function promptFile(text: string): string {
-  const file = path.join(home, "system.md");
+/** Write a file inside this test's temp root and return its path. */
+function tempFile(name: string, text: string): string {
+  const file = path.join(home, name);
   fs.writeFileSync(file, text);
   return file;
 }
@@ -159,7 +169,7 @@ function promptFile(text: string): string {
 function stage(variant: string | null, toolSelection: ToolSelection): string {
   const configDir = writeOpencodeStaging({
     subagentId: SUBAGENT_ID,
-    systemPromptFile: promptFile(PROMPT),
+    systemPromptFile: tempFile("system.md", PROMPT),
     variant,
     toolSelection,
   });
@@ -169,239 +179,154 @@ function stage(variant: string | null, toolSelection: ToolSelection): string {
   return configDir;
 }
 
-/** Run the real CLI against a staged directory, resolving the exit code either way. */
-async function runOpencode(
+/** Run the real CLI against a staged directory, collecting both streams and the exit code. */
+function runOpencode(
   configDir: string,
   args: readonly string[],
 ): Promise<CliRun> {
   const bin = opencodeBinary();
-  try {
-    const { stdout, stderr } = await execFileAsync(bin, [...args], {
+  return new Promise((resolve) => {
+    const child = spawn(bin, [...args], {
       env: launchEnv(configDir),
       cwd: path.dirname(configDir),
+      // A pipe that is never written and never closed makes opencode wait for a
+      // prompt that will not come: these runs submit their message on the argv,
+      // so their input is end-of-file.
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    return { code: 0, stdout, stderr };
-  } catch (err) {
-    const fields = rejectionFields(err);
-    return {
-      code: typeof fields.code === "number" ? fields.code : 1,
-      stdout: typeof fields.stdout === "string" ? fields.stdout : "",
-      stderr:
-        typeof fields.stderr === "string"
-          ? fields.stderr
-          : err instanceof Error
-            ? err.message
-            : String(err),
-    };
-  }
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err: Error) => {
+      resolve({ code: 1, stdout, stderr: `${stderr}${err.message}` });
+    });
+    child.on("close", (code: number | null) => {
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+  });
 }
 
-/** One permission rule in `debug agent`'s resolved list. */
-interface PermissionRule {
-  readonly permission: string;
-  readonly action: string;
-  readonly pattern: string;
-}
-
-/** The `debug agent` resolution, narrowed to the fields these tests read. */
-interface ResolvedAgent {
-  readonly mode: string;
-  readonly description: string;
-  readonly prompt: string;
-  readonly variant?: string;
-  readonly permission: readonly PermissionRule[];
-}
-
-/** Parse `debug agent`'s JSON, failing loudly when it is not the expected shape. */
-function parseResolvedAgent(stdout: string): ResolvedAgent {
-  const parsed: unknown = JSON.parse(stdout);
-  if (typeof parsed !== "object" || parsed === null) {
-    throw new Error("`opencode debug agent` did not print a JSON object");
-  }
-  return parsed as ResolvedAgent;
-}
-
-/** The index of the last rule for `permission`, or -1 when no rule names it. */
-function lastRuleIndex(rules: readonly PermissionRule[], name: string): number {
-  return rules.map((rule) => rule.permission).lastIndexOf(name);
-}
-
-/** The last rule's action for `permission`, or undefined when no rule names it. */
-function lastAction(
-  rules: readonly PermissionRule[],
-  name: string,
-): string | undefined {
-  const index = lastRuleIndex(rules, name);
-  return index === -1 ? undefined : rules[index]?.action;
-}
-
-/** Every file's byte size under `dir`, recursively. */
-function directorySize(dir: string): number {
-  let total = 0;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) total += directorySize(entryPath);
-    else total += fs.statSync(entryPath).size;
-  }
-  return total;
+/** Both streams: opencode writes the usage dump and the errors to either one. */
+function output(run: CliRun): string {
+  return `${run.stdout}\n${run.stderr}`;
 }
 
 /**
- * How long a held-open session is watched for a would-be plugin install. The
- * install appears within a few seconds on a fast link; the budget is generous
- * so a slow runner still catches it rather than passing on a slow install.
+ * Ask a private server to resolve one agent. The model is what fails, so an
+ * agent that was staged is reported by `Model unavailable` and an id that was
+ * never staged by `Agent not found`.
  */
-const INSTALL_WATCH_MS = 30_000;
-
-/** How often the watch polls. */
-const WATCH_POLL_MS = 200;
-
-/** Poll `predicate` until it is true or the budget runs out; the last answer. */
-async function waitUntil(
-  predicate: () => boolean,
-  budgetMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + budgetMs;
-  for (;;) {
-    if (predicate()) return true;
-    if (Date.now() >= deadline) return false;
-    await new Promise((resolve) => setTimeout(resolve, WATCH_POLL_MS));
-  }
-}
-
-/**
- * Hold a `debug wait` session open against the staged directory and fail if the
- * plugin install appears in it.
- *
- * opencode runs its dependency check while loading config but forks the install
- * detached, so a command that exits right after loading (`agent list`) would
- * pass this check whether or not the seed works. `debug wait` loads the same
- * config and then idles, so the install has time to materialize if the check
- * did not short-circuit. A process that dies before the window ends is a
- * failure, not a quiet pass: the watch must have had a live opencode to watch.
- */
-async function expectNoPluginInstallWhileOpen(
+function probeAgent(
   configDir: string,
-): Promise<void> {
-  const bin = opencodeBinary();
-  const nodeModules = path.join(configDir, "node_modules");
-  const child = spawn(bin, ["debug", "wait"], {
-    env: launchEnv(configDir),
-    cwd: path.dirname(configDir),
-    stdio: "ignore",
-  });
-  let spawnError: Error | undefined;
-  child.on("error", (err) => {
-    spawnError = err;
-  });
-  const exited = new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-  });
-  try {
-    const installed = await waitUntil(() => {
-      if (spawnError !== undefined) {
-        throw new Error(
-          `opencode debug wait could not start: ${spawnError.message}`,
-        );
+  agentId: string,
+  model = PROBE_MODEL,
+): Promise<CliRun> {
+  return runOpencode(configDir, [
+    "run",
+    "--standalone",
+    "--agent",
+    agentId,
+    "--model",
+    model,
+    PROBE_MESSAGE,
+  ]);
+}
+
+/** Every path under `dir`, relative to it, sorted; directories end in `/`. */
+function tree(dir: string): string[] {
+  const entries: string[] = [];
+  const walk = (base: string, prefix: string): void => {
+    for (const entry of fs
+      .readdirSync(base, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        entries.push(`${rel}/`);
+        walk(path.join(base, entry.name), rel);
+      } else {
+        entries.push(rel);
       }
-      if (child.exitCode !== null || child.signalCode !== null) {
-        throw new Error(
-          `opencode debug wait exited (code ${child.exitCode}, signal ${child.signalCode}) before the install window ended`,
-        );
-      }
-      return fs.readdirSync(nodeModules).length > 0;
-    }, INSTALL_WATCH_MS);
-    if (installed) {
-      expect.fail(
-        `opencode installed its plugin into ${configDir}; the npm seed no longer satisfies its dependency check`,
-      );
     }
-  } finally {
-    child.kill("SIGKILL");
-    await exited;
-  }
+  };
+  walk(dir, "");
+  return entries;
 }
 
 describe.skipIf(opencodeMissing)(
   "opencode staging against the real CLI",
   () => {
-    it("lists the staged agent as a primary agent", async () => {
+    it("stages the definition and nothing else", () => {
       const configDir = stage(null, { kind: "default" });
 
-      const result = await runOpencode(configDir, ["agent", "list"]);
-
-      expect(result.code, result.stderr).toBe(0);
-      // A definition opencode could not read would leave the spawn pointed at the
-      // promptless default agent instead; the primary marker is what says it did not.
-      expect(result.stdout).toContain(`${SUBAGENT_ID} (primary)`);
+      // The config directory is the spawn's whole opencode world: one agent
+      // definition, and nothing opencode reads for another reason. A dependency
+      // manifest or a `node_modules` here would mean the staging pays for an
+      // install check opencode does not perform.
+      expect(tree(configDir)).toEqual(["agent/", `agent/${SUBAGENT_ID}.md`]);
     });
 
-    it("reports the mode, token, prompt and permission order opencode resolved", async () => {
-      const configDir = stage(null, {
-        kind: "include",
-        names: ["read", "bash"],
+    it("resolves the staged agent under a private server", async () => {
+      const configDir = stage(null, { kind: "default" });
+
+      const run = await probeAgent(configDir, SUBAGENT_ID);
+
+      // A definition opencode could not read would be reported as a missing
+      // agent; reaching the model is what says this one was read.
+      expect(output(run)).not.toContain("Agent not found");
+      expect(output(run)).toContain(`Model unavailable: ${PROBE_MODEL}`);
+    });
+
+    it("resolves no agent that was never staged", async () => {
+      const configDir = stage(null, { kind: "default" });
+
+      const run = await probeAgent(configDir, UNSTAGED_ID);
+
+      // The control for the test above: without it, any failure at all would
+      // read as a definition opencode accepted.
+      expect(output(run)).toContain(`Agent not found: "${UNSTAGED_ID}"`);
+    });
+
+    it("builds an interactive invocation the CLI accepts", async () => {
+      const configDir = stage(VARIANT, { kind: "default" });
+      const args = opencodeHarness.buildArgs({
+        family: "opencode",
+        subagentId: SUBAGENT_ID,
+        systemPromptFile: tempFile("system.md", PROMPT),
+        taskFile: tempFile("task.md", "do the task"),
+        resultFile: path.join(home, "result.md"),
+        modelKey: PROBE_MODEL,
+        toolSelection: { kind: "default" },
+        variant: VARIANT,
       });
 
-      const result = await runOpencode(configDir, [
-        "debug",
-        "agent",
-        SUBAGENT_ID,
-      ]);
-      expect(result.code, result.stderr).toBe(0);
-      const agent = parseResolvedAgent(result.stdout);
-
-      expect(agent.mode).toBe("primary");
-      expect(agent.description).toBe(subagentTokenFor(SUBAGENT_ID));
-      expect(agent.prompt).toBe(PROMPT);
-
-      // opencode takes the last matching rule, so a catch-all deny only permits
-      // the specific names when they follow it in the resolved list.
-      const catchAll = lastRuleIndex(agent.permission, "*");
-      expect(catchAll).toBeGreaterThanOrEqual(0);
-      const specificIndices = ["read", "bash"].map((name) =>
-        lastRuleIndex(agent.permission, name),
+      // The private server is what makes the staged definition the one this
+      // launch reads; the shared server answers from whatever config directory
+      // it was started with, which is not this spawn's.
+      expect(args).toContain("mini");
+      expect(args).toContain("--standalone");
+      // The variant has no flag of its own: it rides the model reference.
+      expect(args[args.indexOf("--model") + 1]).toBe(
+        `${PROBE_MODEL}#${VARIANT}`,
       );
-      expect(Math.min(...specificIndices)).toBeGreaterThan(catchAll);
-      expect(
-        ["read", "bash"].map((name) => lastAction(agent.permission, name)),
-      ).toEqual(["allow", "allow"]);
-      expect(lastAction(agent.permission, "*")).toBe("deny");
-    });
 
-    it("round-trips a variant that needs a YAML style choice", async () => {
-      const configDir = stage(VARIANT, { kind: "default" });
+      const run = await runOpencode(configDir, args);
 
-      const result = await runOpencode(configDir, [
-        "debug",
-        "agent",
-        SUBAGENT_ID,
-      ]);
-      expect(result.code, result.stderr).toBe(0);
-      const agent = parseResolvedAgent(result.stdout);
-
-      expect(agent.variant).toBe(VARIANT);
-      expect(agent.prompt).toBe(PROMPT);
-    });
-
-    it("does not make opencode install its plugin into the config directory", async () => {
-      const configDir = stage(null, { kind: "default" });
-
-      // The canary for opencode's dependency check: a seed that no longer
-      // satisfies it makes opencode install its plugin into the directory while a
-      // session is open, which the held-open run catches. The check runs before
-      // any other opencode against this directory, because a completed check
-      // leaves a dependency lock in the isolated state dir that suppresses the
-      // next run's install.
-      await expectNoPluginInstallWhileOpen(configDir);
-
-      expect(fs.readdirSync(path.join(configDir, "node_modules"))).toEqual([]);
-      expect(directorySize(configDir)).toBeLessThan(1024 * 1024);
+      // A usage dump means the CLI refused a flag. A mini that reached the
+      // terminal check accepted every flag before it.
+      expect(output(run)).not.toContain("Unrecognized flag");
+      expect(output(run)).not.toContain("Unexpected positional argument");
+      expect(output(run)).toContain("requires a TTY");
     });
 
     it("removes everything it staged", async () => {
       const configDir = stage(null, { kind: "default" });
-      const result = await runOpencode(configDir, ["agent", "list"]);
-      expect(result.code, result.stderr).toBe(0);
+      const run = await probeAgent(configDir, SUBAGENT_ID);
+      expect(output(run)).toContain(`Model unavailable: ${PROBE_MODEL}`);
       expect(fs.existsSync(configDir)).toBe(true);
 
       removeOpencodeStaging(SUBAGENT_ID);
@@ -413,14 +338,17 @@ describe.skipIf(opencodeMissing)(
       const configDir = stage(null, { kind: "default" });
       // A minimal exec-capable stub: the model list reads only stdout and the exit
       // code, and the child runs with the same isolated HOME as every other run.
-      // The stub keeps the exact stdout the parser saw, so the assertion below
-      // compares against that run rather than a second one.
-      const runs: CliRun[] = [];
+      // The stub runs the args the harness asked for, so the list is the one the
+      // harness would really read rather than one this file retyped.
+      const runs: { args: readonly string[]; run: CliRun }[] = [];
       const pi = {
-        exec: async (): Promise<CliRun> => {
-          const result = await runOpencode(configDir, ["models"]);
-          runs.push(result);
-          return result;
+        exec: async (
+          _command: string,
+          args: readonly string[],
+        ): Promise<CliRun> => {
+          const run = await runOpencode(configDir, args);
+          runs.push({ args, run });
+          return run;
         },
       } as unknown as ExtensionAPI;
 
@@ -430,7 +358,10 @@ describe.skipIf(opencodeMissing)(
       });
 
       expect(runs).toHaveLength(1);
-      const run = runs[0];
+      const [{ args, run }] = runs;
+      // A shared-server `models` needs the user's background server and its one
+      // fixed port; the private server keeps the call hermetic.
+      expect(args).toContain("--standalone");
       expect(run.code, run.stderr).toBe(0);
       // Every non-empty, non-comment line is one bare `provider/model-id`. A
       // decoration after the key (a marker column, a trailing note) would leave

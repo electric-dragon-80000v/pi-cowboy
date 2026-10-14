@@ -296,10 +296,15 @@ describe("buildLaunchPlan CLI flags", () => {
       cwd,
     });
 
-    // opencode's own CLI: the minimal interactive UI, the staged agent, and no
-    // pi flag on the argv. The task rides the launcher's stdin redirect, so it
-    // is staged rather than named on this argv.
-    expect(plan.piArgs).toEqual(["--mini", "--agent", "runner-opencode"]);
+    // opencode's own CLI: the minimal interactive UI under a private server, the
+    // staged agent, and no pi flag on the argv. The task rides the launcher's
+    // stdin redirect, so it is staged rather than named on this argv.
+    expect(plan.piArgs).toEqual([
+      "mini",
+      "--standalone",
+      "--agent",
+      "runner-opencode",
+    ]);
     expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
   });
 
