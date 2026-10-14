@@ -23,7 +23,8 @@ import {
   registerUnavailableCowboyCommand,
 } from "./registration.js";
 import { setupEventListeners } from "./events.js";
-import { startCowSupportProbe } from "./cow-support-launch.js";
+// What the worktree volume can do is probed at session_start (awaited there),
+// once the session config has reloaded the worktree root.
 import {
   prefetchHarnessModels,
   startHarnessAvailabilityProbe,
@@ -74,8 +75,6 @@ export default function (pi: ExtensionAPI) {
   registerTools(pi);
   registerCowboyCommand(pi);
   setupEventListeners(pi);
-  // What the worktree volume can do decides which materializations stay on offer.
-  startCowSupportProbe(pi);
   // Which harnesses are on PATH decides which stay on offer.
   startHarnessAvailabilityProbe();
   // Slow model lists start warming now, never awaited; every later listing

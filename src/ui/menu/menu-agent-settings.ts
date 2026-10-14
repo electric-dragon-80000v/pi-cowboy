@@ -148,8 +148,9 @@ export async function showSpawnOptionsMenu(
             const trimmed = value.trim();
             store.mutate.agent.setWorktreeRoot(trimmed || undefined);
             // The new root may sit on another volume; the launch probe answered
-            // for the old one, and nothing else refreshes it.
-            refreshCowSupportProbe(getPiInstance());
+            // for the old one, and nothing else refreshes it. Not awaited: the
+            // interactive session outlives this ~100ms probe, so its cleanup runs.
+            void refreshCowSupportProbe(getPiInstance());
             ctx.ui.notify(
               trimmed
                 ? `Worktree root set to ${trimmed}`

@@ -1,7 +1,8 @@
 /**
- * cow-support-launch.test.ts — probe ordering. Probes are fire-and-forget, so
- * a slow one can answer after a newer one; the shell's claim is what keeps the
- * older verdict off the current answer.
+ * cow-support-launch.test.ts — probe ordering. The launch probe is awaited at
+ * `session_start`, but a refresh can still overlap it, and a slow probe can
+ * answer after a newer one; the shell's claim is what keeps the older verdict
+ * off the current answer.
  *
  * The probe itself is stubbed, so each case controls exactly when each probe
  * finishes instead of racing a real clone on the volume.
@@ -69,53 +70,61 @@ describe("cow support probes", () => {
     setCowAvailability(beginCowAvailabilityProbe(), unprobed());
   });
 
-  it("measures the volume the worktree root names", () => {
-    startCowSupportProbe(pi);
+  it("measures the volume the worktree root names", async () => {
+    const started = startCowSupportProbe(pi);
     expect(inFlight(0).dir).toBe("/default-root");
+    inFlight(0).resolve(both);
+    await started;
+    expect(getCowAvailability()).toEqual(both);
   });
 
   it("keeps the newest probe's verdict when an older one answers later", async () => {
-    startCowSupportProbe(pi);
+    const olderProbe = startCowSupportProbe(pi);
     const older = inFlight(0);
 
     // The worktree root moves to another volume, which is probed again.
-    refreshCowSupportProbe(pi);
+    const newerProbe = refreshCowSupportProbe(pi);
     const newer = current();
     expect(newer.dir).toBe("/default-root");
 
     // The first probe finishes last, describing a volume nobody uses now.
     older.resolve(both);
+    await olderProbe;
     await settle();
     expect(getCowAvailability()).toEqual(unprobed());
 
     newer.resolve(both);
+    await newerProbe;
     await settle();
     expect(getCowAvailability()).toEqual(both);
   });
 
   it("does not let an older probe's failure overwrite the current answer", async () => {
-    startCowSupportProbe(pi);
+    const olderProbe = startCowSupportProbe(pi);
     const older = inFlight(0);
 
-    refreshCowSupportProbe(pi);
+    const newerProbe = refreshCowSupportProbe(pi);
     const newer = current();
     newer.resolve(both);
+    await newerProbe;
     await settle();
     expect(getCowAvailability()).toEqual(both);
 
     // The stale probe fails late: it must not report the new volume as unable to
     // clone.
     older.reject(new Error("clone failed"));
+    await olderProbe;
     await settle();
     expect(getCowAvailability()).toEqual(both);
   });
 
   it("answers a refresh with its own probe, and leaves nothing known until it lands", async () => {
-    refreshCowSupportProbe(pi);
+    const refreshed = refreshCowSupportProbe(pi);
     expect(getCowAvailability()).toEqual(unprobed());
     expect(pending).toHaveLength(1);
 
     current().resolve(checkoutOnly);
+    await refreshed;
     await settle();
     expect(getCowAvailability()).toEqual(checkoutOnly);
   });

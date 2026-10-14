@@ -27,6 +27,7 @@ import { ACTIVE_AGENT_PHASES } from "./types.js";
 import { SpawnCoordinator } from "./spawn/spawn-coordinator.js";
 import { toolCallListener } from "./agents/tool-execution.js";
 import { activateExtension, deactivateExtension } from "./registration.js";
+import { startCowSupportProbe } from "./cow-support-launch.js";
 import { isExtensionEnabled } from "./extension-toggle.js";
 import { hideExtensionIndicator } from "./ui/indicator.js";
 import {
@@ -144,6 +145,10 @@ export function setupEventListeners(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     setSessionCtx(ctx);
     await loadSessionConfig(ctx);
+    // Awaited: one small clone (~100ms), and awaiting is what guarantees the
+    // probe's `finally rm` runs — a fire-and-forget probe orphaned its
+    // `.cow-probe-*` directory whenever a quick session exited mid-probe.
+    await startCowSupportProbe(pi);
     if (isExtensionEnabled()) {
       activateExtension(ctx.ui);
     } else {

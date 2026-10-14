@@ -2,10 +2,10 @@
  * cow-support-launch.ts — ask the worktree volume, once per session, which
  * materializations it can honor, and let the shell answer for every later reader.
  *
- * Kicked off at launch and never awaited: a spawn that arrives before the probe
- * lands resolves the way it always did, and the setting narrows itself once the
- * answer is in. Never awaited because a probe shells out and a launch must not
- * block on it; each probe carries a claim, so a slow one cannot overwrite the
+ * Awaited at `session_start`, so the probe's `finally rm` always runs while
+ * this process lives: a session that exits mid-probe would otherwise orphan
+ * its `.cow-probe-*` directory. The block is one small clone (~100ms), once
+ * per session. Each probe carries a claim, so a slow one cannot overwrite the
  * answer of a newer probe about a different volume.
  */
 
@@ -25,8 +25,8 @@ function execOf(pi: ExtensionAPI): ExecLike {
   return (command, args, options) => pi.exec(command, args, options);
 }
 
-export function startCowSupportProbe(pi: ExtensionAPI): void {
-  probe(pi, beginCowAvailabilityProbe());
+export function startCowSupportProbe(pi: ExtensionAPI): Promise<void> {
+  return probe(pi, beginCowAvailabilityProbe());
 }
 
 /**
@@ -34,10 +34,10 @@ export function startCowSupportProbe(pi: ExtensionAPI): void {
  * goes back to unknown first so no reader sees the previous volume's verdict
  * while the new probe runs.
  */
-export function refreshCowSupportProbe(pi: ExtensionAPI): void {
+export function refreshCowSupportProbe(pi: ExtensionAPI): Promise<void> {
   const claim = beginCowAvailabilityProbe();
   setCowAvailability(claim, unprobed());
-  probe(pi, claim);
+  return probe(pi, claim);
 }
 
 /**
@@ -45,9 +45,9 @@ export function refreshCowSupportProbe(pi: ExtensionAPI): void {
  * older probe that answers later describes a volume nobody asked about any
  * more, so its claim is stale and the shell discards the verdict.
  */
-function probe(pi: ExtensionAPI, claim: CowAvailabilityClaim): void {
+function probe(pi: ExtensionAPI, claim: CowAvailabilityClaim): Promise<void> {
   const target = probeTargetFor(getStore().agent.worktreeRoot);
-  void detectCowAvailability(execOf(pi), target).then(
+  return detectCowAvailability(execOf(pi), target).then(
     (availability) => {
       setCowAvailability(claim, availability);
     },
