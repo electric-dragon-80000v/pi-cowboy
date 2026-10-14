@@ -56,7 +56,7 @@
     "test:integration": "pnpm run build && vitest run --project integration-no-cow --project integration-cow",
     "test:integration-no-cow": "pnpm run build && vitest run --project integration-no-cow",
     "test:integration-cow": "pnpm run build && vitest run --project integration-cow",
-    "dev:install": "DEV_LINK=\"$HOME/.pi/agent/pi-cowboy-dev\"; ln -sfn \"$PWD/dev\" \"$DEV_LINK\" && { pi remove . 2>/dev/null; pi remove \"$DEV_LINK\" 2>/dev/null; pi install \"$DEV_LINK\"; }",
+    "dev:install": "pi remove . 2>/dev/null; pi install ./dev",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "commitlint": "commitlint",
