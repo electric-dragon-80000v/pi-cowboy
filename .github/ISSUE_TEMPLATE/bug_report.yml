@@ -1,0 +1,95 @@
+name: Issue Report
+description: Report an issue
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description & Steps to Reproduce
+      description: What happened, and how can it be reproduced?
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+
+  - type: input
+    id: pi_cowboy_version
+    attributes:
+      label: pi-cowboy version
+      description: Run `pi list` or check your package.json.
+      placeholder: "e.g., 0.9.2"
+    validations:
+      required: true
+
+  - type: input
+    id: herdr_version
+    attributes:
+      label: herdr Version
+      description: Run `herdr --version`.
+      placeholder: "e.g., 0.8.4"
+    validations:
+      required: true
+
+  - type: input
+    id: pi_version
+    attributes:
+      label: Pi Version
+      description: Output of `pi --version` (optional).
+      placeholder: "e.g., 0.2.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - "macOS"
+        - "Linux"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: filesystem
+    attributes:
+      label: Filesystem
+      options:
+        - "APFS"
+        - "Btrfs"
+        - "ZFS"
+        - "Other"
+        - "Don't know"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: harnesses
+    attributes:
+      label: Harnesses Involved
+      description: Select all that apply.
+      options:
+        - label: "pi"
+        - label: "pig"
+        - label: "pi-bolt"
+        - label: "opencode"
+        - label: "codex"
+        - label: "claude"
+
+  - type: input
+    id: harness_versions
+    attributes:
+      label: Foreign Harness Versions
+      description: Versions of any foreign harnesses selected above (optional).
+      placeholder: "e.g., opencode 2.1.0, codex 0.4.0"
+    validations:
+      required: false
+
+  - type: input
+    id: node_version
+    attributes:
+      label: Node.js Version
+      description: Output of `node --version` (optional).
+      placeholder: "e.g., v24.20.0"
+    validations:
+      required: false
