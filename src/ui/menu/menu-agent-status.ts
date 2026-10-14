@@ -365,7 +365,7 @@ export async function showAgentStatusMenu(
     ctx.ui.notify("No agents have been spawned this session", "info");
     return;
   }
-  // Active work is never cleaned up (ADR-0006).
+  // Active work is never cleaned up
   const activeAgents = agents.filter((r) => isActivePhase(r.lifecycle.phase));
   const finished = agents.filter((r) => !isActivePhase(r.lifecycle.phase));
   const completed = agents.filter(
