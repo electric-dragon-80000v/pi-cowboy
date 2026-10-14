@@ -217,7 +217,10 @@ function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
 export const codexHarness: Harness<"codex"> = {
   id: "codex",
   agentMuxKind: "codex",
-  available: () => commandPath("codex") !== undefined,
+  availability: () =>
+    commandPath("codex") === undefined
+      ? { status: "unavailable" }
+      : { status: "available" },
   /**
    * Install the launcher that appends the task as the TUI's positional
    * prompt. The launcher is the whole of the pane state this harness needs,

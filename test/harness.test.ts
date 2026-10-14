@@ -182,7 +182,12 @@ describe("resolveHarness", () => {
   });
 });
 
-describe("available", () => {
+describe("availability", () => {
+  /** Whether the harness answered as launchable. */
+  function launchable(id: HarnessId): boolean {
+    return harnessFor(id).availability().status === "available";
+  }
+
   const realPath = process.env.PATH;
   const tmpDirs: string[] = [];
 
@@ -195,9 +200,11 @@ describe("available", () => {
   }
 
   /** A runnable file, the way a real harness binary lands on PATH. */
-  function executable(dir: string, name: string): void {
+  function executable(dir: string, name: string, stdout = ""): void {
     const file = join(dir, name);
-    writeFileSync(file, "#!/bin/sh\n", { mode: 0o755 });
+    writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' '${stdout}'\n`, {
+      mode: 0o755,
+    });
     chmodSync(file, 0o755);
   }
 
@@ -211,36 +218,58 @@ describe("available", () => {
   it("launches pi whatever PATH says: it is the binary already running the pane", () => {
     process.env.PATH = "";
 
-    expect(harnessFor("pi").available()).toBe(true);
+    expect(launchable("pi")).toBe(true);
   });
 
   it("finds each pi-compatible harness by its own binary name", () => {
     const dir = freshPath();
-    expect(harnessFor("pig").available()).toBe(false);
-    expect(harnessFor("pi-bolt").available()).toBe(false);
+    expect(launchable("pig")).toBe(false);
+    expect(launchable("pi-bolt")).toBe(false);
 
     executable(dir, "pig");
-    expect(harnessFor("pig").available()).toBe(true);
-    expect(harnessFor("pi-bolt").available()).toBe(false);
+    expect(launchable("pig")).toBe(true);
+    expect(launchable("pi-bolt")).toBe(false);
 
     executable(dir, "pi-bolt");
-    expect(harnessFor("pi-bolt").available()).toBe(true);
+    expect(launchable("pi-bolt")).toBe(true);
   });
 
-  it("finds opencode by its binary name", () => {
+  it("finds opencode by its binary name and the version it speaks", () => {
     const dir = freshPath();
-    expect(harnessFor("opencode").available()).toBe(false);
+    expect(launchable("opencode")).toBe(false);
 
-    executable(dir, "opencode");
-    expect(harnessFor("opencode").available()).toBe(true);
+    executable(dir, "opencode", "opencode v2.0.28");
+    expect(launchable("opencode")).toBe(true);
+  });
+
+  it("refuses an opencode of another major, carrying the version it found", () => {
+    const dir = freshPath();
+    executable(dir, "opencode", "opencode v1.19.0");
+
+    expect(harnessFor("opencode").availability()).toEqual({
+      status: "unavailable",
+      notice:
+        "You seem to have opencode version 1.19.0 installed, pi-cowboy only supports v2.x.x.",
+    });
+  });
+
+  it("refuses an opencode that reports no version this can read, and says so", () => {
+    const dir = freshPath();
+    executable(dir, "opencode", "1.0.114");
+
+    expect(harnessFor("opencode").availability()).toEqual({
+      status: "unavailable",
+      notice:
+        "The opencode on your PATH did not report a version, pi-cowboy only supports v2.x.x.",
+    });
   });
 
   it("finds codex by its binary name", () => {
     const dir = freshPath();
-    expect(harnessFor("codex").available()).toBe(false);
+    expect(launchable("codex")).toBe(false);
 
     executable(dir, "codex");
-    expect(harnessFor("codex").available()).toBe(true);
+    expect(launchable("codex")).toBe(true);
   });
 
   it("follows a symlink to the binary, as a shell would", () => {
@@ -249,28 +278,28 @@ describe("available", () => {
     writeFileSync(real, "#!/bin/sh\n", { mode: 0o755 });
     symlinkSync(real, join(dir, "pig"));
 
-    expect(harnessFor("pig").available()).toBe(true);
+    expect(launchable("pig")).toBe(true);
   });
 
   it("is not fooled by a file that cannot be executed", () => {
     const dir = freshPath();
     writeFileSync(join(dir, "pig"), "#!/bin/sh\n", { mode: 0o644 });
 
-    expect(harnessFor("pig").available()).toBe(false);
+    expect(launchable("pig")).toBe(false);
   });
 
   it("is not fooled by a directory named after the binary", () => {
     const dir = freshPath();
     mkdirSync(join(dir, "pig"));
 
-    expect(harnessFor("pig").available()).toBe(false);
+    expect(launchable("pig")).toBe(false);
   });
 
   it("is not fooled by a broken symlink", () => {
     const dir = freshPath();
     symlinkSync(join(dir, "gone"), join(dir, "pig"));
 
-    expect(harnessFor("pig").available()).toBe(false);
+    expect(launchable("pig")).toBe(false);
   });
 
   it("does not look in a directory that is not on PATH", () => {
@@ -280,7 +309,7 @@ describe("available", () => {
     executable(elsewhere, "pig");
 
     expect(dir).not.toBe(elsewhere);
-    expect(harnessFor("pig").available()).toBe(false);
+    expect(launchable("pig")).toBe(false);
   });
 });
 

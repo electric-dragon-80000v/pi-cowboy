@@ -30,10 +30,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { commandPath } from "../../../infrastructure/exec-path.js";
 import { parseModelKey } from "../../../utils.js";
 import type {
   Harness,
+  HarnessAvailability,
   HarnessPrepareRequest,
   ModelEntry,
   OpencodeLaunchRequest,
@@ -45,6 +45,7 @@ import {
   type PaneProof,
 } from "../pane-launcher.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
+import { probeOpencode } from "./version.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
 const LIST_MODELS_TIMEOUT_MS = 10_000;
@@ -233,10 +234,40 @@ function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
   return fetch;
 }
 
+/**
+ * Whether this machine's opencode is one this harness can launch, and the line
+ * the human needs when it is not: the argv this harness builds is OpenCode 2's,
+ * so a binary of another major answers it with a usage dump rather than an
+ * agent. An opencode that is simply not installed stays quiet — the settings row
+ * omitting it already says so — while one that is there but reports nothing this
+ * can read says that much, because a binary that disappears from the offer with
+ * no reason given is worse than the reason itself.
+ */
+function opencodeAvailability(): HarnessAvailability {
+  const probe = probeOpencode();
+  switch (probe.kind) {
+    case "supported":
+      return { status: "available" };
+    case "unsupported":
+      return {
+        status: "unavailable",
+        notice: `You seem to have opencode version ${probe.version} installed, pi-cowboy only supports v2.x.x.`,
+      };
+    case "unreadable":
+      return {
+        status: "unavailable",
+        notice:
+          "The opencode on your PATH did not report a version, pi-cowboy only supports v2.x.x.",
+      };
+    case "absent":
+      return { status: "unavailable" };
+  }
+}
+
 export const opencodeHarness: Harness<"opencode"> = {
   id: "opencode",
   agentMuxKind: "opencode",
-  available: () => commandPath("opencode") !== undefined,
+  availability: opencodeAvailability,
   /**
    * Stage the config directory, install the launcher that points opencode at it
    * and feeds it the task, and prove the staged definition is live behind it. A

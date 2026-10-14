@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-  detectHarnessAvailability,
+  probeHarnessAvailability,
   prefetchHarnessModels,
   startHarnessAvailabilityProbe,
 } from "../src/harness-availability-launch.js";
@@ -33,9 +33,11 @@ function freshPath(): string {
   return dir;
 }
 
-function executable(dir: string, name: string): void {
+function executable(dir: string, name: string, stdout = ""): void {
   const file = join(dir, name);
-  writeFileSync(file, "#!/bin/sh\n", { mode: 0o755 });
+  writeFileSync(file, `#!/bin/sh\nprintf '%s\\n' '${stdout}'\n`, {
+    mode: 0o755,
+  });
   chmodSync(file, 0o755);
 }
 
@@ -48,34 +50,79 @@ afterEach(() => {
   // case below news up its own — no case can read another's answer.
 });
 
-describe("detectHarnessAvailability", () => {
+describe("probeHarnessAvailability", () => {
   it("keeps pi and drops every pi-compatible binary the machine does not have", () => {
     freshPath();
 
-    expect(detectHarnessAvailability()).toEqual(probed(["pi"]));
+    expect(probeHarnessAvailability().availability).toEqual(probed(["pi"]));
   });
 
   it("adds each binary it finds, in the vocabulary's order", () => {
     const dir = freshPath();
     executable(dir, "pi-bolt");
     executable(dir, "pig");
-    executable(dir, "opencode");
+    executable(dir, "opencode", "opencode v2.0.28");
     executable(dir, "codex");
 
-    expect(detectHarnessAvailability()).toEqual(
+    expect(probeHarnessAvailability().availability).toEqual(
       probed(["pi", "pig", "pi-bolt", "opencode", "codex"]),
     );
   });
 });
+
+/** A `pi` that keeps the session_start handlers registered on it. */
+function probePi(): {
+  pi: ExtensionAPI;
+  on: ReturnType<typeof vi.fn>;
+  startSession: (ctx: unknown) => void;
+} {
+  let handler: ((event: unknown, ctx: unknown) => void) | undefined;
+  const on = vi.fn((event: string, next: (e: unknown, c: unknown) => void) => {
+    if (event === "session_start") handler = next;
+  });
+  return {
+    pi: { on } as unknown as ExtensionAPI,
+    on,
+    startSession: (ctx) => handler?.(undefined, ctx),
+  };
+}
 
 describe("startHarnessAvailabilityProbe", () => {
   it("records its answer for every later reader", () => {
     expect(getHarnessAvailability()).toEqual(unprobed());
 
     freshPath();
-    startHarnessAvailabilityProbe();
+    startHarnessAvailabilityProbe(probePi().pi);
 
     expect(getHarnessAvailability()).toEqual(probed(["pi"]));
+  });
+
+  it("keeps an installed opencode it cannot launch off the offer, and says which one it found", () => {
+    const dir = freshPath();
+    executable(dir, "opencode", "opencode v1.19.0");
+    const { pi, startSession } = probePi();
+    const notify = vi.fn();
+
+    startHarnessAvailabilityProbe(pi);
+
+    expect(getHarnessAvailability()).toEqual(probed(["pi"]));
+    startSession({ hasUI: true, ui: { notify } });
+    expect(notify).toHaveBeenCalledWith(
+      "You seem to have opencode version 1.19.0 installed, pi-cowboy only supports v2.x.x.",
+      "warning",
+    );
+  });
+
+  it("has nothing to say when every harness it found is launchable", () => {
+    const dir = freshPath();
+    executable(dir, "opencode", "opencode v2.0.28");
+    const { pi, on, startSession } = probePi();
+
+    startHarnessAvailabilityProbe(pi);
+
+    expect(getHarnessAvailability()).toEqual(probed(["pi", "opencode"]));
+    expect(startSession).toBeTypeOf("function");
+    expect(on).not.toHaveBeenCalled();
   });
 });
 
@@ -99,7 +146,7 @@ describe("prefetchHarnessModels", () => {
 
   it("starts no fetch where no runnable harness warms one", () => {
     freshPath();
-    startHarnessAvailabilityProbe();
+    startHarnessAvailabilityProbe(probePi().pi);
     const { pi, exec } = answeringPi("");
 
     prefetchHarnessModels(pi);
@@ -112,7 +159,7 @@ describe("prefetchHarnessModels", () => {
     // opencode is on PATH, but the shell answers unprobed — and an unproven
     // harness warms nothing. This stays red if the gate is ever dropped.
     const dir = freshPath();
-    executable(dir, "opencode");
+    executable(dir, "opencode", "opencode v2.0.28");
     setHarnessAvailability(unprobed());
     const { pi, exec } = answeringPi("");
 
@@ -123,8 +170,8 @@ describe("prefetchHarnessModels", () => {
 
   it("warms once at boot and later reads join the one run", async () => {
     const dir = freshPath();
-    executable(dir, "opencode");
-    startHarnessAvailabilityProbe();
+    executable(dir, "opencode", "opencode v2.0.28");
+    startHarnessAvailabilityProbe(probePi().pi);
     const { pi, exec } = answeringPi("anthropic/claude-opus-4\n");
 
     // Boot warms without awaiting, exactly like the probes.
@@ -143,8 +190,8 @@ describe("prefetchHarnessModels", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const dir = freshPath();
-      executable(dir, "opencode");
-      startHarnessAvailabilityProbe();
+      executable(dir, "opencode", "opencode v2.0.28");
+      startHarnessAvailabilityProbe(probePi().pi);
       const { pi, exec } = answeringPi("", 1);
 
       await expect(listOpencode(pi)).resolves.toEqual([]);
@@ -163,8 +210,8 @@ describe("prefetchHarnessModels", () => {
 describe("prefetchHarnessModels", () => {
   it("warms every runnable harness without naming any, exactly once", () => {
     const dir = freshPath();
-    executable(dir, "opencode");
-    startHarnessAvailabilityProbe();
+    executable(dir, "opencode", "opencode v2.0.28");
+    startHarnessAvailabilityProbe(probePi().pi);
     const exec = vi.fn(() => new Promise(() => {}));
     const pi = { exec } as unknown as ExtensionAPI;
 
@@ -177,7 +224,7 @@ describe("prefetchHarnessModels", () => {
 
   it("starts nothing where the probe proved nothing slow", () => {
     freshPath();
-    startHarnessAvailabilityProbe();
+    startHarnessAvailabilityProbe(probePi().pi);
     const exec = vi.fn(() => new Promise(() => {}));
 
     prefetchHarnessModels({ exec } as unknown as ExtensionAPI);

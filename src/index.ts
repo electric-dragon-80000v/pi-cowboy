@@ -75,8 +75,9 @@ export default function (pi: ExtensionAPI) {
   registerTools(pi);
   registerCowboyCommand(pi);
   setupEventListeners(pi);
-  // Which harnesses are on PATH decides which stay on offer.
-  startHarnessAvailabilityProbe();
+  // Which harnesses are on PATH — and spoken by a version this extension
+  // launches — decides which stay on offer.
+  startHarnessAvailabilityProbe(pi);
   // Slow model lists start warming now, never awaited; every later listing
   // joins whatever its harness started.
   prefetchHarnessModels(pi);

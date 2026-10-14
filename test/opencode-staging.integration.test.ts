@@ -259,6 +259,12 @@ function tree(dir: string): string[] {
 describe.skipIf(opencodeMissing)(
   "opencode staging against the real CLI",
   () => {
+    it("finds the installed binary launchable at the version it reports", () => {
+      // The availability the probe records is a version judgment, so the real
+      // binary's own `--version` is what keeps this harness on offer here.
+      expect(opencodeHarness.availability()).toEqual({ status: "available" });
+    });
+
     it("stages the definition and nothing else", () => {
       const configDir = stage({ kind: "default" });
 

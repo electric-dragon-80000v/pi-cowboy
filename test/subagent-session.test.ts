@@ -505,7 +505,7 @@ describe("SubagentSession harness seam", () => {
     harnessForMock.mockReturnValue({
       id: "pi",
       agentMuxKind: "pi",
-      available: () => true,
+      availability: () => ({ status: "available" }),
       prepare: async (request: HarnessPrepareRequest) => {
         prepareCalls.push(request);
       },

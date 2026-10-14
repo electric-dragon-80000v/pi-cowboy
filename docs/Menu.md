@@ -40,7 +40,7 @@ The screen title is `Model Settings`. It opens from the `Model overrides` row on
 | `Override another type...`     | Adds an override for an agent type that has none.                                                                                        |
 | `Clear all model overrides...` | Removes every override.                                                                                                                  |
 
-Rows for OpenCode, Claude, and Codex appear only when that harness's binary is on `PATH`.
+Rows for OpenCode, Claude, and Codex appear only when that harness's binary is on `PATH` and is a version pi-cowboy launches — opencode must be 2.x, and a machine with an older one is told so once.
 
 ## `/cowboy` > `Settings`
 

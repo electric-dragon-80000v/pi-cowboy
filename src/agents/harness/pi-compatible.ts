@@ -108,7 +108,10 @@ export function createPiCompatibleHarness(
     // The launcher runs `spec.binary` inside the pane, so a machine without it
     // can never launch this harness — however well the preparation itself would
     // go.
-    available: () => commandPath(spec.binary) !== undefined,
+    availability: () =>
+      commandPath(spec.binary) === undefined
+        ? { status: "unavailable" }
+        : { status: "available" },
     // The binary is pi behind the shell trick, so the argv is pi's; only a
     // harness that stages filesystem state before launch has teardown work —
     // the launcher dies with the pane and the staged files belong to the

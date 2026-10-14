@@ -180,7 +180,10 @@ const CLAUDE_MODELS: readonly ModelEntry[] = [
 export const claudeHarness: Harness<"claude"> = {
   id: "claude",
   agentMuxKind: "claude",
-  available: () => commandPath("claude") !== undefined,
+  availability: () =>
+    commandPath("claude") === undefined
+      ? { status: "unavailable" }
+      : { status: "available" },
   /**
    * Stage the config directory, install the launcher that points claude at it
    * and appends the task, and prove the pane sees the staged state behind it.

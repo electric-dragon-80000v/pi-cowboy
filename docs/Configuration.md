@@ -135,9 +135,9 @@ The per-template override is documented in [Agent Templates](Agent%20Templates.m
 
 - `pi`: the default. Runs the pane's pi binary.
 - `pig`, `pi-bolt`: pi-compatible binaries.
-- `opencode`, `codex`, `claude`: their own CLIs, each with its own model catalogue and default model.
+- `opencode`, `codex`, `claude`: their own CLIs, each with its own model catalogue and default model. opencode must be 2.x: an older binary is not offered, and the reason is shown once at session start.
 
-If the harness is not on `PATH`, the setting falls back to `pi`.
+If the harness is not on `PATH` — or is a version pi-cowboy does not launch — the setting falls back to `pi`.
 
 A `cowboy_agent` call can override this per item with its `harness_type` parameter. An explicit `harness_type` does not fall back: when this machine cannot launch that harness, the call fails.
 

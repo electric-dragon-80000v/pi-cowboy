@@ -29,7 +29,7 @@ import { claudeHarness } from "./claude/index.js";
 const piHarness: Harness<"pi"> = {
   id: "pi",
   agentMuxKind: "pi",
-  available: () => true,
+  availability: () => ({ status: "available" }),
   prepare: async () => {},
   buildArgs: buildPiLaunchArgs,
   listModels: piFamilyListModels,

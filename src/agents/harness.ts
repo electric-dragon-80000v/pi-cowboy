@@ -356,6 +356,19 @@ export type HarnessListModels = (
   request: HarnessListModelsRequest,
 ) => Promise<readonly ModelEntry[]>;
 
+/**
+ * A harness's answer about this machine, with the line for the human riding the
+ * arm it explains.
+ *
+ * `unavailable` keeps the harness out of the setting's offer. The notice is
+ * present only where the machine has something surprising to report — a binary
+ * that is installed but speaks another major; a binary that is simply missing
+ * says nothing, because nothing about the machine is unexpected there.
+ */
+export type HarnessAvailability =
+  | { readonly status: "available" }
+  | { readonly status: "unavailable"; readonly notice?: string };
+
 /** One harness implementation. */
 export interface Harness<K extends HarnessId = HarnessId> {
   readonly id: HarnessId;
@@ -367,11 +380,12 @@ export interface Harness<K extends HarnessId = HarnessId> {
    */
   readonly agentMuxKind: AgentMuxKind;
   /**
-   * Whether this machine can launch the harness, read at probe time. False keeps
-   * the harness out of the setting, and a template that still names it falls back
-   * to pi instead of opening a pane that could never run it.
+   * What this machine can do with the harness, read at probe time. `unavailable`
+   * keeps the harness out of the setting, and a template that still names it
+   * falls back to pi instead of opening a pane that could never run it. The
+   * notice, where there is one, is shown to the human once the UI exists.
    */
-  available(): boolean;
+  availability(): HarnessAvailability;
   /**
    * Bring the pane into the state this harness launches in, for the launch this
    * family's own request describes. Idempotent; throws when the state could not
