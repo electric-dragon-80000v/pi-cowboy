@@ -1,3 +1,10 @@
+## [0.9.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.0...v0.9.1) (2026-10-14)
+
+
+### Reverts
+
+* Revert "chore: stable identity for dev install" ([136143e](https://github.com/electric-dragon-80000v/pi-cowboy/commit/136143e7b656a8712ceba8e5ff3cc8377781a4d2))
+
 # [0.9.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.8.6...v0.9.0) (2026-10-13)
 
 
