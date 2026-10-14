@@ -1,3 +1,10 @@
+## [0.9.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.1...v0.9.2) (2026-10-14)
+
+
+### Bug Fixes
+
+* **cow:** await launch support probe to prevent orphaned temp dirs ([f6d1fba](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f6d1fbafa78758df8ca89cea8203f7ef0bdcd1bd))
+
 ## [0.9.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.0...v0.9.1) (2026-10-14)
 
 
