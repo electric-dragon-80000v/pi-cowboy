@@ -1085,6 +1085,90 @@ describe("PresenceMarker", () => {
     vi.advanceTimersByTime(2_000);
     expect(countLiveAgents).toHaveBeenCalledTimes(1);
   });
+
+  it("forces a full re-render when taken down with a pasture drawn, so no stale rows linger", () => {
+    const { marker, requestRender } = markerOver(fleet(3));
+    marker.render();
+    const cowboy = handleRecorder();
+    const pasture = handleRecorder();
+    marker.attachCowboy(cowboy.handle);
+    marker.attachPasture(pasture.handle);
+    requestRender.mockClear();
+
+    marker.dispose();
+
+    expect(cowboy.hidden()).toBe(true);
+    expect(pasture.hidden()).toBe(true);
+    expect(requestRender).toHaveBeenCalledWith(true);
+  });
+
+  it("asks for no full re-render when taken down with nothing drawn", () => {
+    const { marker, requestRender } = markerOver(fleet(0));
+    marker.render();
+    const cowboy = handleRecorder();
+    const pasture = handleRecorder();
+    marker.attachCowboy(cowboy.handle);
+    marker.attachPasture(pasture.handle);
+
+    marker.dispose();
+
+    expect(cowboy.hidden()).toBe(true);
+    expect(pasture.hidden()).toBe(true);
+    expect(requestRender).not.toHaveBeenCalled();
+  });
+
+  it("forces a full re-render on the turn that takes the pasture down with grazing off", () => {
+    vi.useFakeTimers();
+    let grazing = true;
+    const { marker, requestRender } = markerOver(
+      fleet(3),
+      inOrder,
+      plainGrass,
+      () => grazing,
+    );
+    marker.render();
+    requestRender.mockClear();
+
+    grazing = false;
+    vi.advanceTimersByTime(1_000);
+
+    expect(rendered(marker.pastureRows())).toEqual([]);
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    expect(requestRender).toHaveBeenCalledWith(true);
+  });
+
+  it("forces a full re-render when the last agent leaves while grazing is on", () => {
+    vi.useFakeTimers();
+    let liveAgents = 2;
+    const { marker, requestRender } = markerOver(
+      fleet(() => liveAgents),
+      inOrder,
+    );
+    marker.render();
+    requestRender.mockClear();
+
+    liveAgents = 0;
+    vi.advanceTimersByTime(1_000);
+
+    expect(rendered(marker.pastureRows())).toEqual([]);
+    expect(requestRender).toHaveBeenCalledWith(true);
+  });
+
+  it("asks for a differential render while the pasture holds its rows", () => {
+    vi.useFakeTimers();
+    const { marker, requestRender } = markerOver(
+      fleet(3),
+      sequence(0.9, 0.9, 0.9, 0.9),
+    );
+    marker.render();
+    requestRender.mockClear();
+
+    vi.advanceTimersByTime(1_000);
+
+    expect(rendered(marker.pastureRows())).not.toEqual([]);
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    expect(requestRender).toHaveBeenCalledWith(false);
+  });
 });
 
 describe("showExtensionIndicator", () => {

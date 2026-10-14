@@ -465,6 +465,9 @@ export class PresenceMarker implements Component {
 
   /** Take both overlays down, and the poll with them. */
   dispose(): void {
+    const hadPasture =
+      this.drawnPasture().length > 0 &&
+      (this.cowboyHandle !== null || this.pastureHandle !== null);
     this.disposed = true;
     if (this.poll !== null) {
       clearInterval(this.poll);
@@ -474,6 +477,10 @@ export class PresenceMarker implements Component {
     this.cowboyHandle = null;
     this.pastureHandle?.hide();
     this.pastureHandle = null;
+    // A hide only asks for a differential render, and the renderer leaves
+    // emptied rows in place, so a taken-down pasture would linger on screen
+    // as stale cells. Its removal forces the full re-render that clears them.
+    if (hadPasture) this.tui.requestRender(true);
   }
 
   /**
@@ -528,6 +535,10 @@ export class PresenceMarker implements Component {
     const { live, ended } = this.countAgents();
     const grazing = this.isGrazing();
     const flipped = grazing !== this.grazing;
+    // Gated on the last turn's setting: drawnPasture() already answers to the
+    // new one, which is empty on exactly the flip this needs to catch.
+    const hadPasture =
+      (this.grazing ?? grazing) && (this.herd?.pasture.length ?? 0) > 0;
 
     if (
       this.herd === null ||
@@ -549,7 +560,13 @@ export class PresenceMarker implements Component {
     // With grazing off there is no pasture to draw and nothing under the cowboy
     // to shift, so a fleet that moves the herd changes nothing on screen. Only
     // the flip repaints, taking the pasture down or bringing it back.
-    if (grazing || flipped) this.tui.requestRender();
+    if (grazing || flipped) {
+      // Taking the pasture down empties its rows, which a differential render
+      // leaves in place — so its removal forces the full re-render that
+      // clears them.
+      const gone = hadPasture && this.drawnPasture().length === 0;
+      this.tui.requestRender(gone);
+    }
   }
 
   /** The herd a fleet feeds, reconciled from the herd the marker is holding. */
