@@ -1,3 +1,19 @@
+# [0.10.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.2...v0.10.0) (2026-10-14)
+
+
+### Bug Fixes
+
+* **opencode:** prove the staged definition through a private server ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([9466935](https://github.com/electric-dragon-80000v/pi-cowboy/commit/946693584597229131ae88f14e6affa14d24f477))
+* **opencode:** refuse a variant with no model, and document opencode 2's keys ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([4a685a4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4a685a494f5663e0e3bad67ecc66ed7ca6c03f77))
+* **opencode:** say the version could not be parsed, not that none was reported ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([35efacd](https://github.com/electric-dragon-80000v/pi-cowboy/commit/35efacdd90dbad9c881070fd392a06527ddbef0b))
+
+
+### Features
+
+* **opencode:** gate the harness on the installed binary's major version ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([53beb2a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/53beb2a91a055f8f27a30a9a513e9a41a8594e34))
+* **opencode:** target the opencode 2 CLI ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([a486b09](https://github.com/electric-dragon-80000v/pi-cowboy/commit/a486b0933823c66ea4e430acf349d0f23bb4aec6))
+* **opencode:** write the definition in opencode 2's own shape ([#1](https://github.com/electric-dragon-80000v/pi-cowboy/issues/1)) ([f6282e1](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f6282e18dcb068694860697c2650c23aa0cca119))
+
 ## [0.9.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.9.1...v0.9.2) (2026-10-14)
 
 
