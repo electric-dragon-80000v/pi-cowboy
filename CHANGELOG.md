@@ -1,3 +1,11 @@
+## [0.12.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.1...v0.12.2) (2026-10-15)
+
+
+### Bug Fixes
+
+* center image on the readme ([3bce6bf](https://github.com/electric-dragon-80000v/pi-cowboy/commit/3bce6bf0f1433ad1cf13e3f6ef6b2b412e43153b))
+* release [skip ci] ([2928fc5](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2928fc5383fd3d0bb2a1bb1d28ecc5a41c3fe80c))
+
 ## [0.12.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.0...v0.12.1) (2026-10-15)
 
 
