@@ -1,3 +1,10 @@
+## [0.14.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.14.0...v0.14.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* update readme ([18f59ff](https://github.com/electric-dragon-80000v/pi-cowboy/commit/18f59ffd9544363a0b6542b769641be2ca3d1f88))
+
 # [0.14.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.13.0...v0.14.0) (2026-10-15)
 
 
