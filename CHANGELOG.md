@@ -1,3 +1,10 @@
+# [0.13.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.2...v0.13.0) (2026-10-15)
+
+
+### Features
+
+* better video cut ([b1196c9](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b1196c9eb9325cbc72af888acdb139c2f9ca76a3))
+
 ## [0.12.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.1...v0.12.2) (2026-10-15)
 
 
