@@ -1,3 +1,10 @@
+# [0.14.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.13.0...v0.14.0) (2026-10-15)
+
+
+### Features
+
+* update readme demo asset and video reference ([44285fc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/44285fc68824647d6e7620698d4c5e6f0c67cccc))
+
 # [0.13.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.2...v0.13.0) (2026-10-15)
 
 
