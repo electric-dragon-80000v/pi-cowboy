@@ -1,3 +1,10 @@
+## [0.12.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.12.0...v0.12.1) (2026-10-15)
+
+
+### Bug Fixes
+
+* video link ([c03f419](https://github.com/electric-dragon-80000v/pi-cowboy/commit/c03f41903889a85cd6030476d4406c872634777b))
+
 # [0.12.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.11.0...v0.12.0) (2026-10-15)
 
 
