@@ -8,9 +8,9 @@
 
 **License:** MIT
 
-`pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and merge their branches back when they finish.
+`pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and consolidate them when they finish.
 
-Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is merged, `pi-cowboy` cleans up the panes, worktrees, and branches for you.
+Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is finished, `pi-cowboy` cleans up the leftovers for you.
 
 ## Why should I use it?
 
@@ -24,15 +24,15 @@ Give each agent a smaller, isolated subtask. A single task with clear instructio
 
 ### Parallel work with minimal disk overhead
 
-Multiple agents can edit, build, and run tests at the same time without interfering with each other. Copy-on-write worktrees make high parallelism practical by keeping disk usage small even when your repository has gigabytes of untracked build artifacts or dependencies.
+Multiple agents can edit, build, and run tests at the same time without interfering with each other. Copy-on-write worktrees make high parallelism practical by keeping disk usage small even when your repository is in the magnitude of gigabytes.
 
 The numbers below come from a Git repository with 153,607 files in total (479 MiB tracked, 27 GiB total including untracked files):
 
-| Method                         | Including untracked | Size on disk |
-| ------------------------------ | ------------------- | ------------ |
-| Pi-cowboy's copy-on-write      | yes                 | 75 MiB       |
-| Classic `git worktree add`     | no                  | 479 MiB      |
-| Classic wt + copy of untracked | yes                 | 27 GiB       |
+| Method                                         | Including untracked | Size on disk |
+| ---------------------------------------------- | ------------------- | ------------ |
+| Pi-cowboy's copy-on-write                      | yes                 | 75 MiB       |
+| Classic `git worktree add`                     | no                  | 479 MiB      |
+| Classic `git worktree add` + copy of untracked | yes                 | 27 GiB       |
 
 ### Live visibility in Herdr
 
