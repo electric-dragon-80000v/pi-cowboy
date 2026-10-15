@@ -1,5 +1,7 @@
 ![logo-labeled-readme](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png)
 
+<video src="https://media.githubusercontent.com/media/electric-dragon-80000v/pi-cowboy/main/docs/assets/pi-cowboy.mp4" controls width="800"></video>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **License:** MIT
