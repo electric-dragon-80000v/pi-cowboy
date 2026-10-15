@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png" alt="pi-cowboy">
 </p>
 
-https://github.com/user-attachments/assets/a063b266-9079-4e3a-adcf-8ca78711bba1
+[![demo](https://github.com/user-attachments/assets/4e54f1de-dfee-47fd-90af-d1eb851dd950)](https://github.com/user-attachments/assets/a063b266-9079-4e3a-adcf-8ca78711bba1)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
