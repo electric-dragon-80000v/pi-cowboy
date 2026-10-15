@@ -1,4 +1,6 @@
-![logo-labeled-readme](https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png" alt="pi-cowboy">
+</p>
 
 https://github.com/user-attachments/assets/a063b266-9079-4e3a-adcf-8ca78711bba1
 
