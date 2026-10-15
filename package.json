@@ -62,6 +62,7 @@
     "commitlint": "commitlint",
     "release": "semantic-release",
     "release:stage": "npm stage publish",
+    "release:approve": "scripts/publish.sh",
     "prepare": "husky"
   },
   "pi": {
