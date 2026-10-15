@@ -1,3 +1,10 @@
+# [0.11.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.10.1...v0.11.0) (2026-10-15)
+
+
+### Features
+
+* release ([5d1d709](https://github.com/electric-dragon-80000v/pi-cowboy/commit/5d1d7094cff02d76ae20e59effdc5c1e6fe5520b))
+
 ## [0.10.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.10.0...v0.10.1) (2026-10-14)
 
 
