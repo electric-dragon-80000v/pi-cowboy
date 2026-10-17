@@ -1,3 +1,10 @@
+## [0.15.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.0...v0.15.1) (2026-10-17)
+
+
+### Bug Fixes
+
+* **git:** treat killed git processes as undefined instead of clean ([ea46a5b](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ea46a5bec6297b4b61ae14a77f1413fe61289bed))
+
 # [0.15.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.14.1...v0.15.0) (2026-10-17)
 
 
