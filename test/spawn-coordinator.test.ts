@@ -302,7 +302,7 @@ describe("SpawnCoordinator completion nudges", () => {
     }
   });
 
-  it("nudges on every completion of a background agent, not only the first", async () => {
+  it("nudges on every settlement of a background agent, not only the first", async () => {
     vi.useFakeTimers();
     try {
       const sendMessage = vi.fn();
@@ -350,7 +350,7 @@ describe("SpawnCoordinator completion nudges", () => {
     }
   });
 
-  it("does not nudge a stop the parent agent ordered itself", async () => {
+  it("nudges a stop the parent agent ordered itself", async () => {
     vi.useFakeTimers();
     try {
       const sendMessage = vi.fn();
@@ -359,10 +359,10 @@ describe("SpawnCoordinator completion nudges", () => {
       const coordinator = new SpawnCoordinator(managerFor(spawn));
       await coordinator.spawn({} as never, intent(true));
 
-      // stop_cowboy_agent returned this settlement to the caller that asked for it.
+      // The agentic case: the orchestrator learns the run is no longer in flight.
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
-      expect(sendMessage).not.toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

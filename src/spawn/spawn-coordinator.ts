@@ -59,7 +59,7 @@ const NUDGE_DELAY_MS = 200;
 export class SpawnCoordinator {
   private manager: AgentManager;
 
-  /** Background agent ids; every completion of one nudges. */
+  /** Background agent ids; every settlement of one nudges, except a stop the user ordered. */
   private backgroundAgentIds = new Set<string>();
 
   /** Pending nudge agent ids. */
@@ -201,15 +201,16 @@ export class SpawnCoordinator {
   }
 
   /**
-   * Nudge on every completion of a background agent — a revived run notifies on each
-   * completion, not just the first. Only dispose clears the set.
+   * Nudge on every settlement of a background agent — a revived run notifies on
+   * each settlement, not just the first. A stop the user ordered from the status
+   * menu is the one exception: they did it on purpose, so the orchestrator is not
+   * woken to react. Only dispose clears the set.
    */
   onAgentComplete(spawn: AgentSpawn): void {
     if (!this.backgroundAgentIds.has(spawn.id)) return;
-    // A stop is never news: stop_cowboy_agent returned that settlement to the
-    // caller, and a stop from the status menu was the user's own deliberate act.
-    // Either way the orchestrator is not woken to react — only a completion reports.
-    if (stopped(spawn)) return;
+    // A stop the user ordered from the menu is not news — they were right there.
+    // A stop the orchestrator ordered through stop_cowboy_agent still reports.
+    if (stoppedByUser(spawn)) return;
     this.scheduleNudge(spawn.id);
   }
 
@@ -319,8 +320,12 @@ export class SpawnCoordinator {
   }
 }
 
-/** Whether a settlement is a stop, whoever ordered it (the parent's tool or the status menu). */
-function stopped(spawn: AgentSpawn): boolean {
+/** Whether a settlement is a stop the user ordered from the status menu. */
+function stoppedByUser(spawn: AgentSpawn): boolean {
   const lifecycle = spawn.lifecycle;
-  return hasOutcome(lifecycle) && lifecycle.status === "stopped";
+  return (
+    hasOutcome(lifecycle) &&
+    lifecycle.status === "stopped" &&
+    lifecycle.stop.initiator === "user"
+  );
 }
