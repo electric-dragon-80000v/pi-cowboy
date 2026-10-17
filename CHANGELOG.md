@@ -1,3 +1,11 @@
+## [0.15.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.1...v0.15.2) (2026-10-17)
+
+
+### Bug Fixes
+
+* **spawn:** nudge orchestrator on agent stops initiated by tool calls ([70dde6a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/70dde6ad5536db0dca69d3957ca9a0a03f5f2766))
+* **spawn:** suppress agent completion nudge on stop ([f3ce242](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f3ce242cb11dda81bc8cc6f2fa60dac2f9f2a6db))
+
 ## [0.15.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.0...v0.15.1) (2026-10-17)
 
 
