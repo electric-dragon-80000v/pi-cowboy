@@ -20,6 +20,7 @@ import {
   ambiguousReport,
   assembleReport,
   assessRemovability,
+  forcedFields,
   keptReport,
   paneDispositionFor,
   planRecovered,
@@ -322,6 +323,8 @@ type CleanupVerdict =
       kind: "refused";
       settlement: SettlementVerdict;
       reason: WorktreeKeptReason;
+      /** Whether the operator override can change this refusal (see keptReport). */
+      forceable: boolean;
     };
 
 /** Bind state-changing cleanup over the assets seam (the composition all callers use). */
@@ -355,11 +358,13 @@ export function createCleanup(assets: AgentAssets): Cleanup {
             kind: "refused",
             settlement,
             reason: { kind: "agent-active", phase: hint.lifecycle.phase },
+            // Force never stops a run — see stop_cowboy_agent.
+            forceable: false,
           };
     }
 
     // No recorded end: force overrides without reading; otherwise herdr's live read decides (unreadable refuses — never evidence the run is over).
-    if (opts?.force === true) {
+    if (opts?.force !== undefined) {
       return {
         kind: "torn-down",
         settlement: recovered(agentId, { kind: "forced" }),
@@ -378,6 +383,8 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           kind: "refused",
           settlement: recovered(agentId, basis),
           reason: recoveryRefusalReason(basis),
+          // Force overrides the read it could not make; the refusal is bypassable.
+          forceable: true,
         };
       }
     }
@@ -388,6 +395,8 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           kind: "refused",
           settlement: recovered(agentId, gate.basis),
           reason: recoveryRefusalReason(gate.basis),
+          // A pane still reporting `working` is exactly what force exists to override.
+          forceable: true,
         };
   }
 
@@ -417,14 +426,10 @@ export function createCleanup(assets: AgentAssets): Cleanup {
     const plan = planRecovered(located);
     const verdict = await verdictFor(agentId, located, hint, opts);
     if (verdict.kind === "refused") {
-      return keptReport(
-        agentId,
-        located.source,
-        plan,
-        verdict.settlement,
-        verdict.reason,
-        "open",
-      );
+      return keptReport(agentId, located.source, plan, verdict.settlement, {
+        reason: verdict.reason,
+        forceable: verdict.forceable,
+      });
     }
 
     // Ordered before the dirty probe — see Harness.teardown.
@@ -457,7 +462,9 @@ export function createCleanup(assets: AgentAssets): Cleanup {
         const report: CleanupReport = {
           agentId,
           source: located.source,
-          outcome: { kind: "torn-down" },
+          // Even this hand-built report carries the marker: a forced pass that
+          // lands here must not read as a routine "already gone".
+          outcome: { kind: "torn-down", ...forcedFields(opts) },
           branchName: plan.branchName,
           settlement: verdict.settlement,
           pane: await paneOutcomeForAbsentTree(assets, located.pane),
@@ -469,17 +476,14 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           registry.dropSpawn(hint);
         return report;
       }
-      return keptReport(
-        agentId,
-        located.source,
-        plan,
-        verdict.settlement,
-        {
+      return keptReport(agentId, located.source, plan, verdict.settlement, {
+        reason: {
           kind: "unverifiable",
           detail: "missing worktree path or repo cwd",
         },
-        "open",
-      );
+        // Force cannot address a removal with no repo cwd — not bypassable.
+        forceable: false,
+      });
     }
 
     if (plan.kind === "worktree") {
@@ -489,14 +493,11 @@ export function createCleanup(assets: AgentAssets): Cleanup {
         plan.worktree,
       );
       if (gate.kind === "kept") {
-        return keptReport(
-          agentId,
-          located.source,
-          plan,
-          verdict.settlement,
-          gate.reason,
-          "open",
-        );
+        return keptReport(agentId, located.source, plan, verdict.settlement, {
+          reason: gate.reason,
+          // The dirty/unverifiable probe is exactly what force skips.
+          forceable: true,
+        });
       }
     }
 
@@ -507,6 +508,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       plan,
       verdict.settlement,
       removal,
+      opts,
     );
     // A recovered run has no record to forget; drop only tracked spawns.
     if (shouldDropSpawn(report) && hint !== undefined) registry.dropSpawn(hint);

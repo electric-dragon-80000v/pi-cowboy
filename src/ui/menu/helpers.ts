@@ -330,3 +330,8 @@ export function createSearchableSelect(
   view = new SwappableView(selector);
   return view;
 }
+
+/** How the status menu's off-menu actions name the ids they were handed. */
+export function agentSubject(ids: readonly string[]): string {
+  return ids.length === 1 ? `agent ${ids[0]}` : `${ids.length} agent(s)`;
+}

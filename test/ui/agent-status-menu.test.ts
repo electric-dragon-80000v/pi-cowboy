@@ -5,8 +5,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawn } from "../../src/types.js";
-import type { CleanupReport } from "../../src/agents/cleanup-policy.js";
+import type {
+  CleanupOptions,
+  CleanupReport,
+} from "../../src/agents/cleanup-policy.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
+import {
+  dirtyRefusal,
+  forcedTeardown,
+  fullTeardown,
+} from "./cleanup-fixtures.js";
 import { resetShell, setCoordinator, setPi, shellState } from "./shell-mock.js";
 
 vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
@@ -97,27 +105,15 @@ function errorSpawn(id: string, error = "boom"): AgentSpawn {
 
 const aborted: string[] = [];
 const cleanedUp: string[] = [];
+const cleanupOpts: Array<{ id: string; force: boolean }> = [];
 const focused: string[] = [];
 /** Next abort verdict, per id (stopped unless set). */
 let abortImpl: (id: string) => Promise<boolean> = () => Promise.resolve(true);
 
-/** A teardown that closed the pane, removed the tree and deleted the branch. */
-function fullTeardown(id: string): CleanupReport {
-  return {
-    agentId: id,
-    source: "tracked",
-    outcome: { kind: "torn-down" },
-    settlement: { kind: "recorded", phase: "settled" },
-    pane: { kind: "closed", paneId: "pane-1" },
-    worktree: { kind: "removed", path: "/repo/.worktrees/fix-login" },
-    branch: { kind: "deleted" },
-    branchName: "cow-fix-login-abcd1234",
-  };
-}
-
-/** Next cleanup report (a full teardown unless set). */
-let cleanupImpl: (id: string) => Promise<CleanupReport> = (id) =>
-  Promise.resolve(fullTeardown(id));
+/** Next cleanup report (a full teardown unless set), keyed on the force flag. */
+let cleanupImpl: (id: string, force: boolean) => Promise<CleanupReport> = (
+  id,
+) => Promise.resolve(fullTeardown(id));
 
 function installManager(agents: AgentSpawn[]): void {
   shellState.manager = {
@@ -126,9 +122,11 @@ function installManager(agents: AgentSpawn[]): void {
       aborted.push(id);
       return abortImpl(id);
     },
-    cleanup: (id: string) => {
+    cleanup: (id: string, opts?: CleanupOptions) => {
+      const force = opts?.force !== undefined;
       cleanedUp.push(id);
-      return cleanupImpl(id);
+      cleanupOpts.push({ id, force });
+      return cleanupImpl(id, force);
     },
   };
 }
@@ -144,6 +142,7 @@ beforeEach(() => {
   resetShell();
   aborted.length = 0;
   cleanedUp.length = 0;
+  cleanupOpts.length = 0;
   focused.length = 0;
   abortImpl = () => Promise.resolve(true);
   cleanupImpl = (id) => Promise.resolve(fullTeardown(id));
@@ -281,7 +280,6 @@ describe("Agent status — group actions", () => {
 
     expect(cleanedUp).toEqual(["beef5678-completed"]);
     expect(session.notifications.map((n) => n.message)).toEqual([
-      "Cleaning up 1 completed agent(s) …",
       "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
     ]);
   });
@@ -302,7 +300,6 @@ describe("Agent status — group actions", () => {
     expect(session.closedScreens).toHaveLength(1);
     // Each teardown reports as it lands, so a slow worktree never hides the rest.
     expect(session.notifications.map((n) => n.message)).toEqual([
-      "Cleaning up 2 settled agent(s) …",
       "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
       "✓ Cleaned up agent cafe9999-errored: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
     ]);
@@ -418,10 +415,8 @@ describe("Agent status — the per-agent actions list", () => {
     await session.settle();
 
     expect(cleanedUp).toEqual(["beef5678-completed"]);
+    expect(cleanupOpts).toEqual([{ id: "beef5678-completed", force: false }]);
     expect(session.closedScreens).toHaveLength(1);
-    expect(session.notifications.map((n) => n.message)).toContain(
-      "Cleaning up agent beef5678-completed …",
-    );
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
@@ -429,20 +424,62 @@ describe("Agent status — the per-agent actions list", () => {
     });
   });
 
-  it("warns when a cleanup keeps the worktree", async () => {
+  it("offers Force on a forceable refusal, then runs the forced pass on Y", async () => {
     installManager([completedSpawn("beef5678-completed")]);
-    cleanupImpl = (id) =>
-      Promise.resolve({
-        ...fullTeardown(id),
-        outcome: { kind: "refused", reason: { kind: "dirty" } },
-        worktree: { kind: "kept", path: "/repo/.worktrees/fix-login" },
-      });
+    cleanupImpl = (id, force) =>
+      Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
     const session = openAgentStatus();
     session.open("✓ beef5678-completed");
 
     session.open("Clean up");
     await session.settle();
 
+    // The refusal is offered in-menu — Force first, Cancel second — and the
+    // menu stays open behind the decision.
+    expect(session.closedScreens).toEqual([]);
+    expect(session.activeRow()?.label).toBe("Force");
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Force",
+      "Cancel",
+    ]);
+
+    session.press(KEY.enter);
+    expect(session.text()).toContain(
+      "Force cleanup of agent beef5678-completed?",
+    );
+    expect(session.text()).toContain("This DELETES its worktree");
+
+    session.press("y");
+    await session.settle();
+
+    expect(cleanupOpts).toEqual([
+      { id: "beef5678-completed", force: false },
+      { id: "beef5678-completed", force: true },
+    ]);
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✓ Cleaned up agent beef5678-completed forced — has uncommitted changes: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
+      kind: "info",
+    });
+  });
+
+  it("keeps the menu open with the agent listed when the offer is declined", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    cleanupImpl = (id, force) =>
+      Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
+    const session = openAgentStatus();
+    session.open("✓ beef5678-completed");
+
+    session.open("Clean up");
+    await session.settle();
+    session.press(KEY.escape);
+    await session.settle();
+
+    // No forced pass; the refusal is reported and the menu refreshes in place.
+    expect(cleanupOpts).toEqual([{ id: "beef5678-completed", force: false }]);
+    expect(session.closedScreens).toEqual([]);
+    expect(session.activeRow()?.label).toBe("✓ beef5678-completed");
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",

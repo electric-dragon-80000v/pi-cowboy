@@ -206,6 +206,7 @@ describe("executeCleanupAgentTool — an id the store does not track", () => {
           kind: "ambiguous-artifacts",
           candidates: [`/a/${BRANCH}`, `/b/${BRANCH}`],
         },
+        forceable: false,
       },
       pane: { kind: "none" },
       worktree: { kind: "kept", path: null },
@@ -285,24 +286,28 @@ describe("executeCleanupAgentTool — a tracked id", () => {
 });
 
 describe("executeCleanupAgentTool — report rendering", () => {
-  it.each<[WorktreeKeptReason, string]>([
+  it.each<[WorktreeKeptReason, string, boolean]>([
     [
       { kind: "dirty" },
       "Did not clean up agent " + ID + ": has uncommitted changes",
+      true,
     ],
     [
       { kind: "unverifiable", detail: "git status probe failed" },
       "Did not clean up agent " +
         ID +
         ": state could not be verified (git status probe failed)",
+      true,
     ],
     [
       { kind: "agent-active", phase: "spawned" },
       `Did not clean up agent ${ID}: the agent is still spawned and has not reported a result — stop it with stop_cowboy_agent, then clean up`,
+      false,
     ],
     [
       { kind: "recovered-refusal", basis: { kind: "pane-working" } },
       `Did not clean up agent ${ID}: no settlement was recorded and herdr still reports the agent at work (pane-working) — stop it before retrying`,
+      true,
     ],
     [
       {
@@ -312,6 +317,7 @@ describe("executeCleanupAgentTool — report rendering", () => {
       "Did not clean up agent " +
         ID +
         ": state could not be verified (the pane state could not be read (herdr down))",
+      true,
     ],
     [
       {
@@ -321,6 +327,7 @@ describe("executeCleanupAgentTool — report rendering", () => {
       "Did not clean up agent " +
         ID +
         ": state could not be verified (missing worktree path or repo cwd)",
+      false,
     ],
     [
       {
@@ -328,14 +335,15 @@ describe("executeCleanupAgentTool — report rendering", () => {
         candidates: [`/a/${BRANCH}`, `/b/${BRANCH}`],
       },
       `Did not clean up agent ${ID}: two artifacts answer to this id (/a/${BRANCH}, /b/${BRANCH}) — nothing was removed; work out which run owns the id before removing either by hand`,
+      false,
     ],
   ])(
     "states the refusal reason %# in the headline",
-    async (reason, expected) => {
+    async (reason, expected, forceable) => {
       const manager = fakeManager({
         spawn: { id: ID } as AgentSpawn,
         report: trackedReport({
-          outcome: { kind: "refused", reason },
+          outcome: { kind: "refused", reason, forceable },
           worktree: { kind: "kept", path: WT_PATH },
           branch: { kind: "not-applicable" },
         }),
@@ -350,7 +358,11 @@ describe("executeCleanupAgentTool — report rendering", () => {
     const manager = fakeManager({
       spawn: { id: ID } as AgentSpawn,
       report: trackedReport({
-        outcome: { kind: "refused", reason: { kind: "dirty" } },
+        outcome: {
+          kind: "refused",
+          reason: { kind: "dirty" },
+          forceable: true,
+        },
         worktree: { kind: "none" },
         branch: { kind: "not-applicable" },
       }),
@@ -504,6 +516,7 @@ describe("executeCleanupAgentTool — batch", () => {
       outcome: {
         kind: "refused",
         reason: { kind: "agent-active", phase: "spawned" },
+        forceable: false,
       },
       worktree: { kind: "kept", path: OTHER_WT },
       branch: { kind: "not-applicable" },

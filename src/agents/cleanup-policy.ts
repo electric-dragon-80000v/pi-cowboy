@@ -3,7 +3,7 @@
  * Located artifacts: LocatedWorktree/LocatedPane/LocatedArtifacts.
  * Plan: CleanupPlan/planRecovered. Gate: GateOutcome/assessRemovability.
  * Settlement: SettlementVerdict/recordedSettlement/recoveryGate/recoveryRefusalReason.
- * Report: CleanupReport/keptReport/ambiguousReport/assembleReport/shouldDropSpawn.
+ * Report: CleanupReport/keptReport/ambiguousReport/assembleReport/forcedFields/isForceableRefusal/shouldDropSpawn.
  * Removal: RemovalOutcomes/RemovablePlan/WorktreeRemovalMechanism/PaneDisposition/removalMechanismOf/paneDispositionFor.
  * Probes: WorktreeDirtyProbe. Options: CleanupOptions. Source: CleanupSource. Basis: DiscoveryBasis.
  */
@@ -105,9 +105,19 @@ export type WorktreeOutcome =
   | { kind: "absent"; path: string }
   | { kind: "none" };
 
-/** What cleanup did with the run as a whole: tore down its artifacts, or refused to touch them and says why. */
+/** The override a forced teardown carries: the refusal it bypassed (menu-only; the tool never forces). */
+export type ForcedOverride = { reason?: WorktreeKeptReason };
+
+/**
+ * What cleanup did with the run as a whole: tore down its artifacts, or refused
+ * to touch them and says why. Only a teardown can carry `forced`; only a refusal
+ * carries `forceable` — whether the operator override (`CleanupOptions.force`)
+ * can change the answer. The menu offers Force only for a forceable refusal;
+ * every other refusal is final.
+ */
 export type CleanupVerdictOutcome =
-  { kind: "torn-down" } | { kind: "refused"; reason: WorktreeKeptReason };
+  | { kind: "torn-down"; forced?: ForcedOverride }
+  | { kind: "refused"; reason: WorktreeKeptReason; forceable: boolean };
 
 /** Structured cleanup result for the orchestrator (not prose); report-gated and best effort — unsettled runs are refused, the rest reports what it could not remove. */
 export interface CleanupReport {
@@ -129,8 +139,8 @@ export interface CleanupReport {
 }
 
 export interface CleanupOptions {
-  /** Skip the removability gate: remove the worktree even when dirty/unverifiable. */
-  force?: boolean;
+  /** Skip the removability gate: remove the worktree even when dirty/unverifiable. `reason` is the refusal this override bypassed. */
+  force?: ForcedOverride;
 }
 
 /* ── Located artifacts (plain data) ───────────────────────────────────── */
@@ -240,7 +250,7 @@ export async function assessRemovability(
   opts: CleanupOptions | undefined,
   worktree: WorktreeTarget,
 ): Promise<GateOutcome> {
-  if (opts?.force === true) return { kind: "removable" };
+  if (opts?.force !== undefined) return { kind: "removable" };
   const dirty = await isDirty(worktree.worktreePath);
   if (dirty === undefined) {
     return {
@@ -327,14 +337,13 @@ export function recoveryRefusalReason(
 
 /* ── Stage 5: report + record-keeping (pure) ───────────────────────────── */
 
-/** Refusal report shared by all early returns; the reason rides the verdict, so it survives even with no worktree to name. */
+/** Refusal report shared by all early returns; the reason rides the verdict, so it survives even with no worktree to name. `refusal.forceable` marks a refusal the operator override can change (see CleanupVerdictOutcome). A refusal closes nothing, so its pane is always reported open. */
 export function keptReport(
   agentId: string,
   source: CleanupSource,
   plan: CleanupPlan,
   settlement: SettlementVerdict,
-  reason: WorktreeKeptReason,
-  paneStatus: "open" | "closed",
+  refusal: { reason: WorktreeKeptReason; forceable: boolean },
 ): CleanupReport {
   const worktree: WorktreeOutcome =
     plan.kind === "worktree"
@@ -345,7 +354,11 @@ export function keptReport(
   return {
     agentId,
     source,
-    outcome: { kind: "refused", reason },
+    outcome: {
+      kind: "refused",
+      reason: refusal.reason,
+      forceable: refusal.forceable,
+    },
     branchName:
       plan.kind === "worktree"
         ? plan.worktree.branchName
@@ -354,7 +367,7 @@ export function keptReport(
           : undefined,
     settlement,
     pane: plan.pane
-      ? { kind: paneStatus, paneId: plan.pane.paneId }
+      ? { kind: "open", paneId: plan.pane.paneId }
       : { kind: "none" },
     worktree,
     branch: { kind: "not-applicable" },
@@ -374,6 +387,7 @@ export function ambiguousReport(
     outcome: {
       kind: "refused",
       reason: { kind: "ambiguous-artifacts", candidates },
+      forceable: false,
     },
     settlement,
     pane: { kind: "none" },
@@ -382,23 +396,54 @@ export function ambiguousReport(
   };
 }
 
+/**
+ * The `forced` marker a teardown earned by overriding a removability gate, as a
+ * fragment for its `torn-down` outcome (`{}` for a routine teardown). The tool
+ * never forces, so only the menu sets it — and every teardown path spreads this,
+ * so the marker is invariant.
+ */
+export function forcedFields(opts?: CleanupOptions): {
+  forced?: ForcedOverride;
+} {
+  return opts?.force !== undefined ? { forced: opts.force } : {};
+}
+
 export function assembleReport(
   agentId: string,
   source: CleanupSource,
   plan: CleanupPlan,
   settlement: SettlementVerdict,
   removal: RemovalOutcomes,
+  opts?: CleanupOptions,
 ): CleanupReport {
   return {
     agentId,
     source,
-    outcome: { kind: "torn-down" },
+    // A forced teardown states it overrode a gate, so its report line cannot be
+    // mistaken for a routine one (see forcedFields).
+    outcome: { kind: "torn-down", ...forcedFields(opts) },
     branchName: plan.kind === "worktree" ? plan.worktree.branchName : undefined,
     settlement,
     pane: removal.pane,
     worktree: removal.worktree,
     branch: removal.branch,
   };
+}
+
+/** A report whose refusal the operator override can change — `isForceableRefusal` narrows to it. */
+export type ForceableRefusedReport = CleanupReport & {
+  outcome: { kind: "refused"; forceable: true };
+};
+
+/**
+ * Whether the operator override can change a refusal's answer. The menu offers
+ * Force only for these: a live run, a contested id, and a tree with no address
+ * force can reach are final refusals, not candidates for a second attempt.
+ */
+export function isForceableRefusal(
+  report: CleanupReport,
+): report is ForceableRefusedReport {
+  return report.outcome.kind === "refused" && report.outcome.forceable;
 }
 
 /**

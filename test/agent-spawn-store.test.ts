@@ -566,6 +566,7 @@ describe("spawn retention through the manager", () => {
           tree === "dirty"
             ? { kind: "dirty" }
             : { kind: "unverifiable", detail: "git status probe failed" },
+        forceable: true,
       });
       // Kept tree keeps its spawn.
       expect(shared.store.get(id)).toBeDefined();

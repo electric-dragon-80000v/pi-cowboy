@@ -107,13 +107,13 @@ Opens the `System Prompt` screen.
 
 Lists every spawned, queued, and settled agent from the session. Selecting an agent opens the actions available for its current state:
 
-| Action        | What it does                                                                                                                                                                   |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `View shell`  | Focuses the agent's Herdr terminal pane (available while the agent is running and after it settles).                                                                           |
-| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                           |
-| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                       |
-| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                  |
-| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Worktrees with uncommitted changes are kept and reported with why. |
+| Action        | What it does                                                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `View shell`  | Focuses the agent's Herdr terminal pane (available while the agent is running and after it settles).                                                                                                                                                   |
+| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                   |
+| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                               |
+| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                          |
+| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Worktrees with uncommitted changes are kept and reported with why; when the menu keeps one it offers to force removal instead (see below). |
 
 Below the individual agents, the list displays bulk actions when applicable:
 
@@ -124,6 +124,12 @@ Below the individual agents, the list displays bulk actions when applicable:
 | `Clean up N completed agent(s)` | Cleans up only agents that completed without errors. Shown when at least one completed agent is present. |
 
 If a cleanup keeps a worktree (for example, because of uncommitted changes), the reason is recorded on that agent's entry in the status list.
+
+### Forcing cleanup
+
+Cleanup normally refuses to remove a worktree it cannot prove is safe to remove: one with uncommitted changes, or one whose state it could not verify. The status menu is the only place you can override that refusal — the `cleanup_cowboy_agent` tool never forces.
+
+The menu runs the normal cleanup first. When it refuses for a reason that force can address, the menu offers to force the removal. Backing out reports the reasons it would have overridden. A bulk cleanup runs inside the menu and can take a while; the menu is unresponsive until it finishes.
 
 ## `/cowboy spawn` - Spawn Options
 

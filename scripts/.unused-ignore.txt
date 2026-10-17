@@ -5,6 +5,7 @@ lint/noDateNowForDuration.ts::BinaryExpression(BinaryExpression & NodeParentExte
 test/git/git-merger.test.ts::ScriptedRunner.probe(readonly string[]): Promise<string | undefined>
 test/git/git-merger.test.ts::ScriptedRunner.run(readonly string[]): Promise<GitRunResult | undefined>
 test/git/git-merger.test.ts::ScriptedRunner.test(): Promise<boolean>
+test/ui/harness.ts::requestRender(): void
 test/ui/shell-mock.ts::getCoordinator(): unknown
 test/ui/shell-mock.ts::getManager(): unknown
 test/ui/shell-mock.ts::getPiInstance(): unknown

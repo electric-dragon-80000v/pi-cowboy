@@ -1,7 +1,9 @@
 /**
  * menu-agent-status.ts — the agent list (active and settled) and per-agent
  * actions. Snapshot at construction; re-entry refreshes. Actions focus the
- * subagent's herdr pane instead of an in-extension viewer.
+ * subagent's herdr pane instead of an in-extension viewer. The two-phase
+ * cleanup flow — including the menu-only force override — lives in
+ * menu-agent-status-cleanup.ts.
  * Exports: showAgentStatusMenu, buildAgentActionsList.
  */
 
@@ -11,7 +13,6 @@ import {
   SelectList,
   truncateToWidth,
   visibleWidth,
-  type Component,
   type SelectItem,
 } from "@earendil-works/pi-tui";
 import type { AgentSpawn } from "../../types.js";
@@ -32,15 +33,13 @@ import {
   statusIcon,
 } from "../format.js";
 import { getManagerOrNull, getRuntime } from "../../shell.js";
-import {
-  cleanupNeedsAttention,
-  summarizeCleanupReport,
-} from "../../agents/cleanup-report.js";
 import type { Theme } from "../types.js";
 import { ScreenHost, SwappableView, asListFields } from "./screen-host.js";
+import { createStatusCleanup } from "./menu-agent-status-cleanup.js";
 import {
   SEPARATOR_ID,
   actionReport,
+  agentSubject,
   buildSelectListTheme,
   installSeparatorSkip,
   withVimKeys,
@@ -185,11 +184,6 @@ async function showTextViewer(
   });
 }
 
-/** How the off-menu helpers name the ids they were handed. */
-function agentSubject(ids: readonly string[]): string {
-  return ids.length === 1 ? `agent ${ids[0]}` : `${ids.length} agent(s)`;
-}
-
 /**
  * Stop agents without holding the menu open, and report the outcome once each
  * stop settles. A stop waits on herdr's registry and the run's settle pass, so
@@ -243,49 +237,18 @@ function stopAgentsOffMenu(
 }
 
 /**
- * Clean agents up without holding the menu open, and report each teardown as
- * it lands. Cleanup closes panes, removes worktrees and deletes merged
- * branches, so callers hand the UI back first.
- */
-function cleanupAgentsOffMenu(
-  ctx: ExtensionCommandContext,
-  ids: readonly string[],
-): void {
-  const manager = getManagerOrNull();
-  const idSubject = agentSubject(ids);
-  const action = actionReport(ctx.ui);
-  if (!manager) {
-    action.failed(`Failed to clean up ${idSubject}`, "manager unavailable");
-    return;
-  }
-  void (async () => {
-    for (const id of ids) {
-      try {
-        const report = await manager.cleanup(id);
-        action.succeeded(
-          summarizeCleanupReport(report),
-          cleanupNeedsAttention(report) ? "warning" : "info",
-        );
-      } catch (err) {
-        action.failed(`Failed to clean up agent ${id}`, err);
-      }
-    }
-  })();
-}
-
-/**
  * Per-agent actions submenu for a delegating component.
  * @param done — return to the parent agent list.
- * @param setActive — swap the delegating component's active child.
  * @param onClose — close the entire menu.
+ * @param beginCleanup — start the two-phase cleanup flow over these ids.
  */
 export function buildAgentActionsList(
   ctx: ExtensionCommandContext,
   spawn: AgentSpawn,
   theme: Theme,
   done: () => void,
-  setActive: (c: Component) => void,
   onClose: () => void,
+  beginCleanup: (ids: readonly string[]) => void,
 ): SelectList {
   const items: SelectItem[] = [];
   // Spawn id is the full handle — printed whole, never sliced.
@@ -345,11 +308,9 @@ export function buildAgentActionsList(
       done();
       stopAgentsOffMenu(ctx, [spawn.id]);
     } else if (item.value === "cleanup") {
-      // The spawn record goes with the artifacts, so the list it came from is
-      // stale either way: close, and report the teardown when it lands.
-      actionReport(ctx.ui).pending(`Cleaning up agent ${id}`);
-      onClose();
-      cleanupAgentsOffMenu(ctx, [spawn.id]);
+      // The flow keeps the menu open for the force decision, then hands the
+      // teardown back to run off-menu; it reports every outcome itself.
+      beginCleanup([spawn.id]);
     }
   };
   list.onCancel = () => done();
@@ -360,19 +321,23 @@ export async function showAgentStatusMenu(
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   // Settled spawns outlive their session, so list them here.
-  const agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
-  if (agents.length === 0) {
+  if ((getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? []).length === 0) {
     ctx.ui.notify("No agents have been spawned this session", "info");
     return;
   }
-  // Active work is never cleaned up
-  const activeAgents = agents.filter((r) => isActivePhase(r.lifecycle.phase));
-  const finished = agents.filter((r) => !isActivePhase(r.lifecycle.phase));
-  const completed = agents.filter(
-    (r) => hasOutcome(r.lifecycle) && r.lifecycle.status === "completed",
-  );
 
-  await new ScreenHost(ctx).open<void>(({ theme, close }) => {
+  await new ScreenHost(ctx).open<void>(({ tui, theme, close }) => {
+    // Re-read on refresh: a cleanup drops the spawns whose artifacts it removed.
+    let agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
+    const activeAgents = (): AgentSpawn[] =>
+      agents.filter((r) => isActivePhase(r.lifecycle.phase));
+    const finishedAgents = (): AgentSpawn[] =>
+      agents.filter((r) => !isActivePhase(r.lifecycle.phase));
+    const completedAgents = (): AgentSpawn[] =>
+      agents.filter(
+        (r) => hasOutcome(r.lifecycle) && r.lifecycle.status === "completed",
+      );
+
     const buildAgentItems = (): SelectItem[] => {
       // One timestamp for every row keeps durations mutually consistent.
       const now = Date.now();
@@ -399,11 +364,14 @@ export async function showAgentStatusMenu(
           label: `${icon} ${spawn.id}  ${bullet}${spawn.display.type}  ${status}  ${duration}${wtInfo}${suffix}${ago}`,
         };
       });
-      if (activeAgents.length > 0) {
+      const active = activeAgents();
+      const finished = finishedAgents();
+      const completed = completedAgents();
+      if (active.length > 0) {
         items.push({ value: SEPARATOR_ID, label: " " });
         items.push({
           value: "__stop-all",
-          label: `Stop ${activeAgents.length} active agent(s)`,
+          label: `Stop ${active.length} active agent(s)`,
         });
       }
       if (finished.length > 0) {
@@ -431,53 +399,66 @@ export async function showAgentStatusMenu(
 
     const view = new SwappableView(agentList);
 
+    /** Repaint: pi-tui redraws on input, but a swap driven by an async pass has none. */
+    const requestRender = (): void => tui.requestRender();
+
+    /** Re-read the fleet and rebuild the rows in place (removed agents drop out), keeping the cursor on `focusId` when it survives. */
+    const refresh = (focusId?: string): void => {
+      agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
+      const fields = asListFields<SelectItem>(agentList);
+      const items = buildAgentItems();
+      fields.items = items;
+      fields.filteredItems = items;
+      const at = focusId
+        ? items.findIndex((item) => item.value === focusId)
+        : -1;
+      agentList.setSelectedIndex(at >= 0 ? at : 0);
+      view.activate(agentList);
+      requestRender();
+    };
+
+    // The two-phase cleanup flow owns the force dialogs; the menu stays open
+    // through the decision and only a clean sweep (or a confirmed force) closes.
+    const beginCleanup = createStatusCleanup({
+      ctx,
+      theme,
+      view,
+      refresh,
+      close,
+      requestRender,
+    });
+
     agentList.onSelect = async (item) => {
       if (item.value === "__stop-all") {
-        actionReport(ctx.ui).pending(
-          `Stopping ${activeAgents.length} agent(s)`,
-        );
+        const active = activeAgents();
+        actionReport(ctx.ui).pending(`Stopping ${active.length} agent(s)`);
         close();
         stopAgentsOffMenu(
           ctx,
-          activeAgents.map((r) => r.id),
+          active.map((r) => r.id),
         );
         return;
       }
       if (item.value === "__cleanup-finished") {
-        actionReport(ctx.ui).pending(
-          `Cleaning up ${finished.length} settled agent(s)`,
-        );
-        close();
-        cleanupAgentsOffMenu(
-          ctx,
-          finished.map((r) => r.id),
-        );
+        beginCleanup(finishedAgents().map((r) => r.id));
         return;
       }
       if (item.value === "__cleanup-completed") {
-        actionReport(ctx.ui).pending(
-          `Cleaning up ${completed.length} completed agent(s)`,
-        );
-        close();
-        cleanupAgentsOffMenu(
-          ctx,
-          completed.map((r) => r.id),
-        );
+        beginCleanup(completedAgents().map((r) => r.id));
         return;
       }
       const spawn = agents.find((r) => r.id === item.value);
       if (spawn) {
-        const actionsList = buildAgentActionsList(
-          ctx,
-          spawn,
-          theme,
-          () => {
-            view.activate(agentList);
-          },
-          view.activate.bind(view),
-          () => close(),
+        view.activate(
+          buildAgentActionsList(
+            ctx,
+            spawn,
+            theme,
+            () => refresh(spawn.id),
+            () => close(),
+            beginCleanup,
+          ),
         );
-        view.activate(actionsList);
       }
     };
     agentList.onCancel = () => close();

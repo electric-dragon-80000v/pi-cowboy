@@ -282,7 +282,8 @@ export function openMenu(runner: MenuRunner, width = 80): MenuSession {
 /** pi injects a keybindings manager into every ctx.ui.custom factory. */
 const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
 
-/** TUI stand-in; the text viewer sizes its viewport from terminal.rows. */
+/** TUI stand-in; the text viewer sizes its viewport from terminal.rows, and the menu asks it to repaint after an async swap. */
 const fakeTui = {
   terminal: { rows: 24, columns: 80 },
+  requestRender() {},
 } as unknown as TUI;

@@ -5,7 +5,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { CleanupReport } from "../src/agents/cleanup-policy.js";
+import {
+  isForceableRefusal,
+  type CleanupReport,
+} from "../src/agents/cleanup-policy.js";
 import {
   cleanupNeedsAttention,
   summarizeCleanupReport,
@@ -43,6 +46,7 @@ describe("summarizeCleanupReport", () => {
           outcome: {
             kind: "refused",
             reason: { kind: "dirty" },
+            forceable: true,
           },
           worktree: { kind: "kept", path: WT_PATH },
           branch: { kind: "kept", reason: "unmerged" },
@@ -58,6 +62,7 @@ describe("summarizeCleanupReport", () => {
           outcome: {
             kind: "refused",
             reason: { kind: "unverifiable", detail: "git status failed" },
+            forceable: true,
           },
           worktree: { kind: "kept", path: null },
         }),
@@ -127,6 +132,62 @@ describe("summarizeCleanupReport", () => {
       `Cleaned up agent ${ID}: pane left open, worktree NOT removed — in use (${WT_PATH}), branch NOT deleted — checked out (${BRANCH})`,
     );
   });
+
+  it("marks a forced teardown and names the refusal it overrode", () => {
+    expect(
+      summarizeCleanupReport(
+        report({
+          outcome: { kind: "torn-down", forced: { reason: { kind: "dirty" } } },
+        }),
+      ),
+    ).toBe(
+      `Cleaned up agent ${ID} forced — has uncommitted changes: pane closed, worktree removed (${WT_PATH}), branch deleted (${BRANCH})`,
+    );
+  });
+
+  it("marks a forced teardown that named no reason", () => {
+    expect(
+      summarizeCleanupReport(
+        report({ outcome: { kind: "torn-down", forced: {} } }),
+      ),
+    ).toBe(
+      `Cleaned up agent ${ID} forced: pane closed, worktree removed (${WT_PATH}), branch deleted (${BRANCH})`,
+    );
+  });
+});
+
+describe("isForceableRefusal", () => {
+  it("is false for a teardown, whatever it left behind", () => {
+    expect(isForceableRefusal(report())).toBe(false);
+  });
+
+  it("is true only for a refusal that marks itself forceable", () => {
+    expect(
+      isForceableRefusal(
+        report({
+          outcome: {
+            kind: "refused",
+            reason: { kind: "dirty" },
+            forceable: true,
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isForceableRefusal(
+        report({
+          outcome: {
+            kind: "refused",
+            reason: {
+              kind: "unverifiable",
+              detail: "missing worktree path or repo cwd",
+            },
+            forceable: false,
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("cleanupNeedsAttention", () => {
@@ -152,7 +213,13 @@ describe("cleanupNeedsAttention", () => {
     ["a kept worktree", { worktree: { kind: "kept", path: null } }],
     [
       "a refused run",
-      { outcome: { kind: "refused", reason: { kind: "dirty" } } },
+      {
+        outcome: {
+          kind: "refused",
+          reason: { kind: "dirty" },
+          forceable: true,
+        },
+      },
     ],
     [
       "a worktree removal that failed",

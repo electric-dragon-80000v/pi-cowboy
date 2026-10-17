@@ -725,6 +725,7 @@ describe("AgentManager fleet routing", () => {
     expect(refusal.outcome).toEqual({
       kind: "refused",
       reason: { kind: "agent-active", phase: "queued" },
+      forceable: false,
     });
     expect(manager.getSpawn(id)).toBeDefined();
 
@@ -758,6 +759,7 @@ describe("AgentManager fleet routing", () => {
     expect(report.outcome).toEqual({
       kind: "refused",
       reason: { kind: "agent-active", phase: "spawned" },
+      forceable: false,
     });
     expect(manager.getSpawn(id)).toBeDefined();
     manager.dispose();

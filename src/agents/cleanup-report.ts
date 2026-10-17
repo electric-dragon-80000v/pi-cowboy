@@ -8,6 +8,7 @@ import type { BranchCleanupResult } from "../infrastructure/git-client.js";
 import type {
   CleanupReport,
   DiscoveryBasis,
+  ForcedOverride,
   PaneOutcome,
   SettlementVerdict,
   WorktreeKeptReason,
@@ -38,7 +39,8 @@ function formatSettlement(settlement: SettlementVerdict): string {
     : `unrecorded (basis: ${formatBasis(settlement.basis)})`;
 }
 
-function formatKeptReason(reason: WorktreeKeptReason): string {
+/** The refusal wording, shared by the report and the menu's force dialog. */
+export function formatKeptReason(reason: WorktreeKeptReason): string {
   switch (reason.kind) {
     case "dirty":
       return "has uncommitted changes";
@@ -98,13 +100,19 @@ function branchText(report: CleanupReport): string {
   return `${text}${report.branchName ? ` (${report.branchName})` : ""}`;
 }
 
-/** The report's opening line: a refusal says it refused and why; a teardown says it finished. */
+/** The forced clause a teardown earned by overriding a gate; empty otherwise. */
+function forcedClause(forced: ForcedOverride | undefined): string {
+  if (!forced) return "";
+  return ` forced${forced.reason ? ` — ${formatKeptReason(forced.reason)}` : ""}`;
+}
+
+/** The report's opening line: a refusal says it refused and why; a teardown says it finished, and whether an operator override was in play. */
 function headline(report: CleanupReport): string {
   return report.outcome.kind === "refused"
     ? `Did not clean up agent ${report.agentId}: ${formatKeptReason(
         report.outcome.reason,
       )}`
-    : `Cleaned up agent ${report.agentId}:`;
+    : `Cleaned up agent ${report.agentId}${forcedClause(report.outcome.forced)}:`;
 }
 
 /** The tool's report: what happened to the run, its pane, worktree and branch. */

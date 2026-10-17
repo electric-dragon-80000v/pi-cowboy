@@ -42,7 +42,7 @@ import {
   type AgentAssets,
   type LocateResult,
 } from "./agent-assets.js";
-import type { CleanupReport } from "./cleanup-policy.js";
+import type { CleanupOptions, CleanupReport } from "./cleanup-policy.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
   SubagentSession,
@@ -338,10 +338,7 @@ export class AgentManager {
     getAgentSpawns().drop(spawn.id);
   }
 
-  async cleanup(
-    id: string,
-    opts?: { force?: boolean },
-  ): Promise<CleanupReport> {
+  async cleanup(id: string, opts?: CleanupOptions): Promise<CleanupReport> {
     const run = this.runCleanup(id, this.teardowns.get(id), opts);
     this.teardowns.set(id, run);
     try {
@@ -356,7 +353,7 @@ export class AgentManager {
   private async runCleanup(
     id: string,
     inFlight: Promise<unknown> | undefined,
-    opts: { force?: boolean } | undefined,
+    opts: CleanupOptions | undefined,
   ): Promise<CleanupReport> {
     // The earlier teardown's failure is its own report; this one still runs.
     await inFlight?.catch(() => {});

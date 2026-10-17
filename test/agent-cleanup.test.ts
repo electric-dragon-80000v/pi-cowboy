@@ -28,6 +28,7 @@ import {
   recordedSettlement,
   recoveryGate,
   shouldDropSpawn,
+  type CleanupOptions,
   type CleanupPlan,
   type CleanupReport,
   type GateOutcome,
@@ -547,7 +548,7 @@ describe("assessRemovability", () => {
   it("skips the probe entirely when forced", async () => {
     const deps = buildDeps("force-dirty");
     expect(
-      await assessRemovability(deps.isWorktreeDirty, { force: true }, TARGET),
+      await assessRemovability(deps.isWorktreeDirty, { force: {} }, TARGET),
     ).toEqual({
       kind: "removable",
     });
@@ -795,7 +796,7 @@ describe("removeWorktree", () => {
           pane: { paneId: "w1:p1", origin: "self-created" },
           ref: REF,
         },
-        { force: true },
+        { force: {} },
       ),
     ).resolves.toEqual({
       kind: "removed",
@@ -858,7 +859,11 @@ describe("cleanup — the recorded settlement gate", () => {
     expect(report).toEqual({
       agentId: ID,
       source: "tracked",
-      outcome: { kind: "refused", reason: { kind: "agent-active", phase } },
+      outcome: {
+        kind: "refused",
+        reason: { kind: "agent-active", phase },
+        forceable: false,
+      },
       settlement: { kind: "recorded", phase },
       branchName: BRANCH,
       pane: { kind: "open", paneId: "w1:p1" },
@@ -888,6 +893,7 @@ describe("cleanup — the recorded settlement gate", () => {
       outcome: {
         kind: "refused",
         reason: { kind: "agent-active", phase: "spawned" },
+        forceable: false,
       },
       settlement: { kind: "recorded", phase: "spawned" },
       pane: { kind: "open", paneId: "w1:p1" },
@@ -1093,7 +1099,7 @@ describe("cleanup — a recovered run", () => {
     const { registry } = buildRegistry(new Map());
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry, {
-      force: true,
+      force: {},
     });
 
     expect(report).toMatchObject({
@@ -1127,6 +1133,7 @@ describe("cleanup — a recovered run", () => {
           kind: "ambiguous-artifacts",
           candidates: [`/a/${BRANCH}`, `/b/${BRANCH}`],
         },
+        forceable: false,
       },
       settlement: {
         kind: "discovered",
@@ -1201,6 +1208,7 @@ describe("cleanup — a recovered run", () => {
     expect(report.outcome).toEqual({
       kind: "refused",
       reason: { kind: "dirty" },
+      forceable: true,
     });
   });
 
@@ -1402,7 +1410,11 @@ describe("shouldDropSpawn", () => {
       "kept worktree → keep",
       {
         ...base,
-        outcome: { kind: "refused", reason: { kind: "dirty" } },
+        outcome: {
+          kind: "refused",
+          reason: { kind: "dirty" },
+          forceable: true,
+        },
         worktree: { kind: "kept", path: WT_PATH },
       },
       false,
@@ -1451,7 +1463,7 @@ interface Row {
   /** Fresh spawn per run. */
   spawn: () => AgentSpawn;
   tree: TreeState;
-  opts?: { force?: boolean };
+  opts?: CleanupOptions;
   /** isWorktreeDirty call count expected. */
   probes: number;
   expected: {
@@ -1493,7 +1505,11 @@ describe("cleanup — the settled-teardown matrix", () => {
       tree: "dirty-pre",
       probes: 1,
       expected: {
-        outcome: { kind: "refused", reason: { kind: "dirty" } },
+        outcome: {
+          kind: "refused",
+          reason: { kind: "dirty" },
+          forceable: true,
+        },
         settlement: SETTLED_RECORDED,
         pane: { kind: "open", paneId: "w1:p1" },
         worktree: { kind: "kept", path: WT_PATH },
@@ -1510,6 +1526,7 @@ describe("cleanup — the settled-teardown matrix", () => {
         outcome: {
           kind: "refused",
           reason: { kind: "unverifiable", detail: "git status probe failed" },
+          forceable: true,
         },
         settlement: SETTLED_RECORDED,
         pane: { kind: "open", paneId: "w1:p1" },
@@ -1523,7 +1540,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       spawn: completed,
       tree: "force-dirty",
       probes: 0,
-      opts: { force: true },
+      opts: { force: {} },
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
@@ -1550,6 +1567,7 @@ describe("cleanup — the settled-teardown matrix", () => {
             kind: "unverifiable",
             detail: "missing worktree path or repo cwd",
           },
+          forceable: false,
         },
         settlement: SETTLED_RECORDED,
         pane: { kind: "open", paneId: "w1:p1" },
@@ -1618,7 +1636,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       assets.removeWorktree.mockResolvedValue(false);
     }
     const { registry } = buildRegistry(spawns);
-    const opts = row.opts ? { force: row.opts.force === true } : undefined;
+    const opts = row.opts;
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry, opts);
 
@@ -1709,6 +1727,7 @@ describe("cleanup — the proven-absent checkout", () => {
         kind: "unverifiable",
         detail: "missing worktree path or repo cwd",
       },
+      forceable: false,
     });
     expect(report.pane).toEqual({ kind: "open", paneId: "w1:p1" });
     expect(report.branch).toEqual({ kind: "not-applicable" });
@@ -1927,6 +1946,7 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     expect(report.outcome).toEqual({
       kind: "refused",
       reason: { kind: "dirty" },
+      forceable: true,
     });
     expect(report.worktree).toEqual({ kind: "kept", path: WT_PATH });
     expect(manager.getSpawn(ID)).toBeDefined();
@@ -1942,6 +1962,7 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     expect(report.outcome).toEqual({
       kind: "refused",
       reason: { kind: "unverifiable", detail: "git status probe failed" },
+      forceable: true,
     });
     expect(manager.getSpawn(ID)).toBeDefined();
     expect(retentionOf(ID)).toEqual({

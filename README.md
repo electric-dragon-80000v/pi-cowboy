@@ -124,6 +124,8 @@ Once the work is merged, the orchestrator cleans up the agent's resources (or yo
 
 Cleanup is safe by default: it refuses to touch an agent that is still running, keeps any worktree that still has uncommitted changes, and deletes the branch only if it has already been merged. If one step cannot be completed, `pi-cowboy` reports the reason and finishes the rest.
 
+When the `/cowboy status` menu refuses to remove a worktree because of uncommitted changes or an unreadable state, it offers to `Force` the removal. Force deletes the worktree and discards anything uncommitted in it, so it asks for a confirmation that names the checkout and what will be lost. Forced removals are reported as `forced — <reason>`. This override lives in the menu only — the `cleanup_cowboy_agent` tool never forces, and the menu only offers it for a settled agent, never one it still lists as running.
+
 ## Customizing your workflow
 
 ### Agent templates
