@@ -58,7 +58,7 @@ export interface HelperOptions {
 export class GitCommandRunner {
   constructor(private readonly pi: ExtensionAPI) {}
 
-  /** Run git; `undefined` when `pi.exec` itself fails (transport/timeout). */
+  /** Run git; `undefined` when the run produced no answer — `pi.exec` failed, or the child was killed (timeout/abort). */
   async run(
     args: readonly string[],
     cwd: string,
@@ -69,6 +69,11 @@ export class GitCommandRunner {
         cwd,
         timeout: timeoutMs,
       });
+      // `pi.exec` reports a child it killed as exit 0 (see cow-clone.ts's hard
+      // requirement). A killed run answered nothing — reading it as a
+      // successful empty result is how a timed-out `git status` becomes
+      // "clean" and how a dirty worktree gets destroyed.
+      if (result.killed) return undefined;
       return {
         code: result.code,
         stdout: result.stdout.trim(),

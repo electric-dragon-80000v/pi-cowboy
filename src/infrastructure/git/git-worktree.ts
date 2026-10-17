@@ -8,7 +8,6 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GIT_EXEC_TIMEOUT_MS } from "../../utils.js";
 import {
   GitError,
   GitCommandRunner,
@@ -62,7 +61,10 @@ export class GitWorktree {
 
   /** Whether the checkout has uncommitted changes; `undefined` is not clean. */
   async isDirty(): Promise<boolean | undefined> {
-    const status = await this.status({ timeoutMs: GIT_EXEC_TIMEOUT_MS });
+    // The probe budget (not the 5s exec budget): `git status` on a big, cold
+    // checkout routinely outlives the latter, and a shorter kill would only
+    // surface as a spurious "unverifiable".
+    const status = await this.status();
     if (status === undefined) return undefined;
     return status !== "";
   }

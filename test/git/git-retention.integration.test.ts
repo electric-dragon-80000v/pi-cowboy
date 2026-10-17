@@ -19,6 +19,7 @@ import {
   addWorktree,
   cleanupTmpDirs,
   freshTmp,
+  killedPi,
   makeRepo,
   realPi,
 } from "../helpers/git-repo.js";
@@ -51,6 +52,12 @@ describe("isWorktreeDirty", () => {
       undefined,
     );
   });
+
+  it("returns undefined when the probe was killed, so a timeout is never read as clean", async () => {
+    expect(
+      await isWorktreeDirty(killedPi(), "/wt/cow-x-00000000"),
+    ).toBeUndefined();
+  });
 });
 
 describe("worktreeRetentionReason", () => {
@@ -76,6 +83,12 @@ describe("worktreeRetentionReason", () => {
   it("returns kind:unverifiable when the probe fails", async () => {
     expect(
       await worktreeRetentionReason(realPi(), "/definitely/not/here"),
+    ).toEqual({ kind: "unverifiable", detail: "git status probe failed" });
+  });
+
+  it("returns kind:unverifiable when the probe was killed", async () => {
+    expect(
+      await worktreeRetentionReason(killedPi(), "/wt/cow-x-00000000"),
     ).toEqual({ kind: "unverifiable", detail: "git status probe failed" });
   });
 });

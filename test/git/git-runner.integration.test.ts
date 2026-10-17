@@ -21,6 +21,7 @@ import {
   brokenPi,
   cleanupTmpDirs,
   freshTmp,
+  killedPi,
   makeCleanRepo,
   makeRepo,
   realPi,
@@ -54,6 +55,11 @@ describe("GitCommandRunner.run", () => {
     const runner = new GitCommandRunner(brokenPi());
     expect(await runner.run(["status"], "/tmp")).toBeUndefined();
   });
+
+  it("returns undefined when the child was killed, never a fake exit 0", async () => {
+    const runner = new GitCommandRunner(killedPi());
+    expect(await runner.run(["status", "--porcelain"], "/tmp")).toBeUndefined();
+  });
 });
 
 describe("GitCommandRunner.probe", () => {
@@ -79,6 +85,13 @@ describe("GitCommandRunner.probe", () => {
   it("returns undefined instead of throwing when the command cannot run", async () => {
     const runner = new GitCommandRunner(brokenPi());
     expect(await runner.probe(["status"], "/tmp")).toBeUndefined();
+  });
+
+  it("returns undefined when the child was killed — an unanswered probe is not 'no output'", async () => {
+    const runner = new GitCommandRunner(killedPi());
+    expect(
+      await runner.probe(["status", "--porcelain"], "/tmp"),
+    ).toBeUndefined();
   });
 });
 
@@ -116,6 +129,13 @@ describe("GitCommandRunner.exec", () => {
       /could not be run/,
     );
   });
+
+  it("throws when the child was killed", async () => {
+    const runner = new GitCommandRunner(killedPi());
+    await expect(runner.exec(["status"], "/tmp")).rejects.toBeInstanceOf(
+      GitError,
+    );
+  });
 });
 
 describe("GitCommandRunner.test", () => {
@@ -133,6 +153,11 @@ describe("GitCommandRunner.test", () => {
 
   it("answers no when the command could not run", async () => {
     const runner = new GitCommandRunner(brokenPi());
+    expect(await runner.test(["status"], "/tmp")).toBe(false);
+  });
+
+  it("answers no when the child was killed", async () => {
+    const runner = new GitCommandRunner(killedPi());
     expect(await runner.test(["status"], "/tmp")).toBe(false);
   });
 });
@@ -167,6 +192,14 @@ describe("GitCommandRunner.lines", () => {
     ).toBeUndefined();
     expect(
       await runner.lines(["status", "--porcelain"], join(freshTmp(), "nope")),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the child was killed", async () => {
+    const runner = new GitCommandRunner(killedPi());
+
+    expect(
+      await runner.lines(["status", "--porcelain"], "/tmp"),
     ).toBeUndefined();
   });
 });

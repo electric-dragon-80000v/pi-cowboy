@@ -106,6 +106,17 @@ export function brokenPi(message = "spawn failed"): ExtensionAPI {
   } as unknown as ExtensionAPI;
 }
 
+/**
+ * pi.exec whose child was killed by the timeout or an abort. The host reports a
+ * child it killed as exit 0 with `killed` set (cow-clone.ts relies on the same
+ * contract), which is exactly the shape a naive reader mistakes for success.
+ */
+export function killedPi(): ExtensionAPI {
+  return {
+    exec: async () => ({ code: 0, stdout: "", stderr: "", killed: true }),
+  } as unknown as ExtensionAPI;
+}
+
 /** Run git; trimmed stdout (throws on failure). */
 export async function git(args: string[], cwd: string): Promise<string> {
   const { stdout } = await execFileAsync(resolvedBin("git"), args, { cwd });

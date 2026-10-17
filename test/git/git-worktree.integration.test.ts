@@ -17,6 +17,7 @@ import {
   addWorktree,
   cleanupTmpDirs,
   freshTmp,
+  killedPi,
   makeRepo,
   realPi,
 } from "../helpers/git-repo.js";
@@ -71,6 +72,15 @@ describe("GitWorktree.isDirty", () => {
     expect(
       await worktreeAt(join(freshTmp(), "nope")).isDirty(),
     ).toBeUndefined();
+  });
+
+  it("returns undefined when the probe was killed, never a false clean", async () => {
+    const killed = new GitWorktree(
+      new GitCommandRunner(killedPi()),
+      "/wt/cow-x-00000000",
+    );
+
+    expect(await killed.isDirty()).toBeUndefined();
   });
 });
 
