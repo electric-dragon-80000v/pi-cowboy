@@ -1,3 +1,10 @@
+# [0.15.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.14.1...v0.15.0) (2026-10-17)
+
+
+### Features
+
+* force cleanup using the menu ([f7ec0dc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f7ec0dc8a9dc1216f1b8add1d7a59b4b8ee2f7ab))
+
 ## [0.14.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.14.0...v0.14.1) (2026-10-15)
 
 
