@@ -302,7 +302,7 @@ describe("SpawnCoordinator completion nudges", () => {
     }
   });
 
-  it("nudges on every settlement of a background agent, not only the first", async () => {
+  it("nudges on every completion of a background agent, not only the first", async () => {
     vi.useFakeTimers();
     try {
       const sendMessage = vi.fn();
@@ -368,7 +368,7 @@ describe("SpawnCoordinator completion nudges", () => {
     }
   });
 
-  it("still nudges a stop the parent did not order", async () => {
+  it("does not nudge a stop the user ordered from the status menu", async () => {
     vi.useFakeTimers();
     try {
       const sendMessage = vi.fn();
@@ -377,9 +377,10 @@ describe("SpawnCoordinator completion nudges", () => {
       const coordinator = new SpawnCoordinator(managerFor(spawn));
       await coordinator.spawn({} as never, intent(true));
 
+      // The user stopped it deliberately; the orchestrator need not be woken.
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
-      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

@@ -59,7 +59,7 @@ const NUDGE_DELAY_MS = 200;
 export class SpawnCoordinator {
   private manager: AgentManager;
 
-  /** Background agent ids; every settlement of one nudges. */
+  /** Background agent ids; every completion of one nudges. */
   private backgroundAgentIds = new Set<string>();
 
   /** Pending nudge agent ids. */
@@ -201,14 +201,15 @@ export class SpawnCoordinator {
   }
 
   /**
-   * Nudge on every settlement of a background agent — a revived run notifies on each
-   * settlement, not just the first. Only dispose clears the set.
+   * Nudge on every completion of a background agent — a revived run notifies on each
+   * completion, not just the first. Only dispose clears the set.
    */
   onAgentComplete(spawn: AgentSpawn): void {
     if (!this.backgroundAgentIds.has(spawn.id)) return;
-    // A stop the parent ordered itself is not news: stop_cowboy_agent returned that
-    // same settlement to the caller that made the call.
-    if (stoppedByParent(spawn)) return;
+    // A stop is never news: stop_cowboy_agent returned that settlement to the
+    // caller, and a stop from the status menu was the user's own deliberate act.
+    // Either way the orchestrator is not woken to react — only a completion reports.
+    if (stopped(spawn)) return;
     this.scheduleNudge(spawn.id);
   }
 
@@ -318,12 +319,8 @@ export class SpawnCoordinator {
   }
 }
 
-/** Whether a settlement is a stop the parent agent requested through its own tool. */
-function stoppedByParent(spawn: AgentSpawn): boolean {
+/** Whether a settlement is a stop, whoever ordered it (the parent's tool or the status menu). */
+function stopped(spawn: AgentSpawn): boolean {
   const lifecycle = spawn.lifecycle;
-  return (
-    hasOutcome(lifecycle) &&
-    lifecycle.status === "stopped" &&
-    lifecycle.stop.initiator === "agent"
-  );
+  return hasOutcome(lifecycle) && lifecycle.status === "stopped";
 }
