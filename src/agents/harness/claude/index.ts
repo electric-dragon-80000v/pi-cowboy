@@ -177,9 +177,8 @@ const CLAUDE_MODELS: readonly ModelEntry[] = [
   { key: "anthropic/opus", label: "opus" },
 ];
 
-export const claudeHarness: Harness<"claude"> = {
-  id: "claude",
-  agentMuxKind: "claude",
+export const claudeHarness: Harness<ClaudeLaunchRequest> = {
+  agentMultiplexerKind: "claude",
   availability: () =>
     commandPath("claude") === undefined
       ? { status: "unavailable" }
@@ -191,16 +190,16 @@ export const claudeHarness: Harness<"claude"> = {
    * here rather than assumed.
    */
   async prepare({
-    pi,
+    pane,
     paneId,
     cwd,
     launch,
-  }: HarnessPrepareRequest<"claude">): Promise<void> {
+  }: HarnessPrepareRequest<ClaudeLaunchRequest>): Promise<void> {
     const configDir = writeClaudeStaging({
       subagentId: launch.subagentId,
       cwd,
     });
-    await installPaneLauncher(pi, paneId, {
+    await installPaneLauncher(pane, paneId, {
       commandName: CLAUDE_COMMAND,
       body: launcherBody(configDir, launch.taskFile),
       signature: LAUNCHER_SIGNATURE,

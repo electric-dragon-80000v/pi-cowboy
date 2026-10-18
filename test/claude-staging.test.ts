@@ -24,6 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { PaneControl } from "../src/agents/agent-host.js";
 import type {
   ClaudeLaunchRequest,
   SubagentLaunchInputs,
@@ -53,6 +54,14 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 });
 
 const PI = {} as unknown as ExtensionAPI;
+
+/** The pane surface claude's prepare reaches: the herdr calls this file mocks. */
+const PANE: PaneControl = {
+  kind: "herdr",
+  run: (paneId, command) => runInPaneMock(PI, paneId, command),
+  waitForOutput: (paneId, output, timeoutMs) =>
+    waitForPaneOutputMock(PI, paneId, output, timeoutMs),
+};
 
 /** The subagent these tests stage; the shape a spawn id has. */
 const SUBAGENT_ID = "esp02hpw";
@@ -249,6 +258,7 @@ describe("prepare", () => {
   function prepareClaude(paneId = "w1:p9"): Promise<void> {
     return harnessFor("claude").prepare({
       pi: PI,
+      pane: PANE,
       paneId,
       cwd: tmpRoot,
       launch: launchInputs({ taskFile }),
@@ -286,6 +296,7 @@ describe("prepare", () => {
   it("ends option parsing before the task so variadic tool flags cannot swallow it", async () => {
     await harnessFor("claude").prepare({
       pi: PI,
+      pane: PANE,
       paneId: "w1:p9",
       cwd: tmpRoot,
       launch: launchInputs({

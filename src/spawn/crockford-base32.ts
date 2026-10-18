@@ -15,7 +15,7 @@ export class InvalidChecksumCharacterError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidChecksumCharacterError";
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- captureStackTrace is a V8 extension, absent on other engines
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- captureStackTrace is a V8 extension, absent on other multiplexers
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
     }
@@ -26,7 +26,7 @@ export class InvalidChecksumError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidChecksumError";
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- captureStackTrace is a V8 extension, absent on other engines
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- captureStackTrace is a V8 extension, absent on other multiplexers
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, this.constructor);
     }

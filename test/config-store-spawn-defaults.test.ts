@@ -1,22 +1,27 @@
 /**
  * config-store-spawn-defaults.test.ts — the two configurable spawn defaults.
  * Pins: built-in defaults when absent, global-layer round-trip, blank values
- * degrading to the fallback at read time, and exclusion from project files
- * (not model keys) and from "clear all model overrides".
+ * rejected at validation so the fallback applies, and exclusion from project
+ * files (not model keys) and from "clear all model overrides".
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore } from "../src/config/config-store.js";
 import {
   isProjectAllowedAgentKey,
   mergeLayers,
 } from "../src/config/config-io.js";
+import { validateRawLayer } from "../src/config/config-validation.js";
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../src/types.js";
 import type {
   ConfigIO,
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 interface MemoryIO {
   io: ConfigIO;
@@ -70,11 +75,15 @@ describe("spawn default settings — defaults and persistence", () => {
     expect(store.agent.defaultOrchestrator).toBe("planner");
   });
 
-  it("degrades blank values to the built-in fallback at read time", () => {
+  it("rejects blank values at validation, so the fallback applies", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = new ConfigStore(
-      memoryIO({
-        agent: { defaultAgentType: "  ", defaultOrchestrator: "" },
-      }).io,
+      memoryIO(
+        validateRawLayer(
+          { agent: { defaultAgentType: "  ", defaultOrchestrator: "" } },
+          "config.json",
+        ),
+      ).io,
     );
 
     expect(store.agent.defaultAgentType).toBe(DEFAULT_AGENT_TYPE);

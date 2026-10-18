@@ -59,7 +59,7 @@ vi.mock("../../src/cow-support-launch.js", () => probes);
 
 /** The host address a faked pane adoption returns. */
 const ADOPTED_REF = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "render-page",
   paneId: "pane-1",
   tabId: "tab-1",

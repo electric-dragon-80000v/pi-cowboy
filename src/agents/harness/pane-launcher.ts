@@ -4,8 +4,8 @@
  * else the harness's launch reads.
  *
  * A harness whose process must launch under a name the pane does not resolve by
- * itself installs that name as a shell function in the pane before the mux
- * starts the agent. herdr's `pane run` is fire-and-forget: it returns before the
+ * itself installs that name as a shell function in the pane before the multiplexer
+ * starts the agent. A multiplexer's `run` is fire-and-forget: it returns before the
  * shell has evaluated the command, so a run that arrives before the shell is at
  * its prompt is silently lost. The install is therefore define-then-verify,
  * retried within a bounded budget, and the verification reads the function back
@@ -14,38 +14,35 @@
  * definition is read back by the CLI, and nothing about the function proves it.
  *
  * Nothing here knows which harness is installing: the command name, the
- * launcher body, the tokens and the proof belong to the caller. herdr is
- * reached only here, so no harness holds the control-plane API.
+ * launcher body, the tokens and the proof belong to the caller. The pane is
+ * reached through the multiplexer's `PaneControl` — never a multiplexer's own client —
+ * so the same install runs under any multiplexer that offers the surface and no
+ * harness holds the control-plane API.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  HerdrError,
-  runInPane,
-  waitForPaneOutput,
-} from "../../infrastructure/herdr-client.js";
+import type { PaneControl } from "../agent-host.js";
 import { sleep } from "../../utils.js";
 
 /**
  * A value as one POSIX shell word: single quotes around it, and the `'\''`
  * dance for any single quote inside. Every path a harness passes is its own
- * staging path, but a launcher is a shell command herdr types into the pane,
- * so the value is quoted rather than trusted.
+ * staging path, but a launcher is a shell command typed into the pane, so the
+ * value is quoted rather than trusted.
  */
 export function singleQuoteShellWord(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** Bounded install attempts: a `pane run` before the shell is at its prompt is silently lost. */
+/** Bounded install attempts: a `run` before the shell is at its prompt is silently lost. */
 const INSTALL_MAX_ATTEMPTS = 5;
 const INSTALL_OUTPUT_TIMEOUT_MS = 2_000;
 const INSTALL_RETRY_DELAY_MS = 250;
 
 export interface PaneLauncherSpec {
   /**
-   * The command the mux types into the pane — the harness's `agentMuxKind`.
+   * The command the multiplexer types into the pane — the harness's `agentMultiplexerKind`.
    * The install defines a shell function under this name, so the command the
-   * mux runs resolves to this launcher instead of to a PATH binary.
+   * multiplexer runs resolves to this launcher instead of to a PATH binary.
    */
   readonly commandName: string;
   /**
@@ -106,10 +103,10 @@ export function splitMarker(marker: string): string {
  * Verification matches the signature rather than asking the shell what the name
  * is (`type <fn>`), because that wording varies by shell (`is a function` in
  * bash, `is a shell function` in zsh). Only the install is retried: a proof
- * that failed is a statement about the launch, not about a lost `pane run`.
+ * that failed is a statement about the launch, not about a lost run.
  */
 export async function installPaneLauncher(
-  pi: ExtensionAPI,
+  pane: PaneControl,
   paneId: string,
   spec: PaneLauncherSpec,
 ): Promise<void> {
@@ -117,33 +114,37 @@ export async function installPaneLauncher(
   const verifyCommand = `typeset -f ${spec.commandName} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`;
 
   for (let attempt = 1; attempt <= INSTALL_MAX_ATTEMPTS; attempt++) {
-    await runInPane(pi, paneId, definition);
-    await runInPane(pi, paneId, verifyCommand);
+    await pane.run(paneId, definition);
+    await pane.run(paneId, verifyCommand);
     if (
-      await panePrinted(pi, paneId, spec.readyMarker, INSTALL_OUTPUT_TIMEOUT_MS)
+      await panePrinted(
+        pane,
+        paneId,
+        spec.readyMarker,
+        INSTALL_OUTPUT_TIMEOUT_MS,
+      )
     ) {
       if (spec.proof !== undefined) {
-        await requirePaneProof(pi, paneId, spec.proof);
+        await requirePaneProof(pane, paneId, spec.proof);
       }
       return;
     }
     if (attempt < INSTALL_MAX_ATTEMPTS) await sleep(INSTALL_RETRY_DELAY_MS);
   }
-  throw new HerdrError(
+  throw new Error(
     `failed to prepare pane ${paneId}: the ${spec.commandName} launcher never landed`,
-    undefined,
   );
 }
 
 /** Whether the pane's output came to contain `output` within the budget. */
 async function panePrinted(
-  pi: ExtensionAPI,
+  pane: PaneControl,
   paneId: string,
   output: string,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
-    await waitForPaneOutput(pi, paneId, output, timeoutMs);
+    await pane.waitForOutput(paneId, output, timeoutMs);
     return true;
   } catch {
     return false;
@@ -156,17 +157,14 @@ async function panePrinted(
  * the proof runs in the shell that holds the launcher and its environment.
  */
 async function requirePaneProof(
-  pi: ExtensionAPI,
+  pane: PaneControl,
   paneId: string,
   proof: PaneProof,
 ): Promise<void> {
-  await runInPane(pi, paneId, proof.command);
+  await pane.run(paneId, proof.command);
   try {
-    await waitForPaneOutput(pi, paneId, proof.output, proof.timeoutMs);
-  } catch (err) {
-    throw new HerdrError(
-      proof.failure,
-      err instanceof HerdrError ? err.code : undefined,
-    );
+    await pane.waitForOutput(paneId, proof.output, proof.timeoutMs);
+  } catch {
+    throw new Error(proof.failure);
   }
 }

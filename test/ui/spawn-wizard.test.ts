@@ -79,7 +79,7 @@ const spawnCalls: SpawnCall[] = [];
 
 /** Host address the faked sandbox adoption returns. */
 const SANDBOX_REF = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-my-thing",
   paneId: "pane-1",
   tabId: "tab-1",

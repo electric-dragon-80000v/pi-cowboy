@@ -2,14 +2,13 @@
  * config-validation.ts — load-time validation for config files.
  * Invalid values are dropped so built-in defaults apply; file bytes are
  * untouched and each drop warns once with file, key, got, and expected.
+ * Values are kept as written: nothing here trims or rewrites one. The schemas
+ * are Zod, and the layer they return is typed from the config shape, so no
+ * reader below this boundary handles `unknown`.
  */
-import { Type, type TSchema } from "typebox";
-import { Check } from "typebox/value";
-import {
-  HARNESS_IDS,
-  parseHarnessId,
-  type HarnessId,
-} from "../agents/harness.js";
+import { z } from "zod";
+import { HARNESS_IDS } from "../agents/harness.js";
+import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
@@ -19,70 +18,59 @@ import {
   isConcurrencyLimit,
 } from "./concurrency-limit.js";
 
+/** One agent key's schema, and the wording a warning names its expected shape with. */
 interface KeySpec {
-  schema: TSchema;
+  schema: z.ZodType<string | boolean | null>;
   expected: string;
 }
 
 const MODEL_KEY: KeySpec = {
-  schema: Type.Union([Type.String(), Type.Null()]),
+  schema: z.union([z.string(), z.null()]),
   expected: "string or null",
 };
-const BOOL: KeySpec = { schema: Type.Boolean(), expected: "boolean" };
+const BOOL: KeySpec = { schema: z.boolean(), expected: "boolean" };
 const SYSTEM_PROMPT_MODE: KeySpec = {
-  schema: Type.Union([
-    Type.Literal("replace"),
-    Type.Literal("inherit"),
-    Type.Literal("custom"),
-  ]),
+  schema: z.enum(["replace", "inherit", "custom"]),
   expected: '"replace" | "inherit" | "custom"',
 };
 const THINKING: KeySpec = {
-  schema: Type.Union([
-    Type.Literal("off"),
-    Type.Literal("minimal"),
-    Type.Literal("low"),
-    Type.Literal("medium"),
-    Type.Literal("high"),
-    Type.Literal("xhigh"),
-    Type.Literal("max"),
-  ]),
+  schema: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),
   expected: '"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"',
 };
 const WORKTREE_MATERIALIZATION: KeySpec = {
-  schema: Type.Union([Type.Literal("copy-on-write"), Type.Literal("checkout")]),
+  schema: z.enum(["copy-on-write", "checkout"]),
   expected: '"copy-on-write" | "checkout"',
 };
 const WORKTREE_CHECKOUT_TYPE: KeySpec = {
-  schema: Type.Union([Type.Literal("dirty"), Type.Literal("clean")]),
+  schema: z.enum(["dirty", "clean"]),
   expected: '"dirty" | "clean"',
 };
-const WORKTREE_ROOT: KeySpec = {
-  schema: Type.String(),
-  expected: "string",
-};
-/** Built from the harness vocabulary, so a newly added harness is configurable without touching this file. */
-const HARNESS: KeySpec = {
-  schema: Type.Union(HARNESS_IDS.map((id) => Type.Literal(id))),
-  expected: HARNESS_IDS.map((id) => `"${id}"`).join(" | "),
-};
-/**
- * The per-harness default models. Validated per entry rather than as one value:
- * a harness key outside `HARNESS_IDS` is dropped with a warning while every
- * other harness's entry survives, the way a concurrency map is cleaned.
- */
-const HARNESS_DEFAULT_MODELS_EXPECTED = `an object keyed by ${HARNESS.expected}, with string or null values`;
-/** Empty strings are dropped so read-time fallback applies. */
-const NON_EMPTY_STRING: KeySpec = {
-  schema: Type.String({ minLength: 1 }),
+/** A non-empty string with a non-space character; ids and paths are read exactly as written. */
+const NON_BLANK_STRING = z
+  .string()
+  .min(1)
+  .refine((value) => /\S/.test(value));
+/** The same rule where an agent key table names its expected shape. */
+const NON_BLANK: KeySpec = {
+  schema: NON_BLANK_STRING,
   expected: "non-empty string",
 };
+/** Built from the harness vocabulary, so a newly added harness is configurable without touching this file. */
+const HARNESS_EXPECTED = HARNESS_IDS.map((id) => `"${id}"`).join(" | ");
+/**
+ * The per-harness default models. Validated per entry rather than as one value:
+ * a key that is not a non-empty harness id is dropped with a warning while every
+ * other entry survives, the way a concurrency map is cleaned. The vocabulary is
+ * open — a plugin harness's own id is as valid a key as a built-in's — so the
+ * check is "a non-empty string", not membership in `HARNESS_IDS`.
+ */
+const HARNESS_DEFAULT_MODELS_EXPECTED = `an object keyed by a harness id (${HARNESS_EXPECTED} or a plugin's), with string or null values`;
 
 /** An agent key outside the table is a per-type model key. */
 const AGENT_KEY_SPECS: Record<string, KeySpec> = {
   default: MODEL_KEY,
-  defaultAgentType: NON_EMPTY_STRING,
-  defaultOrchestrator: NON_EMPTY_STRING,
+  defaultAgentType: NON_BLANK,
+  defaultOrchestrator: NON_BLANK,
   systemPromptMode: SYSTEM_PROMPT_MODE,
   includeContextFiles: BOOL,
   defaultThinking: THINKING,
@@ -92,10 +80,14 @@ const AGENT_KEY_SPECS: Record<string, KeySpec> = {
   extensionEnabled: BOOL,
   showActiveIndicator: BOOL,
   grazingEnabled: BOOL,
-  worktreeRoot: WORKTREE_ROOT,
+  worktreeRoot: NON_BLANK,
   worktreeMaterialization: WORKTREE_MATERIALIZATION,
   worktreeCheckoutType: WORKTREE_CHECKOUT_TYPE,
-  harnessType: HARNESS,
+  // The harness setting takes any registered harness id — a built-in's or a
+  // plugin's. `harness_type` on a template stays the closed `HARNESS_IDS` set,
+  // because the tool's enum is built from it and a template is read where a
+  // plugin may not yet be registered.
+  harnessType: NON_BLANK,
 };
 
 function describeValue(value: unknown): string {
@@ -128,15 +120,6 @@ function warnIncompatible(
 
 const EXPECTED_OBJECT = "object";
 
-/** Never throws: a missed check reads as invalid so the load survives it. */
-function isValidValue(spec: KeySpec, value: unknown): boolean {
-  try {
-    return Check(spec.schema, value);
-  } catch {
-    return false;
-  }
-}
-
 /** Validate one file layer, dropping invalid values. Never throws: bad input reads as empty. */
 export function validateRawLayer(raw: unknown, filePath: string): RawConfig {
   const cleaned: RawConfig = {};
@@ -159,6 +142,21 @@ export function validateRawLayer(raw: unknown, filePath: string): RawConfig {
     if (Object.keys(concurrency).length > 0) cleaned.concurrency = concurrency;
   }
 
+  // Machine-level, so it sits at the top of the file rather than under `agent`.
+  if (raw.multiplexer !== undefined) {
+    const parsed = NON_BLANK_STRING.safeParse(raw.multiplexer);
+    if (parsed.success) {
+      cleaned.multiplexer = parsed.data;
+    } else {
+      warnIncompatible(
+        filePath,
+        "multiplexer",
+        raw.multiplexer,
+        NON_BLANK.expected,
+      );
+    }
+  }
+
   return cleaned;
 }
 
@@ -166,8 +164,8 @@ export function validateRawLayer(raw: unknown, filePath: string): RawConfig {
 function cleanAgentEntries(
   agent: Record<string, unknown>,
   filePath: string,
-): Record<string, unknown> {
-  const kept: Record<string, unknown> = {};
+): Partial<SubagentsConfig["agent"]> {
+  const kept: Partial<SubagentsConfig["agent"]> = {};
   for (const [key, value] of Object.entries(agent)) {
     if (value === undefined) continue;
     if (key === DEFAULT_MODEL_BY_HARNESS_KEY) {
@@ -176,16 +174,17 @@ function cleanAgentEntries(
       continue;
     }
     const spec = AGENT_KEY_SPECS[key] ?? MODEL_KEY;
-    if (isValidValue(spec, value)) kept[key] = value;
+    const parsed = spec.schema.safeParse(value);
+    if (parsed.success) kept[key] = parsed.data;
     else warnIncompatible(filePath, `agent.${key}`, value, spec.expected);
   }
   return kept;
 }
 
 /**
- * Per-entry validation of the harness map: an unknown harness key or a value
- * that is not a model key warns and is dropped, and an empty result reads as
- * absent so the built-in default applies. Never throws.
+ * Per-entry validation of the harness map: a key that is not a non-empty harness
+ * id, or a value that is not a model key, warns and is dropped. An empty result
+ * reads as absent so the built-in default applies. Never throws.
  */
 function cleanHarnessDefaultModels(
   value: unknown,
@@ -199,12 +198,12 @@ function cleanHarnessDefaultModels(
   const kept: Record<string, string | null> = {};
   for (const [harness, model] of Object.entries(value)) {
     if (model === undefined) continue;
-    if (parseHarnessId(harness) === undefined) {
+    if (!/\S/.test(harness)) {
       warnIncompatible(
         filePath,
         `${keyPath}.${harness}`,
         harness,
-        HARNESS.expected,
+        "non-empty harness id",
       );
       continue;
     }
@@ -252,19 +251,18 @@ function cleanConcurrencySection(
         EXPECTED_OBJECT,
       );
     } else {
-      const keptHarnesses: Partial<Record<HarnessId, number>> = {};
+      const keptHarnesses: Partial<Record<string, number>> = {};
       for (const [key, value] of Object.entries(harnesses)) {
-        const harness = parseHarnessId(key);
-        if (harness === undefined) {
+        if (!/\S/.test(key)) {
           warnIncompatible(
             filePath,
             `concurrency.harnesses.${key}`,
             key,
-            HARNESS.expected,
+            "non-empty harness id",
           );
           continue;
         }
-        if (isConcurrencyLimit(value)) keptHarnesses[harness] = value;
+        if (isConcurrencyLimit(value)) keptHarnesses[key] = value;
         else
           warnIncompatible(
             filePath,

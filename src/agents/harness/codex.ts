@@ -214,9 +214,8 @@ function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
   return fetch;
 }
 
-export const codexHarness: Harness<"codex"> = {
-  id: "codex",
-  agentMuxKind: "codex",
+export const codexHarness: Harness<CodexLaunchRequest> = {
+  agentMultiplexerKind: "codex",
   availability: () =>
     commandPath("codex") === undefined
       ? { status: "unavailable" }
@@ -227,11 +226,11 @@ export const codexHarness: Harness<"codex"> = {
    * so its verification is the whole of the preparation.
    */
   async prepare({
-    pi,
+    pane,
     paneId,
     launch,
-  }: HarnessPrepareRequest<"codex">): Promise<void> {
-    await installPaneLauncher(pi, paneId, {
+  }: HarnessPrepareRequest<CodexLaunchRequest>): Promise<void> {
+    await installPaneLauncher(pane, paneId, {
       commandName: CODEX_COMMAND,
       body: launcherBody(launch.taskFile),
       signature: LAUNCHER_SIGNATURE,

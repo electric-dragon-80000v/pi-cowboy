@@ -44,9 +44,9 @@ import {
   slugifyWorktreeType,
 } from "../spawn/worktree-policy.js";
 import { AgentSandbox } from "../spawn/sandbox.js";
-import type { HarnessId } from "./harness.js";
 import { resolveWorktreeCheckoutType } from "./spawn-defaults.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
+import type { AnyHarnessId } from "./harness.js";
 import { harnessFor } from "./harness/registry.js";
 import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
@@ -94,7 +94,7 @@ export interface SpawnOptions extends SpawnConfig {
  * launch plan on one value instead of resolving the harness again later.
  */
 export interface ResolvedSpawnOptions extends SpawnOptions {
-  harness: HarnessId;
+  harness: AnyHarnessId;
 }
 
 export interface SpawnArgs {
@@ -455,6 +455,7 @@ export class SubagentSession {
     let launchCwd: string | undefined;
     try {
       const host = this.deps.transport.createHost(this.args.pi);
+      const pane = this.deps.transport.createPane(this.args.pi);
       const { pi, ctx, type, prompt, options } = this.args;
       // An owned checkout is provisioned here, once the run holds a slot: a
       // queued run must not hold a worktree or a pane. A caller that already
@@ -541,6 +542,7 @@ export class SubagentSession {
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({
         pi,
+        pane,
         paneId: ref.paneId,
         cwd: plan.cwd,
         launch: plan.launch,
@@ -557,7 +559,7 @@ export class SubagentSession {
           name: agentName,
           cwd: plan.cwd,
           piArgs: plan.piArgs,
-          agentMuxKind: harness.agentMuxKind,
+          agentMultiplexerKind: harness.agentMultiplexerKind,
           taskSlug: options.taskSlug,
         },
         ref,

@@ -1,7 +1,7 @@
 /**
  * sandbox.integration.test.ts — `createAdoptedWorktree` against real git: the
  * create the spawn path and `/cowboy worktree` share, and the rollback a failed
- * adoption runs. The host is a fake — the pane belongs to the execution backend,
+ * adoption runs. The host is a fake — the pane belongs to the execution multiplexer,
  * which has its own suite — so what runs for real here is git.
  *
  * The materialization is `checkout`, so nothing here needs a cloning volume.
@@ -23,7 +23,7 @@ import {
 afterEach(cleanupTmpDirs);
 
 const ADOPTED_REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "adopted",
   paneId: "pane-1",
   tabId: "tab-1",

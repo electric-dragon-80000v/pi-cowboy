@@ -33,6 +33,8 @@ import { AgentSpawnStore } from "../src/agents/agent-spawn-store.js";
 import { ACTIVE_AGENT_PHASES } from "../src/types.js";
 import { nextSpawnId } from "./helpers/spawn-ids.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
+import { noMultiplexer } from "./helpers/transport.js";
 
 /** A paired model selection for spawns that opt into concurrency slots. */
 function testSelection(): ModelSelection {
@@ -165,7 +167,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       createHost: () =>
         ({
           hostAt: async () => ({
-            engine: "herdr",
+            multiplexer: "herdr",
             name: "cow-seam-01234567",
             paneId: "w1:p1",
             tabId: "w1:t1",
@@ -180,6 +182,8 @@ describe("AgentManager supervisor launch→watch seam", () => {
             return true;
           },
         }) as unknown as AgentHost,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => new ScriptedDeliverable("completed"),
     });
     buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
@@ -206,7 +210,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     expect(released).toEqual([
       {
         ref: {
-          engine: "herdr",
+          multiplexer: "herdr",
           name: "cow-seam-01234567",
           paneId: "w1:p1",
           tabId: "w1:t1",
@@ -231,7 +235,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       createHost: () =>
         ({
           hostAt: async () => ({
-            engine: "herdr",
+            multiplexer: "herdr",
             name: "cow-seam-01234567",
             paneId: "w1:p1",
             tabId: "w1:t1",
@@ -243,6 +247,8 @@ describe("AgentManager supervisor launch→watch seam", () => {
           },
           release: async () => true,
         }) as unknown as AgentHost,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => new ScriptedDeliverable("completed"),
     });
     buildLaunchPlanMock.mockResolvedValue(stubLaunchPlan());
@@ -272,7 +278,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     const stopCalls: Array<{ paneId: string }> = [];
     const host = {
       hostAt: async () => ({
-        engine: "herdr",
+        multiplexer: "herdr",
         name: "cow-fix-login-flow-01234567",
         paneId: "w1:p1",
         tabId: "w1:t1",
@@ -291,6 +297,8 @@ describe("AgentManager supervisor launch→watch seam", () => {
     let deliverable: ScriptedDeliverable | undefined;
     const transport: SupervisorTransport = {
       createHost: () => host,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => {
         deliverable = new ScriptedDeliverable("completed");
         return deliverable;
@@ -365,7 +373,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
     const stopCalls: string[] = [];
     const host = {
       hostAt: async () => ({
-        engine: "herdr",
+        multiplexer: "herdr",
         name: "cow-vanished-01234567",
         paneId: "w1:p1",
         tabId: "w1:t1",
@@ -384,6 +392,8 @@ describe("AgentManager supervisor launch→watch seam", () => {
     let deliverable: ScriptedDeliverable | undefined;
     const transport: SupervisorTransport = {
       createHost: () => host,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => {
         deliverable = new ScriptedDeliverable("none");
         return deliverable;
@@ -465,7 +475,10 @@ describe("AgentManager.spawn start failure", () => {
         pool.spawned = Math.max(0, pool.spawned - 1);
       },
     };
-    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -484,13 +497,16 @@ describe("AgentManager.spawn start failure", () => {
 });
 
 describe("AgentManager.spawn orchestration designator", () => {
-  /** Queue without launching: off the herdr transport entirely. */
+  /** Queue without launching: off any multiplexer. */
   function makeQueuedManager(): AgentManager {
     const pools = {
       admitSpawn: () => ({ kind: "queue" as const }),
       clearQueue: () => {},
     };
-    return new AgentManager(pools as unknown as ConcurrencyPools);
+    return new AgentManager(
+      pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
   }
 
   it("copies a supplied orchestration onto the spawn's display info", () => {
@@ -569,6 +585,8 @@ describe("AgentManager fleet routing", () => {
         ({
           hostAt: () => new Promise(() => {}),
         }) as unknown as AgentHost,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => new FleetScriptedDeliverable(),
     };
   }
@@ -639,7 +657,10 @@ describe("AgentManager fleet routing", () => {
 
   it("charges the pool to the harness the call requested, before admission", () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      fake.pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
 
     manager.spawn({} as never, {} as never, "general-purpose", "do it", {
       description: "do it",
@@ -699,7 +720,10 @@ describe("AgentManager fleet routing", () => {
 
   it("lists agents newest-first by lifecycle start time", () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      fake.pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
 
     vi.setSystemTime(1_000);
     const first = spawnQueued(manager);
@@ -718,7 +742,10 @@ describe("AgentManager fleet routing", () => {
 
   it("refuses cleanup on a queued session and cleans it once terminal", async () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      fake.pools as unknown as ConcurrencyPools,
+      hangingTransport(),
+    );
     const id = spawnQueued(manager);
 
     const refusal = await manager.cleanup(id);
@@ -767,7 +794,7 @@ describe("AgentManager fleet routing", () => {
 
   it("routes steer: an unknown id is refused with a reason, a live session is delivered", async () => {
     const ref: AgentHostRef = {
-      engine: "herdr",
+      multiplexer: "herdr",
       name: "cow-fleet-01234567",
       paneId: "w1:p1",
       tabId: "w1:t1",
@@ -794,6 +821,8 @@ describe("AgentManager fleet routing", () => {
       fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
+        createPane: () => TEST_PANE,
+        createPlacements: () => TEST_PLACEMENTS,
         createDeliverable: () => new FleetScriptedDeliverable(),
       },
     );
@@ -817,7 +846,10 @@ describe("AgentManager fleet routing", () => {
 
   it("refuses a queued session's steer with the queued reason", async () => {
     const fake = recordingPools(() => ({ kind: "queue" as const }));
-    const manager = new AgentManager(fake.pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      fake.pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
     const id = spawnQueued(manager);
 
     await expect(manager.steer(id, "hello")).resolves.toEqual({
@@ -829,7 +861,7 @@ describe("AgentManager fleet routing", () => {
 
   it("makes a revived agent live again for dedup and nudges on the second settle", async () => {
     const ref: AgentHostRef = {
-      engine: "herdr",
+      multiplexer: "herdr",
       name: "cow-revive-01234567",
       paneId: "w1:p1",
       tabId: "w1:t1",
@@ -853,6 +885,8 @@ describe("AgentManager fleet routing", () => {
       fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
+        createPane: () => TEST_PANE,
+        createPlacements: () => TEST_PLACEMENTS,
         createDeliverable: () => new FleetScriptedDeliverable(),
       },
     );
@@ -911,7 +945,7 @@ describe("AgentManager fleet routing", () => {
     const stopCalls: string[] = [];
     const host = {
       hostAt: async () => ({
-        engine: "herdr",
+        multiplexer: "herdr",
         name: "cow-fleet-01234567",
         paneId: "w1:p1",
         tabId: "w1:t1",
@@ -937,6 +971,8 @@ describe("AgentManager fleet routing", () => {
       fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
+        createPane: () => TEST_PANE,
+        createPlacements: () => TEST_PLACEMENTS,
         createDeliverable: () => new FleetScriptedDeliverable(),
       },
     );

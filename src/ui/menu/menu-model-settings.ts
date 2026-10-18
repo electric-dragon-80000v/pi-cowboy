@@ -18,14 +18,13 @@ import {
 import type { ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
-import { harnessFamilyOf } from "../../agents/harness-family.js";
 import {
   harnessDisplayName,
-  isPiFamilyHarness,
+  harnessFamilyOf,
   runnableHarnessIds,
-  type HarnessId,
-} from "../../agents/harness.js";
-import type { HarnessModelOptions } from "../../agents/harness/registry.js";
+  type HarnessModelOptions,
+} from "../../agents/harness/registry.js";
+import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
 import type { Theme } from "../types.js";
 import { agentBulletPrefix } from "../format.js";
 import {
@@ -83,7 +82,7 @@ interface ModelOverridePlumbing {
    */
   modelSubmenuFor: (
     typeName: string,
-    harnessId: HarnessId,
+    harnessId: AnyHarnessId,
     effectiveModel: string | null,
     showClear: boolean,
     availableLevels?: AvailableLevels,
@@ -193,8 +192,8 @@ function createModelOverridePlumbing(
  * pi-bolt share pi's catalog and pi's default.
  */
 function harnessDefaultRowIds(
-  availability: Availability<HarnessId>,
-): HarnessId[] {
+  availability: Availability<AnyHarnessId>,
+): AnyHarnessId[] {
   return runnableHarnessIds(availability).filter(
     (id) => !isPiFamilyHarness(id),
   );
@@ -202,7 +201,7 @@ function harnessDefaultRowIds(
 
 /** What one harness's default-model row needs from the screen hosting it. */
 interface HarnessDefaultRowOptions {
-  harnessId: HarnessId;
+  harnessId: AnyHarnessId;
   /** Model keys that harness's `listModels` answered. */
   modelOptions: readonly string[];
   ctx: ExtensionCommandContext;
@@ -303,7 +302,7 @@ function buildModelSettingsScreen(
 /** The framed screen, built from the model lists each row's harness offers. */
 function buildModelSettingsList(
   options: ModelSettingsScreenOptions,
-  harnessIds: readonly HarnessId[],
+  harnessIds: readonly string[],
 ): Component {
   const { ctx, store, theme, harnessModelOptions, piDefaultThinking, close } =
     options;

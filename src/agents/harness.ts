@@ -1,18 +1,19 @@
 /**
  * harness.ts — the harness contract: which process launches a subagent, and how.
  *
- * A harness owns five things: the mux agent kind its process launches as
- * (`agentMuxKind`), bringing its host pane into the state it launches in
+ * A harness owns five things: the multiplexer agent kind its process launches as
+ * (`agentMultiplexerKind`), bringing its host pane into the state it launches in
  * (`prepare`), the argv the pane runs (`buildArgs`), undoing any state it
  * left on the filesystem (`teardown`), and warming a slow model list at boot
- * (`prefetchModels`). What every harness family has in common
- * lives here as `SubagentLaunchInputs`; what one family alone uses (pi's CLI
- * flags, opencode's variant, codex's project trust) lives beside it as that
- * family's inputs, so a second family adds a request member — never an
- * optional field, a passthrough schema, or a raw config record on a shared
- * type. One request carries one family's launch, and both `buildArgs` and
- * `prepare` read it, so nothing a harness is handed belongs to a family it
- * does not launch. The listing request below (`HarnessListModelsRequest`) is
+ * (`prefetchModels`). One `Harness<L>` contract serves a built-in and a plugin;
+ * `L` is the launch type the implementation reads. What every harness has in
+ * common lives here as `SubagentLaunchInputs`; what one built-in family alone
+ * uses (pi's CLI flags, opencode's variant, codex's project trust) lives beside
+ * it as that family's inputs, so a second family adds a request member — never
+ * an optional field, a passthrough schema, or a raw config record on a shared
+ * type. One request carries one launch, and both `buildArgs` and `prepare` read
+ * it, so a built-in is handed its family's request and a plugin is handed the
+ * shared inputs alone. The listing request below (`HarnessListModelsRequest`) is
  * the one shared request that breaks that shape, because one call answers for
  * every runnable harness at once: a family's own input rides it as a field
  * named after that family, never as a member a caller has to pick. Each
@@ -30,18 +31,25 @@
  * foreign CLI alike, so a settings menu enumerates harness rows instead of
  * knowing each family's source.
  *
- * Evolution rule: a new harness family is added by growing `HARNESS_IDS`, one
- * harness implementation, and — where that family needs them — a member on
- * `HarnessLaunchRequest` and a strict `[harness.<family>]` table for its own
- * slice of the template (never passthrough; parsed options are typed and merged
- * per field like every other template field). That member is the whole of what
- * the family's `buildArgs` and `prepare` read, so the fields arrive with their
- * first reader, never before.
+ * Evolution rule: a new *built-in* harness family is added by growing
+ * `HARNESS_IDS`, one harness implementation, and — where that family needs them
+ * — a member on `BuiltinLaunchRequest` and a strict `[harness.<family>]` table
+ * for its own slice of the template (never passthrough; parsed options are typed
+ * and merged per field like every other template field). That member is the
+ * whole of what the family's `buildArgs` and `prepare` read, so the fields
+ * arrive with their first reader, never before.
+ *
+ * A *plugin* harness grows none of that: it registers a `PluginHarness` under
+ * its own id (see harness/registry.ts and plugin/contract.ts), so its id is not
+ * in `HARNESS_IDS`, its CLI is not a built-in family's, and `HARNESS_IDS` stays
+ * the closed set the `harness_type` enum is spelled from. It is the same
+ * `Harness` contract with `SubagentLaunchInputs` as its launch type — its own
+ * options live in its own code — so a plugin can never claim a built-in
+ * family's request member.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isAvailable, isProven, type Availability } from "../availability.js";
-import type { AgentMuxKind } from "./agent-host.js";
+import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
 
 /**
  * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
@@ -64,6 +72,17 @@ export const HARNESS_IDS = [
 
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
+/**
+ * A harness id a value names: one of the built-ins (`HarnessId`) or a plugin
+ * harness's own id. Every id that is read, written, or passed around is this
+ * type — `HarnessId` alone would say a plugin harness cannot be named, and a
+ * bare `string` would say nothing about the built-ins, which are the ids that
+ * autocomplete here. A closed vocabulary is still `HarnessId`: the
+ * `harness_type` a template carries, and the ids a built-in implementation is
+ * keyed by.
+ */
+export type AnyHarnessId = HarnessId | (string & {});
+
 /** A template that omits `harness_type` launches under pi. */
 export const DEFAULT_HARNESS: HarnessId = "pi";
 
@@ -78,65 +97,24 @@ export const PI_FAMILY_HARNESS_IDS = ["pi", "pig", "pi-bolt"] as const;
 export type PiFamilyHarnessId = (typeof PI_FAMILY_HARNESS_IDS)[number];
 
 /**
- * A harness that runs a binary of its own rather than pi: its model keys name
- * its own catalogue, so this session's pi catalog can never answer for one.
- */
-export type ForeignHarnessId = Exclude<HarnessId, PiFamilyHarnessId>;
-
-/**
  * Whether this harness runs the pi binary (see PI_FAMILY_HARNESS_IDS). Narrowing,
  * so the branch that builds the pi family's launch request is typed against a
- * pi-family harness.
+ * pi-family harness; a plugin harness id is never one. "Foreign" is this
+ * predicate's complement and nothing more: the set of harness ids that are not
+ * pi-family is not a closed vocabulary, so it has no type of its own — the ids
+ * that carry one are plain `string` and this is the gate.
  */
-export function isPiFamilyHarness(id: HarnessId): id is PiFamilyHarnessId {
+export function isPiFamilyHarness(id: string): id is PiFamilyHarnessId {
   return PI_FAMILY_HARNESS_IDS.some((family) => family === id);
 }
 
-/** How a harness's own settings row is labeled. */
-const HARNESS_DISPLAY_NAMES: Record<HarnessId, string> = {
-  pi: "Pi",
-  pig: "PiG",
-  "pi-bolt": "Pi-Bolt",
-  opencode: "OpenCode",
-  codex: "Codex",
-  claude: "Claude",
-};
-
-/** The display form of one harness, for the rows that configure it. */
-export function harnessDisplayName(id: HarnessId): string {
-  return HARNESS_DISPLAY_NAMES[id];
-}
-
-/** Narrow untrusted input (config, menu) to a canonical harness; invalid values fall back at the config boundary. */
+/**
+ * Narrow untrusted input (config, menu) to a canonical built-in harness; a
+ * plugin harness id is not in `HARNESS_IDS`, so it is not what this returns.
+ * Callers that must accept a plugin id use the registry's own parse.
+ */
 export function parseHarnessId(value: unknown): HarnessId | undefined {
   return HARNESS_IDS.find((id): id is HarnessId => id === value);
-}
-
-/**
- * Which harness a spawn launches under. A harness this machine cannot launch
- * falls back to pi whatever the setting or the template says — the same answer
- * the setting itself is narrowed to, so the menu can never offer a harness a
- * spawn would not use, and an unavailable value never fails a spawn.
- */
-export function resolveHarness(
-  configured: HarnessId,
-  availability: Availability<HarnessId>,
-): HarnessId {
-  return isAvailable(configured, availability) ? configured : DEFAULT_HARNESS;
-}
-
-/**
- * The harnesses a spawn here can really use, in `HARNESS_IDS` order. pi runs the
- * pane it would launch in, so the family answers always; any other harness needs
- * the probe to have confirmed its binary, because only the binary itself can
- * list the models it runs.
- */
-export function runnableHarnessIds(
-  availability: Availability<HarnessId>,
-): HarnessId[] {
-  return HARNESS_IDS.filter(
-    (id) => isPiFamilyHarness(id) || isProven(id, availability),
-  );
 }
 
 /** How the child's tool set is chosen; `default` leaves the binary's own discovery untouched. */
@@ -215,13 +193,15 @@ export interface CodexLaunchInputs {
 }
 
 /**
- * The launch-request families: the pi family (pi, pig, pi-bolt), opencode,
- * codex and claude. Filtered from the mux's kinds rather than re-declared, so
- * the two vocabularies cannot drift apart; each member of `HarnessLaunchRequest`
- * carries one as its `family` tag.
+ * The launch-request families: the pi family (pi, pig, pi-bolt), opencode, codex
+ * and claude. Filtered from the multiplexer's kinds rather than re-declared, so
+ * the two vocabularies cannot drift apart; each member of `BuiltinLaunchRequest`
+ * carries one as its `family` tag, and a template's family-keyed tables are keyed
+ * by them. A harness id is mapped to its family by the registry; a plugin
+ * harness's id is not one.
  */
 export type HarnessFamily = Extract<
-  AgentMuxKind,
+  AgentMultiplexerKind,
   "pi" | "opencode" | "codex" | "claude"
 >;
 
@@ -262,12 +242,13 @@ export type ClaudeLaunchRequest = HarnessFamilyTag<"claude"> &
   SubagentLaunchInputs;
 
 /**
- * The launch request, keyed by family: pi's flags are what a `"pi"` request is,
- * so they cannot ride to a harness that never mapped them. One is built per
- * launch, and both `buildArgs` and `prepare` read that same object. A new family
- * adds a member — never an optional field on an existing member.
+ * The launch request a built-in harness reads, keyed by family: pi's flags are
+ * what a `"pi"` request is, so they cannot ride to a harness that never mapped
+ * them. One is built per launch, and both `buildArgs` and `prepare` read that
+ * same object. A new family adds a member — never an optional field on an
+ * existing member.
  */
-export type HarnessLaunchRequest =
+export type BuiltinLaunchRequest =
   | PiFamilyLaunchRequest
   | OpencodeLaunchRequest
   | CodexLaunchRequest
@@ -289,17 +270,25 @@ export type LaunchRequestFor<K extends HarnessId> = {
 }[K];
 
 /** What a harness needs to bring its host pane into the state it launches in. */
-export interface HarnessPrepareRequest<K extends HarnessId = HarnessId> {
+export interface HarnessPrepareRequest<
+  L extends SubagentLaunchInputs = HarnessLaunch,
+> {
   readonly pi: ExtensionAPI;
+  /**
+   * The pane surface the session's multiplexer offers. A harness types into its
+   * pane through this, never through a multiplexer's own client, so one launch runs
+   * under any multiplexer that offers the surface.
+   */
+  readonly pane: PaneControl;
   readonly paneId: string;
   readonly cwd: string;
   /**
    * The launch this pane is prepared for: the task file the pane must read, the
    * system prompt file, the subagent id a launcher names itself after — the same
-   * request `buildArgs` was given, so this family's own inputs reach this
-   * family's harness and no other's.
+   * request `buildArgs` was given, so a built-in family's own inputs reach its
+   * own harness and no other's, and a plugin reads the shared inputs alone.
    */
-  readonly launch: LaunchRequestFor<K>;
+  readonly launch: L;
 }
 
 /**
@@ -369,16 +358,21 @@ export type HarnessAvailability =
   | { readonly status: "available" }
   | { readonly status: "unavailable"; readonly notice?: string };
 
-/** One harness implementation. */
-export interface Harness<K extends HarnessId = HarnessId> {
-  readonly id: HarnessId;
+/**
+ * One harness implementation, over the launch type it reads: a built-in's
+ * `LaunchRequestFor<K>` (its family's request), or `SubagentLaunchInputs` for a
+ * plugin. The type parameter is what keeps one family's options out of another
+ * implementation: a pi harness cannot name `variant`, and a plugin cannot name
+ * any built-in option at all.
+ */
+export interface Harness<L extends SubagentLaunchInputs = HarnessLaunch> {
   /**
-   * The agent kind this harness launches as, in the mux's vocabulary; the only
+   * The agent kind this harness launches as, in the multiplexer's vocabulary; the only
    * place a kind appears as a literal. A harness whose binary is not pi's can
-   * only launch under its own kind, because the mux matches the detected process
+   * only launch under its own kind, because the multiplexer matches the detected process
    * against it.
    */
-  readonly agentMuxKind: AgentMuxKind;
+  readonly agentMultiplexerKind: AgentMultiplexerKind;
   /**
    * What this machine can do with the harness, read at probe time. `unavailable`
    * keeps the harness out of the setting, and a template that still names it
@@ -391,14 +385,14 @@ export interface Harness<K extends HarnessId = HarnessId> {
    * family's own request describes. Idempotent; throws when the state could not
    * be established.
    */
-  prepare(request: HarnessPrepareRequest<K>): Promise<void>;
+  prepare(request: HarnessPrepareRequest<L>): Promise<void>;
   /**
    * The complete argv the pane runs, including how the task rides (the pi
    * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.
-   * Typed to this harness's own family, so one family's flags cannot reach
-   * another's buildArgs.
+   * Typed to this harness's own launch, so one family's flags cannot reach
+   * another's buildArgs, and a plugin reads only the shared inputs.
    */
-  buildArgs(request: LaunchRequestFor<K>): string[];
+  buildArgs(launch: L): string[];
   /**
    * Undo filesystem state this harness's prepare left behind. Best-effort and
    * idempotent: callers wrap it so a failure is logged and never masks the
@@ -424,4 +418,37 @@ export interface Harness<K extends HarnessId = HarnessId> {
    * Fire-and-forget, so a slow channel never blocks the launch.
    */
   prefetchModels(pi: ExtensionAPI): void;
+}
+
+/**
+ * A plugin harness's launch: the shared inputs plus the open arm's tag.
+ * `family` is the union's one discriminant; `"plugin"` is not a built-in
+ * family, so the tag can never be mistaken for one, and the plugin's own id
+ * stays where it belongs — in the plan, not in the request. Nothing else rides
+ * here: a plugin's own options live in its own code.
+ */
+export interface PluginLaunchRequest extends SubagentLaunchInputs {
+  readonly family: "plugin";
+}
+
+/**
+ * What one launch carries: a built-in family's request or the plugin arm.
+ * `family` discriminates them: a built-in arm names its family, and the open
+ * arm names `"plugin"`, so a plugin request can never equal a built-in family
+ * and an exhaustive switch over the built-in arms still bottoms out at `never`.
+ */
+export type HarnessLaunch = BuiltinLaunchRequest | PluginLaunchRequest;
+
+/**
+ * One plugin harness: the same `Harness` contract a built-in implements, over
+ * the shared launch inputs, plus the identity a plugin supplies for itself
+ * because it is not keyed in this package's built-in table. The registry holds
+ * it as the same `RegisteredHarness` a built-in becomes (see
+ * harness/registry.ts), so a caller never branches on where it came from.
+ */
+export interface PluginHarness extends Harness<SubagentLaunchInputs> {
+  /** The id config and `harness_type`-shaped values name this harness by. */
+  readonly id: AnyHarnessId;
+  /** The label its settings rows show. */
+  readonly displayName: string;
 }

@@ -3,7 +3,7 @@
  * AgentAssets: locate/observe/deliverable + actuators. AgentAssetsDeps: raw probes it composes.
  * LocateResult: Located (tracked/recovered) | Ambiguous | NotFound.
  * CleanupDeps: injected host/git actuators. PaneRef/LocatedCandidate: addresses.
- * createAgentAssets: bind over probes. createHerdrAgentAssets: bind to the real planes.
+ * createAgentAssets: bind over probes. createMultiplexerAgentAssets: bind to a session's multiplexer.
  * Authority is per-asset: provenance (worktreeManaged/paneCreated) is memory-only;
  * addresses (workspace/pane/branch/path) are live probes (memory can be stale, not just absent).
  * Unreadable registries degrade to memory's answer, never to absence.
@@ -23,15 +23,6 @@ import {
   removeGitWorktree,
   resolveMainCheckout,
 } from "../infrastructure/git-client.js";
-import {
-  getAgentInfo,
-  listAgentRecords,
-  listWorktrees,
-  normalizeHerdrPath,
-} from "../infrastructure/herdr-client.js";
-import type { HerdrAgentInfo } from "../infrastructure/herdr/agents.js";
-import type { HerdrWorktreeInfo } from "../infrastructure/herdr/worktrees.js";
-import { createHerdrHost } from "../infrastructure/herdr-host.js";
 import { getSessionCtx, getStore } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
 import {
@@ -41,9 +32,17 @@ import {
   resolveWorktreeRoot,
   slugifyWorktreeType,
 } from "../spawn/worktree-policy.js";
-import type { AgentHostRef, HostObservation } from "./agent-host.js";
-import type { HarnessId, HarnessTeardownContext } from "./harness.js";
-import { harnessFor } from "./harness/registry.js";
+import type {
+  AgentMultiplexer,
+  AgentHost,
+  AgentHostRef,
+  HostObservation,
+  PlacementCatalog,
+  PlacementRecord,
+  PlacementWorktree,
+} from "./agent-host.js";
+import type { AnyHarnessId, HarnessTeardownContext } from "./harness.js";
+import { registeredHarness } from "./harness/registry.js";
 import type {
   CleanupSource,
   LocatedArtifacts,
@@ -79,7 +78,7 @@ export interface CleanupDeps {
    * actuator resolves the recorded harness and supplies the pi instance.
    */
   harnessTeardown: (
-    harness: HarnessId,
+    harness: AnyHarnessId,
     context: HarnessTeardownContext,
   ) => Promise<void>;
 }
@@ -121,6 +120,12 @@ export type LocateResult = Located | Ambiguous | NotFound;
 
 /** The seam: locate an agent's artifacts, then act on them. Injected probes are function-typed properties (see CleanupDeps). */
 export interface AgentAssets extends CleanupDeps {
+  /**
+   * The multiplexer every address this seam builds belongs to (see hostRefFor in
+   * agent-cleanup.ts). It rides here rather than on `CleanupDeps` because only
+   * the locator produces addresses; the allocation-failure path consumes them.
+   */
+  multiplexer: AgentMultiplexer;
   /** Run's deliverable, derived from the id alone without probing the run; reported, never deleted. */
   deliverable: (id: string) => RecoveredDeliverable;
   /** Locate one agent's artifacts (hint, else discovery); never stops anything — the pane is an address, not a process. */
@@ -131,12 +136,16 @@ export interface AgentAssets extends CleanupDeps {
 
 /** Raw single-plane probes; matching/authority/ambiguity stay in this module so tests fake the planes. Injected probes are function-typed properties (see CleanupDeps). */
 export interface AgentAssetsDeps extends CleanupDeps {
+  /** The multiplexer every address this seam builds belongs to. */
+  multiplexer: AgentMultiplexer;
+  /** Canonicalize a path the way the multiplexer spells its placements (see PlacementCatalog). */
+  canonicalizePath: (value: string) => string;
   /** Run's deliverable and whether it exists. */
   deliverable: (id: string) => RecoveredDeliverable;
-  /** Raw worktree registry read; a throw degrades discovery. */
-  listWorktrees: () => Promise<readonly HerdrWorktreeInfo[]>;
-  /** Raw agent records (`herdr agent list`), nameless ones included. */
-  listAgentRecords: () => Promise<readonly HerdrAgentInfo[]>;
+  /** Raw multiplexer registry read (the multiplexer's `worktree list`); a throw degrades discovery. */
+  listWorktrees: () => Promise<readonly PlacementWorktree[]>;
+  /** Raw multiplexer placement records (the multiplexer's `agent list`), nameless ones included. */
+  listPlacements: () => Promise<readonly PlacementRecord[]>;
   /** One pane's raw state; undefined = gone, a throw = unreadable. */
   readPane(paneId: string): Promise<HostObservation | undefined>;
   /** The worktree root extension worktrees live under; undefined = unresolvable. */
@@ -168,14 +177,15 @@ async function probeList<T>(
 }
 
 function matchWorktree(
-  entries: readonly HerdrWorktreeInfo[] | undefined,
+  entries: readonly PlacementWorktree[] | undefined,
   worktreePath: string,
-): HerdrWorktreeInfo | undefined {
-  const wanted = normalizeHerdrPath(worktreePath);
-  return entries?.find((entry) => normalizeHerdrPath(entry.path) === wanted);
+  canonicalize: (value: string) => string,
+): PlacementWorktree | undefined {
+  const wanted = canonicalize(worktreePath);
+  return entries?.find((entry) => canonicalize(entry.path) === wanted);
 }
 
-function paneOf(record: HerdrAgentInfo): LocatedPane {
+function paneOf(record: PlacementRecord): LocatedPane {
   return {
     paneId: record.paneId,
     tabId: record.tabId,
@@ -184,19 +194,19 @@ function paneOf(record: HerdrAgentInfo): LocatedPane {
 }
 
 function paneInWorktree(
-  records: readonly HerdrAgentInfo[] | undefined,
+  records: readonly PlacementRecord[] | undefined,
   worktreePath: string,
+  canonicalize: (value: string) => string,
 ): LocatedPane | undefined {
-  const wanted = normalizeHerdrPath(worktreePath);
+  const wanted = canonicalize(worktreePath);
   const record = records?.find(
-    (entry) =>
-      entry.cwd !== undefined && normalizeHerdrPath(entry.cwd) === wanted,
+    (entry) => entry.cwd !== undefined && canonicalize(entry.cwd) === wanted,
   );
   return record === undefined ? undefined : paneOf(record);
 }
 
 function paneInWorkspace(
-  records: readonly HerdrAgentInfo[] | undefined,
+  records: readonly PlacementRecord[] | undefined,
   workspaceId: string | undefined,
 ): LocatedPane | undefined {
   if (workspaceId === undefined) return undefined;
@@ -222,13 +232,13 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
    */
   async function discoverCandidates(
     id: string,
-    entries: readonly HerdrWorktreeInfo[] | undefined,
+    entries: readonly PlacementWorktree[] | undefined,
   ): Promise<WorktreeCandidate[]> {
     const worktreeRoot = await root();
     const out: WorktreeCandidate[] = [];
     const seen = new Set<string>();
     const push = (candidate: WorktreeCandidate): void => {
-      const key = normalizeHerdrPath(candidate.path);
+      const key = deps.canonicalizePath(candidate.path);
       if (seen.has(key)) return;
       seen.add(key);
       out.push(candidate);
@@ -249,7 +259,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
           entry.branch !== undefined && isSpawnArtifactName(entry.branch, id)
             ? entry.branch
             : base,
-        workspaceId: entry.openWorkspaceId,
+        workspaceId: entry.workspaceId,
       });
     }
 
@@ -273,8 +283,8 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
   async function locateTracked(
     id: string,
     hint: AgentSpawn,
-    entries: readonly HerdrWorktreeInfo[] | undefined,
-    records: readonly HerdrAgentInfo[] | undefined,
+    entries: readonly PlacementWorktree[] | undefined,
+    records: readonly PlacementRecord[] | undefined,
   ): Promise<LocateResult> {
     const recorded = hint.execution.host;
     const worktreeCoords = hint.display.worktree;
@@ -295,14 +305,15 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
 
     if (worktreePath !== undefined) {
       // Prefer herdr's live workspace (restarts/re-adopts mint new ids; a dead recorded one fails removal); no open workspace means the git plane removes it.
-      const entry = matchWorktree(entries, worktreePath);
-      if (entry !== undefined) workspaceId = entry.openWorkspaceId;
+      const entry = matchWorktree(entries, worktreePath, deps.canonicalizePath);
+      if (entry !== undefined) workspaceId = entry.workspaceId;
     }
 
     const pane =
       worktreePath === undefined
         ? recordedPane
-        : (paneInWorktree(records, worktreePath) ?? recordedPane);
+        : (paneInWorktree(records, worktreePath, deps.canonicalizePath) ??
+          recordedPane);
     const worktree =
       worktreePath === undefined
         ? null
@@ -332,8 +343,8 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
 
   async function locateDiscovered(
     id: string,
-    entries: readonly HerdrWorktreeInfo[] | undefined,
-    records: readonly HerdrAgentInfo[] | undefined,
+    entries: readonly PlacementWorktree[] | undefined,
+    records: readonly PlacementRecord[] | undefined,
   ): Promise<LocateResult> {
     const candidates = await discoverCandidates(id, entries);
     if (candidates.length === 0) return { kind: "not-found", id };
@@ -346,7 +357,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     }
     const found = candidates[0]!;
     const pane =
-      paneInWorktree(records, found.path) ??
+      paneInWorktree(records, found.path, deps.canonicalizePath) ??
       paneInWorkspace(records, found.workspaceId) ??
       null;
     return {
@@ -368,7 +379,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
 
   async function locate(id: string, hint?: AgentSpawn): Promise<LocateResult> {
     const worktrees = await probeList(deps.listWorktrees);
-    const records = await probeList(deps.listAgentRecords);
+    const records = await probeList(deps.listPlacements);
     const entries = worktrees.ok ? worktrees.entries : undefined;
     const live = records.ok ? records.entries : undefined;
     return hint === undefined
@@ -377,6 +388,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
   }
 
   return {
+    multiplexer: deps.multiplexer,
     locate,
     observe: (pane) => deps.readPane(pane.paneId),
     deliverable: deps.deliverable,
@@ -390,22 +402,30 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
   };
 }
 
-/* ── The herdr composition ─────────────────────────────────────────────── */
+/* ── The multiplexer composition ────────────────────────────────────────────── */
 
-/** Bind the seam to the real planes: failed repo derivation is `undefined` (never a borrowed cwd); failed pane reads throw (unreadable is not gone). */
-export function createHerdrAgentAssets(pi: ExtensionAPI): AgentAssets {
-  const host = createHerdrHost(pi);
+/**
+ * Bind the seam to a session's multiplexer: the multiplexer's own reads come from the
+ * runtime's `PlacementCatalog` and its actuators from the runtime's `AgentHost`,
+ * so this module names no multiplexer. The rest — git, the filesystem, the config —
+ * is multiplexer-neutral and bound here. Failed repo derivation is `undefined` (never
+ * a borrowed cwd); failed pane reads throw (unreadable is not gone).
+ */
+export function createMultiplexerAgentAssets(
+  pi: ExtensionAPI,
+  host: AgentHost,
+  catalog: PlacementCatalog,
+): AgentAssets {
   return createAgentAssets({
+    multiplexer: catalog.multiplexer,
+    canonicalizePath: (value) => catalog.canonicalizePath(value),
     deliverable: (id) => {
       const resultFile = subagentResultFileFor(id);
       return { path: resultFile, present: fs.existsSync(resultFile) };
     },
-    listWorktrees: () => listWorktrees(pi),
-    listAgentRecords: () => listAgentRecords(pi),
-    readPane: async (paneId) => {
-      const info = await getAgentInfo(pi, paneId);
-      return info === undefined ? undefined : { state: info.state };
-    },
+    listWorktrees: () => catalog.listWorktrees(),
+    listPlacements: () => catalog.listPlacements(),
+    readPane: (paneId) => catalog.observePane(paneId),
     worktreeRoot: async () => {
       const cwd = getSessionCtx().cwd;
       if (!cwd) return undefined;
@@ -446,7 +466,14 @@ export function createHerdrAgentAssets(pi: ExtensionAPI): AgentAssets {
     closePane: async (ref) => {
       await host.release(ref, "placement");
     },
-    harnessTeardown: (harness, context) =>
-      harnessFor(harness).teardown({ pi, ...context }),
+    harnessTeardown: async (harness, context) => {
+      // The id is read back from a recorded spawn rather than resolved here, so
+      // a plugin load reset between the launch that recorded it and this
+      // teardown (a reload, a session replacement) can leave it registered by
+      // nothing. Such an id has no teardown to run — the plugin's code went with
+      // its registration — which is the same success as a harness that never
+      // prepared.
+      await registeredHarness(harness)?.teardown({ pi, ...context });
+    },
   });
 }

@@ -24,7 +24,7 @@ const { showAgentStatusMenu } =
 
 /** Host address marking a live pane. */
 const HOST = {
-  engine: "herdr" as const,
+  multiplexer: "herdr" as const,
   name: "cow-fix-login-abcd1234",
   paneId: "pane-1",
   tabId: "tab-1",

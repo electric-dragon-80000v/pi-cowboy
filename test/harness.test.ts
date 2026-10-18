@@ -22,7 +22,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
-  runnableHarnessIds,
   type CodexLaunchRequest,
   type HarnessId,
   type HarnessPrepareRequest,
@@ -30,12 +29,13 @@ import {
   type OpencodeLaunchRequest,
   type PiFamilyLaunchRequest,
   type SubagentLaunchInputs,
-  resolveHarness,
 } from "../src/agents/harness.js";
 import {
   harnessFor,
   listHarnessModelOptions,
   mergeHarnessModelOptions,
+  resolveHarness,
+  runnableHarnessIds,
 } from "../src/agents/harness/registry.js";
 import {
   opencodeConfigDir,
@@ -43,6 +43,7 @@ import {
   writeOpencodeStaging,
 } from "../src/agents/harness/opencode/staging.js";
 import { probed, unprobed } from "../src/availability.js";
+import type { PaneControl } from "../src/agents/agent-host.js";
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
   runInPaneMock: vi.fn(),
@@ -62,6 +63,14 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 });
 
 const PI = {} as unknown as ExtensionAPI;
+
+/** The pane surface a harness prepares through: the herdr calls this file mocks. */
+const PANE: PaneControl = {
+  kind: "herdr",
+  run: (paneId, command) => runInPaneMock(PI, paneId, command),
+  waitForOutput: (paneId, output, timeoutMs) =>
+    waitForPaneOutputMock(PI, paneId, output, timeoutMs),
+};
 
 /**
  * The real TMPDIR, put back after every test. Staging resolves its directory
@@ -131,8 +140,8 @@ const LAUNCHES: { [K in HarnessId]: LaunchRequestFor<K> } = {
 function prepareRequest<K extends HarnessId>(
   id: K,
   paneId: string,
-): HarnessPrepareRequest<K> {
-  return { pi: PI, paneId, cwd: "/repo", launch: LAUNCHES[id] };
+): HarnessPrepareRequest<LaunchRequestFor<K>> {
+  return { pi: PI, pane: PANE, paneId, cwd: "/repo", launch: LAUNCHES[id] };
 }
 
 beforeEach(() => {
@@ -430,6 +439,7 @@ describe("prepare: opencode", () => {
   function prepareOpencode(paneId = "w1:p9"): Promise<void> {
     return harnessFor("opencode").prepare({
       pi: PI,
+      pane: PANE,
       paneId,
       cwd: "/repo",
       launch: opencodeLaunch(),
@@ -517,6 +527,7 @@ describe("prepare: opencode", () => {
     await expect(
       harnessFor("opencode").prepare({
         pi: PI,
+        pane: PANE,
         paneId: "w1:p9",
         cwd: "/repo",
         launch: { ...launch, systemPromptFile: join(tmpdir(), "gone.md") },
@@ -555,6 +566,7 @@ describe("prepare: codex", () => {
   function prepareCodex(paneId = "w1:p9"): Promise<void> {
     return harnessFor("codex").prepare({
       pi: PI,
+      pane: PANE,
       paneId,
       cwd: "/repo",
       launch: codexLaunch(),

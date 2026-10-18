@@ -16,6 +16,7 @@ import type {
   DeliverableSource,
 } from "../src/subagent/deliverable.js";
 import type { AgentSpawn } from "../src/types.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
 const { getPiInstanceMock } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(() => ({})),
@@ -27,7 +28,7 @@ vi.mock("../src/shell.js", async (importOriginal) => {
 });
 
 const REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-fix-login-abcd1234",
   paneId: "w1:p1",
   tabId: "w1:t1",
@@ -96,6 +97,8 @@ function makeFixture(options: FixtureOptions = {}) {
     hostRef: REF,
     transport: {
       createHost: (_pi: ExtensionAPI) => host,
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: (resultFile: string) => {
         deliverableFiles.push(resultFile);
         return deliverable;

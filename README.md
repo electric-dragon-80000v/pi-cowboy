@@ -301,3 +301,4 @@ Yes. You can disable both the cowboy indicator and the grazing cows in `/cowboy`
 - [Menu](docs/Menu.md)
 - [Agent Templates](docs/Agent%20Templates.md)
 - [Orchestrator Templates](docs/Orchestrator%20Templates.md)
+- [Plugins](docs/Plugins.md)

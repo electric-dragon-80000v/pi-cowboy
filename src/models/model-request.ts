@@ -14,7 +14,7 @@
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { isPiFamilyHarness, type HarnessId } from "../agents/harness.js";
+import { isPiFamilyHarness, type AnyHarnessId } from "../agents/harness.js";
 import { resolvePiModel, type ModelLookup } from "./pi-model-resolver.js";
 import {
   resolveForeignModel,
@@ -33,7 +33,7 @@ export interface SpawnModelDeps {
    * The harness the launch resolved: it decides whose model vocabulary
    * answers, and whether this session can answer for credentials at all.
    */
-  harness: HarnessId;
+  harness: AnyHarnessId;
   /** This session's pi catalog. Read only for a pi-family harness. */
   registry: ModelLookup;
   /** The parent session's model, inherited only by a pi-family launch. */

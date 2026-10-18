@@ -35,6 +35,8 @@ import {
 } from "../src/spawn/spawn-id.js";
 import { nextSpawnId } from "./helpers/spawn-ids.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
+import { builtinTransport, noMultiplexer } from "./helpers/transport.js";
 
 const {
   getPiInstanceMock,
@@ -126,7 +128,7 @@ function testSelection(): ModelSelection {
 
 /** Adopted host ref a worktree spawn carries. */
 const HOST_REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: BRANCH,
   paneId: "w1:p1",
   tabId: "w1:t1",
@@ -196,6 +198,8 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
   } as unknown as AgentHost;
   const transport = {
     createHost: () => host,
+    createPane: () => TEST_PANE,
+    createPlacements: () => TEST_PLACEMENTS,
     createDeliverable: () => new ScriptedDeliverable(),
   };
   const pool = { limit: 1, spawned: 0 };
@@ -278,7 +282,10 @@ function spawnQueued(): Harness {
     cancelQueued: () => {},
     clearQueue: () => {},
   };
-  const manager = new AgentManager(pools as unknown as ConcurrencyPools);
+  const manager = new AgentManager(
+    pools as unknown as ConcurrencyPools,
+    noMultiplexer(),
+  );
   const id = manager.spawn(
     {} as never,
     {} as never,
@@ -336,7 +343,7 @@ describe("AgentSpawnStore.mint", () => {
 
   it("the manager mints through the store, so its ids never collide", () => {
     const store = new AgentSpawnStore();
-    const manager = new AgentManager(new ConcurrencyPools());
+    const manager = new AgentManager(new ConcurrencyPools(), noMultiplexer());
     const id = manager.mintSpawnId();
     store.add(storeSpawn(id, SPAWNED));
 
@@ -467,7 +474,7 @@ describe("spawn retention through the manager", () => {
     expect(manager.getSpawn(id)).toBeDefined();
 
     manager.dispose();
-    const fresh = new AgentManager(new ConcurrencyPools());
+    const fresh = new AgentManager(new ConcurrencyPools(), builtinTransport());
     const report = await fresh.cleanup(id);
 
     expect(report).toMatchObject({
@@ -524,7 +531,7 @@ describe("spawn retention through the manager", () => {
     expect(shared.store.get(id)).toBeDefined();
 
     // Fresh manager on the same store, as after a session replacement.
-    const fresh = new AgentManager(new ConcurrencyPools());
+    const fresh = new AgentManager(new ConcurrencyPools(), builtinTransport());
     expect(fresh.getSpawn(id)).toBeDefined();
     expect(fresh.listAgents().map((spawn) => spawn.id)).toEqual([id]);
 
@@ -556,7 +563,10 @@ describe("spawn retention through the manager", () => {
       const { manager, id } = await spawnAndSettle({ worktree: true });
 
       manager.dispose();
-      const fresh = new AgentManager(new ConcurrencyPools());
+      const fresh = new AgentManager(
+        new ConcurrencyPools(),
+        builtinTransport(),
+      );
       const report = await fresh.cleanup(id);
 
       expect(report.worktree).toEqual({ kind: "kept", path: WT_PATH });
@@ -602,7 +612,10 @@ describe("spawn retention through the manager", () => {
       release: async () => {},
       clearQueue: () => {},
     };
-    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -628,7 +641,10 @@ describe("spawn retention through the manager", () => {
       cancelQueued: vi.fn(),
       clearQueue: () => {},
     };
-    const manager = new AgentManager(pools as unknown as ConcurrencyPools);
+    const manager = new AgentManager(
+      pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
 
     expect(() =>
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
@@ -659,7 +675,7 @@ describe("spawn retention through the manager", () => {
     expect(manager.getSpawn(id)).toBeDefined();
 
     manager.dispose();
-    const fresh = new AgentManager(new ConcurrencyPools());
+    const fresh = new AgentManager(new ConcurrencyPools(), builtinTransport());
 
     const report = await fresh.cleanup(id);
     expect(report.worktree).toEqual({ kind: "none" });

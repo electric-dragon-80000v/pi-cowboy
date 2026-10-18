@@ -59,7 +59,7 @@ describe("harnessType — file validation", () => {
     },
   );
 
-  it("drops an unknown harness with the expected values in the warning", () => {
+  it("keeps a harness id the built-in vocabulary does not know, since a plugin harness id is valid", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const cleaned = validateRawLayer(
@@ -67,12 +67,48 @@ describe("harnessType — file validation", () => {
       "config.json",
     );
 
+    // The setting is where a plugin harness is selected, so an id outside the
+    // built-in set must survive validation. Availability, not validation, is
+    // what falls an unusable id back to pi at spawn time.
+    expect(cleaned.agent?.harnessType).toBe("cow");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("drops an empty harness id with the expected values in the warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      { agent: { harnessType: "" } },
+      "config.json",
+    );
+
     expect(cleaned.agent?.harnessType).toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain(
-      'expected "pi" | "pig" | "pi-bolt" | "opencode" | "codex" | "claude"',
-    );
+    expect(warn.mock.calls[0][0]).toContain("non-empty string");
     expect(warn.mock.calls[0][0]).toContain('"agent.harnessType"');
+  });
+
+  it("drops a whitespace-only harness id rather than trimming it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      { agent: { harnessType: "   " } },
+      "config.json",
+    );
+
+    expect(cleaned.agent?.harnessType).toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a padded id exactly as written: nothing trims a config value", () => {
+    const cleaned = validateRawLayer(
+      { agent: { harnessType: " pig " } },
+      "config.json",
+    );
+
+    // Not "pig": the id a file writes is the id that is read. An unknown one
+    // warns and falls back at spawn time instead of being silently fixed here.
+    expect(cleaned.agent?.harnessType).toBe(" pig ");
   });
 });
 
@@ -95,12 +131,12 @@ describe("harnessType — defaults", () => {
     expect(store.agent.harnessType).toBe("pig");
   });
 
-  it("falls back to the built-in default for a value the loader could not validate", () => {
+  it("keeps a harness id the built-in vocabulary does not know, for a plugin harness to claim", () => {
     const store = new ConfigStore(
       memoryIO({ agent: { harnessType: "cow" } }).io,
     );
 
-    expect(store.agent.harnessType).toBe(DEFAULT_HARNESS);
+    expect(store.agent.harnessType).toBe("cow");
   });
 });
 

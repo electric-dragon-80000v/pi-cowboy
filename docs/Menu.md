@@ -72,10 +72,10 @@ Opens the `Agent settings` screen, organized into three sections:
 
 ### Spawn defaults
 
-| Row                      | What it does                                                                                                                                                                                                                           |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Default thinking level` | Thinking level used when an agent template omits `thinking`. Selecting `inherit` clears the setting. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                                                             |
-| `Default harness`        | Harness used when an agent template omits `harness_type`. Lists installed harnesses on `PATH` and notes any that are missing. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
+| Row                      | What it does                                                                                                                                                                                                                                                                                                           |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Default thinking level` | Thinking level used when an agent template omits `thinking`. Selecting `inherit` clears the setting. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                                                                                                                                             |
+| `Default harness`        | Harness used when an agent template omits `harness_type`. Lists the harnesses this machine can launch (the built-ins found on `PATH`, plus any a plugin registered) and notes the built-ins that are missing. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
 
 ### Worktrees
 

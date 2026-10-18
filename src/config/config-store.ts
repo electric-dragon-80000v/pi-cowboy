@@ -16,19 +16,14 @@ import {
   resolveModel,
 } from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
-import {
-  DEFAULT_HARNESS,
-  parseHarnessId,
-  type HarnessId,
-} from "../agents/harness.js";
-import { harnessFamilyOf } from "../agents/harness-family.js";
+import { DEFAULT_HARNESS, type AnyHarnessId } from "../agents/harness.js";
+import { harnessFamilyOf } from "../agents/harness/registry.js";
+import { parsePoolKey } from "../concurrency-pools.js";
 import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
 import type { ThinkingLevel } from "../types.js";
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
   DEFAULT_WORKTREE_MATERIALIZATION,
-  parseWorktreeCheckoutType,
-  parseWorktreeMaterialization,
   type WorktreeCheckoutType,
   type WorktreeMaterialization,
 } from "../spawn/worktree-policy.js";
@@ -37,7 +32,6 @@ import type { ConcurrencyConfig } from "../concurrency-pools.js";
 import { CONFIG_AGENT_NON_MODEL_KEYS } from "./types.js";
 import { LayeredConfig } from "./layered-config.js";
 import {
-  VALID_SYSTEM_PROMPT_MODES,
   MODEL_FAMILY_KEYS,
   createConfigIO,
   isProjectAllowedAgentKey,
@@ -88,10 +82,9 @@ const CLEAR_ALL_KEPT_AGENT_KEYS: ReadonlySet<string> = new Set(
   CONFIG_AGENT_NON_MODEL_KEYS.filter((key) => !MODEL_FAMILY_KEYS.has(key)),
 );
 
-function nonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
+/** A value with a non-space character; an id or key is read as written. */
+function nonBlankString(value: unknown): string | undefined {
+  return typeof value === "string" && /\S/.test(value) ? value : undefined;
 }
 
 /**
@@ -109,17 +102,13 @@ function assertConcurrencyLimit(n: number): void {
 }
 
 /**
- * The per-harness defaults of one raw agent slice, however a hand-edited file
- * left them. Structural rather than cast-then-trust: a value that is not an
- * object reads as an empty map, which every reader below already handles.
+ * The per-harness defaults of one agent layer: the map validation kept, or an
+ * empty one when the layer has none.
  */
 function rawHarnessDefaults(
-  agent: Record<string, unknown>,
+  agent: Partial<SubagentsConfig["agent"]>,
 ): Record<string, string | null> {
-  const entries = agent["defaultModelByHarness"];
-  return entries !== null && typeof entries === "object"
-    ? (entries as Record<string, string | null>)
-    : {};
+  return agent.defaultModelByHarness ?? {};
 }
 
 interface ResolvedAgentSettings {
@@ -151,7 +140,7 @@ interface ResolvedAgentSettings {
   readonly worktreeMaterialization: WorktreeMaterialization;
   readonly worktreeCheckoutType: WorktreeCheckoutType;
   /** Harness for agents whose template omits `harness_type`. */
-  readonly harnessType: HarnessId;
+  readonly harnessType: AnyHarnessId;
 }
 
 interface ConfigStoreDeps {
@@ -162,8 +151,7 @@ export class ConfigStore {
   private readonly layers: LayeredConfig;
   private sessionOverrides: SessionModelOverrides = { default: null };
   /** Per-harness defaults set for this session only; cleared at session_start. */
-  private sessionHarnessDefaults: Partial<Record<HarnessId, string | null>> =
-    {};
+  private sessionHarnessDefaults: Partial<Record<string, string | null>> = {};
   private sessionConcurrencyLayer: RawConcurrency = {};
   private manager?: AgentManager;
 
@@ -185,36 +173,35 @@ export class ConfigStore {
     const a = this.layers.effective.agent;
 
     return {
-      defaultModel: a.default ?? null,
-      defaultAgentType:
-        nonEmptyString(a.defaultAgentType) ?? DEFAULT_AGENT_TYPE,
-      defaultOrchestrator:
-        nonEmptyString(a.defaultOrchestrator) ?? DEFAULT_ORCHESTRATOR_NAME,
-      systemPromptMode: VALID_SYSTEM_PROMPT_MODES.has(
-        a.systemPromptMode as string,
-      )
-        ? (a.systemPromptMode as SystemPromptMode)
-        : "replace",
+      defaultModel: a.default,
+      defaultAgentType: a.defaultAgentType ?? DEFAULT_AGENT_TYPE,
+      defaultOrchestrator: a.defaultOrchestrator ?? DEFAULT_ORCHESTRATOR_NAME,
+      systemPromptMode: a.systemPromptMode ?? "replace",
       includeContextFiles: a.includeContextFiles ?? true,
-      defaultThinking: a.defaultThinking as ThinkingLevel | undefined,
-      loadSkillsImplicitly: a.loadSkillsImplicitly !== false,
-      loadExtensionsImplicitly: a.loadExtensionsImplicitly !== false,
-      disableDefaultAgents: a.disableDefaultAgents === true,
-      extensionEnabled: a.extensionEnabled !== false,
-      showActiveIndicator: a.showActiveIndicator !== false,
+      defaultThinking: a.defaultThinking,
+      loadSkillsImplicitly: a.loadSkillsImplicitly ?? true,
+      loadExtensionsImplicitly: a.loadExtensionsImplicitly ?? true,
+      disableDefaultAgents: a.disableDefaultAgents ?? false,
+      extensionEnabled: a.extensionEnabled ?? true,
+      showActiveIndicator: a.showActiveIndicator ?? true,
       grazingEnabled: a.grazingEnabled === true,
-      worktreeRoot:
-        typeof a.worktreeRoot === "string" && a.worktreeRoot.trim() !== ""
-          ? a.worktreeRoot
-          : undefined,
+      worktreeRoot: a.worktreeRoot,
       worktreeMaterialization:
-        parseWorktreeMaterialization(a.worktreeMaterialization) ??
-        DEFAULT_WORKTREE_MATERIALIZATION,
+        a.worktreeMaterialization ?? DEFAULT_WORKTREE_MATERIALIZATION,
       worktreeCheckoutType:
-        parseWorktreeCheckoutType(a.worktreeCheckoutType) ??
-        DEFAULT_WORKTREE_CHECKOUT_TYPE,
-      harnessType: parseHarnessId(a.harnessType) ?? DEFAULT_HARNESS,
+        a.worktreeCheckoutType ?? DEFAULT_WORKTREE_CHECKOUT_TYPE,
+      harnessType: a.harnessType ?? DEFAULT_HARNESS,
     };
+  }
+
+  /**
+   * The multiplexer this session runs: the id of a registered one (the built-in
+   * `herdr`, or a plugin's). An unregistered id resolves to the built-in at
+   * runtime (see multiplexer-registry.ts), so a stale value never leaves the
+   * session without one.
+   */
+  get multiplexer(): string {
+    return this.layers.effective.multiplexer;
   }
 
   get concurrency(): ConcurrencyConfig {
@@ -246,27 +233,54 @@ export class ConfigStore {
    * session entry, exactly as the session default model does: it unpins the
    * session, leaving the configured layers to answer.
    */
-  defaultModelForHarness(harness: HarnessId): string | null {
-    const session = nonEmptyString(this.sessionHarnessDefaults[harness]);
+  defaultModelForHarness(harness: AnyHarnessId): string | null {
+    const session = nonBlankString(this.sessionHarnessDefaults[harness]);
     return session ?? harnessDefaultModel(this.layers.effective.agent, harness);
   }
 
-  hasSessionHarnessDefaultModel(harness: HarnessId): boolean {
-    return nonEmptyString(this.sessionHarnessDefaults[harness]) !== undefined;
+  /**
+   * Every harness id the config names, wherever it names one: the `harnessType`
+   * setting, the `defaultModelByHarness` keys, the `concurrency.harnesses` keys,
+   * and the harness qualifier on any `concurrency.providers` / `concurrency.models`
+   * pool key. A session reports the ids nothing registered — config loads before
+   * plugins do, so validation cannot answer that question, and a typo would
+   * otherwise be silent (the launch simply falls back).
+   */
+  configuredHarnessIds(): AnyHarnessId[] {
+    const ids = new Set<AnyHarnessId>([this.agent.harnessType]);
+    for (const id of Object.keys(
+      rawHarnessDefaults(this.layers.effective.agent),
+    )) {
+      ids.add(id);
+    }
+    for (const id of Object.keys(this.concurrency.harnesses)) ids.add(id);
+    for (const key of [
+      ...Object.keys(this.concurrency.providers),
+      ...Object.keys(this.concurrency.models),
+    ]) {
+      // An unqualified key carries the default harness, which is already named.
+      const parsed = parsePoolKey(key);
+      if (parsed !== undefined) ids.add(parsed.harness);
+    }
+    return [...ids];
   }
 
-  hasGlobalHarnessDefaultModel(harness: HarnessId): boolean {
+  hasSessionHarnessDefaultModel(harness: AnyHarnessId): boolean {
+    return nonBlankString(this.sessionHarnessDefaults[harness]) !== undefined;
+  }
+
+  hasGlobalHarnessDefaultModel(harness: AnyHarnessId): boolean {
     return this.harnessDefaultAt(this.layers.global, harness);
   }
 
-  hasProjectHarnessDefaultModel(harness: HarnessId): boolean {
+  hasProjectHarnessDefaultModel(harness: AnyHarnessId): boolean {
     return this.harnessDefaultAt(this.layers.project, harness);
   }
 
   /** A layer carries the harness's entry when the key is present, even when null. */
   private harnessDefaultAt(
     layer: RawConfig | null,
-    harness: HarnessId,
+    harness: AnyHarnessId,
   ): boolean {
     if (!layer?.agent) return false;
     return Object.prototype.hasOwnProperty.call(
@@ -338,7 +352,7 @@ export class ConfigStore {
     type: string,
     parentModelId: string | null,
     agentConfig: { modelsByFamily?: ModelsByFamily } | undefined,
-    harnessId: HarnessId,
+    harnessId: AnyHarnessId,
   ): string | null {
     return resolveModel({
       subagentType: type,
@@ -435,7 +449,7 @@ export class ConfigStore {
         ),
       setWorktreeCheckoutType: (policy: WorktreeCheckoutType) =>
         this.setAgentLayerEntry("worktreeCheckoutType", policy, "global"),
-      setHarnessType: (harnessType: HarnessId) =>
+      setHarnessType: (harnessType: AnyHarnessId) =>
         this.setAgentLayerEntry("harnessType", harnessType, "global"),
       /**
        * One harness's default, written entry-wise: the map is a whole value in
@@ -444,7 +458,7 @@ export class ConfigStore {
        * written as such rather than deleting the key.
        */
       setHarnessDefaultModel: (
-        harness: HarnessId,
+        harness: AnyHarnessId,
         value: string | null,
         target: ConfigTarget = "global",
       ): void => {
@@ -461,7 +475,7 @@ export class ConfigStore {
         });
       },
       clearHarnessDefaultModel: (
-        harness: HarnessId,
+        harness: AnyHarnessId,
         target: ConfigTarget | "all" = "global",
       ): void => {
         this.layers.clear(
@@ -490,7 +504,7 @@ export class ConfigStore {
         });
       },
       setHarness: (
-        harness: HarnessId,
+        harness: AnyHarnessId,
         n: number,
         target: ConfigTarget = "global",
       ): void => {
@@ -520,7 +534,7 @@ export class ConfigStore {
         });
       },
       removeHarness: (
-        harness: HarnessId,
+        harness: AnyHarnessId,
         target: ConfigTarget | "all" = "global",
       ): void => {
         this.removeConcurrencyEntry("harnesses", harness, target);
@@ -591,7 +605,7 @@ export class ConfigStore {
   /** Undefined deletes the key. */
   private setAgentLayerEntry(
     key: string,
-    value: unknown,
+    value: SubagentsConfig["agent"][string],
     target: "global" | "project",
   ): void {
     this.layers.mutate(target, (raw) => {
@@ -653,9 +667,8 @@ export class ConfigStore {
       }
       if (key === undefined) return;
       if (section === "harnesses") {
-        const harness = parseHarnessId(key);
-        if (harness !== undefined && layer.harnesses) {
-          delete layer.harnesses[harness];
+        if (layer.harnesses) {
+          delete layer.harnesses[key];
         }
         return;
       }

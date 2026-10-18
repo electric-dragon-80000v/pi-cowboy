@@ -11,12 +11,11 @@ import {
   type SettingItem,
 } from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
+import type { AnyHarnessId } from "../../agents/harness.js";
 import {
   harnessDisplayName,
-  parseHarnessId,
-  type HarnessId,
-} from "../../agents/harness.js";
-import type { HarnessModelOptions } from "../../agents/harness/registry.js";
+  type HarnessModelOptions,
+} from "../../agents/harness/registry.js";
 import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
@@ -49,13 +48,13 @@ type ConcurrencySection = "default" | "harnesses" | "providers" | "models";
  * so existing pi config and pools are what the pi rows edit; every other
  * harness writes "<harness>:<provider>[/<model>]".
  */
-function qualifiedKey(harness: HarnessId, bareKey: string): string {
+function qualifiedKey(harness: AnyHarnessId, bareKey: string): string {
   return harness === "pi" ? bareKey : `${harness}:${bareKey}`;
 }
 
 /** Configured provider or model keys grouped by the harness each key names. */
-function groupKeysByHarness(keys: string[]): Map<HarnessId, string[]> {
-  const groups = new Map<HarnessId, string[]>();
+function groupKeysByHarness(keys: string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
   for (const key of keys) {
     const harness = parsePoolKey(key)?.harness ?? "pi";
     const list = groups.get(harness);
@@ -67,9 +66,9 @@ function groupKeysByHarness(keys: string[]): Map<HarnessId, string[]> {
 
 /** The section order: probed harnesses first, then any harness only a configured key names. */
 function sectionHarnesses(
-  probed: readonly HarnessId[],
-  configured: Map<HarnessId, string[]>,
-): HarnessId[] {
+  probed: readonly string[],
+  configured: Map<string, string[]>,
+): string[] {
   const ordered = [...probed];
   for (const harness of configured.keys()) {
     if (!ordered.includes(harness)) ordered.push(harness);
@@ -100,7 +99,7 @@ export async function showConcurrencySettingsMenu(
       if (section === "default") return layer.default !== undefined;
       if (key === undefined) return false;
       if (section === "harnesses") {
-        return layer.harnesses?.[key as HarnessId] !== undefined;
+        return layer.harnesses?.[key] !== undefined;
       }
       return layer[section]?.[key] !== undefined;
     };
@@ -213,7 +212,7 @@ export async function showConcurrencySettingsMenu(
       };
 
     /** One harness's row inside the per-harness list, set or unset. */
-    const harnessLimitRow = (harness: HarnessId): SettingItem => {
+    const harnessLimitRow = (harness: AnyHarnessId): SettingItem => {
       const live = getStore();
       const limit = live.concurrency.harnesses[harness];
       const label = harnessDisplayName(harness);
@@ -268,21 +267,25 @@ export async function showConcurrencySettingsMenu(
       };
     };
 
-    /** Harnesses for the per-harness list: runnable plus already-configured. */
+    /**
+     * Harnesses for the per-harness list: runnable plus already-configured. The
+     * configured keys are taken raw — the vocabulary is open, so a limit left
+     * behind by a plugin that is no longer installed still gets a row, which is
+     * the only place it can be cleared from.
+     */
     const harnessListItems = (): SettingItem[] => {
       const live = getStore();
       const ordered = [...harnessIds];
       for (const key of Object.keys(live.concurrency.harnesses)) {
-        const harness = parseHarnessId(key);
-        if (harness !== undefined && !ordered.includes(harness)) {
-          ordered.push(harness);
+        if (key.trim() !== "" && !ordered.includes(key)) {
+          ordered.push(key);
         }
       }
       return ordered.map((harness) => harnessLimitRow(harness));
     };
 
     /** Candidate provider names for one harness, from its own model list. */
-    const providerOptionsFor = (harness: HarnessId): string[] => {
+    const providerOptionsFor = (harness: AnyHarnessId): string[] => {
       const modelKeys = harnessModelOptions.get(harness) ?? [];
       return [
         ...new Set(
@@ -294,7 +297,10 @@ export async function showConcurrencySettingsMenu(
     };
 
     /** One provider row inside a harness's provider list, set or unset. */
-    const providerLimitRow = (harness: HarnessId, key: string): SettingItem => {
+    const providerLimitRow = (
+      harness: AnyHarnessId,
+      key: string,
+    ): SettingItem => {
       const live = getStore();
       const limit = live.concurrency.providers[key];
       const description = `Concurrent slots reserved for agents under ${harness} using the ${parsePoolKey(key)?.provider ?? key} provider.`;
@@ -349,7 +355,7 @@ export async function showConcurrencySettingsMenu(
     };
 
     /** A harness's provider list: candidates plus already-configured keys. */
-    const providerListItems = (harness: HarnessId): SettingItem[] => {
+    const providerListItems = (harness: AnyHarnessId): SettingItem[] => {
       const live = getStore();
       const configured =
         groupKeysByHarness(Object.keys(live.concurrency.providers)).get(
@@ -363,7 +369,7 @@ export async function showConcurrencySettingsMenu(
     };
 
     /** One model row inside a harness's model list, set or unset. */
-    const modelLimitRow = (harness: HarnessId, key: string): SettingItem => {
+    const modelLimitRow = (harness: AnyHarnessId, key: string): SettingItem => {
       const live = getStore();
       const limit = live.concurrency.models[key];
       const parsed = parsePoolKey(key);
@@ -420,7 +426,7 @@ export async function showConcurrencySettingsMenu(
     };
 
     /** A harness's model list: candidates plus already-configured keys. */
-    const modelListItems = (harness: HarnessId): SettingItem[] => {
+    const modelListItems = (harness: AnyHarnessId): SettingItem[] => {
       const live = getStore();
       const configured =
         groupKeysByHarness(Object.keys(live.concurrency.models)).get(harness) ??

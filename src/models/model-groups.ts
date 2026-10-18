@@ -12,8 +12,8 @@ import {
   type Model,
 } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "../types.js";
-import type { HarnessFamily } from "../agents/harness.js";
 import type { ModelsByFamily } from "../agents/types.js";
+import type { HarnessFamily } from "../agents/harness.js";
 import type {
   SubagentsConfig,
   SessionModelOverrides,
@@ -34,8 +34,11 @@ interface ModelGroupsInput {
   sessionOverrides: SessionModelOverrides;
   /** The launching harness's default for one type, flattened across its layers. */
   harnessDefaultFor: (type: string) => string | null;
-  /** The family that launches one type: which family's template model step 3 reads. */
-  harnessFamilyFor: (type: string) => HarnessFamily;
+  /**
+   * The built-in family that launches one type: which family's template model
+   * step 3 reads. Undefined for a plugin harness, whose own id keys no table.
+   */
+  harnessFamilyFor: (type: string) => HarnessFamily | undefined;
   /** Provenance for [project] tags. */
   hasProjectModelKey: (key: string) => boolean;
   /** Null when the parent session has no model: nothing further to inherit. */

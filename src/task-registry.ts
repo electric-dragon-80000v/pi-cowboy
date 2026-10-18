@@ -34,16 +34,16 @@ export interface TaskRegistry {
 
 export type { LiveAttempt } from "./agents/agent-host.js";
 
-/** A live attempt suppressing a new spawn: an in-memory queued/spawned spawn, or a live backend attempt. */
+/** A live attempt suppressing a new spawn: an in-memory queued/spawned spawn, or one the multiplexer reports. */
 type TaskDedup =
   | { kind: "none" }
   | { kind: "spawn"; spawn: AgentSpawn }
-  | { kind: "herdr"; attempt: LiveAttempt };
+  | { kind: "multiplexer"; attempt: LiveAttempt };
 
 /**
  * Decide whether a task is already in flight. In-memory spawns win (freshest signal — the
- * placement may not be live in the backend yet); otherwise any live backend attempt owns
- * the task, which also covers a parent reload. Ownership is binary and ends only the duplicate.
+ * placement may not be live in the multiplexer yet); otherwise a live attempt the
+ * multiplexer reports owns the task, which also covers a parent reload. Ownership is binary and ends only the duplicate.
  */
 export function findTaskDedup(
   inFlightSpawns: AgentSpawn[],
@@ -52,7 +52,7 @@ export function findTaskDedup(
   const spawn = inFlightSpawns.at(0);
   if (spawn) return { kind: "spawn", spawn };
   const attempt = liveAttempts.at(0);
-  if (attempt) return { kind: "herdr", attempt };
+  if (attempt) return { kind: "multiplexer", attempt };
   return { kind: "none" };
 }
 
@@ -84,7 +84,7 @@ export interface TaskRegistryDeps {
   spawn(type: SubagentType, prompt: string, options: SpawnOptions): string;
   /** Look up a spawn by id. */
   getSpawn(agentId: string): AgentSpawn | undefined;
-  /** Live backend attempts for a task slug. */
+  /** Live attempts the multiplexer reports for a task slug. */
   findTaskAttempts(taskSlug: string): Promise<LiveAttempt[]>;
   /** 1-based FIFO position of a queued spawn, or 0 when it is not queued. */
   queuePosition(agentId: string): number;

@@ -5,17 +5,24 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSpawn } from "../src/types.js";
-import type { HostObservation } from "../src/agents/agent-host.js";
+import {
+  registerHarness,
+  unregisterHarness,
+} from "../src/agents/harness/registry.js";
+import type {
+  HostObservation,
+  PlacementRecord,
+  PlacementWorktree,
+} from "../src/agents/agent-host.js";
 import {
   createAgentAssets,
+  createMultiplexerAgentAssets,
   type AgentAssetsDeps,
   type Ambiguous,
   type AgentAssets,
   type Located,
   type LocateResult,
 } from "../src/agents/agent-assets.js";
-import type { HerdrAgentInfo } from "../src/infrastructure/herdr/agents.js";
-import type { HerdrWorktreeInfo } from "../src/infrastructure/herdr/worktrees.js";
 
 const ID = "a1b2c3d4";
 const OTHER_ID = "z9y8x7w6";
@@ -36,7 +43,7 @@ function hint(overrides: Partial<AgentSpawn> = {}): AgentSpawn {
     lifecycle: { phase: "spawned", startedAt: 1 },
     execution: {
       host: {
-        engine: "herdr",
+        multiplexer: "herdr",
         name: BRANCH,
         paneId: "w1:p1",
         tabId: "w1:t1",
@@ -50,36 +57,39 @@ function hint(overrides: Partial<AgentSpawn> = {}): AgentSpawn {
 }
 
 function worktreeEntry(
-  overrides: Partial<HerdrWorktreeInfo> = {},
-): HerdrWorktreeInfo {
+  overrides: Partial<PlacementWorktree> = {},
+): PlacementWorktree {
   return {
     path: WT_PATH,
     label: BRANCH,
-    isLinkedWorktree: true,
-    openWorkspaceId: "w1",
+    workspaceId: "w1",
     ...overrides,
   };
 }
 
-function agentRecord(overrides: Partial<HerdrAgentInfo> = {}): HerdrAgentInfo {
+function agentRecord(
+  overrides: Partial<PlacementRecord> = {},
+): PlacementRecord {
   return {
     state: "done",
     paneId: "w1:p1",
     workspaceId: "w1",
     cwd: WT_PATH,
-    interactiveReady: true,
     ...overrides,
   };
 }
 
 function buildDeps(overrides: Partial<AgentAssetsDeps> = {}): AgentAssetsDeps {
   return {
+    multiplexer: "herdr",
+    // The seam's default is identity; the herdr catalog canonicalizes (see herdr-host.ts).
+    canonicalizePath: (value) => value,
     deliverable: (id) => ({
       path: `/tmp/pi-cowboy/${id}/result.md`,
       present: false,
     }),
     listWorktrees: async () => [],
-    listAgentRecords: async () => [],
+    listPlacements: async () => [],
     readPane: async () => undefined,
     worktreeRoot: async () => ROOT,
     listRootEntries: async () => [],
@@ -133,7 +143,7 @@ describe("locate — a tracked run", () => {
 
   it("prefers the workspace herdr reports over a stale recorded one", async () => {
     const assets = assetsFor({
-      listWorktrees: async () => [worktreeEntry({ openWorkspaceId: "w9" })],
+      listWorktrees: async () => [worktreeEntry({ workspaceId: "w9" })],
     });
 
     const result = await located(await assets.locate(ID, hint()));
@@ -144,9 +154,7 @@ describe("locate — a tracked run", () => {
   it("drops the workspace when herdr answers that no workspace hosts the checkout", async () => {
     // Recorded workspace gone (herdr restarted): removal must go through the git plane.
     const assets = assetsFor({
-      listWorktrees: async () => [
-        worktreeEntry({ openWorkspaceId: undefined }),
-      ],
+      listWorktrees: async () => [worktreeEntry({ workspaceId: undefined })],
     });
 
     const result = await located(await assets.locate(ID, hint()));
@@ -168,7 +176,7 @@ describe("locate — a tracked run", () => {
 
   it("refreshes the pane from a live record spawned in the checkout", async () => {
     const assets = assetsFor({
-      listAgentRecords: async () => [
+      listPlacements: async () => [
         agentRecord({ paneId: "w7:p3", tabId: "w7:t1", workspaceId: "w7" }),
       ],
     });
@@ -184,7 +192,7 @@ describe("locate — a tracked run", () => {
 
   it("keeps the recorded pane when no live record matches", async () => {
     const assets = assetsFor({
-      listAgentRecords: async () => [agentRecord({ cwd: "/elsewhere" })],
+      listPlacements: async () => [agentRecord({ cwd: "/elsewhere" })],
     });
 
     const result = await located(await assets.locate(ID, hint()));
@@ -198,7 +206,7 @@ describe("locate — a tracked run", () => {
 
   it("keeps the recorded pane when the agent registry cannot be read", async () => {
     const assets = assetsFor({
-      listAgentRecords: async () => {
+      listPlacements: async () => {
         throw new Error("herdr down");
       },
     });
@@ -232,8 +240,8 @@ describe("locate — a tracked run", () => {
 describe("locate — a run with no record", () => {
   it("locates an adopted checkout from herdr's registry", async () => {
     const assets = assetsFor({
-      listWorktrees: async () => [worktreeEntry({ openWorkspaceId: "w3" })],
-      listAgentRecords: async () => [
+      listWorktrees: async () => [worktreeEntry({ workspaceId: "w3" })],
+      listPlacements: async () => [
         agentRecord({ workspaceId: "w3", cwd: "/ignored" }),
       ],
     });
@@ -259,8 +267,8 @@ describe("locate — a run with no record", () => {
 
   it("matches the pane by workspace when no record reports the checkout cwd", async () => {
     const assets = assetsFor({
-      listWorktrees: async () => [worktreeEntry({ openWorkspaceId: "w3" })],
-      listAgentRecords: async () => [
+      listWorktrees: async () => [worktreeEntry({ workspaceId: "w3" })],
+      listPlacements: async () => [
         agentRecord({ workspaceId: "w3", cwd: "/somewhere-else" }),
       ],
     });
@@ -426,7 +434,7 @@ describe("assets members", () => {
     const closePane = vi.fn(async () => {});
     const assets = assetsFor({ removeWorktree, closePane });
     const ref = {
-      engine: "herdr" as const,
+      multiplexer: "herdr" as const,
       name: BRANCH,
       paneId: "w1:p1",
       tabId: "w1:t1",
@@ -461,7 +469,7 @@ describe("locate — per-asset authority", () => {
       branch: "feature-x",
     };
     const assets = assetsFor({
-      listWorktrees: async () => [worktreeEntry({ openWorkspaceId: "w4" })],
+      listWorktrees: async () => [worktreeEntry({ workspaceId: "w4" })],
     });
 
     const result = await located(await assets.locate(ID, spawn));
@@ -486,5 +494,103 @@ describe("locate — per-asset authority", () => {
       repoCwd: undefined,
       workspaceId: "w1",
     });
+  });
+});
+
+/* ── The multiplexer composition: the seam reads and acts through one multiplexer ── */
+
+describe("createMultiplexerAgentAssets — bound to a session's multiplexer", () => {
+  /** A catalog and host that record what the seam asked them for. */
+  function engineProbes(multiplexer = "plugin-multiplexer") {
+    const host = {
+      release: vi.fn(async () => true),
+      isAttached: vi.fn(async () => false),
+    };
+    const catalog = {
+      multiplexer,
+      canonicalizePath: (value: string) => value,
+      listWorktrees: vi.fn(async () => [worktreeEntry()]),
+      listPlacements: vi.fn(async () => [agentRecord()]),
+      observePane: vi.fn(async () => undefined),
+    };
+    return { host, catalog };
+  }
+
+  it("reads the session multiplexer's catalog and names that multiplexer on the seam", async () => {
+    const { host, catalog } = engineProbes();
+    const assets = createMultiplexerAgentAssets(
+      {} as never,
+      host as never,
+      catalog,
+    );
+
+    expect(assets.multiplexer).toBe("plugin-multiplexer");
+
+    const result = await located(await assets.locate(ID, hint()));
+
+    // The multiplexer reads came from the catalog, not from a multiplexer picked here.
+    expect(catalog.listWorktrees).toHaveBeenCalledTimes(1);
+    expect(catalog.listPlacements).toHaveBeenCalledTimes(1);
+    expect(result.pane?.paneId).toBe("w1:p1");
+    expect(result.pane?.workspaceId).toBe("w1");
+  });
+
+  it("acts through the session multiplexer's host, with the scope each actuator means", async () => {
+    const { host, catalog } = engineProbes();
+    const assets = createMultiplexerAgentAssets(
+      {} as never,
+      host as never,
+      catalog,
+    );
+    const ref = {
+      multiplexer: "plugin-multiplexer",
+      name: BRANCH,
+      paneId: "w1:p1",
+      workspaceId: "w1",
+      paneCreated: true,
+    };
+
+    await assets.removeWorktree(ref);
+    await assets.closePane(ref);
+
+    expect(host.release).toHaveBeenNthCalledWith(
+      1,
+      ref,
+      "worktree-association",
+    );
+    expect(host.release).toHaveBeenNthCalledWith(2, ref, "placement");
+  });
+
+  it("tears a recorded harness down through the registry, and skips one nothing registers", async () => {
+    const teardown = vi.fn(async () => {});
+    registerHarness({
+      id: "assets-plugin-harness",
+      displayName: "Assets plugin harness",
+      agentMultiplexerKind: "assets-plugin-harness",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown,
+      listModels: async () => [],
+      prefetchModels: () => {},
+    });
+    const { host, catalog } = engineProbes();
+    const assets = createMultiplexerAgentAssets(
+      {} as never,
+      host as never,
+      catalog,
+    );
+    const context = { paneId: "w1:p1", cwd: WT_PATH, subagentId: ID };
+
+    await assets.harnessTeardown("assets-plugin-harness", context);
+    expect(teardown).toHaveBeenCalledWith({ pi: {}, ...context });
+
+    // A recorded id is data, not a resolution: its plugin's load can be gone by
+    // the time cleanup runs, and then there is no teardown left to call.
+    unregisterHarness("assets-plugin-harness");
+    await expect(
+      assets.harnessTeardown("assets-plugin-harness", context),
+    ).resolves.toBeUndefined();
+    expect(teardown).toHaveBeenCalledTimes(1);
   });
 });

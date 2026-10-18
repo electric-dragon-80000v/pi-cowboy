@@ -17,8 +17,30 @@ import {
   resolveWorktreeCheckoutType,
 } from "../src/agents/spawn-defaults.js";
 import { probed, unprobed, type Availability } from "../src/availability.js";
-import { HARNESS_IDS, type HarnessId } from "../src/agents/harness.js";
-import { harnessFamilyOf } from "../src/agents/harness-family.js";
+import {
+  HARNESS_IDS,
+  type HarnessId,
+  type PluginHarness,
+} from "../src/agents/harness.js";
+import {
+  harnessFamilyOf,
+  registerHarness,
+} from "../src/agents/harness/registry.js";
+
+/** A registered-only harness: this file is about resolution, not availability. */
+function pluginHarness(id: string): PluginHarness {
+  return {
+    id,
+    displayName: id,
+    agentMultiplexerKind: id,
+    availability: () => ({ status: "available" }),
+    prepare: async () => {},
+    buildArgs: () => [],
+    teardown: async () => {},
+    listModels: async () => [],
+    prefetchModels: () => {},
+  };
+}
 
 const { configured } = vi.hoisted(() => ({
   configured: {} as {
@@ -152,6 +174,19 @@ describe("spawn-defaults — harness", () => {
     configured.harnessAvailability = probed<HarnessId>(["pi"]);
 
     expect(resolveHarnessType("harness-pig")).toBe("pi");
+  });
+
+  it("resolves a plugin harness the machine can launch, and falls back from one it cannot", () => {
+    // A plugin harness is a value like any other: registered means resolvable,
+    // and an unproven one falls back exactly as a built-in does.
+    registerHarness(pluginHarness("sd-plugin"));
+    configured.harnessType = "sd-plugin";
+
+    configured.harnessAvailability = probed(["sd-plugin"]);
+    expect(resolveHarnessType("general-purpose")).toBe("sd-plugin");
+
+    configured.harnessAvailability = probed(["pi"]);
+    expect(resolveHarnessType("general-purpose")).toBe("pi");
   });
 
   it("lets the caller's harness_type win over both the template and the config setting", () => {

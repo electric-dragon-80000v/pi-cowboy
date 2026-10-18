@@ -20,8 +20,12 @@ import { defaultWorktreeRoot } from "../../paths.js";
 import {
   HARNESS_IDS,
   parseHarnessId,
-  type HarnessId,
+  type AnyHarnessId,
 } from "../../agents/harness.js";
+import {
+  harnessDisplayName,
+  harnessIds,
+} from "../../agents/harness/registry.js";
 import {
   isAvailable,
   selectable,
@@ -57,15 +61,22 @@ import {
  * The harness row's description. Narrows with the row: an unlaunchable harness is
  * named as missing rather than silently absent from the values.
  */
-function harnessDescription(availability: Availability<HarnessId>): string {
+function harnessDescription(availability: Availability<AnyHarnessId>): string {
   const base =
     "Harness that launches agents whose template omits harness_type. pi = the real pi binary; pig and pi-bolt = pi-compatible binaries launched through a shell function in the agent's own pane; opencode and codex = binaries of their own launched as their interactive UIs in the agent's own pane.";
   const missing = HARNESS_IDS.filter(
     (id) => id !== "pi" && !isAvailable(id, availability),
   );
-  return missing.length === 0
-    ? base
-    : `${base} Not on PATH: ${missing.join(", ")}.`;
+  const withMissing =
+    missing.length === 0 ? base : `${base} Not on PATH: ${missing.join(", ")}.`;
+  // A plugin's harness is as launchable a default as a built-in's; name the ones
+  // this machine registered so the row lists everything the value can carry.
+  const plugins = harnessIds().filter(
+    (id) => parseHarnessId(id) === undefined && isAvailable(id, availability),
+  );
+  return plugins.length === 0
+    ? withMissing
+    : `${withMissing} Plugin harnesses: ${plugins.map((id) => harnessDisplayName(id)).join(", ")}.`;
 }
 
 export async function showSpawnOptionsMenu(
@@ -132,7 +143,7 @@ export async function showSpawnOptionsMenu(
         id: "harnessType",
         label: "Default harness",
         currentValue: getHarnessType(),
-        values: [...selectable(HARNESS_IDS, getHarnessAvailability())],
+        values: [...selectable(harnessIds(), getHarnessAvailability())],
         description: harnessDescription(getHarnessAvailability()),
       },
       { id: SEPARATOR_ID, label: " ", currentValue: "" },
@@ -220,11 +231,10 @@ export async function showSpawnOptionsMenu(
         break;
       }
       case "harnessType": {
-        const harnessType = parseHarnessId(newValue);
-        if (harnessType !== undefined) {
-          store.mutate.agent.setHarnessType(harnessType);
-          ctx.ui.notify(`Default harness set to ${harnessType}`, "info");
-        }
+        // The picker offers every registered harness, built-in or plugin, so the
+        // value is written as chosen.
+        store.mutate.agent.setHarnessType(newValue);
+        ctx.ui.notify(`Default harness set to ${newValue}`, "info");
         break;
       }
       case "disableDefaultAgents":

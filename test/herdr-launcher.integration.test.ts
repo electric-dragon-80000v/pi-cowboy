@@ -348,7 +348,7 @@ describe("startAgent", () => {
       name: "cow-abc",
       paneId: "w1:p2",
       piArgs: ["-p", "briefing"],
-      agentMuxKind: "pi",
+      agentMultiplexerKind: "pi",
     });
     await vi.advanceTimersByTimeAsync(30_000);
     await promise;
@@ -374,7 +374,7 @@ describe("startAgent", () => {
         name: "cow-x",
         paneId: "w1:p1",
         piArgs: [],
-        agentMuxKind: "pi",
+        agentMultiplexerKind: "pi",
       }),
     ).resolves.toBeUndefined();
     expect(calls).toBe(1);
@@ -397,7 +397,7 @@ describe("startAgent", () => {
       name: "cow-x",
       paneId: "w1:p1",
       piArgs: [],
-      agentMuxKind: "pi",
+      agentMultiplexerKind: "pi",
     });
     // Attach the handler before advancing, or the rejection is unhandled.
     const assertion = expect(promise).rejects.toThrow(
@@ -1057,7 +1057,7 @@ describe("deleteWorktreeBranch", () => {
     });
   });
 
-  it("keeps a branch whose checkout the backend still has attached", async () => {
+  it("keeps a branch whose checkout the multiplexer still has attached", async () => {
     const pi = branchPi({});
     expect(
       await deleteWorktreeBranch(

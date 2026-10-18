@@ -1,5 +1,6 @@
 /**
- * index.ts — herdr-pane subagents extension entry point.
+ * index.ts — pane-subagent extension entry point: the multiplexer hosting this
+ * process decides whether it activates at all (see host-multiplexer.ts).
  * The tool's per-call `model` parameter is the caller's and is never written
  * by the listener; config lives in ConfigStore.
  */
@@ -8,13 +9,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  setPiInstance,
-  setRuntime,
-  isInsideHerdr,
-  detectSubagentSpawn,
-} from "./shell.js";
-import { createHerdrRuntime } from "./infrastructure/herdr-host.js";
+import { setPiInstance, detectSubagentSpawn } from "./shell.js";
+import { getHostMultiplexer } from "./host-multiplexer.js";
 import { missingCloneProgramReport } from "./infrastructure/git/cow-clone.js";
 import { isInsideGitRepository } from "./infrastructure/git-client.js";
 import {
@@ -23,12 +19,6 @@ import {
   registerUnavailableCowboyCommand,
 } from "./registration.js";
 import { setupEventListeners } from "./events.js";
-// What the worktree volume can do is probed at session_start (awaited there),
-// once the session config has reloaded the worktree root.
-import {
-  prefetchHarnessModels,
-  startHarnessAvailabilityProbe,
-} from "./harness-availability-launch.js";
 
 /** The one reason the extension is unavailable when the session is not inside a git repository. */
 const NOT_INSIDE_GIT_REPOSITORY =
@@ -48,8 +38,9 @@ function reportInactive(pi: ExtensionAPI, message: string): void {
 }
 
 export default function (pi: ExtensionAPI) {
-  // Subagents launch through the parent session's `herdr` CLI.
-  if (!isInsideHerdr()) return;
+  // Subagents launch through the multiplexer hosting this process; outside every
+  // multiplexer there is no pane to launch them into.
+  if (getHostMultiplexer() === undefined) return;
   // Stay inert so subagents can never spawn further subagents.
   if (detectSubagentSpawn() !== undefined) return;
   // A program the clone path needs is missing, so copy-on-write could never
@@ -70,15 +61,8 @@ export default function (pi: ExtensionAPI) {
     return;
   }
   setPiInstance(pi);
-  setRuntime(createHerdrRuntime(pi));
   // Registered once, here: the switch toggles them through the active set.
   registerTools(pi);
   registerCowboyCommand(pi);
   setupEventListeners(pi);
-  // Which harnesses are on PATH — and spoken by a version this extension
-  // launches — decides which stay on offer.
-  startHarnessAvailabilityProbe(pi);
-  // Slow model lists start warming now, never awaited; every later listing
-  // joins whatever its harness started.
-  prefetchHarnessModels(pi);
 }

@@ -75,7 +75,7 @@ describe("concurrency keys — file validation", () => {
     });
   });
 
-  it("drops an unknown harness qualifier and keeps the valid entries", () => {
+  it("keeps a qualifier the built-in vocabulary does not know, since a plugin harness id is valid", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const cleaned = validateRawLayer(
@@ -91,12 +91,14 @@ describe("concurrency keys — file validation", () => {
       "config.json",
     );
 
+    // The qualifier vocabulary is open: only the shape (a non-empty id before
+    // the first "/") is checked, so a plugin harness's key survives validation.
     expect(cleaned.concurrency?.models).toEqual({
+      "cow:foo/bar": 1,
       "opencode:foo/bar": 2,
       "plain/model": 3,
     });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain("concurrency.models.cow:foo/bar");
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("drops a model key with an empty provider or model half", () => {
@@ -157,7 +159,7 @@ describe("concurrency keys — file validation", () => {
     });
   });
 
-  it("drops an unknown harness key from the harnesses map", () => {
+  it("keeps a harness key the built-in vocabulary does not know, since a plugin harness id is valid", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const cleaned = validateRawLayer(
@@ -165,9 +167,21 @@ describe("concurrency keys — file validation", () => {
       "config.json",
     );
 
+    expect(cleaned.concurrency?.harnesses).toEqual({ cow: 1, opencode: 2 });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("drops an empty harness key", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      { concurrency: { harnesses: { "": 1, opencode: 2 } } },
+      "config.json",
+    );
+
     expect(cleaned.concurrency?.harnesses).toEqual({ opencode: 2 });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain("concurrency.harnesses.cow");
+    expect(warn.mock.calls[0]![0]).toContain("concurrency.harnesses.");
   });
 
   it("drops a non-number harness limit", () => {
@@ -382,5 +396,28 @@ describe("concurrency keys — store", () => {
     ).toThrow(/positive integer/);
     expect(store.sessionConcurrency.harnesses).toBeUndefined();
     expect(store.concurrency.harnesses).toEqual({});
+  });
+});
+
+describe("concurrency keys — a whitespace-only harness qualifier", () => {
+  it("drops a pool key whose qualifier is only whitespace", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      {
+        concurrency: {
+          models: { "   :foo/bar": 1, "opencode:foo/bar": 2 },
+          providers: { "  :anthropic": 1, opencode: 2 },
+        },
+      },
+      "config.json",
+    );
+
+    // A qualifier that is not a non-empty id is no qualifier: the key is dropped
+    // rather than attributed to a harness named "   ".
+    expect(cleaned.concurrency?.models).toEqual({ "opencode:foo/bar": 2 });
+    expect(cleaned.concurrency?.providers).toEqual({ opencode: 2 });
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

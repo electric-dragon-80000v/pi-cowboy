@@ -523,7 +523,7 @@ describe("deleteWorktreeBranch", () => {
     );
   });
 
-  it("keeps a branch whose checkout the backend still has attached", async () => {
+  it("keeps a branch whose checkout the multiplexer still has attached", async () => {
     const repo = await makeRepo(freshTmp());
     const wt = join(freshTmp(), "cow-live-00000000");
     await addWorktree(repo, wt, "cow-live-00000000");

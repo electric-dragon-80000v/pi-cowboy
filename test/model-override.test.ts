@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSpawn } from "../src/types.js";
 import { probed, unprobed } from "../src/availability.js";
 import { ConfigStore } from "../src/config/config-store.js";
+import type { RawConfig } from "../src/config/config-io.js";
 import { setHarnessAvailability } from "../src/shell.js";
 
 import {
@@ -223,7 +224,7 @@ beforeEach(() => {
     key: "general-purpose",
   });
   hostAtMock.mockResolvedValue({
-    engine: "herdr",
+    multiplexer: "herdr",
     name: BRANCH,
     paneId: "p1",
     tabId: "t1",
@@ -383,7 +384,7 @@ describe("cowboy_agent — the harness default at the global default's position"
   const OPENCODE_DEFAULT = "openai/gpt-4o";
 
   /** A store over one in-memory global layer, with no project target. */
-  function realStore(agent: Record<string, unknown>): ConfigStore {
+  function realStore(agent: RawConfig["agent"]): ConfigStore {
     return new ConfigStore({
       load: () => ({
         global: { agent },

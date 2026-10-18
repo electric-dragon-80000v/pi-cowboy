@@ -264,9 +264,8 @@ function opencodeAvailability(): HarnessAvailability {
   }
 }
 
-export const opencodeHarness: Harness<"opencode"> = {
-  id: "opencode",
-  agentMuxKind: "opencode",
+export const opencodeHarness: Harness<OpencodeLaunchRequest> = {
+  agentMultiplexerKind: "opencode",
   availability: opencodeAvailability,
   /**
    * Stage the config directory, install the launcher that points opencode at it
@@ -275,16 +274,16 @@ export const opencodeHarness: Harness<"opencode"> = {
    * rather than assumed.
    */
   async prepare({
-    pi,
+    pane,
     paneId,
     launch,
-  }: HarnessPrepareRequest<"opencode">): Promise<void> {
+  }: HarnessPrepareRequest<OpencodeLaunchRequest>): Promise<void> {
     const configDir = writeOpencodeStaging({
       subagentId: launch.subagentId,
       systemPromptFile: launch.systemPromptFile,
       toolSelection: launch.toolSelection,
     });
-    await installPaneLauncher(pi, paneId, {
+    await installPaneLauncher(pane, paneId, {
       commandName: OPENCODE_COMMAND,
       body: launcherBody(configDir, launch.taskFile),
       signature: LAUNCHER_SIGNATURE,

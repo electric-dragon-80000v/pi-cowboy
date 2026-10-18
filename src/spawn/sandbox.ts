@@ -69,7 +69,7 @@ export interface SandboxRequest {
   dirtyCheckout: WorktreeCheckoutType;
   /** UI warning hook for the no-repo case. */
   notify?: (message: string, kind: "warning") => void;
-  /** Execution backend that adopts the checkout (tests inject a fake). */
+  /** Execution multiplexer that adopts the checkout (tests inject a fake). */
   host: AgentHost;
 }
 
@@ -98,7 +98,7 @@ export interface AdoptWorktreeRequest {
   dirtyCheckout: WorktreeCheckoutType;
   /** Same warning hook as `SandboxRequest`, passed through to the materializer's fallback. */
   notify?: (message: string, kind: "warning") => void;
-  /** Execution backend that adopts the checkout (tests inject a fake). */
+  /** Execution multiplexer that adopts the checkout (tests inject a fake). */
   host: AgentHost;
 }
 
@@ -473,9 +473,9 @@ export function formatLaunchCleanupNote(
 ): string {
   switch (outcome.kind) {
     case "removed":
-      return outcome.via === "herdr"
-        ? `Launch-failure cleanup: worktree ${outcome.path} removed — its herdr workspace, tab, and pane were closed with it. ${formatLaunchedBranchOutcome(outcome.branchName, outcome.branch)}.`
-        : // The git-side verdict only. Whether a herdr pane survived belongs to
+      return outcome.via === "multiplexer"
+        ? `Launch-failure cleanup: worktree ${outcome.path} removed — its workspace, tab, and pane were closed with it. ${formatLaunchedBranchOutcome(outcome.branchName, outcome.branch)}.`
+        : // The git-side verdict only. Whether a pane survived belongs to
           // the adoption error that precedes this note, which names it.
           `Launch-failure cleanup: worktree ${outcome.path} removed. ${formatLaunchedBranchOutcome(outcome.branchName, outcome.branch)}.`;
     case "kept":

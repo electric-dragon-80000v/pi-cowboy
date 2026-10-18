@@ -17,7 +17,8 @@ import {
   resolveWorktreeMaterialization,
   type WorktreeMaterialization,
 } from "./spawn/worktree-policy.js";
-import { resolveHarness, type HarnessId } from "./agents/harness.js";
+import type { AnyHarnessId } from "./agents/harness.js";
+import { resolveHarness } from "./agents/harness/registry.js";
 import { unprobed, type Availability } from "./availability.js";
 import type { PresenceMarker } from "./ui/indicator.js";
 import { AgentSpawnStore } from "./agents/agent-spawn-store.js";
@@ -73,7 +74,7 @@ interface Shell {
   cowAvailability: Availability<WorktreeMaterialization>;
   /** Which probe may write `cowAvailability`: the claim number of the newest one started. */
   cowAvailabilityClaim: number;
-  harnessAvailability: Availability<HarnessId>;
+  harnessAvailability: Availability<AnyHarnessId>;
 }
 
 const shell: Shell = {
@@ -213,12 +214,12 @@ export function setCowAvailability(
 }
 
 /** Which harnesses this machine can launch; unknown until the launch probe lands. */
-export function getHarnessAvailability(): Availability<HarnessId> {
+export function getHarnessAvailability(): Availability<AnyHarnessId> {
   return shell.harnessAvailability;
 }
 
 export function setHarnessAvailability(
-  availability: Availability<HarnessId>,
+  availability: Availability<AnyHarnessId>,
 ): void {
   shell.harnessAvailability = availability;
 }
@@ -240,7 +241,7 @@ export function getWorktreeMaterialization(): WorktreeMaterialization {
  * machine can launch. Every reader goes through the spawn defaults, so the menu
  * and a spawn cannot disagree.
  */
-export function getHarnessType(): HarnessId {
+export function getHarnessType(): string {
   return resolveHarness(
     shell.store.agent.harnessType,
     shell.harnessAvailability,
@@ -298,8 +299,4 @@ export function detectSubagentSpawn(
     if (match) return match[1];
   }
   return undefined;
-}
-
-export function isInsideHerdr(): boolean {
-  return process.env.HERDR_ENV === "1";
 }

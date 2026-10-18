@@ -14,7 +14,6 @@ import {
   getSessionCtx,
 } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
-import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
 import {
   ConcurrencyPools,
   type ConcurrencyConfig,
@@ -36,9 +35,10 @@ import {
 import { FileDeliverable } from "../subagent/deliverable.js";
 import { removeResultArtifacts } from "../subagent/result-artifacts.js";
 import type { SupervisorTransport } from "../subagent/pane-supervisor.js";
+import type { ExecutionRuntime } from "./agent-host.js";
 import { createCleanup } from "./agent-cleanup.js";
 import {
-  createHerdrAgentAssets,
+  createMultiplexerAgentAssets,
   type AgentAssets,
   type LocateResult,
 } from "./agent-assets.js";
@@ -56,11 +56,23 @@ import type { SubagentType } from "./types.js";
 
 export type { SpawnOptions, SteerOutcome } from "./subagent-session.js";
 
-/** The transport the manager wires its sessions with unless the caller supplies one. */
-export const defaultAgentManagerTransport: SupervisorTransport = {
-  createHost: (pi) => createHerdrRuntime(pi).host,
-  createDeliverable: (resultFile) => new FileDeliverable(resultFile),
-};
+/**
+ * The transport a session's manager runs on: the session's runtime, which
+ * `ExecutionRuntime` builds once per parent session (agent-host.ts). The runtime is
+ * bound once here, so every spawn, every cleanup and the registry's dedup check
+ * reuse the same host, placements and pane; a multiplexer that opens a connection
+ * or starts a service in its `create` would otherwise leak one per call.
+ */
+export function createAgentManagerTransport(
+  runtime: ExecutionRuntime,
+): SupervisorTransport {
+  return {
+    createHost: () => runtime.host,
+    createPane: () => runtime.pane,
+    createPlacements: () => runtime.placements,
+    createDeliverable: (resultFile) => new FileDeliverable(resultFile),
+  };
+}
 
 type OnAgentComplete = (spawn: AgentSpawn) => void;
 
@@ -112,7 +124,7 @@ export class AgentManager {
 
   constructor(
     pools: ConcurrencyPools,
-    private readonly transport: SupervisorTransport = defaultAgentManagerTransport,
+    private readonly transport: SupervisorTransport,
   ) {
     this.pools = pools;
     this.registry = new HerdrTaskRegistry({
@@ -256,7 +268,14 @@ export class AgentManager {
 
   /** Assets seam, built per call so probes run against the current shell. */
   private assets(): AgentAssets {
-    return createHerdrAgentAssets(getPiInstance());
+    const pi = getPiInstance();
+    // The multiplexer's own host and placement catalog, from the session's transport:
+    // the manager never picks a multiplexer for the cleanup and status paths.
+    return createMultiplexerAgentAssets(
+      pi,
+      this.transport.createHost(pi),
+      this.transport.createPlacements(pi),
+    );
   }
 
   /**

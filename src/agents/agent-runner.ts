@@ -29,18 +29,21 @@ import {
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
 import {
+  type AnyHarnessId,
   type CodexLaunchInputs,
   type ExtensionLaunchMode,
-  type HarnessId,
-  type HarnessLaunchRequest,
+  type HarnessLaunch,
   type OpencodeLaunchInputs,
   type PiLaunchInputs,
   type SkillLaunchMode,
   type SubagentLaunchInputs,
   type ToolSelection,
 } from "./harness.js";
-import { harnessFor } from "./harness/registry.js";
-import { harnessFamilyOf } from "./harness-family.js";
+import {
+  harnessFamilyOf,
+  harnessFor,
+  registeredHarness,
+} from "./harness/registry.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -215,14 +218,14 @@ export interface SubagentLaunchPlan {
   /** Legacy name: the complete argv the harness built, whatever binary it launches — the supervisor and herdr seams both spell it `piArgs`. */
   piArgs: string[];
   /**
-   * The family launch request `piArgs` was built from, and the same object a
-   * harness's `prepare` receives: one construction site, so a field the launch
-   * adds reaches both without a second copy to keep in step.
+   * The launch request `piArgs` was built from, and the same object a harness's
+   * `prepare` receives: one construction site, so a field the launch adds
+   * reaches both without a second copy to keep in step.
    */
-  launch: HarnessLaunchRequest;
+  launch: HarnessLaunch;
   taskSlug?: string;
   /** The harness that owns the pane `piArgs` launches into. */
-  harness: HarnessId;
+  harness: AnyHarnessId;
 }
 
 interface LaunchTunables extends RunTunables {
@@ -234,7 +237,7 @@ interface LaunchTunables extends RunTunables {
 interface LaunchExtras {
   description: string;
   /** The harness the launch resolves, so the plan and the pool identity agree. */
-  harness: HarnessId;
+  harness: AnyHarnessId;
   /** Worktree coordinates with ownership; absent for parent-cwd runs. */
   worktree?: AgentWorktree;
   /** The subagent-facing guidance the resolved orchestration template declares, rendered as the system prompt's final block. */
@@ -242,17 +245,19 @@ interface LaunchExtras {
 }
 
 /**
- * The launch request for one harness, by family. The switch is exhaustive over
- * `HarnessId`, so a kind added to `HARNESS_IDS` without a branch here fails to
- * compile instead of being handed another family's request.
+ * The launch request for one harness. A built-in id is one of the closed
+ * families below, so its own inputs are the only ones it can be handed; any
+ * other registered id is a plugin harness, whose request carries the shared
+ * inputs and the open arm's tag alone — its CLI-specific options live in its
+ * own code, so nothing built-in-family-specific can reach it.
  */
 function buildLaunchRequest(
-  harnessType: HarnessId,
+  harnessType: AnyHarnessId,
   sharedInputs: SubagentLaunchInputs,
   piInputs: PiLaunchInputs,
   opencodeInputs: OpencodeLaunchInputs,
   codexInputs: CodexLaunchInputs,
-): HarnessLaunchRequest {
+): HarnessLaunch {
   switch (harnessType) {
     case "pi":
     case "pig":
@@ -265,33 +270,25 @@ function buildLaunchRequest(
     case "claude":
       return { ...sharedInputs, family: "claude" };
     default: {
-      const unhandled: never = harnessType;
-      throw new Error(`unhandled harness: ${String(unhandled)}`);
+      if (registeredHarness(harnessType) === undefined) {
+        throw new Error(`no harness registered for "${harnessType}"`);
+      }
+      return { ...sharedInputs, family: "plugin" };
     }
   }
 }
 
 /**
- * The harness's argv, from the request this launch carries. The request's own
- * family tag selects the harness, so one family's argv cannot be built from
- * another family's inputs; the switch is exhaustive over the tag, so a family
- * added to `HarnessLaunchRequest` without a branch fails to compile.
+ * The harness's argv, from the id that owns the pane and the request this launch
+ * carries. The registry narrows a built-in's launch to its own family request and
+ * hands a plugin the shared inputs, so one family's argv cannot be built from
+ * another family's inputs and no caller branches on origin.
  */
-function buildHarnessArgs(request: HarnessLaunchRequest): string[] {
-  switch (request.family) {
-    case "pi":
-      return harnessFor("pi").buildArgs(request);
-    case "opencode":
-      return harnessFor("opencode").buildArgs(request);
-    case "codex":
-      return harnessFor("codex").buildArgs(request);
-    case "claude":
-      return harnessFor("claude").buildArgs(request);
-    default: {
-      const unhandled: never = request;
-      throw new Error(`unhandled harness family: ${String(unhandled)}`);
-    }
-  }
+function buildHarnessArgs(
+  harnessId: AnyHarnessId,
+  launch: HarnessLaunch,
+): string[] {
+  return harnessFor(harnessId).buildArgs(launch);
 }
 
 /** The child pi owns extension discovery and tool validation; this only forwards configuration. */
@@ -353,9 +350,11 @@ export async function buildLaunchPlan(
   try {
     // Exactly one harness launches a spawn, so exactly one family's slice
     // decides: its names are already in that family's vocabulary. A family the
-    // template does not name launches unfiltered — never with another
-    // family's list, and never translated.
-    const filter = agentConfig?.toolsByFamily?.[harnessFamilyOf(harnessType)];
+    // template does not name — a plugin's own family especially — launches
+    // unfiltered, never with another family's list, and never translated.
+    const family = harnessFamilyOf(harnessType);
+    const filter =
+      family === undefined ? undefined : agentConfig?.toolsByFamily?.[family];
     if (filter?.tools === false) {
       toolSelection = { kind: "none" };
     } else if (Array.isArray(filter?.tools)) {
@@ -461,7 +460,7 @@ export async function buildLaunchPlan(
     opencodeInputs,
     codexInputs,
   );
-  const piArgs = buildHarnessArgs(launch);
+  const piArgs = buildHarnessArgs(harnessType, launch);
 
   for (const msg of warnings) {
     ctx.ui.notify(`[cowboy] ${msg}`, "warning");

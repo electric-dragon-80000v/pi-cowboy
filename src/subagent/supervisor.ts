@@ -18,7 +18,7 @@
  * - `abandon()` is DISPOSAL ONLY for a discarded parent session (`/new`,
  *   `/reload`, `/fork`): polling stops, the pane/process/artifacts survive, and
  *   watch() never settles.
- * - Artifacts are NOT this engine's to remove: a settled run stays watched, so
+ * - Artifacts are NOT this multiplexer's to remove: a settled run stays watched, so
  *   its result directory survives settlement and is removed when the run is
  *   dropped (see removeResultArtifacts in result-artifacts.ts).
  * - One supervisor per run: re-delegation and revive each use a fresh instance.
@@ -29,7 +29,7 @@ import { errorMessage } from "../utils.js";
 import type {
   AgentHost,
   AgentHostRef,
-  AgentMuxKind,
+  AgentMultiplexerKind,
 } from "../agents/agent-host.js";
 import type { StopInitiator } from "../types.js";
 import type { DeliverableReport, DeliverableSource } from "./deliverable.js";
@@ -40,8 +40,8 @@ export interface SubagentLaunchPlan {
   name?: string;
   cwd?: string;
   piArgs: string[];
-  /** The mux agent kind the launched process must be detected as. */
-  agentMuxKind: AgentMuxKind;
+  /** The multiplexer agent kind the launched process must be detected as. */
+  agentMultiplexerKind: AgentMultiplexerKind;
   taskSlug?: string;
 }
 
@@ -89,7 +89,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /**
- * Lifecycle of one run as this engine sees it: idle -> watching -> ended. A
+ * Lifecycle of one run as this multiplexer sees it: idle -> watching -> ended. A
  * watching run carries the host address it polls, so "watching without a host"
  * is unrepresentable and no caller has to re-check for it. Ended means the
  * loop is gone; the run's outcome, if any, lives in `outcome`.
@@ -148,7 +148,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
       await this.host.start(ref, {
         name: plan.name ?? "subagent",
         piArgs: plan.piArgs,
-        agentMuxKind: plan.agentMuxKind,
+        agentMultiplexerKind: plan.agentMultiplexerKind,
       });
     } catch (err) {
       // A failed launch is not a run: revert so the caller may retry, unless
@@ -160,7 +160,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
 
   /**
    * Bind an already-spawned run without launching. One adoption per instance —
-   * revive with a fresh engine. Throws when this instance is not idle.
+   * revive with a fresh multiplexer. Throws when this instance is not idle.
    */
   adopt(ref: AgentHostRef): void {
     if (this.phase.kind !== "idle") {
@@ -385,7 +385,7 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
     }
   }
 
-  /** Whether this engine is still watching a run: asked at each transition and at each wait's start. */
+  /** Whether this multiplexer is still watching a run: asked at each transition and at each wait's start. */
   private isWatching(): boolean {
     return this.phase.kind === "watching";
   }

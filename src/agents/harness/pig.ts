@@ -11,7 +11,6 @@
 import { createPiCompatibleHarness } from "./pi-compatible.js";
 
 export const pigHarness = createPiCompatibleHarness({
-  id: "pig",
   binary: "pig",
   signature: "PIG_LAUNCHER_8f9a2b",
   readyMarker: "PIG_VERIFIED",

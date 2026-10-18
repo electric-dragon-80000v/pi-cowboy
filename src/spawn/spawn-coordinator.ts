@@ -149,7 +149,10 @@ export class SpawnCoordinator {
     }
     // The conflict vanished mid-read; still suppress the duplicate delegation.
     const attempt: LiveAttempt = { name: rejection.conflictingId };
-    return new TaskAlreadyInFlightError({ kind: "herdr", attempt }, taskSlug);
+    return new TaskAlreadyInFlightError(
+      { kind: "multiplexer", attempt },
+      taskSlug,
+    );
   }
 
   /**

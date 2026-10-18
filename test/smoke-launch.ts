@@ -84,7 +84,7 @@ async function main() {
     name: AGENT_ID,
     paneId,
     piArgs,
-    agentMuxKind: "pi",
+    agentMultiplexerKind: "pi",
   });
   console.log("pi started in pane");
 

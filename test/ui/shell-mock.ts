@@ -9,7 +9,7 @@ import type {
   SessionTemplates,
 } from "../../src/shell.js";
 import { AgentSpawnStore } from "../../src/agents/agent-spawn-store.js";
-import { resolveHarness, type HarnessId } from "../../src/agents/harness.js";
+import { resolveHarness } from "../../src/agents/harness/registry.js";
 import {
   resolveWorktreeMaterialization,
   type WorktreeMaterialization,
@@ -46,7 +46,7 @@ export const shellState = {
   repoLock: new RepoLock(),
   cowAvailability: unprobed() as Availability<WorktreeMaterialization>,
   cowAvailabilityClaim: 0,
-  harnessAvailability: unprobed() as Availability<HarnessId>,
+  harnessAvailability: unprobed() as Availability<string>,
 };
 
 export function setStore(store: ConfigStore): void {
@@ -129,14 +129,14 @@ export const getWorktreeMaterialization = (): string =>
     shellState.store.agent.worktreeMaterialization,
     shellState.cowAvailability,
   );
-export const getHarnessAvailability = (): Availability<HarnessId> =>
+export const getHarnessAvailability = (): Availability<string> =>
   shellState.harnessAvailability;
 export const setHarnessAvailability = (
-  availability: Availability<HarnessId>,
+  availability: Availability<string>,
 ): void => {
   shellState.harnessAvailability = availability;
 };
-export const getHarnessType = (): HarnessId =>
+export const getHarnessType = (): string =>
   resolveHarness(
     shellState.store.agent.harnessType,
     shellState.harnessAvailability,

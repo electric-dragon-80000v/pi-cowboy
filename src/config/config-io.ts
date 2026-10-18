@@ -8,18 +8,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentsConfig } from "../models/model-precedence.js";
-import {
-  DEFAULT_HARNESS,
-  parseHarnessId,
-  type HarnessId,
-} from "../agents/harness.js";
+import { DEFAULT_HARNESS } from "../agents/harness.js";
+import { defaultMultiplexer } from "../agents/multiplexer-registry.js";
 import { defaultExtensionDir, EXTENSION_NAME } from "../paths.js";
 import { isRecord } from "../predicates.js";
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
   DEFAULT_WORKTREE_MATERIALIZATION,
-  parseWorktreeCheckoutType,
-  parseWorktreeMaterialization,
 } from "../spawn/worktree-policy.js";
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
 import { errorMessage } from "../utils.js";
@@ -79,14 +74,17 @@ export type ProjectLayerStatus =
 
 export interface RawConcurrency {
   default?: number;
-  harnesses?: Partial<Record<HarnessId, number>>;
+  harnesses?: Partial<Record<string, number>>;
   providers?: Partial<Record<string, number>>;
   models?: Partial<Record<string, number>>;
 }
 
 export interface RawConfig {
-  agent?: Record<string, unknown>;
+  /** The agent keys validation kept, at the types it accepted. */
+  agent?: Partial<SubagentsConfig["agent"]>;
   concurrency?: RawConcurrency;
+  /** Machine-level: the multiplexer the session runs, by id. */
+  multiplexer?: string;
 }
 
 export interface LoadedConfig {
@@ -214,6 +212,8 @@ export function mergeLayers(
   return {
     agent,
     concurrency: mergeRawConcurrency(global.concurrency, project?.concurrency),
+    // Machine-level, so the project layer never carries one.
+    multiplexer: global.multiplexer,
   };
 }
 
@@ -222,7 +222,7 @@ function mergeRawConcurrency(
   ...layers: Array<RawConcurrency | undefined>
 ): RawConcurrency {
   const out: RawConcurrency = {};
-  const harnesses: Partial<Record<HarnessId, number>> = {};
+  const harnesses: Partial<Record<string, number>> = {};
   const providers: Partial<Record<string, number>> = {};
   const models: Partial<Record<string, number>> = {};
   for (const layer of layers) {
@@ -240,25 +240,10 @@ function mergeRawConcurrency(
 
 /** Bake hardcoded defaults into a raw config. */
 export function mergeDefaults(raw: RawConfig): SubagentsConfig {
-  // Spread form so the loaded value wins; values come from JSON, hence the casts.
-  const concurrency = {
-    ...DEFAULT_CONCURRENCY,
-    ...raw.concurrency,
-  } as SubagentsConfig["concurrency"];
-  const agent = {
-    ...DEFAULT_AGENT,
-    ...raw.agent,
-  } as SubagentsConfig["agent"];
-  agent.worktreeMaterialization =
-    parseWorktreeMaterialization(agent.worktreeMaterialization) ??
-    DEFAULT_WORKTREE_MATERIALIZATION;
-  agent.worktreeCheckoutType =
-    parseWorktreeCheckoutType(agent.worktreeCheckoutType) ??
-    DEFAULT_WORKTREE_CHECKOUT_TYPE;
-  agent.harnessType = parseHarnessId(agent.harnessType) ?? DEFAULT_HARNESS;
   return {
-    agent,
-    concurrency,
+    agent: { ...DEFAULT_AGENT, ...raw.agent },
+    concurrency: { ...DEFAULT_CONCURRENCY, ...raw.concurrency },
+    multiplexer: raw.multiplexer ?? defaultMultiplexer(),
   };
 }
 

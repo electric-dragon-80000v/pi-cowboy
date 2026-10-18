@@ -15,7 +15,7 @@
  * second-guessed.
  */
 
-import type { ForeignHarnessId, ModelEntry } from "../agents/harness.js";
+import type { AnyHarnessId, ModelEntry } from "../agents/harness.js";
 import type { ModelRequest, ResolvedModel } from "./model-request-types.js";
 
 /**
@@ -24,13 +24,13 @@ import type { ModelRequest, ResolvedModel } from "./model-request-types.js";
  * all, which is why the caller treats a rejection as an empty one.
  */
 export type HarnessModelList = (
-  harness: ForeignHarnessId,
+  harness: AnyHarnessId,
 ) => Promise<readonly ModelEntry[]>;
 
 /** Everything the foreign resolution reads. */
 export interface ForeignModelResolverDeps {
   /** The harness the launch resolved: its vocabulary answers, not pi's. */
-  harness: ForeignHarnessId;
+  harness: AnyHarnessId;
   /** The launching harness's own list, whose keys this session cannot vouch for. */
   listModels: HarnessModelList;
   /** The user-facing channel the advisory warning goes out on. */

@@ -192,7 +192,7 @@ beforeEach(() => {
     key: "general-purpose",
   });
   hostAtMock.mockResolvedValue({
-    engine: "herdr",
+    multiplexer: "herdr",
     name: BRANCH,
     paneId: "p1",
     tabId: "t1",

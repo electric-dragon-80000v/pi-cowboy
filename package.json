@@ -30,10 +30,10 @@
     "pnpm": ">=12"
   },
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist/",
     "!dist/**/*.tsbuildinfo",
-    "!dist/**/*.d.ts",
     "agents/",
     "orchestrators/",
     "!orchestrators/with-code-review.toml",
@@ -42,6 +42,7 @@
   ],
   "exports": {
     ".": "./dist/index.js",
+    "./plugin": "./dist/plugin/index.js",
     "./package.json": "./package.json"
   },
   "scripts": {

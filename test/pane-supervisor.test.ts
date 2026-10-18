@@ -17,9 +17,10 @@ import {
   type PaneSupervisorInput,
   type SupervisorTransport,
 } from "../src/subagent/pane-supervisor.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
 const REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-fix-login-abcd1234",
   paneId: "w1:p1",
   tabId: "w1:t1",
@@ -52,6 +53,8 @@ function makeInput() {
   let capturedResultFile: string | undefined;
   const transport: SupervisorTransport = {
     createHost: (_pi: ExtensionAPI) => host,
+    createPane: () => TEST_PANE,
+    createPlacements: () => TEST_PLACEMENTS,
     createDeliverable: (resultFile: string) => {
       capturedResultFile = resultFile;
       return deliverable;

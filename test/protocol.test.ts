@@ -103,7 +103,7 @@ describe("buildAgentDetails", () => {
         },
         execution: {
           host: {
-            engine: "herdr",
+            multiplexer: "herdr",
             name: "cow-fix-login-abc12345",
             paneId: "p1",
             tabId: "t1",

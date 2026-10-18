@@ -51,6 +51,26 @@ vi.mock("../src/shell.js", async (importOriginal) => ({
   }),
 }));
 
+// The session runtime is stubbed: this file is about the switch and the active
+// set, and the real one would walk PATH and the package manager (and import the
+// developer's installed plugins) for every case. Its own wiring is covered by
+// test/session-runtime.test.ts. Each boot's plugin handle is recorded, so a test
+// can see which one a shutdown disposed.
+const booted = vi.hoisted(() => ({
+  plugins: [] as Array<{
+    loaded: readonly string[];
+    dispose: ReturnType<typeof vi.fn>;
+  }>,
+}));
+
+vi.mock("../src/session-runtime.js", () => ({
+  startSessionRuntime: async () => {
+    const plugins = { loaded: [], dispose: vi.fn(async () => {}) };
+    booted.plugins.push(plugins);
+    return { plugins, runtime: {} };
+  },
+}));
+
 const scanned = vi.hoisted(() => ({
   agents: vi.fn(async () => ({})),
   orchestrators: vi.fn(async () => ({})),
@@ -130,6 +150,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   shell.active = [];
   shell.registeredTools = [];
+  booted.plugins.length = 0;
 });
 
 describe("session_start while the extension is disabled", () => {

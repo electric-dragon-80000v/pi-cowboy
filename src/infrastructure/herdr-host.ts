@@ -8,14 +8,18 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type {
+  AgentMultiplexer,
   AgentHost,
   AgentHostRef,
   DeliverOutcome,
   ExecutionRuntime,
   AgentView,
+  PaneControl,
+  PlacementCatalog,
   ViewRequest,
 } from "../agents/agent-host.js";
 import { errorMessage } from "../utils.js";
+import { HERDR } from "../host-multiplexer.js";
 import {
   closePane,
   createAgentTab,
@@ -25,6 +29,7 @@ import {
   getCurrentWorkspaceId,
   HerdrError,
   herdrErrorCode,
+  listAgentRecords,
   listWorktrees,
   normalizeHerdrPath,
   objectField,
@@ -32,10 +37,12 @@ import {
   renamePane,
   renameTab,
   runHerdr,
+  runInPane,
   startAgent,
   stopAgentAndWait,
   strField,
   submitAgentPrompt,
+  waitForPaneOutput,
 } from "./herdr-client.js";
 
 /**
@@ -145,7 +152,7 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
         // Herdr created this tab, so it carries the marker only once named here.
         await nameAdoptedTab(pi, tabId, request.label);
         return {
-          engine: "herdr",
+          multiplexer: HERDR,
           name: request.name ?? request.label,
           paneId,
           tabId,
@@ -161,7 +168,7 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
       });
       await nameSubagentPane(pi, created.paneId, request.label);
       return {
-        engine: "herdr",
+        multiplexer: HERDR,
         name: request.name ?? request.label,
         paneId: created.paneId,
         tabId: created.tabId,
@@ -175,7 +182,7 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
         name: options.name,
         paneId: ref.paneId,
         piArgs: options.piArgs,
-        agentMuxKind: options.agentMuxKind,
+        agentMultiplexerKind: options.agentMultiplexerKind,
       }),
 
     observe: async (ref) => {
@@ -231,6 +238,63 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
   };
 }
 
+/**
+ * The herdr pane surface: the control-plane calls a harness types its launcher
+ * through. The harness layer never imports herdr; it holds this interface, so
+ * the same launcher install runs under any multiplexer that offers it.
+ */
+function createHerdrPane(pi: ExtensionAPI): PaneControl {
+  return {
+    kind: HERDR,
+    run: (paneId, command) => runInPane(pi, paneId, command),
+    waitForOutput: (paneId, output, timeoutMs) =>
+      waitForPaneOutput(pi, paneId, output, timeoutMs),
+  };
+}
+
+/**
+ * The herdr placement catalog: the multiplexer's own reads, mapped to the contract's
+ * vocabulary. Paths are canonicalized here so a caller comparing its own path
+ * with a reported one never has to know how herdr spells a checkout.
+ */
+function createHerdrPlacements(
+  pi: ExtensionAPI,
+  multiplexer: AgentMultiplexer,
+): PlacementCatalog {
+  return {
+    multiplexer,
+    canonicalizePath: (value) => normalizeHerdrPath(value),
+    listWorktrees: async () =>
+      (await listWorktrees(pi)).map((entry) => ({
+        path: normalizeHerdrPath(entry.path),
+        label: entry.label,
+        branch: entry.branch,
+        workspaceId: entry.openWorkspaceId,
+      })),
+    listPlacements: async () =>
+      (await listAgentRecords(pi)).map((record) => ({
+        name: record.name,
+        state: record.state,
+        workspaceId: record.workspaceId,
+        tabId: record.tabId,
+        cwd: record.cwd,
+        paneId: record.paneId,
+      })),
+    observePane: async (paneId) => {
+      const info = await getAgentInfo(pi, paneId);
+      return info === undefined ? undefined : { state: info.state };
+    },
+  };
+}
+
 export function createHerdrRuntime(pi: ExtensionAPI): ExecutionRuntime {
-  return { host: createHerdrHost(pi), view: createHerdrView(pi) };
+  return {
+    host: createHerdrHost(pi),
+    view: createHerdrView(pi),
+    pane: createHerdrPane(pi),
+    // The runtime's identity is the one source: the catalog reports it on the
+    // addresses it builds, so a persisted spawn names the multiplexer that minted it.
+    placements: createHerdrPlacements(pi, HERDR),
+    multiplexer: HERDR,
+  };
 }

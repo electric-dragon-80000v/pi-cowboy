@@ -28,9 +28,10 @@ import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
 import {
   HARNESS_IDS,
   parseHarnessId,
-  resolveHarness,
+  type AnyHarnessId,
   type HarnessId,
 } from "./harness.js";
+import { resolveHarness } from "./harness/registry.js";
 
 import { getAgentConfig, resolveType } from "./agent-types.js";
 
@@ -133,7 +134,7 @@ export function resolveRequestedHarness(raw: unknown): HarnessId | undefined {
 export function resolveHarnessType(
   agentType: string,
   requested?: HarnessId,
-): HarnessId {
+): AnyHarnessId {
   if (requested !== undefined) return requested;
   const configured =
     getAgentConfig(agentType)?.harnessType ?? getStore().agent.harnessType;

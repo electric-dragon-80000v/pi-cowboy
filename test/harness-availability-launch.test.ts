@@ -15,7 +15,12 @@ import {
   prefetchHarnessModels,
   startHarnessAvailabilityProbe,
 } from "../src/harness-availability-launch.js";
-import { harnessFor } from "../src/agents/harness/registry.js";
+import {
+  harnessFor,
+  registerHarness,
+  resetPluginHarnesses,
+} from "../src/agents/harness/registry.js";
+import type { PluginHarness } from "../src/agents/harness.js";
 import {
   getHarnessAvailability,
   setHarnessAvailability,
@@ -70,29 +75,12 @@ describe("probeHarnessAvailability", () => {
   });
 });
 
-/** A `pi` that keeps the session_start handlers registered on it. */
-function probePi(): {
-  pi: ExtensionAPI;
-  on: ReturnType<typeof vi.fn>;
-  startSession: (ctx: unknown) => void;
-} {
-  let handler: ((event: unknown, ctx: unknown) => void) | undefined;
-  const on = vi.fn((event: string, next: (e: unknown, c: unknown) => void) => {
-    if (event === "session_start") handler = next;
-  });
-  return {
-    pi: { on } as unknown as ExtensionAPI,
-    on,
-    startSession: (ctx) => handler?.(undefined, ctx),
-  };
-}
-
 describe("startHarnessAvailabilityProbe", () => {
   it("records its answer for every later reader", () => {
     expect(getHarnessAvailability()).toEqual(unprobed());
 
     freshPath();
-    startHarnessAvailabilityProbe(probePi().pi);
+    startHarnessAvailabilityProbe();
 
     expect(getHarnessAvailability()).toEqual(probed(["pi"]));
   });
@@ -100,29 +88,23 @@ describe("startHarnessAvailabilityProbe", () => {
   it("keeps an installed opencode it cannot launch off the offer, and says which one it found", () => {
     const dir = freshPath();
     executable(dir, "opencode", "opencode v1.19.0");
-    const { pi, startSession } = probePi();
-    const notify = vi.fn();
 
-    startHarnessAvailabilityProbe(pi);
+    const probe = startHarnessAvailabilityProbe();
 
     expect(getHarnessAvailability()).toEqual(probed(["pi"]));
-    startSession({ hasUI: true, ui: { notify } });
-    expect(notify).toHaveBeenCalledWith(
+    expect(probe.notices).toEqual([
       "You seem to have opencode version 1.19.0 installed, pi-cowboy only supports v2.x.x.",
-      "warning",
-    );
+    ]);
   });
 
   it("has nothing to say when every harness it found is launchable", () => {
     const dir = freshPath();
     executable(dir, "opencode", "opencode v2.0.28");
-    const { pi, on, startSession } = probePi();
 
-    startHarnessAvailabilityProbe(pi);
+    const probe = startHarnessAvailabilityProbe();
 
     expect(getHarnessAvailability()).toEqual(probed(["pi", "opencode"]));
-    expect(startSession).toBeTypeOf("function");
-    expect(on).not.toHaveBeenCalled();
+    expect(probe.notices).toEqual([]);
   });
 });
 
@@ -146,7 +128,7 @@ describe("prefetchHarnessModels", () => {
 
   it("starts no fetch where no runnable harness warms one", () => {
     freshPath();
-    startHarnessAvailabilityProbe(probePi().pi);
+    startHarnessAvailabilityProbe();
     const { pi, exec } = answeringPi("");
 
     prefetchHarnessModels(pi);
@@ -171,7 +153,7 @@ describe("prefetchHarnessModels", () => {
   it("warms once at boot and later reads join the one run", async () => {
     const dir = freshPath();
     executable(dir, "opencode", "opencode v2.0.28");
-    startHarnessAvailabilityProbe(probePi().pi);
+    startHarnessAvailabilityProbe();
     const { pi, exec } = answeringPi("anthropic/claude-opus-4\n");
 
     // Boot warms without awaiting, exactly like the probes.
@@ -191,7 +173,7 @@ describe("prefetchHarnessModels", () => {
     try {
       const dir = freshPath();
       executable(dir, "opencode", "opencode v2.0.28");
-      startHarnessAvailabilityProbe(probePi().pi);
+      startHarnessAvailabilityProbe();
       const { pi, exec } = answeringPi("", 1);
 
       await expect(listOpencode(pi)).resolves.toEqual([]);
@@ -211,7 +193,7 @@ describe("prefetchHarnessModels", () => {
   it("warms every runnable harness without naming any, exactly once", () => {
     const dir = freshPath();
     executable(dir, "opencode", "opencode v2.0.28");
-    startHarnessAvailabilityProbe(probePi().pi);
+    startHarnessAvailabilityProbe();
     const exec = vi.fn(() => new Promise(() => {}));
     const pi = { exec } as unknown as ExtensionAPI;
 
@@ -224,11 +206,67 @@ describe("prefetchHarnessModels", () => {
 
   it("starts nothing where the probe proved nothing slow", () => {
     freshPath();
-    startHarnessAvailabilityProbe(probePi().pi);
+    startHarnessAvailabilityProbe();
     const exec = vi.fn(() => new Promise(() => {}));
 
     prefetchHarnessModels({ exec } as unknown as ExtensionAPI);
 
     expect(exec).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A plugin's hooks are called on the session's path, so one that throws must
+ * cost its own harness and nothing else — never the session.
+ */
+describe("a harness whose hooks throw", () => {
+  /** A plugin harness whose two session hooks are the ones under test. */
+  function boomHarness(id: string): PluginHarness {
+    return {
+      id,
+      displayName: id,
+      agentMultiplexerKind: id,
+      availability: () => {
+        throw new Error(`${id} exploded`);
+      },
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => [],
+      prefetchModels: () => {
+        throw new Error(`${id} exploded`);
+      },
+    };
+  }
+
+  afterEach(() => {
+    // The registry is process-level; a harness registered here must not leak
+    // into the next case (or the next suite).
+    resetPluginHarnesses();
+  });
+
+  it("answers a throwing availability hook as unavailable, naming the harness", () => {
+    freshPath();
+    registerHarness(boomHarness("boom-availability"));
+
+    const probe = probeHarnessAvailability();
+
+    expect(probe.availability).toEqual(probed(["pi"]));
+    expect(probe.notices).toHaveLength(1);
+    expect(probe.notices[0]).toContain('"boom-availability"');
+    expect(probe.notices[0]).toContain("boom-availability exploded");
+  });
+
+  it("survives a throwing prefetch hook, leaving the session to start", () => {
+    freshPath();
+    registerHarness(boomHarness("boom-prefetch"));
+    setHarnessAvailability(probed(["pi", "boom-prefetch"]));
+
+    // Warming is an optimization: a cold list, not a failed session.
+    expect(() =>
+      prefetchHarnessModels({
+        exec: async () => ({}),
+      } as unknown as ExtensionAPI),
+    ).not.toThrow();
   });
 });

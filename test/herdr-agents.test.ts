@@ -32,7 +32,7 @@ const START_OPTIONS = {
   name: "cow-abc",
   paneId: "w1:p2",
   piArgs: ["-p", "briefing"],
-  agentMuxKind: "pi" as const,
+  agentMultiplexerKind: "pi" as const,
 };
 
 const START_ARGS = [
@@ -77,7 +77,7 @@ describe("HerdrAgents.startAgent", () => {
     const { pi, calls } = recordingPi([ok({})]);
     await agentsFor(pi).startAgent({
       ...START_OPTIONS,
-      agentMuxKind: "opencode",
+      agentMultiplexerKind: "opencode",
     });
 
     expect(calls[0]!.args.slice(0, 5)).toEqual([

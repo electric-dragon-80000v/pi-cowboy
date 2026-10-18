@@ -129,7 +129,7 @@ function makePair(initialConcurrency?: Partial<ConcurrencyConfig>): {
   return { registry, manager };
 }
 
-/** Live backend attempt: identity only, nothing here can end it. */
+/** Live multiplexer attempt: identity only, nothing here can end it. */
 function liveAttempt(name: string): LiveAttempt {
   return { name };
 }
@@ -181,7 +181,7 @@ describe("HerdrTaskRegistry.admit", () => {
     });
   });
 
-  it("rejects when a live backend attempt owns the slug (parent reload)", async () => {
+  it("rejects when a live multiplexer attempt owns the slug (parent reload)", async () => {
     const { registry, manager } = makePair();
     manager.findTaskAttempts.mockResolvedValue([
       liveAttempt("cow-fix-login-flow-01234567"),
@@ -259,7 +259,7 @@ describe("HerdrTaskRegistry.admit", () => {
 });
 
 describe("single-live-agent invariants", () => {
-  it("in-memory spawn wins over a live backend attempt for the same slug", async () => {
+  it("in-memory spawn wins over a live multiplexer attempt for the same slug", async () => {
     const { registry, manager } = makePair();
     // The in-memory spawn is the freshest signal, so admit rejects on the spawn.
     await registry.admit(intent());

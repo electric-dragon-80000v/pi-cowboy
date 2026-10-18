@@ -10,7 +10,6 @@
 import { createPiCompatibleHarness } from "./pi-compatible.js";
 
 export const piBoltHarness = createPiCompatibleHarness({
-  id: "pi-bolt",
   binary: "pi-bolt",
   signature: "PI_BOLT_LAUNCHER_5e1c7a",
   readyMarker: "PI_BOLT_VERIFIED",

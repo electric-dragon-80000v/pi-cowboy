@@ -47,7 +47,7 @@ export type WorktreeKeptReason =
 /** Artifact provenance: `tracked` (spawn record named them) or `recovered` (discovery found them). */
 export type CleanupSource = "tracked" | "recovered";
 
-/** What herdr's live read showed for a recovered run (`forced` is the operator override). */
+/** What the multiplexer's live read showed for a recovered run (`forced` is the operator override). */
 export type DiscoveryBasis =
   | { kind: "pane-absent" }
   | { kind: "pane-not-working"; state: HostObservation["state"] }
@@ -69,14 +69,14 @@ interface RecordedSettlement {
   phase: AgentPhase;
 }
 
-/** Recovered-path verdict: herdr's live read plus the unread deliverable. */
+/** Recovered-path verdict: the multiplexer's live read plus the unread deliverable. */
 interface DiscoveredSettlement {
   kind: "discovered";
   basis: DiscoveryBasis;
   deliverable: RecoveredDeliverable;
 }
 
-/** How cleanup established the run is over: `recorded` (memory is the only settlement witness) or `discovered` (herdr's live read + unread deliverable). */
+/** How cleanup established the run is over: `recorded` (memory is the only settlement witness) or `discovered` (the multiplexer's live read + unread deliverable). */
 export type SettlementVerdict = RecordedSettlement | DiscoveredSettlement;
 
 export function recordedSettlement(spawn: AgentSpawn): RecordedSettlement {
@@ -85,7 +85,7 @@ export function recordedSettlement(spawn: AgentSpawn): RecordedSettlement {
 
 /**
  * What cleanup reports for the run's pane. `open` is stated only for a pane
- * the seam observed live; `gone` is stated only for an address herdr no
+ * the seam observed live; `gone` is stated only for an address the multiplexer no
  * longer answers (never `closed`: the extension did not close it);
  * `unknown` is stated only when the read itself failed (never evidence
  * either way); `none` means the run never had a pane address.
@@ -128,7 +128,7 @@ export interface CleanupReport {
   outcome: CleanupVerdictOutcome;
   /** The run's established end-state; cleanup never changes run state, only tears down ended runs. */
   settlement: SettlementVerdict;
-  /** The subagent's herdr pane after cleanup (none = never had one). */
+  /** The subagent's pane after cleanup (none = never had one). */
   pane: PaneOutcome;
   /** The extension-owned worktree after cleanup (none = never created one; absent = already gone from disk). */
   worktree: WorktreeOutcome;
@@ -152,7 +152,7 @@ interface LocatedWorktree {
   workspaceId?: string;
 }
 
-/** Pane addressing a run: a live herdr record or memory's address. */
+/** Pane addressing a run: a live placement record or memory's address. */
 export interface LocatedPane {
   paneId: string;
   tabId?: string;
@@ -184,7 +184,7 @@ export interface PaneTarget {
 }
 
 export interface WorktreeTarget {
-  /** Absent for a git-only checkout or a reconstructed spawn without herdr identity. */
+  /** Absent for a git-only checkout or a reconstructed spawn without a placement identity. */
   workspaceId?: string;
   worktreePath: string;
   repoCwd: string;
@@ -280,7 +280,7 @@ export type RemovablePlan = Extract<
 /* ── Stage 4: the recovered-path settlement gate (pure) ───────────────── */
 
 /**
- * Recovered-path settlement: tear down only when herdr's read cannot show
+ * Recovered-path settlement: tear down only when the multiplexer's read cannot show
  * live work (pane gone or non-working); `working` refuses. Unreadable reads
  * never reach here — the caller refuses on a throw. (Refusing anything but
  * gone panes would be a one-line change to the second branch.)
@@ -462,7 +462,7 @@ export function shouldDropSpawn(report: CleanupReport): boolean {
   return false;
 }
 
-export type WorktreeRemovalMechanism = "herdr" | "git";
+export type WorktreeRemovalMechanism = "multiplexer" | "git";
 
 type PaneDisposition =
   | { kind: "none" }
@@ -473,7 +473,7 @@ type PaneDisposition =
 export function removalMechanismOf(
   worktree: WorktreeTarget,
 ): WorktreeRemovalMechanism {
-  return worktree.workspaceId !== undefined ? "herdr" : "git";
+  return worktree.workspaceId !== undefined ? "multiplexer" : "git";
 }
 
 export function paneDispositionFor(
@@ -484,7 +484,7 @@ export function paneDispositionFor(
   if (pane === null) return { kind: "none" };
   if (!removed) return { kind: "leave-open" };
   switch (mechanism) {
-    case "herdr":
+    case "multiplexer":
       return { kind: "closed-with-workspace" };
     // A git-side removal, or a plan with no tree at all, leaves the pane standing: only a pane the extension created may be closed.
     case "git":

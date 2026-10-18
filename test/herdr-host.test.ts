@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 const REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-fix-01234567",
   paneId: "w1:p2",
   tabId: "w1:t1",
@@ -98,7 +98,7 @@ describe("createHerdrRuntime host.hostAt", () => {
         checkout,
       }),
     ).resolves.toEqual({
-      engine: "herdr",
+      multiplexer: "herdr",
       name: "cow-fix-01234567",
       paneId: "w1:p1",
       tabId: "w1:t1",
@@ -225,7 +225,7 @@ describe("createHerdrRuntime host.hostAt", () => {
         name: "cow-fix-01234567",
       }),
     ).resolves.toEqual({
-      engine: "herdr",
+      multiplexer: "herdr",
       name: "cow-fix-01234567",
       paneId: "w1:p1",
       tabId: "w1:t1",

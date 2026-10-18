@@ -9,7 +9,11 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { AgentHost } from "../agents/agent-host.js";
+import type {
+  AgentHost,
+  PaneControl,
+  PlacementCatalog,
+} from "../agents/agent-host.js";
 import type { DeliverableSource } from "./deliverable.js";
 import {
   ProcessSupervisorEngine,
@@ -20,6 +24,10 @@ import {
 /** Narrow transport a supervisor is wired from: its host and the deliverable to poll. */
 export interface SupervisorTransport {
   createHost(pi: ExtensionAPI): AgentHost;
+  /** The pane surface a harness prepares through; the multiplexer's own, minted per parent session. */
+  createPane(pi: ExtensionAPI): PaneControl;
+  /** The multiplexer's view of the placements it owns; the cleanup/status paths read it. */
+  createPlacements(pi: ExtensionAPI): PlacementCatalog;
   /** The report source the supervisor polls; a result file in production. */
   createDeliverable(resultFile: string): DeliverableSource;
 }
@@ -33,7 +41,7 @@ export interface PaneSupervisorInput {
   transport: SupervisorTransport;
 }
 
-/** Wire the deliverable and the engine over it. Starts, adopts, and watches nothing. */
+/** Wire the deliverable and the multiplexer over it. Starts, adopts, and watches nothing. */
 export function createPaneSupervisor(
   input: PaneSupervisorInput,
 ): ProcessSupervisor {

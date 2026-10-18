@@ -57,7 +57,7 @@ vi.mock("../src/spawn/herdr-launcher.js", async (importOriginal) => ({
 }));
 
 const REF = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-fix-login-abc12345",
   paneId: "p1",
   tabId: "t1",
@@ -560,7 +560,7 @@ describe("AgentSandbox.teardown", () => {
       kind: "removed",
       path: worktreePath,
       branchName: "cow-fix-login-abc12345",
-      via: "herdr",
+      via: "multiplexer",
       branch: { kind: "deleted" },
     });
     expect(sandbox.state).toEqual({ kind: "destroyed" });

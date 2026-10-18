@@ -20,7 +20,7 @@ import { formatResultContent } from "../src/orchestrators/protocol.js";
 import type {
   AgentHost,
   AgentHostRef,
-  AgentMuxKind,
+  AgentMultiplexerKind,
 } from "../src/agents/agent-host.js";
 import { AgentSandbox } from "../src/spawn/sandbox.js";
 import type {
@@ -40,6 +40,7 @@ import {
 } from "../src/concurrency-pools.js";
 import type { HarnessPrepareRequest } from "../src/agents/harness.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
 /** A paired model selection for the given "provider/modelId" concurrency key. */
 function selectionFor(key: string): ModelSelection {
@@ -162,7 +163,7 @@ type ReleaseCall = { ref: AgentHostRef; scope: ReleaseScope };
 
 function makeRef(paneCreated = true): AgentHostRef {
   return {
-    engine: "herdr",
+    multiplexer: "herdr",
     name: "cow-fix-login-flow-01234567",
     paneId: "w1:p1",
     tabId: "w1:t1",
@@ -184,7 +185,11 @@ function makeFakeHost(options: FakeHostOptions = {}) {
   const hostAtCalls: Array<Record<string, unknown>> = [];
   const startCalls: Array<{
     ref: AgentHostRef;
-    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind };
+    options: {
+      name: string;
+      piArgs: string[];
+      agentMultiplexerKind: AgentMultiplexerKind;
+    };
   }> = [];
   const stopCalls: StopCall[] = [];
   const releaseCalls: ReleaseCall[] = [];
@@ -201,7 +206,7 @@ function makeFakeHost(options: FakeHostOptions = {}) {
       startOptions: {
         name: string;
         piArgs: string[];
-        agentMuxKind: AgentMuxKind;
+        agentMultiplexerKind: AgentMultiplexerKind;
       },
     ) => {
       startCalls.push({ ref: startedRef, options: startOptions });
@@ -280,6 +285,8 @@ function makeSession(options: HarnessOptions = {}) {
   const deps: SubagentSessionDeps = {
     transport: {
       createHost: options.createHost ?? (() => options.host!),
+      createPane: () => TEST_PANE,
+      createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => options.deliverable!,
     },
     pools,
@@ -504,7 +511,7 @@ describe("SubagentSession harness seam", () => {
   ): void {
     harnessForMock.mockReturnValue({
       id: "pi",
-      agentMuxKind: "pi",
+      agentMultiplexerKind: "pi",
       availability: () => ({ status: "available" }),
       prepare: async (request: HarnessPrepareRequest) => {
         prepareCalls.push(request);
@@ -598,6 +605,17 @@ describe("SubagentSession harness seam", () => {
       }),
     ]);
     expect(prepareCalls[0]!.launch).toBe(stubPlan.launch);
+  });
+
+  it("hands prepare the session transport's own pane surface", async () => {
+    const { session } = stubbedRun();
+    stubHarness();
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    // The pane a harness prepares through is the one the session's transport
+    // mints — the multiplexer's, not a multiplexer picked here.
+    expect(prepareCalls[0]!.pane).toBe(TEST_PANE);
   });
 
   it("tears the recorded harness down, guarded, when the launch fails past prepare", async () => {

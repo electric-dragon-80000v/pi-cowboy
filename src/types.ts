@@ -2,7 +2,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
-import type { ForeignHarnessId, HarnessId } from "./agents/harness.js";
+import type { AnyHarnessId, HarnessId } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
 export type ThinkingLevel = ModelThinkingLevel;
@@ -29,7 +29,7 @@ export type ModelSelection =
     }
   | {
       /** The harness whose vocabulary `key` belongs to. */
-      harness: ForeignHarnessId;
+      harness: AnyHarnessId;
       key: string;
       /** The display form: the harness list's label for the key, or the key itself. */
       name: string;
@@ -314,7 +314,7 @@ export interface AgentExecutionState {
    * state to tear down. Cleanup reads it so the harness that prepared a pane
    * is the one that tears it down, regardless of later config changes.
    */
-  harness?: HarnessId;
+  harness?: AnyHarnessId;
   /** Opened exactly once at the terminal transition; never the run's own promise. */
   promise: Promise<string>;
   /** Kept for the spawn's lifetime so the UI-notify fallback can reach a live context on any later nudge. */

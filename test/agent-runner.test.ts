@@ -13,9 +13,10 @@ import {
 } from "../src/agents/agent-runner.js";
 import type {
   CodexLaunchRequest,
-  OpencodeLaunchRequest,
+  HarnessLaunch,
+  PluginHarness,
 } from "../src/agents/harness.js";
-import { harnessFor } from "../src/agents/harness/registry.js";
+import { harnessFor, registerHarness } from "../src/agents/harness/registry.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import {
   ConfigStore,
@@ -374,7 +375,7 @@ describe("buildLaunchPlan CLI flags", () => {
    * is read before `restore`, which forgets the recordings.
    */
   function captureOpencodeBuildArgs(): {
-    requests: () => OpencodeLaunchRequest[];
+    requests: () => HarnessLaunch[];
     restore: () => void;
   } {
     const spy = vi.spyOn(harnessFor("opencode"), "buildArgs");
@@ -933,5 +934,91 @@ describe("buildLaunchPlan system prompt split", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+/**
+ * A plugin harness reaches the plan through the same path a built-in does, and
+ * carries only the shared inputs: its own argv, no built-in family's option, and
+ * its own model catalogue (a template's family-keyed model cannot answer for it).
+ */
+describe("buildLaunchPlan — a plugin harness", () => {
+  /** A plugin harness whose argv is its own, so a plan built from it is unmistakable. */
+  function pluginHarness(id: string, argv: string[]): PluginHarness {
+    return {
+      id,
+      displayName: id,
+      agentMultiplexerKind: id,
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => argv,
+      teardown: async () => {},
+      listModels: async () => [],
+      prefetchModels: () => {},
+    };
+  }
+
+  it("builds the plugin's own argv and carries no built-in family's inputs", async () => {
+    registerHarness(
+      pluginHarness("runner-plugin", ["runner-plugin", "--task"]),
+    );
+    // A plugin harness is reachable through the config setting, never a template.
+    setGlobalAgentSettings({ harnessType: "runner-plugin" });
+    const { cwd, notify } = setup(makeAgent({ harnessType: undefined }));
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.harness).toBe("runner-plugin");
+    expect(plan.piArgs).toEqual(["runner-plugin", "--task"]);
+    expect(plan.launch).toMatchObject({
+      family: "plugin",
+      subagentId: "runner-test",
+      toolSelection: { kind: "default" },
+    });
+    // No built-in family's option rides a plugin request.
+    expect(Object.keys(plan.launch).sort()).toEqual([
+      "family",
+      "modelKey",
+      "resultFile",
+      "subagentId",
+      "systemPromptFile",
+      "taskFile",
+      "toolSelection",
+    ]);
+  });
+
+  it("launches unfiltered even when the template filters a built-in family", async () => {
+    registerHarness(pluginHarness("runner-plugin-2", ["runner-plugin-2"]));
+    // The filter is keyed to pi; a plugin family has no slice, so it applies none.
+    setGlobalAgentSettings({ harnessType: "runner-plugin-2" });
+    const { cwd, notify } = setup(
+      makeAgent({
+        harnessType: undefined,
+        toolsByFamily: { pi: { tools: ["read"] } },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.launch).toMatchObject({ toolSelection: { kind: "default" } });
+  });
+
+  it("reads the plugin family's own default model, never the pi family's", () => {
+    // Model resolution is the store's, not the plan's: the plan carries whatever
+    // key the caller resolved, so this pins the resolution itself.
+    setGlobalAgentSettings({
+      default: "anthropic/claude-sonnet-4",
+      defaultModelByHarness: { "runner-plugin-3": "openai/gpt-4o" },
+    });
+    const store = storeRef.current;
+
+    expect(
+      store.modelFor("test-agent", null, undefined, "runner-plugin-3"),
+    ).toBe("openai/gpt-4o");
+    // The pi family's default does not answer for a plugin harness, and the
+    // plugin's entry does not answer for pi.
+    expect(store.modelFor("test-agent", null, undefined, "pi")).toBe(
+      "anthropic/claude-sonnet-4",
+    );
   });
 });

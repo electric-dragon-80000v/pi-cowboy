@@ -21,19 +21,26 @@ import {
   setOrchestratorScanDirs,
   scanAndMergeOrchestrators,
 } from "./orchestrators/orchestrator-types.js";
-import { AgentManager } from "./agents/agent-manager.js";
+import {
+  AgentManager,
+  createAgentManagerTransport,
+} from "./agents/agent-manager.js";
+import type { ExecutionRuntime } from "./agents/agent-host.js";
 import { ConcurrencyPools } from "./concurrency-pools.js";
 import { ACTIVE_AGENT_PHASES } from "./types.js";
 import { SpawnCoordinator } from "./spawn/spawn-coordinator.js";
 import { toolCallListener } from "./agents/tool-execution.js";
 import { activateExtension, deactivateExtension } from "./registration.js";
 import { startCowSupportProbe } from "./cow-support-launch.js";
+import { type LoadedPlugins } from "./plugin/loader.js";
+import { startSessionRuntime } from "./session-runtime.js";
 import { isExtensionEnabled } from "./extension-toggle.js";
 import { hideExtensionIndicator } from "./ui/indicator.js";
 import {
   createSessionTemplates,
   getManagerOrNull,
   getCoordinatorOrNull,
+  getRuntime,
   getStore,
   setSessionCtx,
   setManager,
@@ -42,11 +49,18 @@ import {
   setSessionTemplates,
 } from "./shell.js";
 
-/** Idempotent — safe to call on every session_start. */
-function ensureManagerAndCoordinator(): void {
+/**
+ * Wire the fleet controller and the spawn coordinator from the session's one
+ * runtime: the manager's transport is built from it (see
+ * createAgentManagerTransport), so a spawn reuses the multiplexer's host, view and
+ * pane instead of building a second multiplexer per call. Idempotent — safe to call
+ * on every session_start.
+ */
+function wireManagerAndCoordinator(runtime: ExecutionRuntime): void {
   if (!getManagerOrNull()) {
     const newManager = new AgentManager(
       new ConcurrencyPools(getStore().concurrency),
+      createAgentManagerTransport(runtime),
     );
     setManager(newManager);
     // Config side-effect target: concurrency setters call setConcurrency.
@@ -122,8 +136,9 @@ async function scanAndRegisterOrchestrators(
 }
 
 /**
- * Config, templates, manager and coordinator: everything a session needs
- * whatever the switch says, because the /cowboy menus read the registries.
+ * Config and templates: everything a session needs whatever the switch says,
+ * because the /cowboy menus read the registries. The manager is wired later,
+ * once the session's runtime exists (see wireManagerAndCoordinator).
  */
 async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
   // Fresh registries before the scan: a session never serves the templates registered by the session it replaced.
@@ -134,7 +149,6 @@ async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
     : undefined;
   getStore().setProjectDir(projectDir);
   getStore().reload();
-  ensureManagerAndCoordinator();
   await scanAndRegisterAgents(ctx);
   await scanAndRegisterOrchestrators(ctx);
 }
@@ -142,9 +156,20 @@ async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
 export function setupEventListeners(pi: ExtensionAPI): void {
   pi.on("tool_call", toolCallListener);
 
+  // The one plugin load of this process; disposed and forgotten at shutdown so a
+  // later session re-imports it.
+  let plugins: LoadedPlugins | null = null;
+
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     setSessionCtx(ctx);
     await loadSessionConfig(ctx);
+    // Plugins, the configured multiplexer, and the harness probe — in the order the
+    // runtime depends on (see session-runtime.ts).
+    const boot = await startSessionRuntime(pi, ctx);
+    plugins = boot.plugins;
+    // The manager's transport is the session's runtime, so every spawn and dedup
+    // check reuses one multiplexer instead of rebuilding it.
+    wireManagerAndCoordinator(boot.runtime);
     // Awaited: one small clone (~100ms), and awaiting is what guarantees the
     // probe's `finally rm` runs — a fire-and-forget probe orphaned its
     // `.cow-probe-*` directory whenever a quick session exited mid-probe.
@@ -175,19 +200,32 @@ export function setupEventListeners(pi: ExtensionAPI): void {
         );
       }
     }
-    // Panes keep running in herdr — they are independent processes; only tracking stops.
+    // Everything but the plugins goes down synchronously, before the first
+    // await: a session_start that lands while a plugin disposer runs must find a
+    // clean shell (no manager, no coordinator, no store) to wire its own into.
+    // Panes keep running in herdr — they are independent processes; only
+    // tracking stops.
     getCoordinatorOrNull()?.dispose();
     setCoordinator(null);
-    setRuntime(null);
     getStore().dispose();
-    const mgr = getManagerOrNull();
-    if (mgr) {
-      mgr.dispose();
-      setManager(null);
-    }
+    currentManager?.dispose();
+    setManager(null);
     // The marker polls the spawn store on a timer, so it goes with the runtime
     // that owns that store; a reload mounts a fresh one in its place.
     hideExtensionIndicator();
+    // Then the plugins, while the session's runtime is still recorded so a
+    // disposer that wants the multiplexer can still reach it. Disposal also drops
+    // this load's registrations, so the next session starts clean. Only a
+    // runtime this shutdown still owns is cleared: one a replacement session has
+    // already set is not ours to take away.
+    // Captured and cleared *before* the await: a replacement session's start can
+    // land while the disposers run, and the handle it sets there must survive
+    // this shutdown finishing.
+    const dying = plugins;
+    plugins = null;
+    const runtime = getRuntime();
+    await dying?.dispose();
+    if (getRuntime() === runtime) setRuntime(null);
   });
 
   // Ensure the terminal cursor and buffer are ALWAYS restored when exiting

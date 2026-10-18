@@ -346,7 +346,7 @@ export class BranchCleaner {
         );
       }
       if (merged.code !== 0) return { kind: "kept", reason: "unmerged" };
-      // Attachment belongs to the execution backend, hence the injected probe.
+      // Attachment belongs to the execution multiplexer, hence the injected probe.
       if (isAttached && (await isAttached(worktreePath))) {
         return { kind: "kept", reason: "checked-out" };
       }

@@ -14,7 +14,7 @@ import {
   type SelectOption,
 } from "../searchable-select.js";
 import { parseModelKey } from "../../utils.js";
-import { isPiFamilyHarness, type HarnessId } from "../../agents/harness.js";
+import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
 import { SwappableView, type NavigableList } from "./screen-host.js";
 
 export { actionReport } from "../action-report.js";
@@ -227,7 +227,7 @@ export function extractConfiguredModels(
  * key that harness would not launch.
  */
 export function mergedModelsForHarness(
-  harnessId: HarnessId,
+  harnessId: AnyHarnessId,
   configuredModels: readonly string[],
 ): readonly string[] {
   return isPiFamilyHarness(harnessId) ? configuredModels : [];

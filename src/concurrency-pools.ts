@@ -3,8 +3,9 @@
  * independent pool levels, a FIFO queue, and the reservations that give charged
  * capacity back.
  *
- * Shell-free and task-free: it knows nothing about task slugs, dedup, or live
- * backend attempts. A caller states one spawn's harness-qualified `PoolIdentity`
+ * Shell-free and task-free: it knows nothing about task slugs, dedup, or the
+ * attempts the multiplexer reports. A caller states one spawn's harness-qualified
+ * `PoolIdentity`
  * and the controller decides "start now" or "queue", charges a reservation, and
  * later releases it. Every external dependency is a value or a callback, so the
  * controller runs directly in tests.
@@ -16,11 +17,7 @@
  * naming exactly the pools they name today.
  */
 
-import {
-  DEFAULT_HARNESS,
-  parseHarnessId,
-  type HarnessId,
-} from "./agents/harness.js";
+import { DEFAULT_HARNESS, type AnyHarnessId } from "./agents/harness.js";
 
 /** The global concurrency limit every spawn counts against. */
 export const DEFAULT_CONCURRENCY_LIMIT = 4;
@@ -32,7 +29,7 @@ export const DEFAULT_CONCURRENCY_LIMIT = 4;
  *
  * Each level's map holds only the keys that have a ceiling, so each is
  * `Partial<Record<Key, number>>`. For `harnesses` that is what allows one
- * harness without the other three — `Record<HarnessId, number>` would demand
+ * harness without the other three — `Record<string, number>` would demand
  * all of them. For `providers`/`models` the keys are open-ended strings, and
  * `Partial` keeps a lookup of an unset key honest (`number | undefined`)
  * instead of claiming a number.
@@ -41,7 +38,7 @@ export interface ConcurrencyConfig {
   /** The global limit: every spawn counts against it, whatever else also applies. */
   default: number;
   /** Per-harness ceilings keyed by harness id. */
-  harnesses: Partial<Record<HarnessId, number>>;
+  harnesses: Partial<Record<string, number>>;
   /** Per-provider ceilings keyed by "provider" or "<harnessId>:<provider>". */
   providers: Partial<Record<string, number>>;
   /** Per-model ceilings keyed by "provider/modelId" or "<harnessId>:<provider>/<modelId>". */
@@ -54,8 +51,8 @@ export interface ConcurrencyConfig {
  * reader reads the same parse.
  */
 export type PoolKey =
-  | { kind: "model"; harness: HarnessId; provider: string; model: string }
-  | { kind: "provider"; harness: HarnessId; provider: string };
+  | { kind: "model"; harness: AnyHarnessId; provider: string; model: string }
+  | { kind: "provider"; harness: AnyHarnessId; provider: string };
 
 /**
  * Parse one concurrency key into its harness, provider, and model halves. One
@@ -70,12 +67,14 @@ export function parsePoolKey(key: string): PoolKey | undefined {
   // A qualifier is a harness id before the first "/"; a colon inside the
   // provider or model half is part of the key, not a qualifier.
   const hasQualifier = colon > 0 && (slash < 0 || colon < slash);
-  let harness: HarnessId = DEFAULT_HARNESS;
+  let harness: AnyHarnessId = DEFAULT_HARNESS;
   let rest = key;
   if (hasQualifier) {
-    const qualifier = parseHarnessId(key.slice(0, colon));
-    if (qualifier === undefined) return undefined;
-    harness = qualifier;
+    // The vocabulary is open: a qualifier is a built-in id or a plugin's own, so
+    // only its shape is checked here — non-empty after trimming, before the
+    // first "/" (matching how the harness-keyed maps are cleaned).
+    harness = key.slice(0, colon);
+    if (harness.trim() === "") return undefined;
     rest = key.slice(colon + 1);
   }
   const restSlash = rest.indexOf("/");
@@ -92,7 +91,7 @@ export function parsePoolKey(key: string): PoolKey | undefined {
 
 /** The canonical model-pool key: harness, provider, and model, fully qualified. */
 function qualifiedModelKey(
-  harness: HarnessId,
+  harness: AnyHarnessId,
   provider: string,
   model: string,
 ): string {
@@ -100,7 +99,7 @@ function qualifiedModelKey(
 }
 
 /** The canonical provider-pool key: harness and provider, fully qualified. */
-function qualifiedProviderKey(harness: HarnessId, provider: string): string {
+function qualifiedProviderKey(harness: AnyHarnessId, provider: string): string {
   return `${harness}:${provider}`;
 }
 
@@ -126,7 +125,7 @@ function providerPoolKeyOf(configKey: string): string | undefined {
  * turn all charge the same pools.
  */
 export interface PoolIdentity {
-  harness: HarnessId;
+  harness: AnyHarnessId;
   /** The spawn's bare "provider/modelId" selection, or undefined when it carries none. */
   modelKey: string | undefined;
 }
@@ -184,7 +183,7 @@ export class ConcurrencyPools {
   private providerPools = new Map<string, ConcurrencyPool>();
 
   /** Per-harness pools — one pool shared by every spawn of that harness. */
-  private harnessPools = new Map<HarnessId, ConcurrencyPool>();
+  private harnessPools = new Map<string, ConcurrencyPool>();
 
   /** The global pool. It is never replaced, so a config change cannot lose its count. */
   private globalPool: ConcurrencyPool = {
@@ -289,13 +288,10 @@ export class ConcurrencyPools {
   }
 
   /** Harness pools are keyed by the harness id itself, so no qualifier is parsed. */
-  private syncHarnessPools(
-    configured: Partial<Record<HarnessId, number>>,
-  ): void {
-    const limits = new Map<HarnessId, number>();
-    for (const [key, limit] of Object.entries(configured)) {
-      const harness = parseHarnessId(key);
-      if (harness !== undefined && typeof limit === "number") {
+  private syncHarnessPools(configured: Partial<Record<string, number>>): void {
+    const limits = new Map<string, number>();
+    for (const [harness, limit] of Object.entries(configured)) {
+      if (harness.trim() !== "" && typeof limit === "number") {
         limits.set(harness, clampLimit(limit));
       }
     }

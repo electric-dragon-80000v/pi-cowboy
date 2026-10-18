@@ -25,8 +25,8 @@
 import type { ThinkingLevel } from "../types.js";
 import {
   isPiFamilyHarness,
+  type AnyHarnessId,
   type HarnessFamily,
-  type HarnessId,
 } from "../agents/harness.js";
 import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
 import type {
@@ -64,11 +64,13 @@ export interface SubagentsConfig {
     /** "clean" (default) keeps only a dirty parent's ignored state; "dirty" starts the worktree with its WIP. */
     worktreeCheckoutType?: WorktreeCheckoutType;
     /** Harness that agents launch under unless their template sets `harness_type`. Default: "pi". Global config only. */
-    harnessType?: HarnessId;
+    harnessType?: AnyHarnessId;
     /**
      * The default model per harness, keyed by harness id: the pi family reads
      * `default` instead (one binary, one default), so only a non-pi harness has
-     * an entry. A missing or null entry means that harness has no default.
+     * an entry. A missing or null entry means that harness has no default. The
+     * key set is open — a plugin harness's id is as valid as a built-in's — and
+     * sparse, so it is a plain record.
      */
     defaultModelByHarness?: Record<string, string | null>;
     [agentType: string]:
@@ -81,10 +83,12 @@ export interface SubagentsConfig {
   };
   concurrency: {
     default: number;
-    harnesses?: Partial<Record<HarnessId, number>>;
+    harnesses?: Partial<Record<string, number>>;
     providers?: Partial<Record<string, number>>;
     models?: Partial<Record<string, number>>;
   };
+  /** The multiplexer the session runs, by id. Machine-level: a project file never sets it. Default: the built-in `herdr`. */
+  multiplexer: string;
 }
 
 /** Not persisted — cleared on session_start. */
@@ -95,8 +99,12 @@ export interface SessionModelOverrides {
 
 interface ResolveModelOptions {
   subagentType: string;
-  /** The launching harness's family: the only family whose template model step 3 reads. */
-  harnessFamily: HarnessFamily;
+  /**
+   * The built-in family whose template model step 3 reads. Undefined for a plugin
+   * harness, whose family is its own id: an id the template's family-keyed table
+   * does not define, so it contributes no model.
+   */
+  harnessFamily?: HarnessFamily;
   /** The agent config's model keys, each under the family whose catalogue defines it. */
   agentConfig?: { modelsByFamily?: ModelsByFamily };
   config: Pick<SubagentsConfig, "agent">;
@@ -131,7 +139,7 @@ type ModelSource =
  */
 export function harnessDefaultModel(
   agent: Pick<SubagentsConfig["agent"], "default" | "defaultModelByHarness">,
-  harnessId: HarnessId,
+  harnessId: AnyHarnessId,
 ): string | null {
   if (isPiFamilyHarness(harnessId)) return agent.default ?? null;
   const configured = agent.defaultModelByHarness?.[harnessId];
@@ -162,13 +170,19 @@ export function resolveModelSource(options: ResolveModelOptions): {
   // A model pinned for this agent type (session, config, or template) beats
   // any generic default; the generic defaults are consulted only when the
   // type itself has no model anywhere.
+  // A plugin harness has no built-in family, so its step-3 model is never read
+  // from another family's — an unset entry, not a cross-read.
+  const templateModel =
+    harnessFamily === undefined
+      ? undefined
+      : agentConfig?.modelsByFamily?.[harnessFamily];
   const candidates: Array<[ModelSource, string | null | undefined]> = [
     ["session-per-type", sessionOverrides?.[subagentType]],
     [
       "config-per-type",
       config.agent[subagentType] as string | null | undefined,
     ],
-    ["agent-template", agentConfig?.modelsByFamily?.[harnessFamily]],
+    ["agent-template", templateModel],
     ["session-default", sessionOverrides?.["default"]],
     ["harness-default", harnessDefault],
   ];

@@ -18,7 +18,6 @@ import type {
   HarnessListModels,
   HarnessPrepareRequest,
   ModelEntry,
-  PiFamilyHarnessId,
   PiFamilyLaunchRequest,
 } from "../harness.js";
 import { installPaneLauncher } from "./pane-launcher.js";
@@ -76,7 +75,6 @@ export const piFamilyListModels: HarnessListModels = async ({ modelCatalog }) =>
     .map((model): ModelEntry => ({ key: `${model.provider}/${model.id}` }));
 
 export interface PiCompatibleSpec {
-  readonly id: PiFamilyHarnessId;
   /** Binary the pane's `pi` forwards to, resolved on the pane's PATH. */
   readonly binary: string;
   /** Signature this binary's launcher carries, so pane verification proves which launcher landed. */
@@ -99,12 +97,11 @@ export interface PiCompatibleSpec {
  */
 export function createPiCompatibleHarness(
   spec: PiCompatibleSpec,
-): Harness<PiFamilyHarnessId> {
+): Harness<PiFamilyLaunchRequest> {
   return {
-    id: spec.id,
     // The pane's `pi` forwards to this binary, so herdr's pi detection is what
     // sees the child process.
-    agentMuxKind: "pi",
+    agentMultiplexerKind: "pi",
     // The launcher runs `spec.binary` inside the pane, so a machine without it
     // can never launch this harness — however well the preparation itself would
     // go.
@@ -122,10 +119,10 @@ export function createPiCompatibleHarness(
     prefetchModels: () => {},
     teardown: async () => {},
     async prepare({
-      pi,
+      pane,
       paneId,
-    }: HarnessPrepareRequest<PiFamilyHarnessId>): Promise<void> {
-      await installPaneLauncher(pi, paneId, {
+    }: HarnessPrepareRequest<PiFamilyLaunchRequest>): Promise<void> {
+      await installPaneLauncher(pane, paneId, {
         commandName: "pi",
         body: `export HERDR_AGENT=pi; ${spec.binary} "$@"`,
         signature: spec.signature,

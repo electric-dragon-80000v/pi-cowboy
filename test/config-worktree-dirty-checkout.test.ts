@@ -101,8 +101,16 @@ describe("worktreeCheckoutType — defaults", () => {
   });
 
   it("falls back to the built-in default for a value the loader could not validate", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The loader validates before a layer reaches the store, so the policy
+    // below never arrives and the read applies the built-in default.
     const store = new ConfigStore(
-      memoryIO({ agent: { worktreeCheckoutType: "nonsense" } }).io,
+      memoryIO(
+        validateRawLayer(
+          { agent: { worktreeCheckoutType: "nonsense" } },
+          "config.json",
+        ),
+      ).io,
     );
 
     expect(store.agent.worktreeCheckoutType).toBe(

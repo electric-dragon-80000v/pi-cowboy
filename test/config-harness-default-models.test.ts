@@ -70,7 +70,7 @@ describe("defaultModelByHarness — file validation", () => {
     });
   });
 
-  it("drops an unknown harness key with a warning and keeps the valid entries", () => {
+  it("keeps a harness key the built-in vocabulary does not know, since a plugin harness id is valid", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const cleaned = validateRawLayer(
@@ -86,13 +86,10 @@ describe("defaultModelByHarness — file validation", () => {
     );
 
     expect(cleaned.agent?.defaultModelByHarness).toEqual({
+      cow: "anthropic/claude-opus-4",
       opencode: "openai/gpt-4o",
     });
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain("agent.defaultModelByHarness.cow");
-    expect(warn.mock.calls[0]![0]).toContain(
-      'expected "pi" | "pig" | "pi-bolt" | "opencode" | "codex"',
-    );
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("drops a non-model value with a warning", () => {

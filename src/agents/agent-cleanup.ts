@@ -14,7 +14,11 @@ import { hasOutcome } from "../types.js";
 import type { BranchCleanupResult } from "../infrastructure/git-client.js";
 import { createLogger } from "../logger.js";
 import { errorMessage } from "../utils.js";
-import type { AgentHostRef, HostObservation } from "./agent-host.js";
+import type {
+  AgentMultiplexer,
+  AgentHostRef,
+  HostObservation,
+} from "./agent-host.js";
 import type { AgentAssets, CleanupDeps, Located } from "./agent-assets.js";
 import {
   ambiguousReport,
@@ -57,13 +61,16 @@ export interface AgentCleanupRegistry {
 
 /* ── Addresses ─────────────────────────────────────────────────────────── */
 
-/** Actuator address: memory's ref refreshed from herdr's live report; recovered runs rebuild it with `paneCreated` false; no pane address means no ref (git plane removes the checkout). */
-function hostRefFor(located: Located): AgentHostRef | undefined {
+/** Actuator address: memory's ref refreshed from the multiplexer's live report; recovered runs rebuild it with `paneCreated` false; no pane address means no ref (git plane removes the checkout). `multiplexer` is the session's multiplexer, so the address a persisted spawn carries names the multiplexer that minted it. */
+function hostRefFor(
+  located: Located,
+  multiplexer: AgentMultiplexer,
+): AgentHostRef | undefined {
   const pane = located.pane;
   const workspaceId = pane?.workspaceId ?? located.worktree?.workspaceId;
   if (pane === null || workspaceId === undefined) return undefined;
   return {
-    engine: "herdr",
+    multiplexer,
     name: located.branch,
     paneId: pane.paneId,
     tabId: pane.tabId,
@@ -212,7 +219,7 @@ export type WorktreeTeardownOutcome =
   | { kind: "absent"; path?: string }
   | { kind: "removal-failed"; path: string; detail: string };
 
-/** A checkout herdr adopted: removal rides the host address. */
+/** A checkout the multiplexer adopted: removal rides the host address. */
 export type AdoptedWorktreeTarget = WorktreeTarget & { workspaceId: string };
 
 /** A pane the extension created: the only pane cleanup may close. */
@@ -268,7 +275,7 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
       const pane = target.pane;
       const ref = target.kind === "detached" ? undefined : target.ref;
       try {
-        // Applies to herdr and git targets alike: a rolled-back create has neither checkout nor workspace.
+        // Applies to multiplexer and git targets alike: a rolled-back create has neither checkout nor workspace.
         if (!(await deps.worktreeExists(worktree.worktreePath))) {
           return { kind: "absent", path: worktree.worktreePath };
         }
@@ -363,7 +370,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           };
     }
 
-    // No recorded end: force overrides without reading; otherwise herdr's live read decides (unreadable refuses — never evidence the run is over).
+    // No recorded end: force overrides without reading; otherwise the multiplexer's live read decides (unreadable refuses — never evidence the run is over).
     if (opts?.force !== undefined) {
       return {
         kind: "torn-down",
@@ -501,7 +508,11 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       }
     }
 
-    const removal = await removeResources(assets, plan, hostRefFor(located));
+    const removal = await removeResources(
+      assets,
+      plan,
+      hostRefFor(located, assets.multiplexer),
+    );
     const report = assembleReport(
       agentId,
       located.source,

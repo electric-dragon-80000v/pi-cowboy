@@ -45,10 +45,7 @@ import type {
   LocateResult,
   PaneRef,
 } from "../src/agents/agent-assets.js";
-import type {
-  HarnessId,
-  HarnessTeardownContext,
-} from "../src/agents/harness.js";
+import type { HarnessTeardownContext } from "../src/agents/harness.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
 import type {
@@ -69,6 +66,8 @@ import {
   slugifyWorktreeType,
 } from "../src/spawn/worktree-policy.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
+import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
+import { builtinTransport } from "./helpers/transport.js";
 
 /* Module-level mocks: vitest hoists vi.mock file-wide, so nesting them in a describe is an error. Only the adapter describe constructs a manager. */
 const {
@@ -186,7 +185,7 @@ function spawn(overrides: Partial<AgentSpawn> = {}): AgentSpawn {
     },
     execution: {
       host: {
-        engine: "herdr",
+        multiplexer: "herdr",
         name: BRANCH,
         paneId: "w1:p1",
         tabId: "w1:t1",
@@ -294,7 +293,7 @@ interface MockedDeps {
 }
 
 type HarnessTeardown = (
-  harness: HarnessId,
+  harness: string,
   context: HarnessTeardownContext,
 ) => Promise<void>;
 
@@ -329,6 +328,8 @@ interface AssetsOptions {
 }
 
 interface MockedAssets extends MockedDeps {
+  /** The multiplexer every address cleanup builds belongs to. */
+  multiplexer: string;
   locate: Mock<(id: string, hint?: AgentSpawn) => Promise<LocateResult>>;
   observe: Mock<(pane: PaneRef) => Promise<HostObservation | undefined>>;
   deliverable: Mock<(id: string) => RecoveredDeliverable>;
@@ -348,6 +349,7 @@ function buildAssets(
   );
   const assets: MockedAssets = {
     ...deps,
+    multiplexer: "herdr",
     locate,
     observe: vi.fn(async () => {
       if (options.observeFails === true) throw new Error("herdr down");
@@ -481,7 +483,7 @@ const TARGET: AdoptedWorktreeTarget = {
 };
 
 const REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: BRANCH,
   paneId: "w1:p1",
   tabId: "w1:t1",
@@ -494,7 +496,7 @@ describe("paneDispositionFor", () => {
     [null, null, true, { kind: "none" }],
     [
       { paneId: "p1", origin: "self-created" },
-      "herdr",
+      "multiplexer",
       true,
       { kind: "closed-with-workspace" },
     ],
@@ -506,8 +508,8 @@ describe("paneDispositionFor", () => {
 });
 
 describe("removalMechanismOf", () => {
-  it("uses the workspace identity to select herdr or git", () => {
-    expect(removalMechanismOf(TARGET)).toBe("herdr");
+  it("uses the workspace identity to select the multiplexer plane or git", () => {
+    expect(removalMechanismOf(TARGET)).toBe("multiplexer");
     expect(removalMechanismOf({ ...TARGET, workspaceId: undefined })).toBe(
       "git",
     );
@@ -612,7 +614,7 @@ describe("removeWorktree", () => {
       kind: "removed",
       path: WT_PATH,
       branchName: BRANCH,
-      via: "herdr",
+      via: "multiplexer",
       branch: { kind: "deleted" },
     });
     expect(deps.removeWorktree).toHaveBeenCalledWith(REF);
@@ -721,7 +723,7 @@ describe("removeWorktree", () => {
       kind: "removed",
       path: WT_PATH,
       branchName: BRANCH,
-      via: "herdr",
+      via: "multiplexer",
       branch: { kind: "deleted" },
     });
     expect(deps.removeWorktree).toHaveBeenCalledWith(REF);
@@ -759,7 +761,7 @@ describe("removeWorktree", () => {
       kind: "removed",
       path: WT_PATH,
       branchName: BRANCH,
-      via: "herdr",
+      via: "multiplexer",
       branch: { kind: "kept", reason: "unmerged" },
     });
   });
@@ -802,7 +804,7 @@ describe("removeWorktree", () => {
       kind: "removed",
       path: WT_PATH,
       branchName: BRANCH,
-      via: "herdr",
+      via: "multiplexer",
       branch: { kind: "deleted" },
     });
     expect(deps.probes).not.toHaveBeenCalled();
@@ -1820,6 +1822,8 @@ function registerSpawn(manager: AgentManager, spawn: AgentSpawn): void {
     deps: {
       transport: {
         createHost: () => ({}) as never,
+        createPane: () => TEST_PANE,
+        createPlacements: () => TEST_PLACEMENTS,
         createDeliverable: () => ({}) as never,
       },
       pools: new ConcurrencyPools(),
@@ -1837,7 +1841,7 @@ describe("AgentManager.cleanup — adapter wiring", () => {
   let manager: AgentManager;
 
   beforeEach(() => {
-    manager = new AgentManager(new ConcurrencyPools());
+    manager = new AgentManager(new ConcurrencyPools(), builtinTransport());
     for (const entry of shared.store.list()) shared.store.drop(entry.id);
     removeHerdrWorktreeMock.mockReset().mockResolvedValue(true);
     deleteWorktreeBranchMock.mockReset().mockResolvedValue({ kind: "deleted" });

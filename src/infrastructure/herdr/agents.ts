@@ -10,7 +10,7 @@
 
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { AgentMuxKind } from "../../agents/agent-host.js";
+import type { AgentMultiplexerKind } from "../../agents/agent-host.js";
 import { createLogger } from "../../logger.js";
 // isTaskAgentName lives in src/predicates.ts (shared leaf) so this layer never
 // imports across into spawn/.
@@ -91,7 +91,7 @@ export class HerdrAgents {
     name: string;
     paneId: string;
     piArgs: string[];
-    agentMuxKind: AgentMuxKind;
+    agentMultiplexerKind: AgentMultiplexerKind;
   }): Promise<void> {
     let lastError: unknown;
     const started = await pollUntil<true>(
@@ -103,7 +103,7 @@ export class HerdrAgents {
               "start",
               options.name,
               "--kind",
-              options.agentMuxKind,
+              options.agentMultiplexerKind,
               "--pane",
               options.paneId,
               "--timeout",
@@ -375,7 +375,7 @@ export async function startAgent(
     name: string;
     paneId: string;
     piArgs: string[];
-    agentMuxKind: AgentMuxKind;
+    agentMultiplexerKind: AgentMultiplexerKind;
   },
 ): Promise<void> {
   return agentNamespace(pi).startAgent(options);

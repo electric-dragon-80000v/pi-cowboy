@@ -13,7 +13,7 @@
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ForeignHarnessId } from "../agents/harness.js";
+import type { AnyHarnessId } from "../agents/harness.js";
 import type { ModelSelection } from "../types.js";
 
 /** The args key the `tool_call` listener injects the configured default under. */
@@ -51,7 +51,7 @@ export type ResolvedModel =
   | { kind: "resolved"; model: Model<Api>; modelKey: string }
   | {
       kind: "foreign";
-      harness: ForeignHarnessId;
+      harness: AnyHarnessId;
       modelKey: string;
       /** The display form: the harness list's label for the key, or the key itself. */
       modelName: string;

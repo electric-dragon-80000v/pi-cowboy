@@ -1,5 +1,5 @@
 /**
- * process-supervisor.test.ts — ProcessSupervisor execution engine.
+ * process-supervisor.test.ts — ProcessSupervisor execution multiplexer.
  *
  * Fakes depend only on local structural contracts and are exported for the
  * smoke script's reuse.
@@ -19,7 +19,7 @@ import {
 import type {
   AgentHost,
   AgentHostRef,
-  AgentMuxKind,
+  AgentMultiplexerKind,
   DeliverOutcome,
   LiveAttempt,
 } from "../src/agents/agent-host.js";
@@ -40,7 +40,11 @@ interface AgentSnapshot {
 class FakeAgentHost implements AgentHost {
   startCalls: Array<{
     ref: AgentHostRef;
-    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind };
+    options: {
+      name: string;
+      piArgs: string[];
+      agentMultiplexerKind: AgentMultiplexerKind;
+    };
   }> = [];
   stopCalls: Array<{
     ref: AgentHostRef;
@@ -82,7 +86,11 @@ class FakeAgentHost implements AgentHost {
 
   async start(
     ref: AgentHostRef,
-    options: { name: string; piArgs: string[]; agentMuxKind: AgentMuxKind },
+    options: {
+      name: string;
+      piArgs: string[];
+      agentMultiplexerKind: AgentMultiplexerKind;
+    },
   ): Promise<void> {
     this.startCalls.push({ ref, options });
   }
@@ -139,12 +147,12 @@ const PLAN: SubagentLaunchPlan = {
   name: "cow-smoke-deadbeef",
   cwd: "/tmp/wt",
   piArgs: ["-p", "@briefing.md"],
-  agentMuxKind: "pi",
+  agentMultiplexerKind: "pi",
   taskSlug: "smoke",
 };
 const PANE = "w1:p1";
 const REF: AgentHostRef = {
-  engine: "herdr",
+  multiplexer: "herdr",
   name: "cow-smoke-deadbeef",
   paneId: PANE,
   tabId: "w1:t1",
@@ -224,7 +232,7 @@ describe("ProcessSupervisorEngine.start", () => {
         options: {
           name: PLAN.name,
           piArgs: PLAN.piArgs,
-          agentMuxKind: PLAN.agentMuxKind,
+          agentMultiplexerKind: PLAN.agentMultiplexerKind,
         },
       },
     ]);

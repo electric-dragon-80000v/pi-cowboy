@@ -138,7 +138,7 @@ describe("findTaskDedup", () => {
   it("falls back to the live herdr attempt when no in-memory spawn exists (parent reload)", () => {
     const attempt = liveAttempt("cow-fix-login-flow-01234567");
     const dedup = findTaskDedup([], [attempt]);
-    expect(dedup).toEqual({ kind: "herdr", attempt });
+    expect(dedup).toEqual({ kind: "multiplexer", attempt });
   });
 
   it("uses the first in-memory spawn when several share the slug", () => {
@@ -241,15 +241,15 @@ describe("TaskAlreadyInFlightError", () => {
     expect(err.message).toContain("No second agent was spawned");
   });
 
-  it("names the live backend attempt when the spawn is gone", () => {
+  it("names the live multiplexer attempt when the spawn is gone", () => {
     const attempt = liveAttempt("cow-fix-login-flow-01234567");
     const err = new TaskAlreadyInFlightError(
-      { kind: "herdr", attempt },
+      { kind: "multiplexer", attempt },
       "fix-login-flow",
     );
-    expect(err.dedup).toEqual({ kind: "herdr", attempt });
-    expect(err.dedup.kind).toBe("herdr");
-    if (err.dedup.kind === "herdr") {
+    expect(err.dedup).toEqual({ kind: "multiplexer", attempt });
+    expect(err.dedup.kind).toBe("multiplexer");
+    if (err.dedup.kind === "multiplexer") {
       expect(err.dedup.attempt.name).toBe("cow-fix-login-flow-01234567");
     }
     expect(err.message).toContain(
