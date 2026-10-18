@@ -1,3 +1,15 @@
+# [0.16.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.2...v0.16.0) (2026-10-18)
+
+
+### Bug Fixes
+
+* **ci:** include type definitions in release artifact checks ([08b6a77](https://github.com/electric-dragon-80000v/pi-cowboy/commit/08b6a77bfa352fdb21fe33b6f8c94f7d19e6e1da))
+
+
+### Features
+
+* **plugin:** add plugin contract for custom harnesses and multiplexers ([2302c5c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2302c5cd26dabfea95193eceed8de37b8dfca86e))
+
 ## [0.15.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.1...v0.15.2) (2026-10-17)
 
 
