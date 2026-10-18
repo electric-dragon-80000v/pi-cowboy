@@ -76,6 +76,7 @@ jobs:
           for required in \
             package.json \
             dist/index.js \
+            dist/plugin/index.d.ts \
             agents/explore.toml \
             README.md \
             LICENSE; do
@@ -84,17 +85,15 @@ jobs:
               exit 1
             }
           done
-          # Each pattern names the `files` exclusion that keeps it out: `src/` is
-          # the point of shipping `dist/`; the tsbuildinfo is the incremental
-          # cache; declarations are not part of a runtime-only package; the docs
-          # markdown stays reachable through the README's GitHub links; and the
-          # two logos are size guards — `logo.png` is a 932 kB source image
+          # `src/` duplicates the built output; the tsbuildinfo is an
+          # incremental cache; the docs markdown stays reachable through the
+          # README's GitHub links; and the logos are size guards — `logo.png` is
+          # a 932 kB source image
           # nothing references, and `logo-pi-package.png` is served from its raw
           # GitHub URL rather than read from the tarball.
           for forbidden in \
             '^src/' \
             '\.tsbuildinfo$' \
-            '\.d\.ts$' \
             '^docs/.*\.md$' \
             '^docs/assets/logo\.png$' \
             '^docs/assets/logo-pi-package\.png$' \
