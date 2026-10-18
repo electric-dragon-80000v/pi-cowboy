@@ -13,7 +13,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
 import { setExtensionEnabled } from "../../registration.js";
-import type { HarnessModelOptions } from "../../agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
 import { setShowActiveIndicator } from "../../extension-toggle.js";
 import { getPiDefaultThinkingLevel } from "../../pi-settings.js";
 import { buildSettingsListTheme, type Notify } from "./helpers.js";

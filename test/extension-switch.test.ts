@@ -24,8 +24,10 @@ import { probed, unprobed } from "../src/availability.js";
 import {
   getStore,
   setHarnessAvailability,
+  setRuntime,
   setSessionCtx,
 } from "../src/shell.js";
+import { NO_HOST_REASON } from "../src/host-multiplexer.js";
 import {
   recordOverlayMount,
   type OverlayCallOptions,
@@ -166,6 +168,8 @@ beforeEach(() => {
   worktreeCommand.showWorktreeCommandMenu.mockClear();
   shell.active = [];
   shell.registeredTools = [];
+  // A live session has a runtime; the cases about a session nothing hosts clear it.
+  setRuntime({} as never);
 });
 
 describe("COWBOY_TOOL_NAMES", () => {
@@ -638,6 +642,49 @@ describe("/cowboy dispatch", () => {
     expect(
       (await cowboyCompletions("model "))?.map((item) => item.value),
     ).toEqual(["model clear", "model openai/gpt", "model anthropic/claude-3"]);
+  });
+});
+
+describe("/cowboy with no multiplexer hosting the session", () => {
+  it.each(["spawn", "status", "model", "worktree", ""] as const)(
+    "refuses `%s`, which needs a pane, and says why",
+    async (subcommand) => {
+      install({});
+      setRuntime(null);
+      const notify = vi.fn();
+
+      await captureCommand().handler(subcommand, commandContext(notify));
+
+      expect(notify).toHaveBeenCalledWith(NO_HOST_REASON, "warning");
+      expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
+      expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
+      expect(worktreeCommand.showWorktreeCommandMenu).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses enable, so no tool goes active without a pane to run in", async () => {
+    install({ agent: { extensionEnabled: false } });
+    setRuntime(null);
+    const notify = vi.fn();
+
+    await captureCommand().handler("enable", commandContext(notify));
+
+    expect(notify).toHaveBeenCalledWith(NO_HOST_REASON, "warning");
+    expect(isExtensionEnabled()).toBe(false);
+    expect(shell.active).toEqual([]);
+  });
+
+  it("still disables, which needs no pane", async () => {
+    install({});
+    setRuntime(null);
+    shell.active = ["read", ...COWBOY_TOOL_NAMES];
+    const notify = vi.fn();
+
+    await captureCommand().handler("disable", commandContext(notify));
+
+    expect(isExtensionEnabled()).toBe(false);
+    expect(shell.active).toEqual(["read"]);
+    expect(notify).toHaveBeenCalledWith("pi-cowboy disabled", "info");
   });
 });
 

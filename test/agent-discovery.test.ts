@@ -10,7 +10,25 @@ import {
   scanAgentFilesInDir,
   type AgentTemplateFile,
 } from "../src/agents/agent-discovery.js";
+import { scanAndMerge, setAgentScanDirs } from "../src/agents/agent-types.js";
+import type { PluginHarness } from "../src/agents/harness.js";
+import { getHarnessRegistry, installSessionRegistries } from "../src/shell.js";
 import type { AgentConfig } from "../src/agents/types.js";
+
+/** A registered-only harness: these cases are about which ids exist, not launchability. */
+function pluginHarness(id: string): PluginHarness {
+  return {
+    id,
+    displayName: id,
+    agentMultiplexerKind: "pi",
+    availability: () => ({ status: "available" }),
+    prepare: async () => {},
+    buildArgs: () => [],
+    teardown: async () => {},
+    listModels: async () => [],
+    prefetchModels: () => {},
+  };
+}
 
 describe("parseAgentFile TOML templates", () => {
   it("parses fields and preserves the prose body byte-for-byte", () => {
@@ -231,6 +249,30 @@ describe("scanAgentFilesInDir TOML warnings", () => {
     expect(agents.map((a) => a.name)).toEqual(["fine"]);
   });
 
+  it("skips a file the caller's rule refuses, with the file and the reason", async () => {
+    const dir = scanDir({
+      "unknown.toml": 'name = "unknown"\nharness_type = "cow"',
+      "fine.toml": 'name = "fine"\nharness_type = "pi"',
+    });
+    const notify = vi.fn();
+
+    const agents = await scanAgentFilesInDir(dir, notify, (agent) =>
+      agent.harness_type === "cow"
+        ? 'harness_type "cow" names no harness this session registered'
+        : undefined,
+    );
+
+    expect(agents.map((a) => a.name)).toEqual(["fine"]);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [message, kind] = notify.mock.calls[0];
+    expect(kind).toBe("warning");
+    expect(message).toContain(path.join(dir, "unknown.toml"));
+    expect(message).toContain(
+      'harness_type "cow" names no harness this session registered',
+    );
+    expect(message).not.toContain("\n");
+  });
+
   it("stays silent for a file that declares no name", async () => {
     const dir = scanDir({ "plain.toml": "# nothing here\n" });
     const notify = vi.fn();
@@ -268,6 +310,62 @@ describe("scanAgentFilesInDir TOML warnings", () => {
       expect(agents).toEqual([]);
     },
   );
+});
+
+describe("scanAndMerge harness registration", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function scanDir(files: Record<string, string>): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-cowboy-merge-"));
+    tempDirs.push(dir);
+    for (const [name, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(dir, name), content);
+    }
+    return dir;
+  }
+
+  it("skips a template naming a harness no harness registered, and keeps a plugin's", async () => {
+    installSessionRegistries();
+    getHarnessRegistry().register(pluginHarness("scan-plugin"));
+    const dir = scanDir({
+      "plugin.toml": 'name = "plugin-agent"\nharness_type = "scan-plugin"',
+      "typo.toml": 'name = "typo-agent"\nharness_type = "scn-plugin"',
+    });
+    setAgentScanDirs(dir, "", "");
+    const notify = vi.fn();
+
+    const merged = await scanAndMerge({ disableDefaultAgents: true, notify });
+
+    expect([...merged.keys()]).toEqual(["plugin-agent"]);
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [message] = notify.mock.calls[0];
+    expect(message).toContain(path.join(dir, "typo.toml"));
+    expect(message).toContain('harness_type "scn-plugin"');
+    // The warning names what this session does run, plugin harnesses included.
+    expect(message).toContain(
+      "registered: pi, pig, pi-bolt, opencode, codex, claude, scan-plugin",
+    );
+  });
+
+  it("keeps a registered built-in harness the machine cannot launch", async () => {
+    installSessionRegistries();
+    const dir = scanDir({
+      "codex.toml": 'name = "codex-agent"\nharness_type = "codex"',
+    });
+    setAgentScanDirs(dir, "", "");
+    const notify = vi.fn();
+
+    const merged = await scanAndMerge({ disableDefaultAgents: true, notify });
+
+    expect(merged.get("codex-agent")?.harnessType).toBe("codex");
+    expect(notify).not.toHaveBeenCalled();
+  });
 });
 
 describe("mergeAgents field inheritance", () => {
@@ -452,10 +550,13 @@ describe("mergeAgents harness_type inheritance", () => {
     expect(merged.get("swine")?.harnessType).toBe("pig");
   });
 
-  it("rejects an unknown harness_type", () => {
-    expect(() =>
-      parseAgentFile('name = "swine"\nharness_type = "cow"'),
-    ).toThrow();
+  it("carries any harness id verbatim; the session's registry decides which exist", () => {
+    // The schema holds the shape only: agent-types.ts skips a file whose id no
+    // harness registered, so a typo stays loud without pinning the format to
+    // HARNESS_IDS — a plugin harness's id is a legal value here.
+    expect(
+      parseAgentFile('name = "swine"\nharness_type = "sd-plugin"').harness_type,
+    ).toBe("sd-plugin");
   });
 });
 

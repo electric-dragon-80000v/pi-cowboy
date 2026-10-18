@@ -22,10 +22,8 @@ import {
   type HarnessId,
   type PluginHarness,
 } from "../src/agents/harness.js";
-import {
-  harnessFamilyOf,
-  registerHarness,
-} from "../src/agents/harness/registry.js";
+import { harnessFamilyOf } from "../src/agents/harness/harness-registry.js";
+import { getHarnessRegistry, installSessionRegistries } from "../src/shell.js";
 
 /** A registered-only harness: this file is about resolution, not availability. */
 function pluginHarness(id: string): PluginHarness {
@@ -76,6 +74,8 @@ function orchestrator(name: string): OrchestratorConfig {
 }
 
 beforeEach(() => {
+  // Each case is its own session, so no harness registered here answers in the next.
+  installSessionRegistries();
   configured.defaultAgentType = undefined;
   configured.defaultOrchestrator = undefined;
   configured.worktreeCheckoutType = "dirty";
@@ -179,7 +179,7 @@ describe("spawn-defaults — harness", () => {
   it("resolves a plugin harness the machine can launch, and falls back from one it cannot", () => {
     // A plugin harness is a value like any other: registered means resolvable,
     // and an unproven one falls back exactly as a built-in does.
-    registerHarness(pluginHarness("sd-plugin"));
+    getHarnessRegistry().register(pluginHarness("sd-plugin"));
     configured.harnessType = "sd-plugin";
 
     configured.harnessAvailability = probed(["sd-plugin"]);
@@ -187,6 +187,22 @@ describe("spawn-defaults — harness", () => {
 
     configured.harnessAvailability = probed(["pi"]);
     expect(resolveHarnessType("general-purpose")).toBe("pi");
+  });
+
+  it("resolves a plugin harness the agent template names", () => {
+    getHarnessRegistry().register(pluginHarness("sd-plugin"));
+    registerAgents(
+      new Map<string, AgentConfig>([
+        [
+          "plugin-agent",
+          { ...agent("plugin-agent"), harnessType: "sd-plugin" },
+        ],
+      ]),
+      { disableDefaultAgents: true },
+    );
+    configured.harnessAvailability = probed(["sd-plugin"]);
+
+    expect(resolveHarnessType("plugin-agent")).toBe("sd-plugin");
   });
 
   it("lets the caller's harness_type win over both the template and the config setting", () => {
@@ -230,6 +246,29 @@ describe("spawn-defaults — the caller's explicit harness_type", () => {
     expect(resolveRequestedHarness("pig")).toBe("pig");
   });
 
+  it("resolves a plugin harness this session registered", () => {
+    getHarnessRegistry().register(pluginHarness("sd-plugin"));
+    configured.harnessAvailability = probed(["sd-plugin"]);
+
+    expect(resolveRequestedHarness("sd-plugin")).toBe("sd-plugin");
+    expect(requestedHarnessId("sd-plugin")).toBe("sd-plugin");
+  });
+
+  it("refuses a plugin harness id nothing registered", () => {
+    expect(() => resolveRequestedHarness("sd-plugin")).toThrow(
+      `Unknown harness_type "sd-plugin": valid harnesses are ${HARNESS_IDS.join(", ")}`,
+    );
+  });
+
+  it("refuses a registered plugin harness this machine did not prove", () => {
+    getHarnessRegistry().register(pluginHarness("sd-plugin"));
+    configured.harnessAvailability = probed<HarnessId>(["pi"]);
+
+    expect(() => resolveRequestedHarness("sd-plugin")).toThrow(
+      'Harness "sd-plugin" cannot be launched on this machine',
+    );
+  });
+
   it("reads null and blank as unset, never as an unknown id", () => {
     expect(resolveRequestedHarness(null)).toBeUndefined();
     expect(resolveRequestedHarness("")).toBeUndefined();
@@ -255,6 +294,7 @@ describe("spawn-defaults — the caller's explicit harness_type", () => {
 
     expect(requestedHarnessId("pi")).toBe("pi");
     expect(requestedHarnessId("ghost")).toBeUndefined();
+    expect(requestedHarnessId("sd-plugin")).toBeUndefined();
     expect(requestedHarnessId("opencode")).toBeUndefined();
     expect(requestedHarnessId(null)).toBeUndefined();
   });

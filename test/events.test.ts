@@ -61,13 +61,19 @@ const booted = vi.hoisted(() => ({
     loaded: readonly string[];
     dispose: ReturnType<typeof vi.fn>;
   }>,
+  /** Whether the stubbed boot found a multiplexer to host the session. */
+  kind: "hosted" as "hosted" | "unhosted",
+  reason: "no multiplexer hosts this process",
 }));
 
 vi.mock("../src/session-runtime.js", () => ({
   startSessionRuntime: async () => {
     const plugins = { loaded: [], dispose: vi.fn(async () => {}) };
     booted.plugins.push(plugins);
-    return { plugins, runtime: {} };
+    if (booted.kind === "unhosted") {
+      return { kind: "unhosted", plugins, reason: booted.reason };
+    }
+    return { kind: "hosted", plugins, runtime: {} };
   },
 }));
 
@@ -151,6 +157,7 @@ beforeEach(() => {
   shell.active = [];
   shell.registeredTools = [];
   booted.plugins.length = 0;
+  booted.kind = "hosted";
 });
 
 describe("session_start while the extension is disabled", () => {
@@ -202,6 +209,54 @@ describe("session_start while the extension is enabled", () => {
     expect(ctx.markers).toHaveLength(2);
     expect(ctx.markers[0]!.options?.overlay).toBe(true);
     expect(ctx.markers[0]!.hidden()).toBe(false);
+  });
+});
+
+describe("session_start with no multiplexer hosting the process", () => {
+  it("leaves the tools inactive, says why, and reads no template", async () => {
+    installStore({});
+    booted.kind = "unhosted";
+    shell.active = ["read", ...COWBOY_TOOL_NAMES];
+    const notify = vi.fn();
+
+    await sessionHandler("session_start")({}, sessionContext(notify));
+
+    expect(shell.active).toEqual(["read"]);
+    expect(notify).toHaveBeenCalledWith(booted.reason, "warning");
+    // A session that can launch no agent has no use for its templates.
+    expect(scanned.agents).not.toHaveBeenCalled();
+    expect(scanned.orchestrators).not.toHaveBeenCalled();
+  });
+
+  it("says nothing to a session whose switch is already off", async () => {
+    installStore({ agent: { extensionEnabled: false } });
+    booted.kind = "unhosted";
+    const notify = vi.fn();
+
+    await sessionHandler("session_start")({}, sessionContext(notify));
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("still hands the plugin load to shutdown, so its disposers run", async () => {
+    installStore({});
+    booted.kind = "unhosted";
+    const ctx = sessionContext(vi.fn());
+    // One registration, both handlers: a second setup would start its own
+    // closure with its own plugin handle.
+    type Handler = (event: unknown, ctx: unknown) => Promise<void>;
+    const registered = new Map<string, Handler>();
+    setupEventListeners({
+      on: (name: string, handler: Handler) => {
+        registered.set(name, handler);
+      },
+    } as never);
+
+    await registered.get("session_start")!({}, ctx);
+    await registered.get("session_shutdown")!({}, ctx);
+
+    expect(booted.plugins).toHaveLength(1);
+    expect(booted.plugins[0]!.dispose).toHaveBeenCalledTimes(1);
   });
 });
 

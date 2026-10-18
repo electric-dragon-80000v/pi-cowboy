@@ -11,6 +11,7 @@ import {
   parseTemplateToml,
   scanTemplateFilesInDir,
   type TemplateNotify,
+  type TemplateRefusal,
   type TemplateScanWarning,
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
@@ -29,10 +30,15 @@ const AGENT_SCAN_WARNING: TemplateScanWarning = {
   problem: "is not a valid agent template and was skipped",
 };
 
-/** Empty array when the directory doesn't exist. Stays shell-free: `notify` is the injected warning sink. */
+/**
+ * Empty array when the directory doesn't exist. Stays shell-free: `notify` and
+ * `refuse` are injected, so the session's rules — which harness ids this
+ * session runs — are the caller's, not this module's.
+ */
 export async function scanAgentFilesInDir(
   dirPath: string,
   notify?: TemplateNotify,
+  refuse?: TemplateRefusal<AgentTemplateFile>,
 ): Promise<AgentTemplateFile[]> {
   return scanTemplateFilesInDir(
     dirPath,
@@ -40,6 +46,7 @@ export async function scanAgentFilesInDir(
     (agent) => agent.name,
     notify,
     AGENT_SCAN_WARNING,
+    refuse,
   );
 }
 

@@ -19,12 +19,16 @@
  * named after that family, never as a member a caller has to pick. Each
  * harness's implementation lives beside this module (harness/pig.ts,
  * harness/pi-bolt.ts, harness/opencode/index.ts, harness/codex.ts,
- * harness/claude/index.ts) and is selected through harness/registry.ts.
+ * harness/claude/index.ts) and is selected through harness/harness-registry.ts.
  *
- * `HARNESS_IDS` stays the full vocabulary everywhere a value is read or written:
- * a template written where a harness exists must still load where it does not.
- * Which harnesses a machine can launch only narrows what the setting offers and
- * which harness a spawn ends up using.
+ * `HARNESS_IDS` is the built-in vocabulary, and it stays whole wherever a value
+ * is read or written: a template written for a built-in harness must still load
+ * on a machine that cannot launch it — only its launch falls back to pi. A value
+ * naming a plugin harness is a different case: it is legal because this
+ * session's registry has that id, so an id no harness registered is reported
+ * rather than downgraded (see agent-types.ts). Which harnesses a machine can
+ * launch only narrows what the setting offers and which harness a spawn ends up
+ * using.
  *
  * Model lists belong to the harness too (`listModels`): one interface method
  * answers "what can this harness run" for the pi family's catalog and for a
@@ -40,19 +44,20 @@
  * arrive with their first reader, never before.
  *
  * A *plugin* harness grows none of that: it registers a `PluginHarness` under
- * its own id (see harness/registry.ts and plugin/contract.ts), so its id is not
- * in `HARNESS_IDS`, its CLI is not a built-in family's, and `HARNESS_IDS` stays
- * the closed set the `harness_type` enum is spelled from. It is the same
- * `Harness` contract with `SubagentLaunchInputs` as its launch type — its own
- * options live in its own code — so a plugin can never claim a built-in
- * family's request member.
+ * its own id (see harness/harness-registry.ts and plugin/contract.ts), so its id
+ * is not in `HARNESS_IDS` and its CLI is not a built-in family's. A
+ * `harness_type` may still name it — the session's registry is what makes the id
+ * real. It is the same `Harness` contract with `SubagentLaunchInputs` as its
+ * launch type — its own options live in its own code — so a plugin can never
+ * claim a built-in family's request member.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
 
 /**
- * Every selectable harness. The `harness_type` enum and `HarnessId` derive from this.
+ * Every built-in harness. `HarnessId` derives from this; a `harness_type` may
+ * also name a plugin harness's id, which is not one.
  *
  * `opencode` runs a binary of its own rather than pi: it is probed like every
  * other harness and shows up wherever its binary is on PATH, and its own
@@ -77,9 +82,8 @@ export type HarnessId = (typeof HARNESS_IDS)[number];
  * harness's own id. Every id that is read, written, or passed around is this
  * type — `HarnessId` alone would say a plugin harness cannot be named, and a
  * bare `string` would say nothing about the built-ins, which are the ids that
- * autocomplete here. A closed vocabulary is still `HarnessId`: the
- * `harness_type` a template carries, and the ids a built-in implementation is
- * keyed by.
+ * autocomplete here. A closed vocabulary is still `HarnessId`: the ids a
+ * built-in implementation is keyed by, and the built-in set a menu offers.
  */
 export type AnyHarnessId = HarnessId | (string & {});
 
@@ -444,7 +448,7 @@ export type HarnessLaunch = BuiltinLaunchRequest | PluginLaunchRequest;
  * the shared launch inputs, plus the identity a plugin supplies for itself
  * because it is not keyed in this package's built-in table. The registry holds
  * it as the same `RegisteredHarness` a built-in becomes (see
- * harness/registry.ts), so a caller never branches on where it came from.
+ * harness/harness-registry.ts), so a caller never branches on where it came from.
  */
 export interface PluginHarness extends Harness<SubagentLaunchInputs> {
   /** The id config and `harness_type`-shaped values name this harness by. */

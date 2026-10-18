@@ -2,7 +2,7 @@ import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
-import type { AnyHarnessId, HarnessId } from "./agents/harness.js";
+import type { AnyHarnessId } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
 export type ThinkingLevel = ModelThinkingLevel;
@@ -62,7 +62,7 @@ export interface SpawnConfig extends RunTunables {
    * The caller's explicit `harness_type`, validated at parse. Absent means the
    * agent template's `harness_type` and then the config setting resolve it.
    */
-  requestedHarness?: HarnessId;
+  requestedHarness?: AnyHarnessId;
   /**
    * The spawn's `id`, so stop/cleanup/steer accept exactly what the spawn
    * result reports.

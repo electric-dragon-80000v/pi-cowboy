@@ -2,8 +2,9 @@
  * plugin-loader.test.ts — importing installed plugins and running their
  * factories. Discovery is mocked here (it reads pi's own settings on disk); what
  * is real is the import, the factory call, the registrations it makes, the
- * skip-with-a-warning on a broken plugin, and the once-per-process load that a
- * dispose undoes.
+ * skip-with-a-warning on a broken plugin, and the once-per-loader load that a
+ * dispose undoes. Each case builds its own loader and registries, exactly as a
+ * session does, so no registration outlives the case that made it.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,16 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
+import { createMultiplexerRegistry } from "../src/agents/multiplexer-registry.js";
 import {
-  registerHarness,
-  registeredHarness,
-} from "../src/agents/harness/registry.js";
-import {
-  multiplexerRuntime,
-  hasMultiplexer,
-} from "../src/agents/multiplexer-registry.js";
-import { loadPlugins, type LoadedPlugins } from "../src/plugin/loader.js";
-import type { PluginHarness } from "../src/agents/harness.js";
+  createPluginLoader,
+  type LoadedPlugins,
+} from "../src/plugin/loader.js";
 import type { DiscoveredPlugin } from "../src/plugin/discovery.js";
 
 const { discoverMock } = vi.hoisted(() => ({ discoverMock: vi.fn() }));
@@ -31,20 +28,20 @@ vi.mock("../src/plugin/discovery.js", () => ({
 
 const PI = {} as unknown as ExtensionAPI;
 
-/** A minimal plugin harness, for asserting an id is free or taken. */
-function pluginHarnessFor(id: string): PluginHarness {
+/** The registries and loader one session would bring up. */
+function session(): ReturnType<typeof createPluginLoader> & {
+  harnesses: ReturnType<typeof createHarnessRegistry>;
+  multiplexers: ReturnType<typeof createMultiplexerRegistry>;
+} {
+  const harnesses = createHarnessRegistry();
+  const multiplexers = createMultiplexerRegistry();
   return {
-    id,
-    displayName: id,
-    agentMultiplexerKind: id,
-    availability: () => ({ status: "available" }),
-    prepare: async () => {},
-    buildArgs: () => [],
-    teardown: async () => {},
-    listModels: async () => [],
-    prefetchModels: () => {},
+    ...createPluginLoader({ harnesses, multiplexers }),
+    harnesses,
+    multiplexers,
   };
 }
+
 const made: string[] = [];
 let loaded: LoadedPlugins | undefined;
 
@@ -87,7 +84,11 @@ export default function (api) {
     listModels: async () => [{ key: "fixture/model", label: "Fixture" }],
     prefetchModels: () => {},
   });
-  api.registerMultiplexer({ id: "fixture-multiplexer", create: () => ({ multiplexer: "fixture-multiplexer" }) });
+  api.registerMultiplexer({
+    id: "fixture-multiplexer",
+    hosts: () => true,
+    create: () => ({ multiplexer: "fixture-multiplexer" }),
+  });
   globalThis.__fixtureRuns = (globalThis.__fixtureRuns ?? 0) + 1;
   return () => {
     globalThis.__fixtureDisposed = (globalThis.__fixtureDisposed ?? 0) + 1;
@@ -100,17 +101,18 @@ function runCount(): number {
   return typeof value === "number" ? value : 0;
 }
 
-describe("loadPlugins", () => {
+describe("createPluginLoader", () => {
   it("imports each plugin and lets it register its harness and multiplexer", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
     const notify = vi.fn();
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), notify);
+    loaded = await plugins.load(PI, process.cwd(), notify);
 
     expect(loaded.loaded).toEqual(["fixture-pkg"]);
     expect(notify).not.toHaveBeenCalled();
 
-    const harness = registeredHarness("fixture-harness");
+    const harness = plugins.harnesses.get("fixture-harness");
     expect(harness?.displayName).toBe("Fixture");
     // The registered harness is a real registry entry: its argv comes from the
     // plugin's own buildArgs.
@@ -118,10 +120,10 @@ describe("loadPlugins", () => {
       "fixture-run",
     ]);
 
-    expect(hasMultiplexer("fixture-multiplexer")).toBe(true);
-    expect(multiplexerRuntime(PI, "fixture-multiplexer").multiplexer).toBe(
-      "fixture-multiplexer",
-    );
+    expect(plugins.multiplexers.has("fixture-multiplexer")).toBe(true);
+    expect(
+      plugins.multiplexers.runtime(PI, "fixture-multiplexer").multiplexer,
+    ).toBe("fixture-multiplexer");
   });
 
   it("skips a plugin that throws while loading, and still loads the good one", async () => {
@@ -130,8 +132,9 @@ describe("loadPlugins", () => {
       pluginPackage("good-pkg", GOOD_PLUGIN),
     ]);
     const notify = vi.fn();
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), notify);
+    loaded = await plugins.load(PI, process.cwd(), notify);
 
     expect(loaded.loaded).toEqual(["good-pkg"]);
     expect(notify).toHaveBeenCalledTimes(1);
@@ -150,7 +153,6 @@ describe("loadPlugins", () => {
           api.registerHarness({
             id: "pi",
             displayName: "Not Pi",
-            family: "pi",
             agentMultiplexerKind: "pi",
             availability: () => ({ status: "available" }),
             prepare: async () => {},
@@ -163,39 +165,41 @@ describe("loadPlugins", () => {
         `,
       ),
     ]);
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), vi.fn());
+    loaded = await plugins.load(PI, process.cwd(), vi.fn());
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain("a built-in harness owns that id");
-    expect(registeredHarness("pi")?.displayName).toBe("Pi");
+    expect(plugins.harnesses.displayName("pi")).toBe("Pi");
     warn.mockRestore();
   });
 
-  it("loads once per process, and a dispose lets the next session reload cleanly", async () => {
+  it("loads once per loader, and a dispose lets the next load register cleanly", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), vi.fn());
+    loaded = await plugins.load(PI, process.cwd(), vi.fn());
     expect(runCount()).toBe(1);
-    expect(registeredHarness("fixture-harness")).toBeDefined();
-    expect(hasMultiplexer("fixture-multiplexer")).toBe(true);
+    expect(plugins.harnesses.get("fixture-harness")).toBeDefined();
+    expect(plugins.multiplexers.has("fixture-multiplexer")).toBe(true);
 
-    // A second call in the same session returns the live load: the registries
-    // are process-level, so re-registering would only repeat the work.
-    const again = await loadPlugins(PI, process.cwd(), vi.fn());
+    // A second call in the same session returns the live load: re-registering
+    // would only repeat the work.
+    const again = await plugins.load(PI, process.cwd(), vi.fn());
     expect(again).toBe(loaded);
     expect(runCount()).toBe(1);
 
     await loaded.dispose();
     expect((globalThis as Record<string, unknown>).__fixtureDisposed).toBe(1);
     // Disposal drops the load's registrations, so the next load starts clean.
-    expect(registeredHarness("fixture-harness")).toBeUndefined();
-    expect(hasMultiplexer("fixture-multiplexer")).toBe(false);
+    expect(plugins.harnesses.get("fixture-harness")).toBeUndefined();
+    expect(plugins.multiplexers.has("fixture-multiplexer")).toBe(false);
 
-    loaded = await loadPlugins(PI, process.cwd(), vi.fn());
+    loaded = await plugins.load(PI, process.cwd(), vi.fn());
     expect(runCount()).toBe(2);
-    expect(registeredHarness("fixture-harness")).toBeDefined();
+    expect(plugins.harnesses.get("fixture-harness")).toBeDefined();
     // A clean registry means the reload is a first registration, not a duplicate.
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
@@ -203,8 +207,9 @@ describe("loadPlugins", () => {
 
   it("disposes idempotently, so a convergent reload cannot run a disposer twice", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), vi.fn());
+    loaded = await plugins.load(PI, process.cwd(), vi.fn());
 
     // Concurrent teardowns (pi's reload can produce them) run the disposer once.
     await Promise.all([loaded.dispose(), loaded.dispose()]);
@@ -216,13 +221,14 @@ describe("loadPlugins", () => {
   });
 });
 
-describe("loadPlugins — concurrent and reload-safe", () => {
+describe("createPluginLoader — concurrent and reload-safe", () => {
   it("imports and runs each plugin once when two loads overlap", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
+    const plugins = session();
 
     const [first, second] = await Promise.all([
-      loadPlugins(PI, process.cwd(), vi.fn()),
-      loadPlugins(PI, process.cwd(), vi.fn()),
+      plugins.load(PI, process.cwd(), vi.fn()),
+      plugins.load(PI, process.cwd(), vi.fn()),
     ]);
 
     expect(first).toBe(second);
@@ -232,17 +238,18 @@ describe("loadPlugins — concurrent and reload-safe", () => {
 
   it("does not let a stale handle's dispose clear a load that replaced it", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
-    const stale = await loadPlugins(PI, process.cwd(), vi.fn());
+    const plugins = session();
+    const stale = await plugins.load(PI, process.cwd(), vi.fn());
     await stale.dispose();
 
-    const live = await loadPlugins(PI, process.cwd(), vi.fn());
-    expect(registeredHarness("fixture-harness")).toBeDefined();
+    const live = await plugins.load(PI, process.cwd(), vi.fn());
+    expect(plugins.harnesses.get("fixture-harness")).toBeDefined();
 
     // pi's reload can converge on the old handle; it must not wipe the session
     // that replaced it.
     await stale.dispose();
-    expect(registeredHarness("fixture-harness")).toBeDefined();
-    expect(hasMultiplexer("fixture-multiplexer")).toBe(true);
+    expect(plugins.harnesses.get("fixture-harness")).toBeDefined();
+    expect(plugins.multiplexers.has("fixture-multiplexer")).toBe(true);
     loaded = live;
   });
 
@@ -268,13 +275,26 @@ describe("loadPlugins — concurrent and reload-safe", () => {
       ),
     ]);
     const notify = vi.fn();
+    const plugins = session();
 
-    loaded = await loadPlugins(PI, process.cwd(), notify);
+    loaded = await plugins.load(PI, process.cwd(), notify);
 
     // The half-registered harness is gone, so its id is free for the plugin that
     // should own it (first-wins would otherwise have locked it out).
-    expect(registeredHarness("half-harness")).toBeUndefined();
-    expect(registerHarness(pluginHarnessFor("half-harness"))).toBe(true);
+    expect(plugins.harnesses.get("half-harness")).toBeUndefined();
+    expect(
+      plugins.harnesses.register({
+        id: "half-harness",
+        displayName: "Half",
+        agentMultiplexerKind: "half",
+        availability: () => ({ status: "available" }),
+        prepare: async () => {},
+        buildArgs: () => [],
+        teardown: async () => {},
+        listModels: async () => [],
+        prefetchModels: () => {},
+      }),
+    ).toBe(true);
     expect(notify).toHaveBeenCalledWith(
       expect.stringContaining("could not load and was skipped"),
       "warning",
@@ -282,7 +302,7 @@ describe("loadPlugins — concurrent and reload-safe", () => {
   });
 });
 
-describe("loadPlugins — a session starting mid-teardown", () => {
+describe("createPluginLoader — a session starting mid-teardown", () => {
   /** A plugin whose disposer waits on a gate the test releases. */
   const GATED_PLUGIN = `
 export default (api) => {
@@ -298,10 +318,10 @@ export default (api) => {
     prefetchModels: () => {},
   });
   return () => globalThis.__disposeGate ?? Promise.resolve();
-};
+}
 `;
 
-  it("loads fresh plugins, and the dying load's reset cannot wipe them", async () => {
+  it("loads a replacement session's plugins into its own registries, out of the dying load's reach", async () => {
     discoverMock.mockResolvedValue([pluginPackage("gate-pkg", GATED_PLUGIN)]);
     let release!: () => void;
     (globalThis as Record<string, unknown>).__disposeGate = new Promise<void>(
@@ -310,20 +330,23 @@ export default (api) => {
       },
     );
 
-    const dying = await loadPlugins(PI, process.cwd(), vi.fn());
-    const teardown = dying.dispose();
+    const dying = session();
+    const died = await dying.load(PI, process.cwd(), vi.fn());
+    const teardown = died.dispose();
 
     // A replacement session starts while the teardown is still awaiting its
-    // disposer: it must load its own plugins, not adopt the dying handle.
-    const replacementPromise = loadPlugins(PI, process.cwd(), vi.fn());
+    // disposer: it brings up its own registries and loads into them.
+    const replacement = session();
+    const replacementPromise = replacement.load(PI, process.cwd(), vi.fn());
     release();
     await teardown;
-    const replacement = await replacementPromise;
+    const live = await replacementPromise;
 
-    expect(replacement).not.toBe(dying);
-    // The dying load's reset ran *before* the replacement registered, so the
-    // replacement's harness is still there.
-    expect(registeredHarness("gate-harness")).toBeDefined();
-    loaded = replacement;
+    expect(live).not.toBe(died);
+    // The dying load's teardown undoes its own registrations and cannot touch the
+    // replacement's, which live in another registry.
+    expect(replacement.harnesses.get("gate-harness")).toBeDefined();
+    expect(dying.harnesses.get("gate-harness")).toBeUndefined();
+    loaded = live;
   });
 });

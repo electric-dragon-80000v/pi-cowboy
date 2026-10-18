@@ -6,7 +6,8 @@
  *   2. config.agent[subagentType]      (config per-type override)
  *   3. agentConfig?.modelsByFamily[family] (the agent config / agent template,
  *      read only for the launching harness's family)
- *   4. sessionOverrides["default"]     (session default)
+ *   4. sessionOverrides["default"]     (the pi family's session default — the
+ *      only layer here written from pi's catalogue)
  *   5. the launching harness's default (pi's family: agent.default at any layer;
  *      any other harness: agent.defaultModelByHarness[harness], session first)
  *   6. parentModelId                   (inherit from parent; the pi family only,
@@ -16,10 +17,12 @@
  * The tool's per-call `model` parameter sits above this chain: when set, the
  * chain is not consulted; when unset, the chain decides.
  *
- * A model key names an entry in one harness's catalogue, so a template's key
- * carries its family: step 3 reads the launching harness's family entry and
- * nothing else, and a key written for pi contributes nothing to an opencode
- * launch. That launch falls through to the launching harness's default.
+ * A model key names an entry in one harness's catalogue, so every layer that
+ * carries a key is read only by a launch whose harness can resolve it: step 3
+ * reads the launching harness's family entry and nothing else, step 4 is pi's
+ * session default and is therefore pi's alone, and step 6 is gated the same way.
+ * A key written for pi contributes nothing to an opencode launch, which falls
+ * through to its own default.
  */
 
 import type { ThinkingLevel } from "../types.js";
@@ -83,7 +86,7 @@ export interface SubagentsConfig {
   };
   concurrency: {
     default: number;
-    harnesses?: Partial<Record<string, number>>;
+    harnesses?: Partial<Record<AnyHarnessId, number>>;
     providers?: Partial<Record<string, number>>;
     models?: Partial<Record<string, number>>;
   };
@@ -93,7 +96,9 @@ export interface SubagentsConfig {
 
 /** Not persisted — cleared on session_start. */
 export interface SessionModelOverrides {
+  /** The pi family's default, written from pi's catalogue; no other harness reads it. */
   default: string | null;
+  /** Per agent type, written from the catalogue of the harness that type launches under. */
   [agentType: string]: string | null | undefined;
 }
 
@@ -183,7 +188,12 @@ export function resolveModelSource(options: ResolveModelOptions): {
       config.agent[subagentType] as string | null | undefined,
     ],
     ["agent-template", templateModel],
-    ["session-default", sessionOverrides?.["default"]],
+    // The session default is pi's, so only a pi-family launch may read it: any
+    // other harness carries a key of its own catalogue or falls through.
+    [
+      "session-default",
+      harnessFamily === "pi" ? sessionOverrides?.["default"] : undefined,
+    ],
     ["harness-default", harnessDefault],
   ];
   for (const [source, value] of candidates) {

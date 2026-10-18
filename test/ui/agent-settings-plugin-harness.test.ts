@@ -2,16 +2,13 @@
  * agent-settings-plugin-harness.test.ts — the Agent settings "Default harness"
  * row reads the live registry, so a harness a plugin registered is offered and
  * selectable exactly like a built-in, and one the probe did not confirm stays
- * off the offer. It lives in its own file because registering a plugin harness
- * is process-lifetime state a sibling suite would otherwise see.
+ * off the offer. Each case installs the session's registry, so the plugin harness
+ * it registers answers for that case alone.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  harnessIds,
-  registerHarness,
-} from "../../src/agents/harness/registry.js";
+import { getHarnessRegistry } from "../../src/shell.js";
 import { probed, unprobed } from "../../src/availability.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setPi, shellState } from "./shell-mock.js";
@@ -22,22 +19,21 @@ vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
 const { showSpawnOptionsMenu } =
   await import("../../src/ui/menu/menu-agent-settings.js");
 
-registerHarness({
-  id: "demo-harness",
-  displayName: "Demo Harness",
-  agentMultiplexerKind: "demo-harness",
-  availability: () => ({ status: "available" }),
-  prepare: async () => {},
-  buildArgs: () => [],
-  teardown: async () => {},
-  listModels: async () => [],
-  prefetchModels: () => {},
-});
-
 let memory: MemoryStore;
 
 beforeEach(() => {
   resetShell();
+  getHarnessRegistry().register({
+    id: "demo-harness",
+    displayName: "Demo Harness",
+    agentMultiplexerKind: "demo-harness",
+    availability: () => ({ status: "available" }),
+    prepare: async () => {},
+    buildArgs: () => [],
+    teardown: async () => {},
+    listModels: async () => [],
+    prefetchModels: () => {},
+  });
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
   memory = createMemoryStore({ projectStatus: "absent" });
   memory.install();
@@ -82,7 +78,7 @@ describe("Agent settings — a plugin harness in the default-harness row", () =>
     // Cycling from pi reaches the plugin harness: an unknown verdict rules
     // nothing out, exactly as it does for a built-in.
     const seen: string[] = [];
-    for (let press = 0; press < harnessIds().length; press++) {
+    for (let press = 0; press < getHarnessRegistry().ids().length; press++) {
       session.press(KEY.enter);
       seen.push(session.activeRow()?.value ?? "");
     }

@@ -6,47 +6,102 @@
  * run inside herdr.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BUILTIN_MULTIPLEXER,
+  createMultiplexerRegistry,
   defaultMultiplexer,
-  multiplexerRuntime,
-  hasMultiplexer,
-  registerMultiplexer,
-  resolveMultiplexerId,
 } from "../src/agents/multiplexer-registry.js";
 import { mergeDefaults } from "../src/config/config-io.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
 
 describe("the multiplexer registry", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** A plugin multiplexer whose host answer is fixed. */
+  function pluginMultiplexer(id: string, hosts: boolean) {
+    return {
+      id,
+      hosts: () => hosts,
+      create: () => ({ multiplexer: id }) as never,
+    };
+  }
+
   it("resolves a registered id, and falls back to the built-in for one nothing registered", () => {
-    expect(resolveMultiplexerId(BUILTIN_MULTIPLEXER)).toBe(BUILTIN_MULTIPLEXER);
-    expect(hasMultiplexer("nothing-registered")).toBe(false);
-    expect(resolveMultiplexerId("nothing-registered")).toBe(
-      BUILTIN_MULTIPLEXER,
+    const registry = createMultiplexerRegistry();
+
+    expect(registry.resolveId(BUILTIN_MULTIPLEXER)).toBe(BUILTIN_MULTIPLEXER);
+    expect(registry.has("nothing-registered")).toBe(false);
+    expect(registry.resolveId("nothing-registered")).toBe(BUILTIN_MULTIPLEXER);
+  });
+
+  it("collects the hosts in registration order, the built-in first", () => {
+    vi.stubEnv("HERDR_ENV", "1");
+    const registry = createMultiplexerRegistry();
+    registry.register(pluginMultiplexer("tmux", true));
+    registry.register(pluginMultiplexer("zellij", false));
+
+    expect(registry.hosting()).toEqual([BUILTIN_MULTIPLEXER, "tmux"]);
+    // The configured host wins over the earlier one; a configured multiplexer that
+    // does not host this process is not preferred at all.
+    expect(registry.resolveId("tmux")).toBe("tmux");
+    expect(registry.resolveId("zellij")).toBe(BUILTIN_MULTIPLEXER);
+  });
+
+  it("runs a plugin multiplexer that hosts where no built-in does", () => {
+    vi.stubEnv("HERDR_ENV", "");
+    const registry = createMultiplexerRegistry();
+    registry.register(pluginMultiplexer("tmux", true));
+
+    expect(registry.hosting()).toEqual(["tmux"]);
+    expect(registry.resolveId(BUILTIN_MULTIPLEXER)).toBe("tmux");
+    expect(registry.resolveId("tmux")).toBe("tmux");
+  });
+
+  it("hosts without a multiplexer whose own detection throws", () => {
+    vi.stubEnv("HERDR_ENV", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = createMultiplexerRegistry();
+    registry.register({
+      id: "broken",
+      hosts: () => {
+        throw new Error("cannot tell");
+      },
+      create: () => ({ multiplexer: "broken" }) as never,
+    });
+    registry.register(pluginMultiplexer("tmux", true));
+
+    expect(registry.hosting()).toEqual(["tmux"]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('multiplexer "broken" could not answer'),
     );
+    warn.mockRestore();
   });
 
   it("names the built-in as the fallback when nothing hosts this process", () => {
-    // The suite runs outside an multiplexer (or inside herdr, whose id is the
-    // built-in's) — either way the answer is the built-in.
+    vi.stubEnv("HERDR_ENV", "");
+
     expect(defaultMultiplexer()).toBe(BUILTIN_MULTIPLEXER);
   });
 
   it("refuses a plugin that claims the built-in multiplexer's id", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = createMultiplexerRegistry();
 
-    registerMultiplexer({
+    registry.register({
       id: BUILTIN_MULTIPLEXER,
+      hosts: () => true,
       create: () => {
         throw new Error("the built-in's factory must not be replaced");
       },
     });
 
     // The built-in still answers, and the attempt was named.
-    expect(
-      multiplexerRuntime({} as never, BUILTIN_MULTIPLEXER).multiplexer,
-    ).toBe(BUILTIN_MULTIPLEXER);
+    expect(registry.runtime({} as never, BUILTIN_MULTIPLEXER).multiplexer).toBe(
+      BUILTIN_MULTIPLEXER,
+    );
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("the built-in multiplexer owns that id"),
     );

@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
-import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
 import { registerOrchestrators } from "../../src/orchestrators/orchestrator-types.js";
 import { DEFAULT_ORCHESTRATORS } from "../../src/orchestrators/default-orchestrators.js";
 import type { OrchestratorConfig } from "../../src/orchestrators/types.js";

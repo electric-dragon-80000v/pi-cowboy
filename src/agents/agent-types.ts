@@ -9,7 +9,11 @@
  */
 
 import { EXTENSION_AGENTS_DIR } from "../paths.js";
-import { getSessionTemplates, type AgentTemplateRegistry } from "../shell.js";
+import {
+  getHarnessRegistry,
+  getSessionTemplates,
+  type AgentTemplateRegistry,
+} from "../shell.js";
 import {
   scanAgentFilesInDir,
   mergeAgents,
@@ -28,6 +32,21 @@ interface RegisterAgentsOptions {
 
 /** Warning sink for unloadable agent files; injected so the scan layer stays shell-free. */
 type DiscoveryNotify = (message: string, kind: "warning") => void;
+
+/**
+ * Why a template's `harness_type` is unusable this session: an id no harness
+ * registered — a typo, or a plugin this session did not load. The scan skips
+ * the file, so the value never silently degrades to pi. Registration is the
+ * test, not availability: a registered harness this machine cannot launch is
+ * the template-and-config fallback case, not a typo.
+ */
+function unregisteredHarness(template: AgentTemplateFile): string | undefined {
+  const id = template.harness_type;
+  if (id === undefined) return undefined;
+  const harnesses = getHarnessRegistry();
+  if (harnesses.get(id) !== undefined) return undefined;
+  return `harness_type "${id}" names no harness this session registered (registered: ${harnesses.ids().join(", ")})`;
+}
 
 export function registerAgents(
   userAgents: Map<string, AgentConfig>,
@@ -71,10 +90,14 @@ export async function scanAndMerge(options?: {
     await Promise.all([
       disableDefaults
         ? Promise.resolve<AgentTemplateFile[]>([])
-        : scanAgentFilesInDir(EXTENSION_AGENTS_DIR, notify),
-      scanAgentFilesInDir(scanDirs.user, notify),
-      scanAgentFilesInDir(scanDirs.shared, notify),
-      scanAgentFilesInDir(scanDirs.project, notify),
+        : scanAgentFilesInDir(
+            EXTENSION_AGENTS_DIR,
+            notify,
+            unregisteredHarness,
+          ),
+      scanAgentFilesInDir(scanDirs.user, notify, unregisteredHarness),
+      scanAgentFilesInDir(scanDirs.shared, notify, unregisteredHarness),
+      scanAgentFilesInDir(scanDirs.project, notify, unregisteredHarness),
     ]);
   const defaults = disableDefaults
     ? new Map<string, AgentConfig>()
@@ -103,6 +126,7 @@ export async function discoverNewAgents(
     const worktreeAgents = await scanAgentFilesInDir(
       worktreeDir,
       options?.notify,
+      unregisteredHarness,
     );
     const wtMerged = mergeAgents(new Map(), [], [], worktreeAgents);
     for (const [name, config] of wtMerged) {

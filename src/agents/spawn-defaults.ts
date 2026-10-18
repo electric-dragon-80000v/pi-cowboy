@@ -8,9 +8,9 @@
  *   resolved at spawn time by every spawn path;
  * - worktree dirty-checkout policy: the agent template's key → the config
  *   setting;
- * - harness: explicit `harness_type` (validated at parse, used as-is) → the
- *   agent template's `harness_type` → the config setting, then narrowed to the
- *   harnesses this machine can launch.
+ * - harness: explicit `harness_type` (validated at parse against this
+ *   session's registry, used as-is) → the agent template's `harness_type` → the
+ *   config setting, then narrowed to the harnesses this machine can launch.
  *
  * A configured value that no longer resolves degrades to the built-in
  * fallback instead of failing the spawn. Only an explicit `harness_type`
@@ -20,19 +20,16 @@
 
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
 import { isAvailable, selectable } from "../availability.js";
-import { getHarnessAvailability, getStore } from "../shell.js";
+import {
+  getHarnessAvailability,
+  getHarnessRegistry,
+  getStore,
+} from "../shell.js";
 import { DEFAULT_ORCHESTRATORS } from "../orchestrators/default-orchestrators.js";
 import { resolveOrchestrator } from "../orchestrators/orchestrator-types.js";
 import type { OrchestratorConfig } from "../orchestrators/types.js";
 import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
-import {
-  HARNESS_IDS,
-  parseHarnessId,
-  type AnyHarnessId,
-  type HarnessId,
-} from "./harness.js";
-import { resolveHarness } from "./harness/registry.js";
-
+import type { AnyHarnessId } from "./harness.js";
 import { getAgentConfig, resolveType } from "./agent-types.js";
 
 /** Unset/blank configured string. `""` is the only blank form the store writes. */
@@ -92,51 +89,54 @@ function harnessParam(raw: unknown): string | undefined {
 }
 
 /**
- * The caller's explicit `harness_type` when it names a harness this machine can
- * launch, else undefined. The `tool_call` listener reads raw input and must not
- * throw, so an unknown or unlaunchable value is left alone here —
- * `resolveRequestedHarness` raises it at parse.
+ * The caller's explicit `harness_type` when it names a harness this session
+ * registered and this machine can launch, else undefined. The `tool_call`
+ * listener reads raw input and must not throw, so an unknown or unlaunchable
+ * value is left alone here — `resolveRequestedHarness` raises it at parse.
  */
-export function requestedHarnessId(raw: unknown): HarnessId | undefined {
-  const id = parseHarnessId(harnessParam(raw));
+export function requestedHarnessId(raw: unknown): AnyHarnessId | undefined {
+  const id = harnessParam(raw);
   if (id === undefined) return undefined;
+  if (getHarnessRegistry().get(id) === undefined) return undefined;
   return isAvailable(id, getHarnessAvailability()) ? id : undefined;
 }
 
 /**
- * Validate a caller-supplied `harness_type` at parse. An unknown id and one this
- * machine cannot launch are both refusals: an explicit request has no fallback,
- * unlike the template and config path. Returns the id when usable, and
- * undefined when the caller left it unset.
+ * Validate a caller-supplied `harness_type` at parse. An id no harness
+ * registered and one this machine cannot launch are both refusals: an explicit
+ * request has no fallback, unlike the template and config path. Returns the id
+ * when usable, and undefined when the caller left it unset.
  */
-export function resolveRequestedHarness(raw: unknown): HarnessId | undefined {
+export function resolveRequestedHarness(
+  raw: unknown,
+): AnyHarnessId | undefined {
   const value = harnessParam(raw);
   if (value === undefined) return undefined;
 
-  const id = parseHarnessId(value);
-  if (id === undefined) {
+  const harnesses = getHarnessRegistry();
+  if (harnesses.get(value) === undefined) {
     throw new Error(
-      `Unknown harness_type "${value}": valid harnesses are ${HARNESS_IDS.join(", ")}. Nothing was spawned. Omit \`harness_type\` to use the agent template's harness, then the configured default.`,
+      `Unknown harness_type "${value}": valid harnesses are ${harnesses.ids().join(", ")}. Nothing was spawned. Omit \`harness_type\` to use the agent template's harness, then the configured default.`,
     );
   }
 
   const availability = getHarnessAvailability();
-  if (!isAvailable(id, availability)) {
+  if (!isAvailable(value, availability)) {
     throw new Error(
-      `Harness "${id}" cannot be launched on this machine — this machine can launch ${selectable(HARNESS_IDS, availability).join(", ")}. Nothing was spawned. Omit \`harness_type\` to use the agent template's harness, then the configured default.`,
+      `Harness "${value}" cannot be launched on this machine — this machine can launch ${selectable(harnesses.ids(), availability).join(", ")}. Nothing was spawned. Omit \`harness_type\` to use the agent template's harness, then the configured default.`,
     );
   }
 
-  return id;
+  return value;
 }
 
 /** Which harness launches this agent: the caller's `harness_type` wins, then the agent template's `harness_type`, then the config setting, read at call time like the other spawn defaults. An explicit value is validated at parse and used as-is; a configured or template harness this machine cannot launch falls back to pi. */
 export function resolveHarnessType(
   agentType: string,
-  requested?: HarnessId,
+  requested?: AnyHarnessId,
 ): AnyHarnessId {
   if (requested !== undefined) return requested;
   const configured =
     getAgentConfig(agentType)?.harnessType ?? getStore().agent.harnessType;
-  return resolveHarness(configured, getHarnessAvailability());
+  return getHarnessRegistry().resolve(configured, getHarnessAvailability());
 }

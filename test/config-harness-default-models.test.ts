@@ -283,11 +283,41 @@ describe("model resolution — the harness default's position", () => {
     ).toBe(TEMPLATE_MODEL);
   });
 
-  it("lets the session default win over the harness default", () => {
+  it("never hands pi's session default to a foreign harness", () => {
     const store = storeWithOpencodeDefault();
     store.mutate.session.setOverride("default", "session/session-model");
 
+    // `/cowboy model` picks from pi's catalogue, so that key is pi's alone: the
+    // opencode launch keeps its own configured default.
     expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
+      OPENCODE_DEFAULT,
+    );
+  });
+
+  it("never hands pi's session default to a plugin harness", () => {
+    const store = new ConfigStore(
+      memoryIO({
+        agent: { defaultModelByHarness: { "runner-plugin": OPENCODE_DEFAULT } },
+      }).io,
+    );
+    store.mutate.session.setOverride("default", "session/session-model");
+
+    expect(
+      store.modelFor("general-purpose", null, undefined, "runner-plugin"),
+    ).toBe(OPENCODE_DEFAULT);
+  });
+
+  it("lets the session default win over pi's own configured default", () => {
+    const store = new ConfigStore(
+      memoryIO({ agent: { default: "anthropic/claude-3" } }).io,
+    );
+    store.mutate.session.setOverride("default", "session/session-model");
+
+    expect(store.modelFor("general-purpose", null, undefined, "pi")).toBe(
+      "session/session-model",
+    );
+    // The pi family runs one binary, so pig and pi-bolt read the same default.
+    expect(store.modelFor("general-purpose", null, undefined, "pig")).toBe(
       "session/session-model",
     );
   });

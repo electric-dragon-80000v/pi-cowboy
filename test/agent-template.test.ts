@@ -33,6 +33,15 @@ describe("AgentTemplateSchema rejections", () => {
     expect(
       parseError(() => parseAgentFile('name = "x"\nhidden = "true"')),
     ).toBe("hidden: Invalid input: expected boolean, received string");
+    expect(
+      parseError(() => parseAgentFile('name = "x"\nharness_type = ""')),
+    ).toContain("harness_type");
+  });
+
+  it("takes any harness id, because the session's registry is what rules one out", () => {
+    expect(
+      parseAgentFile('name = "x"\nharness_type = "some-plugin"').harness_type,
+    ).toBe("some-plugin");
   });
 
   it("rejects inlined_skills = false; an empty list says the same thing", () => {

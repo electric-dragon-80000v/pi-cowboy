@@ -1,8 +1,9 @@
 /**
  * events.ts — session lifecycle wiring.
- * session_start loads the config and the agent/orchestrator templates, wires the
- * manager + coordinator, then puts the active set and the presence marker in
- * line with the switch; the tool_call listener injects resolved models.
+ * session_start loads the config, brings the session runtime up (plugins included),
+ * and — when a multiplexer can host the process — scans the templates, wires the
+ * manager + coordinator, then puts the active set and the presence marker in line
+ * with the switch; the tool_call listener injects resolved models.
  */
 
 import * as path from "node:path";
@@ -136,9 +137,10 @@ async function scanAndRegisterOrchestrators(
 }
 
 /**
- * Config and templates: everything a session needs whatever the switch says,
- * because the /cowboy menus read the registries. The manager is wired later,
- * once the session's runtime exists (see wireManagerAndCoordinator).
+ * Config: everything the runtime needs to resolve the session's plugins and its
+ * multiplexer. The template scans wait for the host decision (see
+ * session_start), and the manager is wired later still (see
+ * wireManagerAndCoordinator).
  */
 async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
   // Fresh registries before the scan: a session never serves the templates registered by the session it replaced.
@@ -149,6 +151,10 @@ async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
     : undefined;
   getStore().setProjectDir(projectDir);
   getStore().reload();
+}
+
+/** Scan the agent and orchestrator templates a hosted session offers. */
+async function scanSessionTemplates(ctx: ExtensionContext): Promise<void> {
   await scanAndRegisterAgents(ctx);
   await scanAndRegisterOrchestrators(ctx);
 }
@@ -167,6 +173,20 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     // runtime depends on (see session-runtime.ts).
     const boot = await startSessionRuntime(pi, ctx);
     plugins = boot.plugins;
+    if (boot.kind === "unhosted") {
+      // Nothing here can launch a pane: leave the registered tools inactive. The
+      // template scans and the probes would only describe work this session
+      // cannot do. A session whose switch is off is the user's own decision, so
+      // the reason is only worth saying while the extension would otherwise run.
+      deactivateExtension(ctx.ui);
+      if (ctx.hasUI && isExtensionEnabled()) {
+        ctx.ui.notify(boot.reason, "warning");
+      }
+      return;
+    }
+    // The templates a hosted session offers; the scans wait for the host decision
+    // so a session that can launch no agent reads nothing for one.
+    await scanSessionTemplates(ctx);
     // The manager's transport is the session's runtime, so every spawn and dedup
     // check reuses one multiplexer instead of rebuilding it.
     wireManagerAndCoordinator(boot.runtime);
@@ -195,7 +215,7 @@ export function setupEventListeners(pi: ExtensionAPI): void {
       const active = currentManager.listAgents(ACTIVE_AGENT_PHASES);
       if (active.length > 0 && ctx.hasUI) {
         ctx.ui.notify(
-          `${active.length} subagent pane(s) left running in herdr (tracking stopped for the previous session)`,
+          `${active.length} subagent pane(s) left running in their panes (tracking stopped for the previous session)`,
           "warning",
         );
       }
@@ -226,6 +246,8 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     const runtime = getRuntime();
     await dying?.dispose();
     if (getRuntime() === runtime) setRuntime(null);
+    // The session's registries are not cleared here: disposal already undid this
+    // load's registrations, and the next session_start installs its own.
   });
 
   // Ensure the terminal cursor and buffer are ALWAYS restored when exiting

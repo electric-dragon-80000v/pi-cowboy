@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
-import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
 import type { ConfigStore } from "../../src/config/config-store.js";
 import { probed, unprobed } from "../../src/availability.js";
 import type { ThinkingLevel } from "../../src/types.js";

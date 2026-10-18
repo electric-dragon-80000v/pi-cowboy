@@ -1,28 +1,23 @@
 /**
  * plugin-registry.test.ts — the open harness registry: a plugin harness is a
  * first-class entry beside the built-ins, and the availability probe decides
- * whether it stays on offer exactly as it does for a built-in.
+ * whether it stays on offer exactly as it does for a built-in. The registry is a
+ * session's own object, so one case's registrations cannot answer in the next.
  */
 
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import type { PluginHarness } from "../src/agents/harness.js";
 import {
-  harnessDisplayName,
+  createHarnessRegistry,
   harnessFamilyOf,
-  harnessFor,
-  harnessIds,
-  registeredHarness,
-  registerHarness,
-  resetPluginHarnesses,
-  runnableHarnessIds,
-} from "../src/agents/harness/registry.js";
+  type HarnessRegistry,
+} from "../src/agents/harness/harness-registry.js";
 import { probed, unprobed } from "../src/availability.js";
 import {
   BUILTIN_MULTIPLEXER,
-  multiplexerRuntime,
-  registerMultiplexer,
-  resetPluginMultiplexers,
+  createMultiplexerRegistry,
+  type MultiplexerRegistry,
 } from "../src/agents/multiplexer-registry.js";
 
 /**
@@ -48,8 +43,16 @@ function pluginHarness(
 
 const PROVABLE_ID = "reg-provable";
 const UNPROVABLE_ID = "reg-unprovable";
-registerHarness(pluginHarness(PROVABLE_ID, { status: "available" }));
-registerHarness(pluginHarness(UNPROVABLE_ID, { status: "unavailable" }));
+
+let harnesses: HarnessRegistry;
+let multiplexers: MultiplexerRegistry;
+
+beforeEach(() => {
+  harnesses = createHarnessRegistry();
+  multiplexers = createMultiplexerRegistry();
+  harnesses.register(pluginHarness(PROVABLE_ID, { status: "available" }));
+  harnesses.register(pluginHarness(UNPROVABLE_ID, { status: "unavailable" }));
+});
 
 afterAll(() => {
   vi.restoreAllMocks();
@@ -57,20 +60,22 @@ afterAll(() => {
 
 describe("the open harness registry", () => {
   it("lists a plugin harness beside the built-ins and answers for it", () => {
-    expect(harnessIds()).toContain(PROVABLE_ID);
-    expect(registeredHarness(PROVABLE_ID)?.displayName).toBe(
+    expect(harnesses.ids()).toContain(PROVABLE_ID);
+    expect(harnesses.get(PROVABLE_ID)?.displayName).toBe(
       `Plugin ${PROVABLE_ID}`,
     );
     expect(harnessFamilyOf(PROVABLE_ID)).toBeUndefined();
-    expect(harnessDisplayName(PROVABLE_ID)).toBe(`Plugin ${PROVABLE_ID}`);
-    expect(harnessFor(PROVABLE_ID).agentMultiplexerKind).toBe(PROVABLE_ID);
+    expect(harnesses.displayName(PROVABLE_ID)).toBe(`Plugin ${PROVABLE_ID}`);
+    expect(harnesses.require(PROVABLE_ID).agentMultiplexerKind).toBe(
+      PROVABLE_ID,
+    );
   });
 
   it("dispatches a plugin launch to the plugin's own buildArgs and prepare", async () => {
     const prepare = vi.fn(
       async (_request: Parameters<PluginHarness["prepare"]>[0]) => {},
     );
-    registerHarness({
+    harnesses.register({
       ...pluginHarness("reg-dispatch", { status: "available" }),
       prepare,
     });
@@ -89,7 +94,7 @@ describe("the open harness registry", () => {
       toolSelection: { kind: "default" as const },
     };
 
-    const harness = harnessFor("reg-dispatch");
+    const harness = harnesses.require("reg-dispatch");
     expect(harness.buildArgs(launch)).toEqual(["run-reg-dispatch"]);
     await harness.prepare({
       pi: {} as never,
@@ -113,30 +118,32 @@ describe("the open harness registry", () => {
 
   it("offers a plugin harness only once the probe has confirmed it, like any other", () => {
     // pi runs the pane it launches in, so the family answers with nothing known.
-    expect(runnableHarnessIds(unprobed())).toContain("pi");
-    expect(runnableHarnessIds(unprobed())).not.toContain(PROVABLE_ID);
-    expect(runnableHarnessIds(unprobed())).not.toContain(UNPROVABLE_ID);
+    expect(harnesses.runnable(unprobed())).toContain("pi");
+    expect(harnesses.runnable(unprobed())).not.toContain(PROVABLE_ID);
+    expect(harnesses.runnable(unprobed())).not.toContain(UNPROVABLE_ID);
 
     const availability = probed([PROVABLE_ID]);
-    expect(runnableHarnessIds(availability)).toContain(PROVABLE_ID);
+    expect(harnesses.runnable(availability)).toContain(PROVABLE_ID);
     // A plugin that answered "unavailable" stays off the offer even when the
     // probe ran.
-    expect(runnableHarnessIds(availability)).not.toContain(UNPROVABLE_ID);
+    expect(harnesses.runnable(availability)).not.toContain(UNPROVABLE_ID);
   });
 
   it("names an unregistered id rather than inventing a harness for it", () => {
-    expect(registeredHarness("reg-ghost")).toBeUndefined();
+    expect(harnesses.get("reg-ghost")).toBeUndefined();
     expect(harnessFamilyOf("reg-ghost")).toBeUndefined();
-    expect(harnessDisplayName("reg-ghost")).toBe("reg-ghost");
-    expect(() => harnessFor("reg-ghost")).toThrow(/no harness registered/);
+    expect(harnesses.displayName("reg-ghost")).toBe("reg-ghost");
+    expect(() => harnesses.require("reg-ghost")).toThrow(
+      /no harness registered/,
+    );
   });
 
   it("never lets a plugin displace a built-in id", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    registerHarness(pluginHarness("claude", { status: "available" }));
+    harnesses.register(pluginHarness("claude", { status: "available" }));
 
-    expect(harnessDisplayName("claude")).toBe("Claude");
+    expect(harnesses.displayName("claude")).toBe("Claude");
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("a built-in harness owns that id"),
     );
@@ -145,20 +152,20 @@ describe("the open harness registry", () => {
 
   it("keeps the first registration for an id, so two plugins cannot race", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const id = "reg-contested";
-    registerHarness({
-      ...pluginHarness(id, { status: "available" }),
+
+    harnesses.register({
+      ...pluginHarness("reg-contested", { status: "available" }),
       displayName: "First",
     });
 
     // A second plugin claiming the same id is refused, not silently installed:
     // the first registration is what the registry answers with.
-    registerHarness({
-      ...pluginHarness(id, { status: "available" }),
+    harnesses.register({
+      ...pluginHarness("reg-contested", { status: "available" }),
       displayName: "Second",
     });
 
-    expect(harnessDisplayName(id)).toBe("First");
+    expect(harnesses.displayName("reg-contested")).toBe("First");
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining(
         "another plugin already registered that id in this load",
@@ -167,30 +174,51 @@ describe("the open harness registry", () => {
     warn.mockRestore();
   });
 
-  it("forgets a load's registrations, so the next load registers them again", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    registerHarness(pluginHarness("reg-reloadable", { status: "available" }));
+  it("forgets one plugin's registration, so a failed factory leaves the id free", () => {
+    harnesses.register(
+      pluginHarness("reg-reloadable", { status: "available" }),
+    );
 
-    resetPluginHarnesses();
+    harnesses.unregister("reg-reloadable");
 
-    expect(registeredHarness("reg-reloadable")).toBeUndefined();
-    // A clean registry means the reload is a first registration, not a duplicate.
-    registerHarness(pluginHarness("reg-reloadable", { status: "available" }));
-    expect(registeredHarness("reg-reloadable")).toBeDefined();
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
+    expect(harnesses.get("reg-reloadable")).toBeUndefined();
+    harnesses.register(
+      pluginHarness("reg-reloadable", { status: "available" }),
+    );
+    expect(harnesses.get("reg-reloadable")).toBeDefined();
+  });
+
+  it("never forgets a built-in, whatever is asked of it", () => {
+    harnesses.unregister("pi");
+
+    expect(harnesses.displayName("pi")).toBe("Pi");
+  });
+
+  it("answers each session from its own vocabulary", () => {
+    const nextSession = createHarnessRegistry();
+
+    // The plugin belongs to the session that registered it, and a registry built
+    // for a later session starts at the built-ins.
+    expect(harnesses.get(PROVABLE_ID)).toBeDefined();
+    expect(nextSession.get(PROVABLE_ID)).toBeUndefined();
+    expect(nextSession.ids()).not.toContain(PROVABLE_ID);
+    expect(nextSession.ids()).toContain("pi");
   });
 
   it("degrades to the built-in when a plugin multiplexer's factory throws", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    registerMultiplexer({
+    multiplexers.register({
       id: "reg-throwing-multiplexer",
+      hosts: () => true,
       create: () => {
         throw new Error("connection refused");
       },
     });
 
-    const runtime = multiplexerRuntime({} as never, "reg-throwing-multiplexer");
+    const runtime = multiplexers.runtime(
+      {} as never,
+      "reg-throwing-multiplexer",
+    );
 
     // The session still has a multiplexer: the built-in.
     expect(runtime.multiplexer).toBe(BUILTIN_MULTIPLEXER);
@@ -200,6 +228,51 @@ describe("the open harness registry", () => {
       ),
     );
     warn.mockRestore();
-    resetPluginMultiplexers();
+  });
+});
+
+describe("the open multiplexer registry", () => {
+  it("resolves a registered id, and falls back to the built-in for one nothing registered", () => {
+    expect(multiplexers.resolveId(BUILTIN_MULTIPLEXER)).toBe(
+      BUILTIN_MULTIPLEXER,
+    );
+    expect(multiplexers.has("nothing-registered")).toBe(false);
+    expect(multiplexers.resolveId("nothing-registered")).toBe(
+      BUILTIN_MULTIPLEXER,
+    );
+  });
+
+  it("refuses a plugin that claims the built-in multiplexer's id", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    multiplexers.register({
+      id: BUILTIN_MULTIPLEXER,
+      hosts: () => true,
+      create: () => {
+        throw new Error("the built-in's factory must not be replaced");
+      },
+    });
+
+    // The built-in still answers, and the attempt was named.
+    expect(
+      multiplexers.runtime({} as never, BUILTIN_MULTIPLEXER).multiplexer,
+    ).toBe(BUILTIN_MULTIPLEXER);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("the built-in multiplexer owns that id"),
+    );
+    warn.mockRestore();
+  });
+
+  it("answers each session from its own multiplexers", () => {
+    multiplexers.register({
+      id: "session-only-multiplexer",
+      hosts: () => true,
+      create: () => ({ multiplexer: "session-only-multiplexer" }) as never,
+    });
+
+    expect(multiplexers.has("session-only-multiplexer")).toBe(true);
+    expect(createMultiplexerRegistry().has("session-only-multiplexer")).toBe(
+      false,
+    );
   });
 });

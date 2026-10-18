@@ -116,29 +116,19 @@ const shared = vi.hoisted(() => ({
     undefined as unknown as import("../src/agents/agent-spawn-store.js").AgentSpawnStore,
 }));
 
-/** The registry module's real harnesses; the stub restores them per suite. */
-type RealRegistry = typeof import("../src/agents/harness/registry.js");
-
-const { dropNudgeMock, harnessForMock, registry } = vi.hoisted(() => ({
+const { dropNudgeMock } = vi.hoisted(() => ({
   dropNudgeMock: vi.fn(),
-  harnessForMock: vi.fn(),
-  registry: { real: undefined as RealRegistry | undefined },
 }));
-
-vi.mock("../src/agents/harness/registry.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agents/harness/registry.js")>();
-  // Default to the real harnesses; the teardown-ordering tests stand one in.
-  harnessForMock.mockImplementation(actual.harnessFor);
-  registry.real = actual;
-  return { ...actual, harnessFor: harnessForMock };
-});
 
 vi.mock("../src/shell.js", async () => {
   const { AgentSpawnStore: Store } =
     await import("../src/agents/agent-spawn-store.js");
+  const { createHarnessRegistry } =
+    await import("../src/agents/harness/harness-registry.js");
+  const harnesses = createHarnessRegistry();
   shared.store = new Store();
   return {
+    getHarnessRegistry: () => harnesses,
     getPiInstance: () => ({}),
     getStore: () => ({ agent: {} }),
     getSessionCtx: () => ({ cwd: "/work/repo" }),

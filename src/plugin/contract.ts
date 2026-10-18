@@ -25,10 +25,12 @@ export type { MultiplexerRegistration as PluginMultiplexer } from "../agents/mul
 /**
  * What a plugin registers through. `pi` is the same extension api pi-cowboy
  * itself holds, so a plugin reaches sessions and events; `cwd` is the project
- * root the session loaded, so a plugin resolves its own package-relative paths.
+ * root the session loaded, for the user's paths only — a plugin's own files
+ * resolve against its module (`import.meta.url`), never against `cwd`.
  */
 export interface CowboyPluginApi {
   readonly pi: ExtensionAPI;
+  /** The user's project root, not the plugin package's directory. */
   readonly cwd: string;
   /**
    * Register one harness. The first registration for an id is kept: a plugin
@@ -38,7 +40,11 @@ export interface CowboyPluginApi {
    * one every session.
    */
   registerHarness(harness: PluginHarness): boolean;
-  /** Register one execution multiplexer, selected by the `multiplexer` config key. */
+  /**
+   * Register one execution multiplexer. Its `hosts()` decides whether this
+   * process runs inside it, which is both what makes a session run at all and
+   * what makes the `multiplexer` config key able to prefer it.
+   */
   registerMultiplexer(multiplexer: MultiplexerRegistration): boolean;
 }
 
@@ -46,10 +52,12 @@ export interface CowboyPluginApi {
 export type CowboyPluginDisposer = () => void | Promise<void>;
 
 /**
- * A plugin module's default export. Called once with the api; a factory that
- * needs to undo something at unload returns a disposer, and one that needs an
- * async setup returns a promise of one.
+ * A plugin module's default export: registers through the api and may leave a
+ * disposer behind, or nothing when it has nothing to undo. The two arms are the
+ * two shapes a module writes — `export default (api) => {…}` and
+ * `export default async (api) => {…}` — so whether setup is asynchronous is a
+ * property of the module, never of the branch a particular call happens to take.
  */
-export type CowboyPluginFactory = (
-  api: CowboyPluginApi,
-) => void | CowboyPluginDisposer | Promise<void | CowboyPluginDisposer>;
+export type CowboyPluginFactory =
+  | ((api: CowboyPluginApi) => CowboyPluginDisposer | void)
+  | ((api: CowboyPluginApi) => Promise<CowboyPluginDisposer | void>);

@@ -193,7 +193,7 @@ When `pi-cowboy` spawns an agent, it picks the model using the first match in th
 2. The session per-type model override (`/cowboy` > `Model overrides`)
 3. The config per-type override (`agent.<agent-type>`)
 4. The model set in the [agent template](docs/Agent%20Templates.md) for the launching harness family
-5. The session default model (`/cowboy model`)
+5. The Pi-family session default model (`/cowboy model`, which picks from Pi's catalogue)
 6. The launching harness's configured default (`agent.default` for the Pi family, or `agent.defaultModelByHarness` for foreign harnesses)
 7. For Pi-family launches, the parent session's active model
 
@@ -234,7 +234,7 @@ Each item in `agents[]` takes:
 | `task_name`    | yes      | Short 2-3-word name (e.g. `"fix login flow"`) used to name the agent's branch, worktree, and tab.                                                                                                                                                                   |
 | `agent_type`   | no       | Agent template to use. Defaults to the type selected at `/cowboy` > `Agent`.                                                                                                                                                                                        |
 | `model`        | no       | Model for this agent as `"provider/model-id"`. Resolved according to [Model resolution](#model-resolution).                                                                                                                                                         |
-| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, or `claude`. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If this machine cannot launch the requested harness, the call fails before spawning. |
+| `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, `claude`, or a harness a plugin registered in this session. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If the harness is not registered here, or this machine cannot launch it, the call fails before spawning. |
 
 ### `steer_cowboy_agent`
 

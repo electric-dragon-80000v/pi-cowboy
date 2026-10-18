@@ -5,10 +5,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { AgentSpawn } from "../src/types.js";
-import {
-  registerHarness,
-  unregisterHarness,
-} from "../src/agents/harness/registry.js";
+import { installSessionRegistries } from "../src/shell.js";
 import type {
   HostObservation,
   PlacementRecord,
@@ -563,7 +560,8 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
 
   it("tears a recorded harness down through the registry, and skips one nothing registers", async () => {
     const teardown = vi.fn(async () => {});
-    registerHarness({
+    const { harnesses } = installSessionRegistries();
+    harnesses.register({
       id: "assets-plugin-harness",
       displayName: "Assets plugin harness",
       agentMultiplexerKind: "assets-plugin-harness",
@@ -587,7 +585,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
 
     // A recorded id is data, not a resolution: its plugin's load can be gone by
     // the time cleanup runs, and then there is no teardown left to call.
-    unregisterHarness("assets-plugin-harness");
+    harnesses.unregister("assets-plugin-harness");
     await expect(
       assets.harnessTeardown("assets-plugin-harness", context),
     ).resolves.toBeUndefined();

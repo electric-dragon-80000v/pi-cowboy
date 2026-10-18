@@ -10,12 +10,9 @@ import {
   type Component,
   type SettingItem,
 } from "@earendil-works/pi-tui";
-import { getStore } from "../../shell.js";
+import { getHarnessRegistry, getStore } from "../../shell.js";
 import type { AnyHarnessId } from "../../agents/harness.js";
-import {
-  harnessDisplayName,
-  type HarnessModelOptions,
-} from "../../agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
 import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
@@ -215,7 +212,7 @@ export async function showConcurrencySettingsMenu(
     const harnessLimitRow = (harness: AnyHarnessId): SettingItem => {
       const live = getStore();
       const limit = live.concurrency.harnesses[harness];
-      const label = harnessDisplayName(harness);
+      const label = getHarnessRegistry().displayName(harness);
       const description = `Concurrent agents of every model launched under ${harness}.`;
       if (limit === undefined) {
         return {
@@ -458,7 +455,7 @@ export async function showConcurrencySettingsMenu(
         })
         .map((harness) => ({
           id: `${kind}-harness:${harness}`,
-          label: harnessDisplayName(harness),
+          label: getHarnessRegistry().displayName(harness),
           currentValue: "",
           description:
             kind === "providers"

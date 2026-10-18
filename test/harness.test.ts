@@ -31,12 +31,9 @@ import {
   type SubagentLaunchInputs,
 } from "../src/agents/harness.js";
 import {
-  harnessFor,
-  listHarnessModelOptions,
+  createHarnessRegistry,
   mergeHarnessModelOptions,
-  resolveHarness,
-  runnableHarnessIds,
-} from "../src/agents/harness/registry.js";
+} from "../src/agents/harness/harness-registry.js";
 import {
   opencodeConfigDir,
   removeOpencodeStaging,
@@ -44,6 +41,13 @@ import {
 } from "../src/agents/harness/opencode/staging.js";
 import { probed, unprobed } from "../src/availability.js";
 import type { PaneControl } from "../src/agents/agent-host.js";
+
+/** The vocabulary one session builds; read here through the names the registry module used to export. */
+const harnesses = createHarnessRegistry();
+const harnessFor = harnesses.require.bind(harnesses);
+const resolveHarness = harnesses.resolve.bind(harnesses);
+const runnableHarnessIds = harnesses.runnable.bind(harnesses);
+const listHarnessModelOptions = harnesses.listModelOptions.bind(harnesses);
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
   runInPaneMock: vi.fn(),

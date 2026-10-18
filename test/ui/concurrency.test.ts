@@ -4,7 +4,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { HarnessModelOptions } from "../../src/agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
 import { formatSlotLimit } from "../../src/ui/format.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { resetShell, setPi } from "./shell-mock.js";

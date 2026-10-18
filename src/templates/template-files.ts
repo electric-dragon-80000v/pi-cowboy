@@ -71,10 +71,18 @@ const DEFAULT_WARNING: TemplateScanWarning = {
 };
 
 /**
+ * Why one parsed template is unusable, or undefined when it is usable. The
+ * caller that owns the rule composes the line, so it can name what the rule
+ * read (a registered id, a resolution) rather than only the shape.
+ */
+export type TemplateRefusal<T> = (parsed: T) => string | undefined;
+
+/**
  * Scan a directory for `.toml` templates; empty array when it doesn't exist.
- * Kept when `parse` succeeds AND `getName` returns a name — an unnamed file
- * is not a template, dropped silently. A parse throw is dropped with a
- * one-line `notify` warning; a read failure stays quiet (nothing to report).
+ * Kept when `parse` succeeds, `refuse` accepts it AND `getName` returns a name
+ * — an unnamed file is not a template, dropped silently. A parse throw or a
+ * refusal is dropped with a one-line `notify` warning; a read failure stays
+ * quiet (nothing to report).
  */
 export async function scanTemplateFilesInDir<T>(
   dirPath: string,
@@ -82,6 +90,7 @@ export async function scanTemplateFilesInDir<T>(
   getName: (parsed: T) => string | undefined,
   notify?: TemplateNotify,
   warning: TemplateScanWarning = DEFAULT_WARNING,
+  refuse?: TemplateRefusal<T>,
 ): Promise<T[]> {
   try {
     await fs.promises.access(dirPath);
@@ -107,6 +116,8 @@ export async function scanTemplateFilesInDir<T>(
 
     try {
       const parsed = parseFile(content);
+      const refusal = refuse?.(parsed);
+      if (refusal !== undefined) throw new Error(refusal);
       if (getName(parsed)) {
         templates.push(parsed);
       }

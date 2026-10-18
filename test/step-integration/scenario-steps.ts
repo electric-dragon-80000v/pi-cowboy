@@ -115,8 +115,9 @@ const BUILT_EXTENSION_ENTRY = join(REPO_ROOT, "dist", "index.js");
  * whose file is missing instead of failing, so a forgotten build would surface
  * as an extension that never loaded rather than as this error.
  *
- * The run is still marked herdr-shaped (`HERDR_ENV=1`): the extension activates
- * only inside a herdr pane, and this temp run has no herdr. Loadability is
+ * The run is marked herdr-shaped (`HERDR_ENV=1`): the built-in multiplexer hosts
+ * only a process inside herdr, and this temp run has no herdr. Without the mark
+ * the session would find nothing to host it and stay inactive. Loadability is
  * verified inline in the test body, not here.
  */
 export function installLocalExtension(ctx: ScenarioContext): void {

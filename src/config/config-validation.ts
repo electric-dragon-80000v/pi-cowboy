@@ -7,7 +7,7 @@
  * reader below this boundary handles `unknown`.
  */
 import { z } from "zod";
-import { HARNESS_IDS } from "../agents/harness.js";
+import { HARNESS_IDS, type AnyHarnessId } from "../agents/harness.js";
 import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
@@ -83,10 +83,10 @@ const AGENT_KEY_SPECS: Record<string, KeySpec> = {
   worktreeRoot: NON_BLANK,
   worktreeMaterialization: WORKTREE_MATERIALIZATION,
   worktreeCheckoutType: WORKTREE_CHECKOUT_TYPE,
-  // The harness setting takes any registered harness id — a built-in's or a
-  // plugin's. `harness_type` on a template stays the closed `HARNESS_IDS` set,
-  // because the tool's enum is built from it and a template is read where a
-  // plugin may not yet be registered.
+  // The harness setting takes any harness id — a built-in's or a plugin's — and
+  // so does `harness_type`, on a template and in a tool call. Config cannot
+  // check registration (it loads before any plugin does), so the value is shape
+  // only here; the session's registry is what decides an id exists.
   harnessType: NON_BLANK,
 };
 
@@ -251,7 +251,7 @@ function cleanConcurrencySection(
         EXPECTED_OBJECT,
       );
     } else {
-      const keptHarnesses: Partial<Record<string, number>> = {};
+      const keptHarnesses: Partial<Record<AnyHarnessId, number>> = {};
       for (const [key, value] of Object.entries(harnesses)) {
         if (!/\S/.test(key)) {
           warnIncompatible(

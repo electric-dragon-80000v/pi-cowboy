@@ -1,16 +1,17 @@
 /**
  * host-multiplexer.ts — which execution multiplexer this process is running inside.
  *
- * The extension has panes to launch subagents into only when something is
- * hosting it, so activation is gated on the answer here rather than on a
- * boolean about one multiplexer: a second multiplexer adds a member to `HOST_MULTIPLEXERS`
- * and a branch to the detector below, and every reader follows without a second
- * list to keep in step.
+ * The extension has panes to launch subagents into only when something hosts it.
+ * Which built-in multiplexer does, is answered here rather than by a boolean
+ * about one of them: a second built-in adds a member to `HOST_MULTIPLEXERS` and a
+ * branch to the detector below, and every reader follows without a second list to
+ * keep in step. A plugin multiplexer never appears here: the session resolves it
+ * from the registry once plugins have loaded (see session-runtime.ts).
  *
- * Detection is environment-only and per-multiplexer — a multiplexer that cannot announce
- * itself cannot host a session — and the answer is `undefined` outside every
- * multiplexer rather than a default, so "not hosted at all" stays distinct from
- * "hosted by the built-in".
+ * Detection is environment-only and per-multiplexer — a built-in multiplexer that
+ * cannot announce itself cannot host a session — and the answer is `undefined`
+ * outside every built-in multiplexer rather than a default, so "not hosted at
+ * all" stays distinct from "hosted by the built-in".
  */
 
 import { assertNever } from "./utils.js";
@@ -54,6 +55,20 @@ function isHosting(multiplexer: HostMultiplexer): boolean {
  * the processes in its panes with `HERDR_ENV=1`; a multiplexer added later detects
  * itself the same way, in this one place.
  */
-export function getHostMultiplexer(): HostMultiplexer | undefined {
-  return HOST_MULTIPLEXERS.find((multiplexer) => isHosting(multiplexer));
+/** Whether `multiplexer` announces itself in this process; one answer per built-in. */
+export function multiplexerHosts(multiplexer: HostMultiplexer): boolean {
+  return isHosting(multiplexer);
 }
+
+export function getHostMultiplexer(): HostMultiplexer | undefined {
+  return HOST_MULTIPLEXERS.find(multiplexerHosts);
+}
+
+/**
+ * Why a session runs no agents: no registered multiplexer detects itself as
+ * hosting this process. A plugin multiplexer answers that question for itself
+ * (see multiplexer-registry.ts), so a session inside one never reaches this
+ * reason.
+ */
+export const NO_HOST_REASON =
+  "pi-cowboy launches agents in panes, so it runs only inside a multiplexer it can detect. None hosting this process is registered — run pi inside herdr, or install a plugin multiplexer for the multiplexer you run pi inside.";

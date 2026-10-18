@@ -38,7 +38,11 @@ import {
   ConcurrencyPools,
   type PoolReservation,
 } from "../src/concurrency-pools.js";
-import type { HarnessPrepareRequest } from "../src/agents/harness.js";
+import type {
+  AnyHarnessId,
+  HarnessPrepareRequest,
+} from "../src/agents/harness.js";
+import type { HarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
@@ -53,9 +57,6 @@ function makeReservation(): PoolReservation {
   return [{ limit: 1, spawned: 0 }];
 }
 
-/** The registry module's real harnesses; the stub restores them per suite. */
-type RealRegistry = typeof import("../src/agents/harness/registry.js");
-
 const {
   getPiInstanceMock,
   getStoreMock,
@@ -67,7 +68,8 @@ const {
   getStoreMock: vi.fn(() => ({ agent: {} })),
   buildLaunchPlanMock: vi.fn(),
   harnessForMock: vi.fn(),
-  registry: { real: undefined as RealRegistry | undefined },
+  // The registry's own `require`, for a suite that stands a stub harness in.
+  registry: { real: undefined as HarnessRegistry["require"] | undefined },
 }));
 
 /** The revive's result-dir reset, made to fail on demand. */
@@ -96,20 +98,21 @@ vi.mock("../src/agents/agent-runner.js", async (importOriginal) => {
 });
 
 // The resolved harness: the launch reads it off the registry, so the harness
-// seam's tests stand one in. The default stays the real registry, so every
-// other suite in this file sees the true pi/pig/pi-bolt/opencode harnesses.
-vi.mock("../src/agents/harness/registry.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agents/harness/registry.js")>();
-  harnessForMock.mockImplementation(actual.harnessFor);
-  registry.real = actual;
-  return { ...actual, harnessFor: harnessForMock };
-});
-
+// seam's tests stand one in. The default stays the session's real registry, so
+// every other suite in this file sees the true pi/pig/pi-bolt/opencode harnesses.
 vi.mock("../src/shell.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/shell.js")>();
+  const harnesses = actual.getHarnessRegistry();
+  registry.real = harnesses.require.bind(harnesses);
+  harnessForMock.mockImplementation((id: AnyHarnessId) =>
+    harnesses.require(id),
+  );
   return {
     ...actual,
+    getHarnessRegistry: (): HarnessRegistry => ({
+      ...harnesses,
+      require: (id) => harnessForMock(id),
+    }),
     getPiInstance: getPiInstanceMock,
     getStore: getStoreMock,
     // Stub store: the session registers at creation; these suites assert none of it.
@@ -551,7 +554,7 @@ describe("SubagentSession harness seam", () => {
 
   afterEach(() => {
     // The stub is per-suite: later suites see the real harnesses again.
-    harnessForMock.mockImplementation(registry.real!.harnessFor);
+    harnessForMock.mockImplementation(registry.real!);
   });
 
   it("records the resolved harness on the spawn before the pane starts", async () => {

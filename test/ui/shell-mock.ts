@@ -9,7 +9,10 @@ import type {
   SessionTemplates,
 } from "../../src/shell.js";
 import { AgentSpawnStore } from "../../src/agents/agent-spawn-store.js";
-import { resolveHarness } from "../../src/agents/harness/registry.js";
+import {
+  createHarnessRegistry,
+  type HarnessRegistry,
+} from "../../src/agents/harness/harness-registry.js";
 import {
   resolveWorktreeMaterialization,
   type WorktreeMaterialization,
@@ -47,6 +50,7 @@ export const shellState = {
   cowAvailability: unprobed() as Availability<WorktreeMaterialization>,
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed() as Availability<string>,
+  harnesses: createHarnessRegistry(),
 };
 
 export function setStore(store: ConfigStore): void {
@@ -89,6 +93,9 @@ export function resetShell(): void {
   shellState.cowAvailabilityClaim += 1;
   shellState.cowAvailability = unprobed();
   shellState.harnessAvailability = unprobed();
+  // A new session's vocabulary starts at the built-ins, so nothing a previous
+  // case registered is still answerable.
+  shellState.harnesses = createHarnessRegistry();
 }
 
 // Getters mirroring src/shell.js.
@@ -129,6 +136,7 @@ export const getWorktreeMaterialization = (): string =>
     shellState.store.agent.worktreeMaterialization,
     shellState.cowAvailability,
   );
+export const getHarnessRegistry = (): HarnessRegistry => shellState.harnesses;
 export const getHarnessAvailability = (): Availability<string> =>
   shellState.harnessAvailability;
 export const setHarnessAvailability = (
@@ -137,7 +145,7 @@ export const setHarnessAvailability = (
   shellState.harnessAvailability = availability;
 };
 export const getHarnessType = (): string =>
-  resolveHarness(
+  shellState.harnesses.resolve(
     shellState.store.agent.harnessType,
     shellState.harnessAvailability,
   );

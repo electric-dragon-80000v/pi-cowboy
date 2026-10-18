@@ -19,11 +19,9 @@ import type { ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
 import {
-  harnessDisplayName,
   harnessFamilyOf,
-  runnableHarnessIds,
   type HarnessModelOptions,
-} from "../../agents/harness/registry.js";
+} from "../../agents/harness/harness-registry.js";
 import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
 import type { Theme } from "../types.js";
 import { agentBulletPrefix } from "../format.js";
@@ -31,6 +29,7 @@ import {
   getSessionCtx,
   getStore,
   getHarnessAvailability,
+  getHarnessRegistry,
 } from "../../shell.js";
 import {
   buildModelGroups,
@@ -194,9 +193,9 @@ function createModelOverridePlumbing(
 function harnessDefaultRowIds(
   availability: Availability<AnyHarnessId>,
 ): AnyHarnessId[] {
-  return runnableHarnessIds(availability).filter(
-    (id) => !isPiFamilyHarness(id),
-  );
+  return getHarnessRegistry()
+    .runnable(availability)
+    .filter((id) => !isPiFamilyHarness(id));
 }
 
 /** What one harness's default-model row needs from the screen hosting it. */
@@ -224,7 +223,7 @@ function buildHarnessDefaultRow(
   options: HarnessDefaultRowOptions,
 ): SettingItem {
   const { harnessId, modelOptions, ctx, store, theme, refresh } = options;
-  const label = `${harnessDisplayName(harnessId)} Default Model`;
+  const label = `${getHarnessRegistry().displayName(harnessId)} Default Model`;
   const notify: Notify = (message, type) => ctx.ui.notify(message, type);
   const sessionValue = store.hasSessionHarnessDefaultModel(harnessId);
   const effective = store.defaultModelForHarness(harnessId);

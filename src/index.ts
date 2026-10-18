@@ -1,6 +1,8 @@
 /**
- * index.ts — pane-subagent extension entry point: the multiplexer hosting this
- * process decides whether it activates at all (see host-multiplexer.ts).
+ * index.ts — pane-subagent extension entry point: it registers for every session
+ * it may run in, and the session decides at start whether a multiplexer can host
+ * it (see session-runtime.ts). That decision cannot be made here: plugins must
+ * load before a plugin multiplexer can be resolved, and plugins load per session.
  * The tool's per-call `model` parameter is the caller's and is never written
  * by the listener; config lives in ConfigStore.
  */
@@ -10,7 +12,6 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { setPiInstance, detectSubagentSpawn } from "./shell.js";
-import { getHostMultiplexer } from "./host-multiplexer.js";
 import { missingCloneProgramReport } from "./infrastructure/git/cow-clone.js";
 import { isInsideGitRepository } from "./infrastructure/git-client.js";
 import {
@@ -38,9 +39,6 @@ function reportInactive(pi: ExtensionAPI, message: string): void {
 }
 
 export default function (pi: ExtensionAPI) {
-  // Subagents launch through the multiplexer hosting this process; outside every
-  // multiplexer there is no pane to launch them into.
-  if (getHostMultiplexer() === undefined) return;
   // Stay inert so subagents can never spawn further subagents.
   if (detectSubagentSpawn() !== undefined) return;
   // A program the clone path needs is missing, so copy-on-write could never

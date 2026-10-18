@@ -222,8 +222,8 @@ is factored into `scenario-steps.ts` (see [WRITING-TESTS.md](WRITING-TESTS.md)):
    the route prefix the methodology names — so each path below still gets its
    own isolated world and its own teardown. `installLocalExtension` hides where
    pi discovers extensions (the agent dir's `extensions/`, keyed by the
-   `pi.extensions` manifest) and how this repo's extension is activated
-   (`HERDR_ENV=1`, its own herdr gate); loadability is still asserted inline —
+   `pi.extensions` manifest) and how this repo's extension is hosted
+   (`HERDR_ENV=1`, the mark its built-in multiplexer's detector reads); loadability is still asserted inline —
    the extension's tools ride on the first model request the run makes.
    `engageOrchestrator`
    hides the rpc recipe a live parent process needs (its prompt is a stdin

@@ -17,10 +17,14 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter, type AutocompleteItem } from "@earendil-works/pi-tui";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { getPiInstance, getSessionCtx, getStore } from "../../shell.js";
+import {
+  getHarnessRegistry,
+  getPiInstance,
+  getSessionCtx,
+  getStore,
+} from "../../shell.js";
 import { findModelInRegistry, parseModelKey } from "../../utils.js";
 import type { ModelCatalog, ModelEntry } from "../../agents/harness.js";
-import { harnessFor } from "../../agents/harness/registry.js";
 import { SearchableSelectDialog } from "../searchable-select.js";
 import { buildModelOptions } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
@@ -208,7 +212,7 @@ async function piHarnessModels(
   modelCatalog: ModelCatalog,
 ): Promise<readonly ModelEntry[]> {
   try {
-    return await harnessFor("pi").listModels({
+    return await getHarnessRegistry().require("pi").listModels({
       pi: getPiInstance(),
       modelCatalog,
     });

@@ -184,6 +184,43 @@ describe("step integration: a real pi process against the fake-openai stub", () 
       expect(observedRegistration(ctx).commands).toContain("cowboy");
     });
 
+    it("registers /cowboy but leaves the tools inactive when no multiplexer hosts the process", async () => {
+      // The run is not herdr-shaped and config selects no plugin multiplexer, so
+      // the session loads its plugins, reports it has no pane to launch into,
+      // and stays inactive. Registration itself must still have happened. "0"
+      // rather than a delete: the run inherits this suite's own environment,
+      // which is inside herdr when the suite is run from a herdr pane.
+      ctx.runEnv.HERDR_ENV = "0";
+
+      const result = await runPiHeadless(
+        [...piModelArgs(), "--no-session", "--print", PROMPT],
+        {
+          cwd: ctx.workDir,
+          timeoutMs: PI_RUN_TIMEOUT_MS,
+          env: {
+            ...piIsolatedEnv(ctx.agentDir, join(ctx.workDir, "sessions")),
+            ...ctx.runEnv,
+          },
+        },
+      );
+
+      expect(result.code).toBe(0);
+      const requests = stub.requests({ method: "POST", path: ctx.chatPath });
+      expect(requests).toHaveLength(1);
+      const names = toolNames(requests[0]!.rawBody);
+      expect(names.filter((name) => COWBOY_TOOL_NAMES.includes(name))).toEqual(
+        [],
+      );
+      expect(names).toContain("read");
+
+      const observed = observedRegistration(ctx);
+      expect(
+        observed.activeTools.filter((name) => COWBOY_TOOL_NAMES.includes(name)),
+      ).toEqual([]);
+      // The command is registered so `/cowboy` can report why it is inactive.
+      expect(observed.commands).toContain("cowboy");
+    });
+
     it("keeps every Cowboy tool out of the loadout when the cwd is not a git repository", async () => {
       // The extension activates only inside a git repository; this path removes
       // the .git Initialize made, so the boot finds no repository.

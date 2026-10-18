@@ -63,35 +63,40 @@ The `cowboy-subagent-<id>` marker in `--append-system-prompt` is the subagent id
 
 Import the contract's types from the `pi-cowboy/plugin` subpath. Internal pi-cowboy paths are not part of the contract.
 
+The api carries `pi`, the session's own extension api, and `cwd`, the project root the session loaded. `cwd` is the user's workspace, not your package's directory: resolve your own files against your module (`new URL("./assets/thing.json", import.meta.url)`) and use `cwd` only for paths that belong to the user's project.
+
 ## Registering a harness
 
 `registerHarness` takes a `PluginHarness`: the same harness contract a built-in implements, over the shared launch inputs, plus the `id` and `displayName` a plugin supplies for itself.
 
-| Field                  | Meaning                                                                                        |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `id`                   | The harness ID. Config's `agent.harnessType` selects it by this ID.                            |
-| `displayName`          | The label shown in settings rows.                                                              |
-| `agentMultiplexerKind` | The kind the multiplexer starts the process as, in its own vocabulary.                         |
-| `availability()`       | Whether this machine can launch the harness now, with an optional `notice` line for the human. |
-| `buildArgs()`          | The argv the pane runs. Read the shared `SubagentLaunchInputs` (see below).                    |
-| `prepare()`            | Bring the pane into the state the launch needs.                                                |
-| `teardown()`           | Undo any filesystem state `prepare` left.                                                      |
-| `listModels()`         | The models this harness can run, for the settings menus.                                       |
-| `prefetchModels()`     | Warm a slow model list in the background at boot; use a no-op when the list is cheap.          |
+| Field                  | Meaning                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | The harness ID. `agent.harnessType`, a template's `harness_type`, and the tool's `harness_type` name it by this ID. |
+| `displayName`          | The label shown in settings rows.                                                                                   |
+| `agentMultiplexerKind` | The kind the multiplexer starts the process as, in its own vocabulary.                                              |
+| `availability()`       | Whether this machine can launch the harness now, with an optional `notice` line for the human.                      |
+| `buildArgs()`          | The argv the pane runs. Read the shared `SubagentLaunchInputs` (see below).                                         |
+| `prepare()`            | Bring the pane into the state the launch needs.                                                                     |
+| `teardown()`           | Undo any filesystem state `prepare` left.                                                                           |
+| `listModels()`         | The models this harness can run, for the settings menus.                                                            |
+| `prefetchModels()`     | Warm a slow model list in the background at boot; use a no-op when the list is cheap.                               |
 
 A plugin harness receives only the shared launch inputs: `subagentId`, `systemPromptFile`, `taskFile`, `resultFile`, `modelKey`, and `toolSelection`.
 
 `prepare` receives the session's pane surface (`PaneControl`), which offers `run(paneId, command)` and `waitForOutput(paneId, output, timeoutMs)`.
 
-Once registered, a plugin harness is offered exactly like a built-in. It is probed for availability at session start, it appears in the harness settings rows, and `agent.harnessType` can select it. The `cowboy_agent` tool's `harness_type` parameter is fixed to the six built-in harnesses, so config is the only way to reach a plugin harness.
+Once registered, a plugin harness is offered exactly like a built-in. It is probed for availability at session start, it appears in the harness settings rows, and `agent.harnessType`, an agent template's `harness_type`, and the `cowboy_agent` tool's `harness_type` can all select it by ID.
+
+A plugin harness exists only in a session that loaded it. An agent template naming one is therefore a template that machine can only use with the plugin installed: where nothing registered that ID, the template is skipped at scan with a warning naming the ID and the harnesses that session does run. A tool call naming an unregistered harness fails before anything spawns, like any other unknown `harness_type`.
 
 ## Registering a multiplexer
 
-`registerMultiplexer` takes a multiplexer ID and a factory that builds the runtime for one session:
+`registerMultiplexer` takes an ID, the multiplexer's own environment detection, and a factory that builds the runtime for one session:
 
 ```ts
 api.registerMultiplexer({
   id: "my-multiplexer",
+  hosts: () => process.env.MY_MULTIPLEXER === "1",
   create: (pi) => ({
     host,
     view,
@@ -101,6 +106,8 @@ api.registerMultiplexer({
   }),
 });
 ```
+
+`hosts()` answers whether this process runs inside your multiplexer. Detection is environment-only, exactly as it is for the built-in `herdr` (which reads `HERDR_ENV`), and it is the only thing that can make your multiplexer a host: a session runs only inside a multiplexer that detects itself, and runs the first one that does — the built-in first, then plugins in package-name order.
 
 The runtime a multiplexer returns is the whole of what a session runs on:
 
@@ -116,7 +123,9 @@ The runtime a multiplexer returns is the whole of what a session runs on:
 
 `pi-cowboy` creates and removes worktrees with git. A multiplexer adopts a checkout with `host.hostAt({ checkout })` and releases it with `host.release(ref, "worktree-association")`.
 
-Select a multiplexer with the `multiplexer` key. An ID that no installed package registered falls back to the multiplexer hosting the process, or to the built-in `herdr` when nothing hosts it.
+Select a multiplexer with the `multiplexer` key to prefer one among the hosts. An ID that no installed package registered — or one that is registered but does not detect this process — falls back to the first multiplexer that does, or to the built-in `herdr` when nothing does.
+
+A plugin multiplexer is how `pi-cowboy` runs outside herdr: run pi inside your multiplexer, and the session detects it once plugins have loaded, so it runs your runtime even though the built-in cannot host here. When no registered multiplexer detects the process, the extension still registers and loads its plugins, then reports that it cannot launch panes and stays inactive.
 
 A persisted spawn address (`AgentHostRef`) has this shape: a multiplexer ID, an agent name, a pane ID, an optional tab ID, a workspace ID, and whether the pane was created. A plugin multiplexer's addresses must fit it.
 
@@ -124,8 +133,9 @@ A persisted spawn address (`AgentHostRef`) has this shape: a multiplexer ID, an 
 
 - Registering the ID `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, or `claude` as a harness, or `herdr` as a multiplexer, is refused with a warning. Two plugins claiming one ID do not race: plugins load in package-name order, and the first registration for an ID is kept.
 - A plugin's factory runs before the session's first spawn and after the config has loaded. A `/reload` reloads the plugins.
+- A session nothing hosts has no pane to launch into: its tools stay inactive, the `/cowboy` rows that need a pane are refused with the reason, and `/cowboy disable` still works.
 - A plugin that fails to import, or that throws in its factory, is skipped with a warning. A harness whose `availability` hook throws is reported as unavailable; a harness whose `prefetchModels` hook throws is left cold. The session still starts.
-- The factory may return a disposer, which runs when the session unloads. You do not need to unregister anything yourself.
+- The factory may return a disposer, which runs when the session unloads. It may be `async`, in which case its setup is awaited before the session's first spawn. You do not need to unregister anything yourself.
 
 ## Testing a plugin locally
 

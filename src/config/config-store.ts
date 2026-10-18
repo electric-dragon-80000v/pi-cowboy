@@ -17,7 +17,7 @@ import {
 } from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
 import { DEFAULT_HARNESS, type AnyHarnessId } from "../agents/harness.js";
-import { harnessFamilyOf } from "../agents/harness/registry.js";
+import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
 import type { ThinkingLevel } from "../types.js";
@@ -343,8 +343,10 @@ export class ConfigStore {
 
   /**
    * Precedence: session per-type → config per-type → agent template →
-   * session default → the launching harness's default → parentModelId. Null
-   * when the whole chain is unset and the parent has no model to inherit.
+   * pi's session default → the launching harness's default → parentModelId.
+   * The session default and the parent's key are pi's vocabulary, so only a
+   * pi-family launch reads them. Null when the whole chain is unset and the
+   * parent has no model to inherit.
    * `harnessId` must be the harness the launch resolves, because it names which
    * default the chain reads.
    */

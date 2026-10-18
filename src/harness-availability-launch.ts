@@ -18,14 +18,13 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  harnessFor,
-  harnessIds,
-  runnableHarnessIds,
-} from "./agents/harness/registry.js";
 import type { AnyHarnessId, HarnessAvailability } from "./agents/harness.js";
 import { probed, type Availability } from "./availability.js";
-import { getHarnessAvailability, setHarnessAvailability } from "./shell.js";
+import {
+  getHarnessAvailability,
+  getHarnessRegistry,
+  setHarnessAvailability,
+} from "./shell.js";
 import { errorMessage } from "./utils.js";
 
 /** One pass over the vocabulary: the verdicts, and the lines those verdicts carry. */
@@ -43,7 +42,7 @@ export interface HarnessProbe {
 export function probeHarnessAvailability(): HarnessProbe {
   const available: AnyHarnessId[] = [];
   const notices: string[] = [];
-  for (const id of harnessIds()) {
+  for (const id of getHarnessRegistry().ids()) {
     const answer = askAvailability(id);
     if (answer.status === "available") available.push(id);
     else if (answer.notice !== undefined) notices.push(answer.notice);
@@ -59,7 +58,7 @@ export function probeHarnessAvailability(): HarnessProbe {
  */
 function askAvailability(id: AnyHarnessId): HarnessAvailability {
   try {
-    return harnessFor(id).availability();
+    return getHarnessRegistry().require(id).availability();
   } catch (error) {
     return {
       status: "unavailable",
@@ -88,9 +87,10 @@ export function startHarnessAvailabilityProbe(): HarnessProbe {
  */
 export function prefetchHarnessModels(pi: ExtensionAPI): void {
   const availability = getHarnessAvailability();
-  for (const id of runnableHarnessIds(availability)) {
+  const harnesses = getHarnessRegistry();
+  for (const id of harnesses.runnable(availability)) {
     try {
-      harnessFor(id).prefetchModels(pi);
+      harnesses.require(id).prefetchModels(pi);
     } catch {
       // Cold, not fatal — see above.
     }

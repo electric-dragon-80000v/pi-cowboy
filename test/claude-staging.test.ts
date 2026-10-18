@@ -29,7 +29,7 @@ import type {
   ClaudeLaunchRequest,
   SubagentLaunchInputs,
 } from "../src/agents/harness.js";
-import { harnessFor } from "../src/agents/harness/registry.js";
+import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import {
   claudeConfigDir,
   removeClaudeStaging,
@@ -54,6 +54,8 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
 });
 
 const PI = {} as unknown as ExtensionAPI;
+const harnesses = createHarnessRegistry();
+const harnessFor = harnesses.require.bind(harnesses);
 
 /** The pane surface claude's prepare reaches: the herdr calls this file mocks. */
 const PANE: PaneControl = {

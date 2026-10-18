@@ -26,7 +26,7 @@ import {
   resolveHarnessType,
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
-import type { HarnessModelOptions } from "../../agents/harness/registry.js";
+import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
 import { findModelInRegistry, modelSelectionName } from "../../utils.js";
 import { agentBulletPrefix } from "../format.js";
 import {

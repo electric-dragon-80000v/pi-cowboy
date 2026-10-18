@@ -15,14 +15,11 @@ import {
   prefetchHarnessModels,
   startHarnessAvailabilityProbe,
 } from "../src/harness-availability-launch.js";
-import {
-  harnessFor,
-  registerHarness,
-  resetPluginHarnesses,
-} from "../src/agents/harness/registry.js";
 import type { PluginHarness } from "../src/agents/harness.js";
 import {
   getHarnessAvailability,
+  getHarnessRegistry,
+  installSessionRegistries,
   setHarnessAvailability,
 } from "../src/shell.js";
 import { probed, unprobed } from "../src/availability.js";
@@ -120,10 +117,12 @@ describe("prefetchHarnessModels", () => {
 
   /** `listModels` the way registration calls it: pi plus a catalog. */
   function listOpencode(pi: ExtensionAPI): Promise<unknown> {
-    return harnessFor("opencode").listModels({
-      pi,
-      modelCatalog: { getAvailable: () => [] },
-    });
+    return getHarnessRegistry()
+      .require("opencode")
+      .listModels({
+        pi,
+        modelCatalog: { getAvailable: () => [] },
+      });
   }
 
   it("starts no fetch where no runnable harness warms one", () => {
@@ -240,14 +239,13 @@ describe("a harness whose hooks throw", () => {
   }
 
   afterEach(() => {
-    // The registry is process-level; a harness registered here must not leak
-    // into the next case (or the next suite).
-    resetPluginHarnesses();
+    // A harness registered here belongs to this case's session only.
+    installSessionRegistries();
   });
 
   it("answers a throwing availability hook as unavailable, naming the harness", () => {
     freshPath();
-    registerHarness(boomHarness("boom-availability"));
+    getHarnessRegistry().register(boomHarness("boom-availability"));
 
     const probe = probeHarnessAvailability();
 
@@ -259,7 +257,7 @@ describe("a harness whose hooks throw", () => {
 
   it("survives a throwing prefetch hook, leaving the session to start", () => {
     freshPath();
-    registerHarness(boomHarness("boom-prefetch"));
+    getHarnessRegistry().register(boomHarness("boom-prefetch"));
     setHarnessAvailability(probed(["pi", "boom-prefetch"]));
 
     // Warming is an optimization: a cold list, not a failed session.

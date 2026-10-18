@@ -28,17 +28,18 @@ export const DEFAULT_CONCURRENCY_LIMIT = 4;
  * from an empty one.
  *
  * Each level's map holds only the keys that have a ceiling, so each is
- * `Partial<Record<Key, number>>`. For `harnesses` that is what allows one
- * harness without the other three — `Record<string, number>` would demand
- * all of them. For `providers`/`models` the keys are open-ended strings, and
- * `Partial` keeps a lookup of an unset key honest (`number | undefined`)
- * instead of claiming a number.
+ * `Partial<Record<Key, number>>`: an unset key reads as `number | undefined`
+ * rather than claiming a number, and no key is demanded. The harness level's
+ * key is `AnyHarnessId`, not the closed `HarnessId` — the vocabulary is open, so
+ * a key may name a plugin harness, and a closed union would refuse the config
+ * that names one. For `providers`/`models` the keys are composite strings, not
+ * harness ids.
  */
 export interface ConcurrencyConfig {
   /** The global limit: every spawn counts against it, whatever else also applies. */
   default: number;
   /** Per-harness ceilings keyed by harness id. */
-  harnesses: Partial<Record<string, number>>;
+  harnesses: Partial<Record<AnyHarnessId, number>>;
   /** Per-provider ceilings keyed by "provider" or "<harnessId>:<provider>". */
   providers: Partial<Record<string, number>>;
   /** Per-model ceilings keyed by "provider/modelId" or "<harnessId>:<provider>/<modelId>". */
@@ -288,7 +289,9 @@ export class ConcurrencyPools {
   }
 
   /** Harness pools are keyed by the harness id itself, so no qualifier is parsed. */
-  private syncHarnessPools(configured: Partial<Record<string, number>>): void {
+  private syncHarnessPools(
+    configured: Partial<Record<AnyHarnessId, number>>,
+  ): void {
     const limits = new Map<string, number>();
     for (const [harness, limit] of Object.entries(configured)) {
       if (harness.trim() !== "" && typeof limit === "number") {

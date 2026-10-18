@@ -10,7 +10,7 @@ import { z } from "zod";
 import { VALID_THINKING_LEVELS } from "../utils.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
 import { compactDefined } from "../templates/template-files.js";
-import { HARNESS_IDS, type HarnessFamily } from "./harness.js";
+import type { HarnessFamily } from "./harness.js";
 import type { ToolFilter, ToolsByFamily } from "./types.js";
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
@@ -176,8 +176,13 @@ export const AgentTemplateSchema = z.strictObject({
   worktree_checkout_type: z.enum(VALID_WORKTREE_CHECKOUT_TYPES).optional(),
   /** Absent falls through the merge to inherit an earlier layer's prompt; an explicitly empty string clears it. */
   system_prompt: z.string().optional(),
-  /** Which harness owns this agent's launch; omitted falls through to the configured default. */
-  harness_type: z.enum(HARNESS_IDS).optional(),
+  /**
+   * Which harness owns this agent's launch; omitted falls through to the
+   * configured default. Any id — a built-in's or a plugin's — because the
+   * session's registry decides which ids exist (see agent-types.ts): a value no
+   * harness registered is a file the scan skips, so a typo stays loud.
+   */
+  harness_type: z.string().min(1).optional(),
   /** How the child process is launched. Omitted = every field's default. */
   harness: HarnessSchema.optional(),
 });

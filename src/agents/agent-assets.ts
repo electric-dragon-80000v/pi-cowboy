@@ -23,7 +23,7 @@ import {
   removeGitWorktree,
   resolveMainCheckout,
 } from "../infrastructure/git-client.js";
-import { getSessionCtx, getStore } from "../shell.js";
+import { getHarnessRegistry, getSessionCtx, getStore } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
 import {
   buildWorktreeBranch,
@@ -42,7 +42,6 @@ import type {
   PlacementWorktree,
 } from "./agent-host.js";
 import type { AnyHarnessId, HarnessTeardownContext } from "./harness.js";
-import { registeredHarness } from "./harness/registry.js";
 import type {
   CleanupSource,
   LocatedArtifacts,
@@ -473,7 +472,9 @@ export function createMultiplexerAgentAssets(
       // nothing. Such an id has no teardown to run — the plugin's code went with
       // its registration — which is the same success as a harness that never
       // prepared.
-      await registeredHarness(harness)?.teardown({ pi, ...context });
+      await getHarnessRegistry()
+        .get(harness)
+        ?.teardown({ pi, ...context });
     },
   });
 }

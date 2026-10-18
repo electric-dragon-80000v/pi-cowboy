@@ -33,7 +33,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { harnessFor } from "../src/agents/harness/registry.js";
+import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import {
   claudeConfigDir,
   removeClaudeStaging,
@@ -45,6 +45,8 @@ const execFileAsync = promisify(execFile);
 
 /** The subagent these tests stage; the shape a spawn id has. */
 const SUBAGENT_ID = "c1d2e3f4";
+const harnesses = createHarnessRegistry();
+const harnessFor = harnesses.require.bind(harnesses);
 
 /** The marker the model is asked to echo; the whole of the assertions. */
 const MARKER = "CLAUDE_STAGING_OK";

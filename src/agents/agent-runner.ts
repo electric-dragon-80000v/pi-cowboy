@@ -23,7 +23,7 @@ import {
   subagentTaskFileFor,
 } from "../paths.js";
 import { type AgentWorktree, type RunTunables } from "../types.js";
-import { getStore } from "../shell.js";
+import { getHarnessRegistry, getStore } from "../shell.js";
 import {
   buildSubagentSystemPrompt,
   buildWorktreeBranchSection,
@@ -39,11 +39,7 @@ import {
   type SubagentLaunchInputs,
   type ToolSelection,
 } from "./harness.js";
-import {
-  harnessFamilyOf,
-  harnessFor,
-  registeredHarness,
-} from "./harness/registry.js";
+import { harnessFamilyOf } from "./harness/harness-registry.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -270,7 +266,7 @@ function buildLaunchRequest(
     case "claude":
       return { ...sharedInputs, family: "claude" };
     default: {
-      if (registeredHarness(harnessType) === undefined) {
+      if (getHarnessRegistry().get(harnessType) === undefined) {
         throw new Error(`no harness registered for "${harnessType}"`);
       }
       return { ...sharedInputs, family: "plugin" };
@@ -288,7 +284,7 @@ function buildHarnessArgs(
   harnessId: AnyHarnessId,
   launch: HarnessLaunch,
 ): string[] {
-  return harnessFor(harnessId).buildArgs(launch);
+  return getHarnessRegistry().require(harnessId).buildArgs(launch);
 }
 
 /** The child pi owns extension discovery and tool validation; this only forwards configuration. */

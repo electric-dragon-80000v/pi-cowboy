@@ -11,6 +11,7 @@ import { createLogger } from "../logger.js";
 import { worktreeRetentionReason } from "../infrastructure/git-client.js";
 import {
   getAgentSpawns,
+  getHarnessRegistry,
   getPiInstance,
   getStore,
   getWorktreeMaterialization,
@@ -47,7 +48,6 @@ import { AgentSandbox } from "../spawn/sandbox.js";
 import { resolveWorktreeCheckoutType } from "./spawn-defaults.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
 import type { AnyHarnessId } from "./harness.js";
-import { harnessFor } from "./harness/registry.js";
 import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
@@ -524,7 +524,7 @@ export class SubagentSession {
       const launch: AgentLaunchState = { resultFile: plan.launch.resultFile };
       this.launchState = launch;
       launchCwd = plan.cwd;
-      const harness = harnessFor(plan.harness);
+      const harness = getHarnessRegistry().require(plan.harness);
       ref =
         ref ??
         (await host.hostAt({
@@ -584,12 +584,14 @@ export class SubagentSession {
       const harnessId = this.spawn.execution.harness;
       if (harnessId !== undefined) {
         try {
-          await harnessFor(harnessId).teardown({
-            pi: this.args.pi,
-            paneId: this.spawn.execution.host?.paneId ?? null,
-            cwd: launchCwd ?? null,
-            subagentId: this.spawn.id,
-          });
+          await getHarnessRegistry()
+            .require(harnessId)
+            .teardown({
+              pi: this.args.pi,
+              paneId: this.spawn.execution.host?.paneId ?? null,
+              cwd: launchCwd ?? null,
+              subagentId: this.spawn.id,
+            });
         } catch (error) {
           log.warn("harness teardown failed after a failed launch", {
             spawnId: this.spawn.id,

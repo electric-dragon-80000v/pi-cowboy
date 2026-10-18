@@ -1,20 +1,17 @@
 /**
- * harness/registry.ts — the one module that knows every harness.
+ * harness-registry.ts — the one module that knows every harness.
  *
- * It owns the id → implementation lookup, so a caller that holds a
- * `harness_type` resolves it to the harness that launches it, and it owns the
- * listing that spans harnesses, so no caller has to name one.
+ * `createHarnessRegistry()` builds the id → implementation lookup a session
+ * uses. Its built-ins are seeded at construction, and a plugin harness is added
+ * by `register` at session start; both become the same `RegisteredHarness`, so
+ * no caller can tell a built-in from a plugin by how it arrived. Because the map
+ * is a closure of the object, its lifetime is the object's: a session installs a
+ * fresh registry, and the previous session's plugin entries cannot outlive it.
  *
- * The registry is open: the six built-ins are seeded here at module load and a
- * plugin harness is added by `registerHarness` at session start, and both become
- * the same `RegisteredHarness`, so no caller can tell a built-in from a plugin
- * by how it arrived. Registration is id-keyed and first-wins — the first
- * registration for an id is kept and a later one is refused with a warning — so
- * a plugin can never displace a built-in, and two plugins claiming one id do not
- * race: the plugin loader sorts by package name, so the same one wins every
- * load. A load is torn down by `resetPluginHarnesses`, so a plugin registering
- * again after a session disposed it is a first registration again rather than a
- * duplicate.
+ * Registration is id-keyed and first-wins — the first registration for an id is
+ * kept and a later one is refused with a warning — so a plugin can never
+ * displace a built-in, and two plugins claiming one id do not race: the plugin
+ * loader sorts by package name, so the same one wins every load.
  *
  * A built-in keeps its per-family typing behind the wall
  * (`Harness<LaunchRequestFor<K>>`); the wall narrows a launch to the built-in's
@@ -199,88 +196,148 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
   };
 }
 
-/** Every registered harness, built-in first, in the order ids were registered. */
-const REGISTERED = new Map<string, RegisteredHarness>(
-  HARNESS_IDS.map((id): [string, RegisteredHarness] => [id, wrapBuiltin(id)]),
-);
-
-/** The ids the current plugin load owns; forgotten with the load (see resetPluginHarnesses). */
-const PLUGIN_HARNESS_IDS = new Set<string>();
-
 /**
- * Register a plugin harness, answering whether it was accepted. The first
- * registration for an id is kept: a plugin that claims a built-in's id, or an id
- * another plugin already claimed in this load, is refused with a warning and
- * answered `false`. The plugin loader resets the registry between loads
- * (`resetPluginHarnesses`), so a plugin registering again after a session
- * disposed it is the first registration again rather than a duplicate.
+ * One session's harness vocabulary: the built-ins plus whatever that session's
+ * plugins registered.
  */
-export function registerHarness(harness: PluginHarness): boolean {
-  const refusal =
-    parseHarnessId(harness.id) !== undefined
-      ? "a built-in harness owns that id"
-      : REGISTERED.has(harness.id)
-        ? "another plugin already registered that id in this load"
-        : undefined;
-  if (refusal !== undefined) {
-    console.warn(`[subagents] Ignoring harness "${harness.id}": ${refusal}`);
-    return false;
-  }
-  REGISTERED.set(harness.id, harness);
-  PLUGIN_HARNESS_IDS.add(harness.id);
-  return true;
-}
-
-/**
- * Forget one plugin harness — the undo a plugin's own load needs when its
- * factory throws after registering. A built-in id is never removed, and neither
- * is an id this load did not register (so a failed plugin cannot unregister the
- * plugin that legitimately owns an id).
- */
-export function unregisterHarness(id: AnyHarnessId): void {
-  if (!PLUGIN_HARNESS_IDS.has(id)) return;
-  REGISTERED.delete(id);
-  PLUGIN_HARNESS_IDS.delete(id);
-}
-
-/**
- * Forget every plugin harness, leaving the built-ins. The plugin loader calls
- * this when it tears a load down, so the next load registers into a clean
- * registry instead of colliding with the previous session's entries.
- */
-export function resetPluginHarnesses(): void {
-  for (const id of PLUGIN_HARNESS_IDS) REGISTERED.delete(id);
-  PLUGIN_HARNESS_IDS.clear();
-}
-
-/** Every registered harness id, built-in ids first then plugins in registration order. */
-export function harnessIds(): readonly AnyHarnessId[] {
-  return [...REGISTERED.keys()];
-}
-
-/** The harness for one id, or undefined for an id nothing registered. */
-export function registeredHarness(
-  id: AnyHarnessId,
-): RegisteredHarness | undefined {
-  return REGISTERED.get(id);
+export interface HarnessRegistry {
+  /**
+   * Register a plugin harness, answering whether it was accepted. The first
+   * registration for an id is kept: a plugin that claims a built-in's id, or an
+   * id another plugin already claimed in this session, is refused with a warning
+   * and answered `false`.
+   */
+  register(harness: PluginHarness): boolean;
+  /**
+   * Forget one plugin harness — the undo a plugin's own load needs when its
+   * factory throws after registering. A built-in id is never removed, and
+   * neither is an id this registry did not register.
+   */
+  unregister(id: AnyHarnessId): void;
+  /** Every registered id, built-in ids first then plugins in registration order. */
+  ids(): readonly AnyHarnessId[];
+  /** The harness for one id, or undefined for an id nothing registered. */
+  get(id: AnyHarnessId): RegisteredHarness | undefined;
+  /**
+   * The harness for one id. A caller that reaches here has already narrowed the
+   * id to a registered one (config resolve, request refusal), so an unregistered
+   * id is a bug to name, not a state to branch on.
+   */
+  require(id: AnyHarnessId): RegisteredHarness;
+  /** The display form of one harness; an unregistered id shows as itself. */
+  displayName(id: AnyHarnessId): string;
+  /**
+   * The harnesses a spawn here can really use: built-in ids first (in
+   * `HARNESS_IDS` order), then plugin ids (in registration order). pi runs the
+   * pane it would launch in, so the family answers always; any other harness —
+   * built-in or plugin — needs the probe to have confirmed it.
+   */
+  runnable(availability: Availability<AnyHarnessId>): AnyHarnessId[];
+  /**
+   * Which harness a spawn launches under: the configured one when it is both
+   * registered and launchable here, pi otherwise. Registration is checked as
+   * well as availability because config may name a plugin harness that is not
+   * installed, and while the probe is `unprobed` every id reads as "available" —
+   * so availability alone would hand a spawn an id that `require` then refuses.
+   */
+  resolve(
+    configured: AnyHarnessId,
+    availability: Availability<AnyHarnessId>,
+  ): AnyHarnessId;
+  /**
+   * One model list per runnable harness, each answering for itself, read once
+   * when a menu tree opens so every picker under it selects from the same
+   * answer. A harness whose list could not be produced is present with an empty
+   * list: "no models" belongs to that harness alone.
+   */
+  listModelOptions(
+    request: HarnessListModelsRequest,
+    availability: Availability<AnyHarnessId>,
+  ): Promise<HarnessModelOptions>;
 }
 
 /**
- * The harness for one id. A caller that reaches here has already narrowed the
- * id to a registered one (config resolve, request refusal), so an unregistered
- * id is a bug to name, not a state to branch on.
+ * The harness vocabulary one session runs with. The built-in entries are built
+ * here, so each registry owns its own wrappers — a stale registry cannot answer
+ * with an entry another session replaced.
  */
-export function harnessFor(id: AnyHarnessId): RegisteredHarness {
-  const harness = REGISTERED.get(id);
-  if (harness === undefined) {
-    throw new Error(`no harness registered for "${id}"`);
-  }
-  return harness;
-}
+export function createHarnessRegistry(): HarnessRegistry {
+  const registered = new Map<string, RegisteredHarness>(
+    HARNESS_IDS.map((id): [string, RegisteredHarness] => [id, wrapBuiltin(id)]),
+  );
+  /** The ids this registry's plugins own, so `unregister` cannot remove another's. */
+  const owned = new Set<string>();
 
-/** The display form of one harness, for the rows that configure it. An unregistered id shows as itself. */
-export function harnessDisplayName(id: AnyHarnessId): string {
-  return REGISTERED.get(id)?.displayName ?? id;
+  const registry: HarnessRegistry = {
+    register(harness) {
+      const refusal =
+        parseHarnessId(harness.id) !== undefined
+          ? "a built-in harness owns that id"
+          : registered.has(harness.id)
+            ? "another plugin already registered that id in this load"
+            : undefined;
+      if (refusal !== undefined) {
+        console.warn(
+          `[subagents] Ignoring harness "${harness.id}": ${refusal}`,
+        );
+        return false;
+      }
+      registered.set(harness.id, harness);
+      owned.add(harness.id);
+      return true;
+    },
+    unregister(id) {
+      if (!owned.has(id)) return;
+      registered.delete(id);
+      owned.delete(id);
+    },
+    ids() {
+      return [...registered.keys()];
+    },
+    get(id) {
+      return registered.get(id);
+    },
+    require(id) {
+      const harness = registered.get(id);
+      if (harness === undefined) {
+        throw new Error(`no harness registered for "${id}"`);
+      }
+      return harness;
+    },
+    displayName(id) {
+      return registered.get(id)?.displayName ?? id;
+    },
+    runnable(availability) {
+      return registry
+        .ids()
+        .filter((id) => isPiFamilyHarness(id) || isProven(id, availability));
+    },
+    resolve(configured, availability) {
+      return registered.has(configured) && isAvailable(configured, availability)
+        ? configured
+        : DEFAULT_HARNESS;
+    },
+    async listModelOptions(request, availability) {
+      const entries = await Promise.all(
+        registry
+          .runnable(availability)
+          .map(
+            async (id): Promise<readonly [AnyHarnessId, readonly string[]]> => {
+              try {
+                const models = await registry.require(id).listModels(request);
+                return [id, models.map((entry) => entry.key)];
+              } catch {
+                // `listModels` is not supposed to throw; one that does costs its
+                // own list, never the others'.
+                return [id, []];
+              }
+            },
+          ),
+      );
+      return new Map(entries);
+    },
+  };
+  return registry;
 }
 
 /**
@@ -295,68 +352,12 @@ export function harnessFamilyOf(id: AnyHarnessId): HarnessFamily | undefined {
 }
 
 /**
- * The harnesses a spawn here can really use: built-in ids first (in `HARNESS_IDS`
- * order), then plugin ids (in registration order). pi runs the pane it would
- * launch in, so the family answers always; any other harness — built-in or
- * plugin — needs the probe to have confirmed it, because only the binary itself
- * can list the models it runs.
- */
-export function runnableHarnessIds(
-  availability: Availability<AnyHarnessId>,
-): AnyHarnessId[] {
-  return harnessIds().filter(
-    (id) => isPiFamilyHarness(id) || isProven(id, availability),
-  );
-}
-
-/**
- * Which harness a spawn launches under: the configured one when it is both
- * registered and launchable here, pi otherwise. Registration is checked as well
- * as availability because config may name a plugin harness that is not
- * installed, and while the probe is `unprobed` every id reads as "available" —
- * so availability alone would hand a spawn an id that `harnessFor` then refuses.
- */
-export function resolveHarness(
-  configured: AnyHarnessId,
-  availability: Availability<AnyHarnessId>,
-): AnyHarnessId {
-  return REGISTERED.has(configured) && isAvailable(configured, availability)
-    ? configured
-    : DEFAULT_HARNESS;
-}
-
-/**
  * The model keys each harness this machine can run offers, keyed by harness.
  * A harness whose list could not be produced is present with an empty list:
  * "no models" belongs to that harness alone and is never filled in from
  * another's.
  */
 export type HarnessModelOptions = ReadonlyMap<AnyHarnessId, readonly string[]>;
-
-/**
- * One list per runnable harness, each answering for itself, read once when a
- * menu tree opens so every picker under it selects from the same answer.
- */
-export async function listHarnessModelOptions(
-  request: HarnessListModelsRequest,
-  availability: Availability<AnyHarnessId>,
-): Promise<HarnessModelOptions> {
-  const entries = await Promise.all(
-    runnableHarnessIds(availability).map(
-      async (id): Promise<readonly [AnyHarnessId, readonly string[]]> => {
-        try {
-          const models = await harnessFor(id).listModels(request);
-          return [id, models.map((entry) => entry.key)];
-        } catch {
-          // `listModels` is not supposed to throw; one that does costs its own
-          // list, never the others'.
-          return [id, []];
-        }
-      },
-    ),
-  );
-  return new Map(entries);
-}
 
 /**
  * The one merged view of the per-harness structure: every harness's keys, once

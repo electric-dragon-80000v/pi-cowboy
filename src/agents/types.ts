@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from "../types.js";
 import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
-import type { HarnessFamily, HarnessId } from "./harness.js";
+import type { AnyHarnessId, HarnessFamily } from "./harness.js";
 
 /**
  * A template's model keys, each under the harness family whose catalogue
@@ -77,7 +77,7 @@ interface BaseAgentConfig {
   /** Hidden from the schema enum but still callable by name. */
   hidden?: boolean;
   /** Which harness launches this agent. Undefined = use the configured default. */
-  harnessType?: HarnessId;
+  harnessType?: AnyHarnessId;
 }
 
 /**

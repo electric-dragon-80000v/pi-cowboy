@@ -72,7 +72,7 @@ If the configured `harnessType` is not on `PATH` (or is an unsupported version),
 
 The value may also name a plugin harness: a harness a pi package registered through the `pi-cowboy/plugin` contract (see [Plugins](Plugins.md)). A plugin harness installed on this machine is put on offer like a built-in; one that is not installed falls back to `pi`.
 
-A `cowboy_agent` tool call can override this setting per task with its `harness_type` parameter. The parameter's set is fixed to the six built-in harnesses, so a plugin harness is reachable through this config key only. Unlike the config setting, an explicit `harness_type` in a tool call never falls back: if the machine cannot launch the requested harness, the call fails immediately.
+A `cowboy_agent` tool call can override this setting per task with its `harness_type` parameter, and so can an agent template's `harness_type` key. All three accept any harness ID — a built-in's or one a plugin registered in this session. Unlike the config setting, an explicit `harness_type` never falls back: if the harness is not registered in this session, or the machine cannot launch it, the call fails immediately. A template naming an unregistered harness is skipped at scan with a warning, so the typo or the missing plugin is visible rather than silently replaced by `pi`.
 
 ### `agent.defaultThinking`
 
@@ -144,7 +144,7 @@ When spawning an agent, `pi-cowboy` resolves the model in this order (highest pr
 2. Session per-type override (set for the current session in `/cowboy` > `Model overrides`).
 3. Config per-type override (`agent.<agent-type>` in project or global `config.json`).
 4. The agent template's `model` for the launching harness family (model keys for other harness families are ignored).
-5. Session default model (set via `/cowboy model`).
+5. The Pi-family session default model (set via `/cowboy model`, which picks from Pi's catalogue).
 6. The launching harness's configured default: `agent.default` for the Pi family, or `agent.defaultModelByHarness.<harness>` for foreign harnesses.
 7. The parent session's active model (Pi-family launches only).
 
@@ -155,7 +155,7 @@ The multiplexer that hosts the subagents' panes, by id. Machine-level: a project
 - `herdr` (default): the built-in multiplexer, over the Herdr CLI.
 - Any other id: a multiplexer a pi package registered through the `pi-cowboy/plugin` contract (see [Plugins](Plugins.md)).
 
-An id that no installed package registered falls back to the multiplexer hosting the process, or to the built-in `herdr` when nothing hosts it.
+The session runs a registered multiplexer that detects this process. An id that no installed package registered, or one that is registered but does not detect this process, falls back to the first multiplexer that does; when none does, the session loads its plugins, then stays inactive and reports that it has no pane to launch into. A plugin multiplexer (see [Plugins](Plugins.md)) is how to run `pi-cowboy` outside herdr.
 
 ## `concurrency`
 

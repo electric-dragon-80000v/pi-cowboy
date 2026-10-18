@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getHostMultiplexer,
+  multiplexerHosts,
   type HostMultiplexer,
 } from "../src/host-multiplexer.js";
 
@@ -35,5 +36,15 @@ describe("getHostMultiplexer", () => {
     vi.stubEnv("HERDR_ENV", "0");
 
     expect(getHostMultiplexer()).toBeUndefined();
+  });
+});
+
+describe("multiplexerHosts", () => {
+  it("answers for one multiplexer, which is what the built-in registration wires", () => {
+    vi.stubEnv("HERDR_ENV", "1");
+    expect(multiplexerHosts("herdr")).toBe(true);
+
+    vi.stubEnv("HERDR_ENV", "");
+    expect(multiplexerHosts("herdr")).toBe(false);
   });
 });

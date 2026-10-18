@@ -10,8 +10,9 @@
  * conversation it verifies.
  *
  * The stub stands in for the MODEL on both sides; everything below the model is
- * real. It needs a herdr world of its own (`startFakeHerdr` — the extension acts
- * only inside a herdr pane, and the developer's session must stay out of it) and
+ * real. It needs a herdr world of its own (`startFakeHerdr` — the session's pane
+ * is the built-in multiplexer's, which hosts only a herdr process, and the
+ * developer's session must stay out of it) and
  * a LIVE orchestrator (`engageOrchestrator` — the background launch needs a
  * parent that outlives its turn, and the conversation is where a settlement
  * message is read).

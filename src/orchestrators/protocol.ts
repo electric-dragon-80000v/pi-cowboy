@@ -63,6 +63,7 @@ import {
 } from "../models/model-request.js";
 import {
   getCoordinator,
+  getHarnessRegistry,
   getManager,
   getPiInstance,
   getSessionCtx,
@@ -73,8 +74,7 @@ import {
   modelSelectionName,
   parseThinkingLevel,
 } from "../utils.js";
-import type { HarnessId } from "../agents/harness.js";
-import { harnessFor } from "../agents/harness/registry.js";
+import type { AnyHarnessId } from "../agents/harness.js";
 import type { OrchestratorConfig } from "./types.js";
 import {
   queuedCueContext,
@@ -105,7 +105,7 @@ interface DelegationIntent {
   /** Absent means inherit the parent. */
   modelSelection?: ModelSelection;
   /** The caller's validated `harness_type`; absent means the agent template's `harness_type` and the config setting resolve it. */
-  requestedHarness?: HarnessId;
+  requestedHarness?: AnyHarnessId;
   isBackground: boolean;
   /** Raw `thinking` override, possibly injected by the tool_call listener. */
   thinkingOverride: string | undefined;
@@ -332,7 +332,7 @@ export class DelegationProtocol {
         registry: ctx.modelRegistry,
         parent: ctx.model,
         listModels: (foreign) =>
-          harnessFor(foreign).listModels({
+          getHarnessRegistry().require(foreign).listModels({
             pi: getPiInstance(),
             modelCatalog: ctx.modelRegistry,
           }),

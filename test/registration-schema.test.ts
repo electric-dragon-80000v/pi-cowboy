@@ -160,6 +160,7 @@ describe("cowboy_agent registration", () => {
     expect(description).toMatch(/^Optional\b/);
     expect(description).toContain("harness_type");
     expect(description).toContain("pi, pig, pi-bolt, opencode");
+    expect(description).toContain("a plugin registered in this session");
     expect(description).toContain("cannot launch");
     expect(description).toContain("never falls back");
   });

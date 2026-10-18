@@ -28,11 +28,15 @@ import {
   isExtensionEnabled,
   syncExtensionIndicator,
 } from "./extension-toggle.js";
-import { getHarnessAvailability, getPiInstance, getStore } from "./shell.js";
 import {
-  listHarnessModelOptions,
-  type HarnessModelOptions,
-} from "./agents/harness/registry.js";
+  getHarnessAvailability,
+  getHarnessRegistry,
+  getPiInstance,
+  getRuntime,
+  getStore,
+} from "./shell.js";
+import { NO_HOST_REASON } from "./host-multiplexer.js";
+import type { HarnessModelOptions } from "./agents/harness/harness-registry.js";
 
 /** The one place a tool name is spelled; the tools below are named from these. */
 export const COWBOY_TOOLS = {
@@ -229,7 +233,7 @@ async function harnessModelOptions(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
 ): Promise<HarnessModelOptions> {
-  return await listHarnessModelOptions(
+  return await getHarnessRegistry().listModelOptions(
     { pi, modelCatalog: ctx.modelRegistry },
     getHarnessAvailability(),
   );
@@ -271,6 +275,12 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
       const [word, ...inline] = subcommand.split(/\s+/);
       if (subcommand === "enable" || subcommand === "disable") {
         const enable = subcommand === "enable";
+        // Enabling is what puts the tools in the active set; with no multiplexer
+        // hosting the session there is no pane for them to work in.
+        if (enable && getRuntime() === null) {
+          ctx.ui.notify(NO_HOST_REASON, "warning");
+          return;
+        }
         if (isExtensionEnabled() === enable) {
           ctx.ui.notify(
             `pi-cowboy is already ${enable ? "enabled" : "disabled"}`,
@@ -283,6 +293,12 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
           enable ? "pi-cowboy enabled" : "pi-cowboy disabled",
           "info",
         );
+        return;
+      }
+      // Every row below launches or inspects work in the session's panes, so a
+      // session nothing hosts (see session-runtime.ts) has nothing to offer.
+      if (getRuntime() === null) {
+        ctx.ui.notify(NO_HOST_REASON, "warning");
         return;
       }
       if (word === "worktree") {

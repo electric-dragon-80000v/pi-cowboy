@@ -18,7 +18,14 @@ import {
   type WorktreeMaterialization,
 } from "./spawn/worktree-policy.js";
 import type { AnyHarnessId } from "./agents/harness.js";
-import { resolveHarness } from "./agents/harness/registry.js";
+import {
+  createHarnessRegistry,
+  type HarnessRegistry,
+} from "./agents/harness/harness-registry.js";
+import {
+  createMultiplexerRegistry,
+  type MultiplexerRegistry,
+} from "./agents/multiplexer-registry.js";
 import { unprobed, type Availability } from "./availability.js";
 import type { PresenceMarker } from "./ui/indicator.js";
 import { AgentSpawnStore } from "./agents/agent-spawn-store.js";
@@ -71,6 +78,10 @@ interface Shell {
   repoLock: RepoLock;
   sessionTemplates: SessionTemplates;
   indicatorMarker: PresenceMarker | null;
+  /** The session's harness vocabulary; replaced by every session start. */
+  harnesses: HarnessRegistry;
+  /** The session's multiplexers; replaced by every session start. */
+  multiplexers: MultiplexerRegistry;
   cowAvailability: Availability<WorktreeMaterialization>;
   /** Which probe may write `cowAvailability`: the claim number of the newest one started. */
   cowAvailabilityClaim: number;
@@ -89,6 +100,8 @@ const shell: Shell = {
   repoLock: new RepoLock(),
   sessionTemplates: createSessionTemplates(),
   indicatorMarker: null,
+  harnesses: createHarnessRegistry(),
+  multiplexers: createMultiplexerRegistry(),
   cowAvailability: unprobed(),
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed(),
@@ -213,6 +226,37 @@ export function setCowAvailability(
   return true;
 }
 
+/** The session's harness vocabulary: built-ins plus the plugins this session loaded. */
+export function getHarnessRegistry(): HarnessRegistry {
+  return shell.harnesses;
+}
+
+/** The session's multiplexers: the built-in plus the plugins this session loaded. */
+export function getMultiplexerRegistry(): MultiplexerRegistry {
+  return shell.multiplexers;
+}
+
+/**
+ * Install the registries of the session that is starting, and hand them back to
+ * the caller that brings the session up — a handler or a menu has no constructor
+ * to receive them through, which is why the shell keeps them (see the getters
+ * above), while the startup path uses the objects it just installed.
+ *
+ * Fresh is the point: the plugin entries a previous session registered live in
+ * the objects it installed, so replacing them is what keeps a stale harness or
+ * multiplexer from answering for a session that never loaded it.
+ */
+export function installSessionRegistries(): {
+  readonly harnesses: HarnessRegistry;
+  readonly multiplexers: MultiplexerRegistry;
+} {
+  const harnesses = createHarnessRegistry();
+  const multiplexers = createMultiplexerRegistry();
+  shell.harnesses = harnesses;
+  shell.multiplexers = multiplexers;
+  return { harnesses, multiplexers };
+}
+
 /** Which harnesses this machine can launch; unknown until the launch probe lands. */
 export function getHarnessAvailability(): Availability<AnyHarnessId> {
   return shell.harnessAvailability;
@@ -242,7 +286,7 @@ export function getWorktreeMaterialization(): WorktreeMaterialization {
  * and a spawn cannot disagree.
  */
 export function getHarnessType(): string {
-  return resolveHarness(
+  return shell.harnesses.resolve(
     shell.store.agent.harnessType,
     shell.harnessAvailability,
   );

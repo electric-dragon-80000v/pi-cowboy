@@ -23,10 +23,6 @@ import {
   type AnyHarnessId,
 } from "../../agents/harness.js";
 import {
-  harnessDisplayName,
-  harnessIds,
-} from "../../agents/harness/registry.js";
-import {
   isAvailable,
   selectable,
   type Availability,
@@ -40,6 +36,7 @@ import {
 import {
   getCowAvailability,
   getHarnessAvailability,
+  getHarnessRegistry,
   getHarnessType,
   getPiInstance,
   getStore,
@@ -71,12 +68,15 @@ function harnessDescription(availability: Availability<AnyHarnessId>): string {
     missing.length === 0 ? base : `${base} Not on PATH: ${missing.join(", ")}.`;
   // A plugin's harness is as launchable a default as a built-in's; name the ones
   // this machine registered so the row lists everything the value can carry.
-  const plugins = harnessIds().filter(
-    (id) => parseHarnessId(id) === undefined && isAvailable(id, availability),
-  );
+  const harnesses = getHarnessRegistry();
+  const plugins = harnesses
+    .ids()
+    .filter(
+      (id) => parseHarnessId(id) === undefined && isAvailable(id, availability),
+    );
   return plugins.length === 0
     ? withMissing
-    : `${withMissing} Plugin harnesses: ${plugins.map((id) => harnessDisplayName(id)).join(", ")}.`;
+    : `${withMissing} Plugin harnesses: ${plugins.map((id) => harnesses.displayName(id)).join(", ")}.`;
 }
 
 export async function showSpawnOptionsMenu(
@@ -143,7 +143,9 @@ export async function showSpawnOptionsMenu(
         id: "harnessType",
         label: "Default harness",
         currentValue: getHarnessType(),
-        values: [...selectable(harnessIds(), getHarnessAvailability())],
+        values: [
+          ...selectable(getHarnessRegistry().ids(), getHarnessAvailability()),
+        ],
         description: harnessDescription(getHarnessAvailability()),
       },
       { id: SEPARATOR_ID, label: " ", currentValue: "" },

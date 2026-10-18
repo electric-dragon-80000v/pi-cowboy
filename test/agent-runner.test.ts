@@ -12,11 +12,12 @@ import {
   type SubagentLaunchPlan,
 } from "../src/agents/agent-runner.js";
 import type {
+  AnyHarnessId,
   CodexLaunchRequest,
   HarnessLaunch,
   PluginHarness,
 } from "../src/agents/harness.js";
-import { harnessFor, registerHarness } from "../src/agents/harness/registry.js";
+import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import {
   ConfigStore,
@@ -30,6 +31,8 @@ import { resolveHarnessType } from "../src/agents/spawn-defaults.js";
 import {
   createSessionTemplates,
   detectSubagentSpawn,
+  getHarnessRegistry,
+  installSessionRegistries,
   setSessionTemplates,
 } from "../src/shell.js";
 
@@ -45,6 +48,18 @@ const storeRef = vi.hoisted(() => ({
 vi.mock("../src/shell.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/shell.js")>();
   return { ...actual, getStore: () => storeRef.current };
+});
+
+/**
+ * The session's harness registry, installed per case so one case's plugin
+ * harness cannot answer in the next. `harnessFor` reads whichever registry is
+ * installed, so a spy here sees the entries the launch itself resolves.
+ */
+let harnesses = createHarnessRegistry();
+const harnessFor = (id: AnyHarnessId) => getHarnessRegistry().require(id);
+
+beforeEach(() => {
+  harnesses = installSessionRegistries().harnesses;
 });
 
 /** In-memory ConfigIO: the store never touches the filesystem. */
@@ -959,7 +974,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
   }
 
   it("builds the plugin's own argv and carries no built-in family's inputs", async () => {
-    registerHarness(
+    harnesses.register(
       pluginHarness("runner-plugin", ["runner-plugin", "--task"]),
     );
     // A plugin harness is reachable through the config setting, never a template.
@@ -988,7 +1003,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
   });
 
   it("launches unfiltered even when the template filters a built-in family", async () => {
-    registerHarness(pluginHarness("runner-plugin-2", ["runner-plugin-2"]));
+    harnesses.register(pluginHarness("runner-plugin-2", ["runner-plugin-2"]));
     // The filter is keyed to pi; a plugin family has no slice, so it applies none.
     setGlobalAgentSettings({ harnessType: "runner-plugin-2" });
     const { cwd, notify } = setup(
