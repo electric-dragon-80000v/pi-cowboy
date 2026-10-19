@@ -31,12 +31,12 @@ function packageWith(name: string, value: unknown): string {
 
 describe("readPluginManifest", () => {
   it("reads the entry and the package's own name from the pi-cowboy key", () => {
-    const root = packageWith("my-plugin", {
+    const root = packageWith("pi-cowboy-my-plugin", {
       "pi-cowboy": { plugin: "./dist/plugin.js" },
     });
 
     expect(readPluginManifest(root)).toEqual({
-      name: "my-plugin",
+      name: "pi-cowboy-my-plugin",
       entry: "./dist/plugin.js",
     });
   });
@@ -49,15 +49,29 @@ describe("readPluginManifest", () => {
     expect(readPluginManifest(root)).toBeUndefined();
   });
 
+  it("reads undefined when the package name does not use the plugin prefix", () => {
+    expect(
+      readPluginManifest(
+        packageWith("unprefixed-plugin", {
+          "pi-cowboy": { plugin: "./plugin.js" },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
   it("reads undefined when the plugin entry is not a non-empty string", () => {
     expect(
-      readPluginManifest(packageWith("bad", { "pi-cowboy": { plugin: "" } })),
+      readPluginManifest(
+        packageWith("pi-cowboy-bad", { "pi-cowboy": { plugin: "" } }),
+      ),
     ).toBeUndefined();
     expect(
-      readPluginManifest(packageWith("bad", { "pi-cowboy": { plugin: 7 } })),
+      readPluginManifest(
+        packageWith("pi-cowboy-bad", { "pi-cowboy": { plugin: 7 } }),
+      ),
     ).toBeUndefined();
     expect(
-      readPluginManifest(packageWith("bad", { "pi-cowboy": "yes" })),
+      readPluginManifest(packageWith("pi-cowboy-bad", { "pi-cowboy": "yes" })),
     ).toBeUndefined();
   });
 
@@ -72,7 +86,7 @@ describe("readPluginManifest", () => {
     expect(readPluginManifest(malformed)).toBeUndefined();
   });
 
-  it("falls back to the root as the name when the package has none", () => {
+  it("reads undefined when the package has no name", () => {
     const root = mkdtempSync(join(tmpdir(), "cowboy-manifest-"));
     made.push(root);
     writeFileSync(
@@ -80,6 +94,6 @@ describe("readPluginManifest", () => {
       JSON.stringify({ "pi-cowboy": { plugin: "./p.js" } }),
     );
 
-    expect(readPluginManifest(root)).toEqual({ name: root, entry: "./p.js" });
+    expect(readPluginManifest(root)).toBeUndefined();
   });
 });

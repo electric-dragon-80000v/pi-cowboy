@@ -16,11 +16,11 @@ pi install <source>
 
 ## Package shape
 
-A plugin package declares a `pi-cowboy` key in its `package.json`:
+A plugin package declares a `pi-cowboy` key in its `package.json`, and its package name must start with `pi-cowboy-`:
 
 ```json
 {
-  "name": "my-pi-cowboy-plugin",
+  "name": "pi-cowboy-my-plugin",
   "version": "1.0.0",
   "type": "module",
   "pi-cowboy": {

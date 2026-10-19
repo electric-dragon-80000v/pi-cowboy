@@ -6,7 +6,8 @@
  * pi-cowboy, not by pi, so declaring it under pi's own extension key would load
  * it twice. The shape is `"pi-cowboy": { "plugin": "./dist/plugin.js" }`, a path
  * relative to the package root, so a package pi already installs for its own
- * reasons can also carry a pi-cowboy plugin without a second package.
+ * reasons can also carry a pi-cowboy plugin without a second package. Plugin
+ * package names must begin with `pi-cowboy-`.
  *
  * Reading is total: a package.json that is missing, unreadable, not an object,
  * or whose key is absent or malformed yields `undefined` (a package that is not
@@ -16,7 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isRecord } from "../predicates.js";
+import { z } from "zod";
 
 /** A package's pi-cowboy declaration: who it is and where its plugin module lives. */
 export interface CowboyPluginManifest {
@@ -28,13 +29,12 @@ export interface CowboyPluginManifest {
 
 /** The package.json key a plugin is declared under. */
 const MANIFEST_KEY = "pi-cowboy";
+const PACKAGE_NAME_PREFIX = "pi-cowboy-";
 
-/** The one field the key carries today: the entry module's package-relative path. */
-function parseEntry(value: unknown): string | undefined {
-  if (!isRecord(value)) return undefined;
-  const entry = value.plugin;
-  return typeof entry === "string" && entry.length > 0 ? entry : undefined;
-}
+const PluginPackageSchema = z.object({
+  name: z.string().startsWith(PACKAGE_NAME_PREFIX),
+  [MANIFEST_KEY]: z.object({ plugin: z.string().min(1) }),
+});
 
 /** Read one package's plugin declaration, or undefined when it is not a plugin. */
 export function readPluginManifest(
@@ -52,9 +52,7 @@ export function readPluginManifest(
   } catch {
     return undefined;
   }
-  if (!isRecord(parsed)) return undefined;
-  const entry = parseEntry(parsed[MANIFEST_KEY]);
-  if (entry === undefined) return undefined;
-  const name = parsed.name;
-  return { name: typeof name === "string" ? name : packageRoot, entry };
+  const result = PluginPackageSchema.safeParse(parsed);
+  if (!result.success) return undefined;
+  return { name: result.data.name, entry: result.data[MANIFEST_KEY].plugin };
 }

@@ -38,8 +38,8 @@ function configured(source: string, root: string): ConfiguredPackageRoot {
 
 describe("pluginsAmong", () => {
   it("keeps only packages that declare the manifest, in name order", () => {
-    const zebra = installed("zebra-plugin", { plugin: "./z.js" });
-    const alpha = installed("alpha-plugin", { plugin: "./a.js" });
+    const zebra = installed("pi-cowboy-zebra-plugin", { plugin: "./z.js" });
+    const alpha = installed("pi-cowboy-alpha-plugin", { plugin: "./a.js" });
     const plain = installed("not-a-plugin");
 
     const plugins = pluginsAmong([
@@ -49,8 +49,8 @@ describe("pluginsAmong", () => {
     ]);
 
     expect(plugins.map((plugin) => plugin.name)).toEqual([
-      "alpha-plugin",
-      "zebra-plugin",
+      "pi-cowboy-alpha-plugin",
+      "pi-cowboy-zebra-plugin",
     ]);
     expect(plugins[0]!.entry).toBe(join(alpha, "./a.js"));
     expect(plugins[0]!.source).toBe("alpha");
@@ -63,8 +63,12 @@ describe("pluginsAmong", () => {
   });
 
   it("loads a package listed twice once, taking the first entry", () => {
-    const first = installed("shared-plugin", { plugin: "./first.js" });
-    const second = installed("shared-plugin", { plugin: "./second.js" });
+    const first = installed("pi-cowboy-shared-plugin", {
+      plugin: "./first.js",
+    });
+    const second = installed("pi-cowboy-shared-plugin", {
+      plugin: "./second.js",
+    });
 
     const plugins = pluginsAmong([
       configured("first", first),
