@@ -128,6 +128,14 @@ let realTmpdir: string | undefined;
 /** The isolated HOME for the current test. */
 let home: string;
 
+/**
+ * The real OPENCODE_CONFIG_DIR, put back after every test. Staging runs in this
+ * process and links the parent's user config from the directory this names, so
+ * it is pointed under the isolated HOME too: a developer's own providers must
+ * not be linked into the tree the real CLI reads.
+ */
+let realOpencodeConfigDir: string | undefined;
+
 beforeEach(() => {
   realTmpdir = process.env.TMPDIR;
   const root = fs.mkdtempSync(path.join(tmpdir(), "cowboy-opencode-cli-"));
@@ -136,11 +144,18 @@ beforeEach(() => {
   home = path.join(root, "home");
   fs.mkdirSync(path.join(home, ".config"), { recursive: true });
   fs.mkdirSync(path.join(home, ".local", "share"), { recursive: true });
+  realOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  process.env.OPENCODE_CONFIG_DIR = path.join(home, ".config", "opencode");
 });
 
 afterEach(() => {
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  if (realOpencodeConfigDir === undefined) {
+    delete process.env.OPENCODE_CONFIG_DIR;
+  } else {
+    process.env.OPENCODE_CONFIG_DIR = realOpencodeConfigDir;
+  }
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }

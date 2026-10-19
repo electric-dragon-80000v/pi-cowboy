@@ -30,16 +30,36 @@ let realTmpdir: string | undefined;
 /** Temporary roots this file made; removed after every test, pass or fail. */
 const madeRoots: string[] = [];
 
+/**
+ * The real OPENCODE_CONFIG_DIR, put back after every test. Staging links the
+ * parent's user config from the directory this names (or the XDG default), so
+ * every test points it at an empty directory of its own: a developer's own
+ * providers must not decide what the staged tree holds.
+ */
+let realOpencodeConfigDir: string | undefined;
+
+/** The parent config directory this test pointed OPENCODE_CONFIG_DIR at. */
+let parentConfigDir: string;
+
 beforeEach(() => {
   realTmpdir = process.env.TMPDIR;
   const root = fs.mkdtempSync(join(tmpdir(), "cowboy-opencode-staging-"));
   madeRoots.push(root);
   process.env.TMPDIR = root;
+  realOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  parentConfigDir = join(root, "parent-opencode");
+  fs.mkdirSync(parentConfigDir);
+  process.env.OPENCODE_CONFIG_DIR = parentConfigDir;
 });
 
 afterEach(() => {
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  if (realOpencodeConfigDir === undefined) {
+    delete process.env.OPENCODE_CONFIG_DIR;
+  } else {
+    process.env.OPENCODE_CONFIG_DIR = realOpencodeConfigDir;
+  }
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -218,7 +238,7 @@ describe("opencodeAgentMarkdown", () => {
 });
 
 describe("writeOpencodeStaging", () => {
-  it("writes the definition and nothing else", () => {
+  it("writes the definition and nothing else, for a parent without user config", () => {
     const dir = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
@@ -266,6 +286,113 @@ describe("writeOpencodeStaging", () => {
       }),
     ).toThrow();
     expect(fs.existsSync(opencodeConfigDir(SUBAGENT_ID))).toBe(false);
+  });
+});
+
+describe("writeOpencodeStaging — the parent's user config", () => {
+  /** A stand-in for the parent's user config: the providers a spawn needs. */
+  const USER_CONFIG = `{"provider":{"anthropic":{}}}\n`;
+
+  /** Stage the default definition and return the config dir. */
+  function stage(): string {
+    return writeOpencodeStaging({
+      subagentId: SUBAGENT_ID,
+      systemPromptFile: stagePrompt(PROMPT),
+      toolSelection: { kind: "default" },
+    });
+  }
+
+  it("links the parent's opencode.json into the config dir", () => {
+    const parentFile = join(parentConfigDir, "opencode.json");
+    fs.writeFileSync(parentFile, USER_CONFIG);
+
+    const dir = stage();
+
+    // A link, not a copy: the parent's file stays the one source of truth.
+    const link = join(dir, "opencode.json");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(link)).toBe(fs.realpathSync(parentFile));
+    expect(fs.readFileSync(link, "utf-8")).toBe(USER_CONFIG);
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
+  });
+
+  it("links the parent's opencode.jsonc, the other dialect, the same way", () => {
+    const parentFile = join(parentConfigDir, "opencode.jsonc");
+    fs.writeFileSync(parentFile, USER_CONFIG);
+
+    const dir = stage();
+
+    expect(fs.readlinkSync(join(dir, "opencode.jsonc"))).toBe(
+      fs.realpathSync(parentFile),
+    );
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.jsonc"]);
+  });
+
+  it("links nothing when the parent has no user config", () => {
+    const dir = stage();
+
+    expect(fs.existsSync(join(dir, "opencode.json"))).toBe(false);
+    expect(fs.existsSync(join(dir, "opencode.jsonc"))).toBe(false);
+  });
+
+  it("links only the user config, never the rest of the parent's directory", () => {
+    fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
+    fs.mkdirSync(join(parentConfigDir, "agent"));
+    fs.writeFileSync(join(parentConfigDir, "agent", "mine.md"), "parent's\n");
+    fs.writeFileSync(join(parentConfigDir, "auth.json"), "{}\n");
+
+    const dir = stage();
+
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
+    expect(fs.readdirSync(join(dir, "agent"))).toEqual([`${SUBAGENT_ID}.md`]);
+  });
+
+  it("falls back to the XDG config home when OPENCODE_CONFIG_DIR is unset", () => {
+    const xdgConfigHome = join(tmpdir(), "xdg-config");
+    fs.mkdirSync(join(xdgConfigHome, "opencode"), { recursive: true });
+    const parentFile = join(xdgConfigHome, "opencode", "opencode.json");
+    fs.writeFileSync(parentFile, USER_CONFIG);
+    const realXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    delete process.env.OPENCODE_CONFIG_DIR;
+    process.env.XDG_CONFIG_HOME = xdgConfigHome;
+    try {
+      const dir = stage();
+
+      expect(fs.readlinkSync(join(dir, "opencode.json"))).toBe(
+        fs.realpathSync(parentFile),
+      );
+    } finally {
+      if (realXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = realXdgConfigHome;
+    }
+  });
+
+  it("replaces the link a previous call made", () => {
+    fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
+    stage();
+
+    // The parent moved its config dir between the two stagings.
+    const movedDir = join(tmpdir(), "moved-opencode");
+    fs.mkdirSync(movedDir);
+    const movedFile = join(movedDir, "opencode.json");
+    fs.writeFileSync(movedFile, "moved\n");
+    process.env.OPENCODE_CONFIG_DIR = movedDir;
+    const dir = stage();
+
+    const link = join(dir, "opencode.json");
+    expect(fs.readlinkSync(link)).toBe(fs.realpathSync(movedFile));
+    expect(fs.readFileSync(link, "utf-8")).toBe("moved\n");
+  });
+
+  it("removes the link and leaves the parent's file in place", () => {
+    const parentFile = join(parentConfigDir, "opencode.json");
+    fs.writeFileSync(parentFile, USER_CONFIG);
+    const dir = stage();
+
+    removeOpencodeStaging(SUBAGENT_ID);
+
+    expect(fs.existsSync(dir)).toBe(false);
+    expect(fs.readFileSync(parentFile, "utf-8")).toBe(USER_CONFIG);
   });
 });
 
