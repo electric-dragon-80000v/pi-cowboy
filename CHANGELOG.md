@@ -1,3 +1,10 @@
+# [0.17.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.16.0...v0.17.0) (2026-10-19)
+
+
+### Features
+
+* **orchestrators:** support dynamic multiplexer id in settled cue ([06fcc92](https://github.com/electric-dragon-80000v/pi-cowboy/commit/06fcc9224c36960d8247518ba0b2d15556052080))
+
 # [0.16.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.15.2...v0.16.0) (2026-10-18)
 
 
