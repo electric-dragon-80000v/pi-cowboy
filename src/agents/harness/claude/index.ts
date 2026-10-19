@@ -24,9 +24,11 @@
  * takes a bare alias or full model name.
  */
 
+import { homedir } from "node:os";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { commandPath } from "../../../infrastructure/exec-path.js";
-import { subagentTokenFor } from "../../../paths.js";
+import { expandTilde, subagentTokenFor } from "../../../paths.js";
 import type {
   ClaudeLaunchRequest,
   Harness,
@@ -54,6 +56,50 @@ const LAUNCHER_READY_MARKER = "CLAUDE_VERIFIED";
 
 /** Token the staged-state proof echoes once the pane sees the launch state. */
 const STAGED_MARKER = "CLAUDE_STAGED";
+
+/**
+ * The credential store the parent session is using, as claude derives it.
+ * An explicitly empty `CLAUDE_SECURESTORAGE_CONFIG_DIR` is meaningful — it
+ * pins the default store — so `??` is required here rather than `||`.
+ */
+function parentCredentialStore(): string {
+  return (
+    process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR ??
+    process.env.CLAUDE_CONFIG_DIR ??
+    ""
+  );
+}
+
+/**
+ * The value a spawn exports for its credential store.
+ *
+ * macOS keeps credentials in the Keychain, and the service name is
+ * `Claude Code-credentials` for an empty value and
+ * `Claude Code-credentials-<sha256(value)[:8]>` otherwise. The value is hashed
+ * verbatim, so the parent's value is forwarded unchanged; substituting
+ * `~/.claude` would select a different, empty item.
+ *
+ * Linux keeps `.credentials.json` under the value, so an empty value means
+ * `~/.claude` and the parent's directory is resolved. The value itself is not
+ * tilde-expanded, so the expansion happens here.
+ */
+export function spawnCredentialStore(platform: NodeJS.Platform): string {
+  const parent = parentCredentialStore();
+
+  switch (platform) {
+    case "darwin":
+      return parent;
+
+    case "linux": {
+      const dir =
+        parent === "" ? path.join(homedir(), ".claude") : expandTilde(parent);
+      return path.isAbsolute(dir) ? dir : path.resolve(dir);
+    }
+
+    default:
+      return parent;
+  }
+}
 
 /**
  * The launcher body: the credential rename first, then claude's config
@@ -85,12 +131,21 @@ const STAGED_MARKER = "CLAUDE_STAGED";
  * ends option parsing: `--tools` / `--disallowedTools` are variadic and would
  * otherwise swallow the task as another tool name (and a task starting with
  * `-` would parse as a flag), leaving the TUI idle with no initial prompt.
+ *
+ * `CLAUDE_SECURESTORAGE_CONFIG_DIR` is exported before `CLAUDE_CONFIG_DIR` so
+ * the credential store stays the parent's while the config dir is the staging
+ * dir. An empty value is written as `''`, which pins the default store.
  */
-function launcherBody(configDir: string, taskFile: string): string {
+function launcherBody(
+  configDir: string,
+  taskFile: string,
+  credentialStore: string,
+): string {
   const settings = singleQuote(claudeSettingsFile(configDir));
   const trimmed = singleQuote(`${claudeSettingsFile(configDir)}.tmp`);
   return [
     `if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' ${settings} > ${trimmed} && mv ${trimmed} ${settings}; fi`,
+    `export CLAUDE_SECURESTORAGE_CONFIG_DIR=${singleQuote(credentialStore)}`,
     `export CLAUDE_CONFIG_DIR=${singleQuote(configDir)}`,
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
     `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
@@ -201,7 +256,11 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     });
     await installPaneLauncher(pane, paneId, {
       commandName: CLAUDE_COMMAND,
-      body: launcherBody(configDir, launch.taskFile),
+      body: launcherBody(
+        configDir,
+        launch.taskFile,
+        spawnCredentialStore(process.platform),
+      ),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,
       proof: stagedProof(configDir, launch.taskFile),

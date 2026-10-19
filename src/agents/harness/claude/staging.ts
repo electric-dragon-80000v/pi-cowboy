@@ -19,8 +19,9 @@
  * the launching environment, and the harness neither sets nor reads
  * credentials — a spawn inherits whatever environment the parent session has.
  * A session that authenticates through that variable therefore still meets the
- * consent dialog once per spawn; OAuth/keychain sessions have no such dialog
- * (the keychain entry is keyed by account, not by config directory).
+ * consent dialog once per spawn; OAuth/keychain sessions have no such dialog,
+ * because the launcher pins their credential store independently of the
+ * staged config directory.
  */
 
 import fs from "node:fs";
