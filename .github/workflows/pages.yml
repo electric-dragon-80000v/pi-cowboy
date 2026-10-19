@@ -1,0 +1,63 @@
+name: Pages
+
+# Publishes the demo video to GitHub Pages.
+#
+# Pages cannot publish this file from a branch: `docs/assets/pi-cowboy.mp4` is
+# tracked by Git LFS, and a branch deployment serves the stored blob — the
+# ~130-byte LFS pointer, not the video. A Pages artifact built here is checked
+# out with `lfs: true`, so the published bytes are the real 155 MB file, and no
+# copy of it is committed to a second branch. Publishing this way also keeps the
+# video off `main`'s history: it is already an LFS object there, and the
+# artifact is rebuilt from it rather than committed again.
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/assets/pi-cowboy.mp4
+      - docs/pages/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: Publish the demo video
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Without this the artifact carries the LFS pointer and Pages serves
+          # that as text instead of the video.
+          lfs: true
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -R docs/pages/. _site/
+          cp docs/assets/pi-cowboy.mp4 _site/pi-cowboy.mp4
+
+      - uses: actions/configure-pages@v5
+        with:
+          # Enables Pages for a repository that has not been configured yet. A
+          # repository that already publishes another way keeps its setting.
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

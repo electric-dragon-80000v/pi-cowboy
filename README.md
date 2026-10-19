@@ -12,6 +12,8 @@
 
 Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is finished, `pi-cowboy` cleans up the leftovers for you.
 
+Check out the [demo](https://electric-dragon-80000v.github.io/pi-cowboy/).
+
 ## Why should I use it?
 
 ### Focused tasks produce better code

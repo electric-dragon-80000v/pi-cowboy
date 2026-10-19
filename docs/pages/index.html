@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pi-cowboy — demo</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        box-sizing: border-box;
+        background: #101014;
+        color: #f5f5f7;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+      }
+      main {
+        width: min(1200px, 100%);
+      }
+      h1 {
+        margin: 0 0 1rem;
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+      video {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        background: #000;
+      }
+      p {
+        margin: 1rem 0 0;
+        font-size: 0.9rem;
+        opacity: 0.75;
+      }
+      a {
+        color: #7cc4ff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>pi-cowboy</h1>
+      <!-- preload="metadata" keeps the 155 MB body off the wire until playback. -->
+      <video
+        src="./pi-cowboy.mp4"
+        controls
+        playsinline
+        preload="metadata"
+      ></video>
+      <p>
+        Multi-agent orchestration for pi.
+        <a href="https://github.com/electric-dragon-80000v/pi-cowboy"
+          >Repository</a
+        >
+      </p>
+    </main>
+  </body>
+</html>
