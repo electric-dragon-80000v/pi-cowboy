@@ -26,7 +26,7 @@ export function agentDir(): string {
   return path.join(homedir(), ".pi", "agent");
 }
 
-function expandTilde(value: string): string {
+export function expandTilde(value: string): string {
   if (value === "~") return homedir();
   if (value.startsWith("~/")) return path.join(homedir(), value.slice(2));
   return value;

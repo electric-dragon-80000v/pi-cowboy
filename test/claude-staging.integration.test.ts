@@ -33,6 +33,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawnCredentialStore } from "../src/agents/harness/claude/index.js";
 import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import {
   claudeConfigDir,
@@ -144,11 +145,15 @@ afterEach(() => {
   }
 });
 
-/** The environment a spawn gives claude: the staged config dir, inherited credentials. */
+/**
+ * The environment a spawn gives claude: the staged config dir, and the parent's
+ * credential store pinned independently of it.
+ */
 function launchEnv(configDir: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
     CLAUDE_CONFIG_DIR: configDir,
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: spawnCredentialStore(process.platform),
     CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
   };
 }
@@ -175,6 +180,9 @@ function keyCarryingEnv(configDir: string): NodeJS.ProcessEnv {
  */
 function keylessEnv(configDir: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...launchEnv(configDir) };
+  // Derive the credential store from the staged config dir, so this run cannot
+  // reach the developer's real store through the launcher's pinned value.
+  delete env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
   delete env.ANTHROPIC_API_KEY;
   delete env.COWBOY_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;

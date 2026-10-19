@@ -20,7 +20,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -30,6 +30,7 @@ import type {
   SubagentLaunchInputs,
 } from "../src/agents/harness.js";
 import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
+import { spawnCredentialStore } from "../src/agents/harness/claude/index.js";
 import {
   claudeConfigDir,
   removeClaudeStaging,
@@ -75,6 +76,15 @@ const SUBAGENT_ID = "esp02hpw";
  */
 let realTmpdir: string | undefined;
 
+/** Credential-store variables a test may set; cleared and restored around each test. */
+const CREDENTIAL_ENV_VARS = [
+  "CLAUDE_CONFIG_DIR",
+  "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+] as const;
+
+/** The values those variables held before the test, restored afterwards. */
+let savedCredentialEnv: Record<string, string | undefined>;
+
 /** Temporary roots this file made; removed after every test, pass or fail. */
 const madeRoots: string[] = [];
 
@@ -106,6 +116,11 @@ beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "cowboy-claude-"));
   madeRoots.push(tmpRoot);
   process.env.TMPDIR = tmpRoot;
+  savedCredentialEnv = {};
+  for (const name of CREDENTIAL_ENV_VARS) {
+    savedCredentialEnv[name] = process.env[name];
+    delete process.env[name];
+  }
   runInPaneMock.mockReset().mockResolvedValue(undefined);
   waitForPaneOutputMock.mockReset().mockResolvedValue(undefined);
 });
@@ -115,6 +130,11 @@ afterEach(() => {
   removeClaudeStaging(SUBAGENT_ID);
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  for (const name of CREDENTIAL_ENV_VARS) {
+    const value = savedCredentialEnv[name];
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
   for (const root of madeRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -229,6 +249,51 @@ describe("writeClaudeStaging", () => {
   });
 });
 
+describe("spawnCredentialStore", () => {
+  it("forwards the default store as empty on macOS", () => {
+    expect(spawnCredentialStore("darwin")).toBe("");
+  });
+
+  it("forwards the parent's config dir verbatim on macOS", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/Users/me/.claude-work";
+
+    expect(spawnCredentialStore("darwin")).toBe("/Users/me/.claude-work");
+  });
+
+  it("keeps an explicitly empty secure store on macOS", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/Users/me/.claude-work";
+    process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR = "";
+
+    expect(spawnCredentialStore("darwin")).toBe("");
+  });
+
+  it("prefers an inherited secure store over the config dir", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/Users/me/.claude-work";
+    process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR =
+      "/Users/me/.claude-credentials";
+
+    expect(spawnCredentialStore("darwin")).toBe(
+      "/Users/me/.claude-credentials",
+    );
+  });
+
+  it("resolves the default store to ~/.claude on Linux", () => {
+    expect(spawnCredentialStore("linux")).toBe(join(homedir(), ".claude"));
+  });
+
+  it("expands a tilde config dir on Linux", () => {
+    process.env.CLAUDE_CONFIG_DIR = "~/.claude-work";
+
+    expect(spawnCredentialStore("linux")).toBe(join(homedir(), ".claude-work"));
+  });
+
+  it("keeps an absolute config dir on Linux", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/home/me/.claude-work";
+
+    expect(spawnCredentialStore("linux")).toBe("/home/me/.claude-work");
+  });
+});
+
 describe("removeClaudeStaging", () => {
   it("removes the staging tree it wrote", () => {
     const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
@@ -247,6 +312,9 @@ describe("removeClaudeStaging", () => {
 });
 
 describe("prepare", () => {
+  /** The parent store the launcher forwards; absolute, so both platforms agree. */
+  const PARENT_CREDENTIAL_STORE = "/tmp/cowboy-parent-credentials";
+
   /** A task file under a path with a space, so the launcher's quoting is asserted, not assumed. */
   let taskFile: string;
 
@@ -254,6 +322,7 @@ describe("prepare", () => {
     mkdirSync(join(tmpRoot, "my tasks"), { recursive: true });
     taskFile = inTmpRoot(join("my tasks", "prompt.md"));
     writeFileSync(taskFile, "do the thing\n\nand the second thing\n");
+    process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR = PARENT_CREDENTIAL_STORE;
   });
 
   /** Prepare one claude launch into a pane. */
@@ -275,7 +344,7 @@ describe("prepare", () => {
       1,
       PI,
       "w1:p9",
-      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
+      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_SECURESTORAGE_CONFIG_DIR='${PARENT_CREDENTIAL_STORE}'; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
