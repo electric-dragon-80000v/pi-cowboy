@@ -69,10 +69,16 @@ type SettledWorktreeFacts =
  * A settled run: its outcome plus how its tree is left behind. `status_note`
  * is orthogonal to the outcome — any ending can carry one — so it stays
  * outside both unions.
+ *
+ * `multiplexer_id` names the multiplexer the session runs (the configured or
+ * built-in default). It is present whenever the cue is rendered for a run that
+ * has a configured multiplexer; a template may branch on it, and the shipped
+ * default cue uses it rather than hardcoding the built-in id.
  */
 export type SettledCueContext = SettledOutcomeFacts &
   SettledWorktreeFacts & {
     status_note?: string;
+    multiplexer_id?: string;
   };
 
 /** Event → context, keeping renderCue and validation per-cue typed. */
@@ -171,17 +177,23 @@ export function queuedCueContext(input: {
  * (getStatusNote formats it that way); the cue interpolates it bare.
  * `retention`/`process_alive` exist only for a worktree settle —
  * `process_alive` only when true — since templates branch on absence.
+ *
+ * `multiplexer_id` is the configured or built-in default multiplexer id for
+ * this session; pass it when the cue is rendered for a run that has one (which
+ * is always today, since the built-in is the last resort).
  */
 export function settledCueContext(input: {
   outcome: SettledOutcome;
   statusNote?: string;
   worktree?: SettledCueWorktree;
+  multiplexerId?: string;
 }): SettledCueContext {
-  const { outcome, statusNote, worktree } = input;
+  const { outcome, statusNote, worktree, multiplexerId } = input;
   return {
     ...outcomeVariables(outcome),
     ...(statusNote ? { status_note: statusNote } : {}),
     ...settledWorktreeVariables(worktree),
+    ...(multiplexerId != null ? { multiplexer_id: multiplexerId } : {}),
   };
 }
 
@@ -217,6 +229,7 @@ const SETTLED_CUE_VARIABLES: CueVariableNames<SettledCueContext> = {
   worktree_branch: true,
   retention: true,
   process_alive: true,
+  multiplexer_id: true,
 };
 
 /** Variable names the spawned cue may reference. */

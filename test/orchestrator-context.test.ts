@@ -244,6 +244,7 @@ describe("per-cue variable-name sets", () => {
           retention: "dirty",
           processAlive: true,
         },
+        multiplexerId: "herdr",
       }),
       settledCueContext({
         outcome: { kind: "failed", error: "e" },
@@ -254,6 +255,7 @@ describe("per-cue variable-name sets", () => {
           retention: "dirty",
           processAlive: true,
         },
+        multiplexerId: "herdr",
       }),
     ],
   };
@@ -301,6 +303,7 @@ describe("per-cue variable-name sets", () => {
     expect([...settledCueVariables].sort()).toEqual([
       "error",
       "has_worktree",
+      "multiplexer_id",
       "process_alive",
       "result",
       "retention",

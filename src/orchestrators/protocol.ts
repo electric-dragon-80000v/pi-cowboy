@@ -69,6 +69,7 @@ import {
   getSessionCtx,
   getStore,
 } from "../shell.js";
+import { BUILTIN_MULTIPLEXER } from "../agents/multiplexer-registry.js";
 import {
   assertNever,
   modelSelectionName,
@@ -242,6 +243,7 @@ export function formatResultContent(spawn: AgentSpawn): string {
               lifecycle.phase === "settled" && lifecycle.status === "completed",
           }
         : undefined,
+      multiplexerId: getStore().multiplexer || BUILTIN_MULTIPLEXER,
     }),
   );
 }

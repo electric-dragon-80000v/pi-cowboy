@@ -21,11 +21,16 @@ const QUEUED_CUE = `Agent QUEUED — the concurrency limit is reached ({{queue_r
 
 Agent ID: {{agent_id}}`;
 
-/** Settled report: result, error, worktree verdict, process liveness, status note. */
+/**
+ * Settled report: result, error, worktree verdict, process liveness, status
+ * note. `{{multiplexer_id}}` is the configured or built-in default multiplexer
+ * id for the session; the template uses it rather than hardcoding the built-in
+ * id, so the text follows the session's multiplexer setting.
+ */
 const SETTLED_CUE = `{{result}}{{#error}}
 
 Error: {{error}}{{/error}}{{#has_worktree}}
-(Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its herdr pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}`;
+(Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its {{multiplexer_id}} pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}`;
 
 export const DEFAULT_ORCHESTRATORS: Record<string, OrchestratorConfig> = {
   default: {

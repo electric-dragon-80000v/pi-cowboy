@@ -83,6 +83,7 @@ describe("default cues reproduce the pre-cue output byte-for-byte", () => {
         settledCueContext({
           outcome: { kind: "completed", result: "All done." },
           worktree: { path: PATH, branch: BRANCH, processAlive: true },
+          multiplexerId: "herdr",
         }),
       ),
     ).toBe(
@@ -115,6 +116,7 @@ describe("default cues reproduce the pre-cue output byte-for-byte", () => {
             retention: "has uncommitted changes",
             processAlive: true,
           },
+          multiplexerId: "herdr",
         }),
       ),
     ).toBe(
@@ -188,6 +190,34 @@ describe("renderCue escaping and sections", () => {
         settledCueContext({ outcome: { kind: "stopped" } }),
       ),
     ).toBe("");
+  });
+
+  it("renders the session's multiplexer id into the settled cue", () => {
+    expect(
+      renderCue(
+        CUES,
+        "settled",
+        settledCueContext({
+          outcome: { kind: "completed", result: "done" },
+          worktree: { path: PATH, branch: BRANCH, processAlive: true },
+          multiplexerId: "my-mux",
+        }),
+      ),
+    ).toContain("its my-mux pane");
+  });
+
+  it("renders the built-in multiplexer id when the session runs herdr", () => {
+    expect(
+      renderCue(
+        CUES,
+        "settled",
+        settledCueContext({
+          outcome: { kind: "completed", result: "done" },
+          worktree: { path: PATH, branch: BRANCH, processAlive: true },
+          multiplexerId: "herdr",
+        }),
+      ),
+    ).toContain("its herdr pane");
   });
 
   it("trims sections to the facts that apply", () => {
