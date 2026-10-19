@@ -72,10 +72,10 @@ Opens the `Agent settings` screen, organized into three sections:
 
 ### Spawn defaults
 
-| Row                      | What it does                                                                                                                                                                                                                                                                                                           |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Default thinking level` | Thinking level used when an agent template omits `thinking`. Selecting `inherit` clears the setting. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                                                                                                                                             |
-| `Default harness`        | Harness used when an agent template omits `harness_type`. Lists the harnesses this machine can launch (the built-ins found on `PATH`, plus any a plugin registered) and notes the built-ins that are missing. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
+| Row                      | What it does                                                                                                                                                                                                                                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Default thinking level` | Thinking level used when an agent template omits `thinking`. Selecting `inherit` clears the setting. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                                                                                                                                     |
+| `Default harness`        | Harness used when an agent template omits `harness_type`. Lists all harnesses this machine can launch (built-ins found on `PATH` and registered plugin harnesses) while noting any missing built-ins. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
 
 ### Worktrees
 
@@ -107,13 +107,13 @@ Opens the `System Prompt` screen.
 
 Lists every spawned, queued, and settled agent from the session. Selecting an agent opens the actions available for its current state:
 
-| Action        | What it does                                                                                                                                                                                                                                           |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `View shell`  | Focuses the agent's Herdr terminal pane (available while the agent is running and after it settles).                                                                                                                                                   |
-| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                   |
-| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                               |
-| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                          |
-| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Worktrees with uncommitted changes are kept and reported with why; when the menu keeps one it offers to force removal instead (see below). |
+| Action        | What it does                                                                                                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                         |
+| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                               |
+| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                           |
+| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                      |
+| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below). |
 
 Below the individual agents, the list displays bulk actions when applicable:
 
@@ -127,9 +127,9 @@ If a cleanup keeps a worktree (for example, because of uncommitted changes), the
 
 ### Forcing cleanup
 
-Cleanup normally refuses to remove a worktree it cannot prove is safe to remove: one with uncommitted changes, or one whose state it could not verify. The status menu is the only place you can override that refusal — the `cleanup_cowboy_agent` tool never forces.
+Cleanup normally refuses to remove any worktree that cannot be verified as safe to delete, such as one with uncommitted changes or an unverifiable state. The status menu is the only place you can override this refusal; the `cleanup_cowboy_agent` tool never forces removal.
 
-The menu runs the normal cleanup first. When it refuses for a reason that force can address, the menu offers to force the removal. Backing out reports the reasons it would have overridden. A bulk cleanup runs inside the menu and can take a while; the menu is unresponsive until it finishes.
+When cleaning up an individual agent, the menu attempts standard cleanup first. If cleanup is refused due to uncommitted changes or unverified states, the menu prompts whether to force the removal. Declining the prompt reports the safety checks that prevented deletion. Bulk cleanup runs synchronously within the menu; navigation remains paused until the operation finishes.
 
 ## `/cowboy spawn` - Spawn Options
 
@@ -156,6 +156,6 @@ The `Worktree` row offers:
 
 ## `/cowboy worktree`
 
-Creates a standalone Git worktree under `agent.worktreeRoot` and opens a dedicated Herdr workspace, tab, and shell pane for it without launching an agent.
+Creates a standalone Git worktree under `agent.worktreeRoot` and opens a dedicated multiplexer workspace, tab, and shell pane for it without launching an agent.
 
 You can pass the name inline (`/cowboy worktree my-branch`) or enter it when prompted, then pick a checkout mode (`clean` or `dirty`). Because no agent is attached, this worktree does not appear in `/cowboy status` and is not removed by `cleanup_cowboy_agent`.

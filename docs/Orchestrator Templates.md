@@ -85,20 +85,20 @@ Rendered when a delegation waits for a concurrency slot to open:
 
 Rendered when an agent finishes, fails, or is stopped. Because the completion header already identifies the agent, `agent_id` is not part of the `settled` context:
 
-| Variable        | Description                                                                                                       |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `result`        | Final report from a completed agent (omitted if empty or if the agent failed/stopped).                            |
-| `error`         | Error message from a failed agent (omitted unless the agent failed).                                              |
-| `status_note`   | Note appended when an agent was stopped, naming who stopped it and whether it had started.                        |
-| `retention`     | Reason the worktree was kept on disk (present only when the agent has a worktree that holds unmerged/dirty work). |
-| `process_alive` | `true` when the agent process and its Herdr pane are still running (present only when the agent has a worktree).  |
+| Variable        | Description                                                                                                            |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `result`        | Final report from a completed agent (omitted if empty or if the agent failed/stopped).                                 |
+| `error`         | Error message from a failed agent (omitted unless the agent failed).                                                   |
+| `status_note`   | Note appended when an agent was stopped, naming who stopped it and whether it had started.                             |
+| `retention`     | Reason the worktree was kept on disk (present only when the agent has a worktree that holds unmerged/dirty work).      |
+| `process_alive` | `true` when the agent process and its multiplexer pane are still running (present only when the agent has a worktree). |
 
 ## Complete example
 
 ```toml
 name = "with code review"
 display_name = "with code review"
-guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. Never make any commits without user approval"
+guidance = "If you make changes to the code: before committing them, launch the code review tool. Once the code is approved by the user, commit the changes to your branch. Never make any commits without user approval."
 
 [cues]
 spawned = '''
@@ -117,5 +117,5 @@ settled = '''
 {{result}}{{#error}}
 
 Error: {{error}}{{/error}}{{#has_worktree}}
-(Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its herdr pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}'''
+(Worktree: {{worktree_path}} (branch {{worktree_branch}}){{#retention}} — KEPT: {{retention}}{{/retention}}.{{#process_alive}} The agent process and its multiplexer pane stay until you call cleanup_cowboy_agent — its pane is closed, which ends that process.{{/process_alive}} {{#retention}}Clean the worktree up, then call cleanup_cowboy_agent to remove it.{{/retention}}{{^retention}}The worktree stays until you call cleanup_cowboy_agent to remove it — call it once the branch is merged or rejected.{{/retention}}){{/has_worktree}}{{status_note}}'''
 ```
