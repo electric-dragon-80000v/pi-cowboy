@@ -1,3 +1,10 @@
+## [0.17.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.0...v0.17.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* [#23](https://github.com/electric-dragon-80000v/pi-cowboy/issues/23) fix claude code auth ([3617cc2](https://github.com/electric-dragon-80000v/pi-cowboy/commit/3617cc2b91ce29348db65446b9386a5fba7553ad))
+
 # [0.17.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.16.0...v0.17.0) (2026-10-19)
 
 
