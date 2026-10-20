@@ -69,6 +69,46 @@ describe("Agent settings — a plugin harness in the default-harness row", () =>
     expect(memory.store.agent.harnessType).toBe("pi");
   });
 
+  it("keeps a harness whose codec failed off the offer", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const harnesses = getHarnessRegistry();
+    harnesses.register({
+      id: "broken-harness",
+      displayName: "Broken Harness",
+      agentMultiplexerKind: "broken-harness",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => [],
+      prefetchModels: () => {},
+      config: {
+        scope: "global",
+        parse: () => {
+          throw new Error("bad slice");
+        },
+      },
+    });
+    harnesses.validateConfigs({ global: {}, project: {} }, () => {});
+    shellState.harnessAvailability = unprobed();
+
+    const session = openAgentSettings();
+    session.focus("Default harness");
+
+    expect(harnesses.ids()).not.toContain("broken-harness");
+    expect(session.text().replace(/\s+/g, " ")).not.toContain("broken-harness");
+
+    const seen: string[] = [];
+    for (let press = 0; press < harnesses.ids().length; press++) {
+      session.press(KEY.enter);
+      seen.push(session.activeRow()?.value ?? "");
+    }
+
+    expect(seen).not.toContain("broken-harness");
+    expect(seen).toContain("demo-harness");
+    vi.restoreAllMocks();
+  });
+
   it("keeps every registered harness on offer before the probe lands", () => {
     shellState.harnessAvailability = unprobed();
 

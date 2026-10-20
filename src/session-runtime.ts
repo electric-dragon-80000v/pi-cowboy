@@ -72,8 +72,14 @@ export async function startSessionRuntime(
       if (ctx.hasUI) ctx.ui.notify(message, kind);
     },
   );
-  // Configured ids nothing registered: validation cannot see this (config loads
-  // before plugins register), and silence would let a typo pass for a fallback.
+  // Validate harness configuration sections now that all plugin codecs are
+  // registered.
+  const store = getStore();
+  registries.harnesses.validateConfigs(
+    store.harnessConfigLayers(),
+    (id, issue) => store.reportHarnessConfigIssue(id, issue),
+  );
+  // Report configured harness IDs that do not match any registered harness.
   reportUnregisteredConfig(ctx, registries);
   // The multiplexers that detect this process, plugin ones included; a session
   // runs only inside one of them.

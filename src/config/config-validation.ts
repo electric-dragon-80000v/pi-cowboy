@@ -97,15 +97,24 @@ function describeValue(value: unknown): string {
   return typeof value;
 }
 
-function formatIncompatibleWarning(
+/** How a value is fixed when the `/cowboy` menu carries a row for its key. */
+const MENU_FIX =
+  "Set it again in the /cowboy menu, or edit or delete the file to fix it.";
+
+/** How a value is fixed when no menu row carries its key. */
+export const FILE_FIX = "Edit or delete the key in that file to fix it.";
+
+/** The one wording every incompatible-value warning uses. */
+export function incompatibleWarning(
   filePath: string,
   keyPath: string,
   value: unknown,
   expected: string,
+  fix: string,
 ): string {
   return (
     `[subagents] Incompatible value in ${filePath}: "${keyPath}" is ${describeValue(value)}, ` +
-    `expected ${expected}. Set it again in the /cowboy menu, or edit or delete the file to fix it.`
+    `expected ${expected}. ${fix}`
   );
 }
 
@@ -115,7 +124,9 @@ function warnIncompatible(
   value: unknown,
   expected: string,
 ): void {
-  console.warn(formatIncompatibleWarning(filePath, keyPath, value, expected));
+  console.warn(
+    incompatibleWarning(filePath, keyPath, value, expected, MENU_FIX),
+  );
 }
 
 const EXPECTED_OBJECT = "object";
@@ -142,6 +153,11 @@ export function validateRawLayer(raw: unknown, filePath: string): RawConfig {
     if (Object.keys(concurrency).length > 0) cleaned.concurrency = concurrency;
   }
 
+  if (raw.harness !== undefined) {
+    const harness = cleanHarnessSections(raw.harness, filePath);
+    if (harness !== undefined) cleaned.harness = harness;
+  }
+
   // Machine-level, so it sits at the top of the file rather than under `agent`.
   if (raw.multiplexer !== undefined) {
     const parsed = NON_BLANK_STRING.safeParse(raw.multiplexer);
@@ -158,6 +174,47 @@ export function validateRawLayer(raw: unknown, filePath: string): RawConfig {
   }
 
   return cleaned;
+}
+
+/**
+ * Validates the structure of the `harness` configuration map. Each entry must be
+ * an object. Unrecognized harness IDs are retained so plugins can claim them
+ * after loading.
+ */
+function cleanHarnessSections(
+  value: unknown,
+  filePath: string,
+): Record<string, Record<string, unknown>> | undefined {
+  if (!isRecord(value)) {
+    console.warn(
+      incompatibleWarning(
+        filePath,
+        "harness",
+        value,
+        EXPECTED_OBJECT,
+        FILE_FIX,
+      ),
+    );
+    return undefined;
+  }
+  const kept: Record<string, Record<string, unknown>> = {};
+  for (const [id, slice] of Object.entries(value)) {
+    if (slice === undefined) continue;
+    if (!isRecord(slice)) {
+      console.warn(
+        incompatibleWarning(
+          filePath,
+          `harness.${id}`,
+          slice,
+          EXPECTED_OBJECT,
+          FILE_FIX,
+        ),
+      );
+      continue;
+    }
+    kept[id] = slice;
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
 }
 
 /** An agent key outside the table is a per-type model key. */

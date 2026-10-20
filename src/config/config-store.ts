@@ -16,7 +16,11 @@ import {
   resolveModel,
 } from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
-import { DEFAULT_HARNESS, type AnyHarnessId } from "../agents/harness.js";
+import {
+  DEFAULT_HARNESS,
+  type AnyHarnessId,
+  type HarnessConfigIssue,
+} from "../agents/harness.js";
 import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
@@ -31,6 +35,7 @@ import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
 import type { ConcurrencyConfig } from "../concurrency-pools.js";
 import { CONFIG_AGENT_NON_MODEL_KEYS } from "./types.js";
 import { LayeredConfig } from "./layered-config.js";
+import { FILE_FIX, incompatibleWarning } from "./config-validation.js";
 import {
   MODEL_FAMILY_KEYS,
   createConfigIO,
@@ -204,6 +209,35 @@ export class ConfigStore {
     return this.layers.effective.multiplexer;
   }
 
+  /** The per-harness maps the registry validates after plugins register. */
+  harnessConfigLayers(): {
+    global: Record<string, Record<string, unknown>>;
+    project: Record<string, Record<string, unknown>>;
+  } {
+    return {
+      global: this.layers.global.harness ?? {},
+      project: this.layers.project?.harness ?? {},
+    };
+  }
+
+  /** Warns in the config layer's wording for a harness value its codec rejected. */
+  reportHarnessConfigIssue(id: AnyHarnessId, issue: HarnessConfigIssue): void {
+    const paths = this.layers.paths;
+    const filePath =
+      issue.layer === "project"
+        ? (paths.project ?? paths.global)
+        : paths.global;
+    console.warn(
+      incompatibleWarning(
+        filePath,
+        `harness.${id}${issue.keyPath === "" ? "" : `.${issue.keyPath}`}`,
+        issue.got,
+        issue.expected,
+        FILE_FIX,
+      ),
+    );
+  }
+
   get concurrency(): ConcurrencyConfig {
     const base = this.layers.effective.concurrency;
     const session = this.sessionConcurrencyLayer;
@@ -241,10 +275,11 @@ export class ConfigStore {
   /**
    * Every harness id the config names, wherever it names one: the `harnessType`
    * setting, the `defaultModelByHarness` keys, the `concurrency.harnesses` keys,
-   * and the harness qualifier on any `concurrency.providers` / `concurrency.models`
-   * pool key. A session reports the ids nothing registered — config loads before
-   * plugins do, so validation cannot answer that question, and a typo would
-   * otherwise be silent (the launch simply falls back).
+   * the harness qualifier on any `concurrency.providers` / `concurrency.models`
+   * pool key, and every `harness.<id>` section in either layer. A session
+   * reports the ids nothing registered — config loads before plugins do, so
+   * validation cannot answer that question, and a typo would otherwise be
+   * silent (the launch simply falls back).
    */
   configuredHarnessIds(): AnyHarnessId[] {
     const ids = new Set<AnyHarnessId>([this.agent.harnessType]);
@@ -254,6 +289,9 @@ export class ConfigStore {
       ids.add(id);
     }
     for (const id of Object.keys(this.concurrency.harnesses)) ids.add(id);
+    const harnessSections = this.harnessConfigLayers();
+    for (const id of Object.keys(harnessSections.global)) ids.add(id);
+    for (const id of Object.keys(harnessSections.project)) ids.add(id);
     for (const key of [
       ...Object.keys(this.concurrency.providers),
       ...Object.keys(this.concurrency.models),

@@ -524,7 +524,8 @@ export class SubagentSession {
       const launch: AgentLaunchState = { resultFile: plan.launch.resultFile };
       this.launchState = launch;
       launchCwd = plan.cwd;
-      const harness = getHarnessRegistry().require(plan.harness);
+      const harnesses = getHarnessRegistry();
+      const harness = harnesses.require(plan.harness);
       ref =
         ref ??
         (await host.hostAt({
@@ -546,6 +547,7 @@ export class SubagentSession {
         paneId: ref.paneId,
         cwd: plan.cwd,
         launch: plan.launch,
+        config: harnesses.config(plan.harness),
       });
       const supervisor = createPaneSupervisor({
         host,

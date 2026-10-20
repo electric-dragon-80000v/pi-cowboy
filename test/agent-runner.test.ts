@@ -71,6 +71,7 @@ function memoryIO(global: RawConfig = {}): ConfigIO {
       projectStatus: "untrusted",
     }),
     isGlobalWritable: () => true,
+    paths: () => ({ global: "config.json" }),
     saveGlobal: () => {},
     saveProject: () => {},
   };

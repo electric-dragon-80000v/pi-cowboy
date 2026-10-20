@@ -55,11 +55,13 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ToolSelection } from "../src/agents/harness.js";
+import type { OpencodeConfigRoot } from "../src/agents/harness/opencode/config.js";
 import { opencodeHarness } from "../src/agents/harness/opencode/index.js";
 import {
   opencodeConfigDir,
   removeOpencodeStaging,
   writeOpencodeStaging,
+  type OpencodeStaging,
 } from "../src/agents/harness/opencode/staging.js";
 import { commandPath } from "../src/infrastructure/exec-path.js";
 
@@ -130,11 +132,14 @@ let home: string;
 
 /**
  * The real OPENCODE_CONFIG_DIR, put back after every test. Staging runs in this
- * process and links the parent's user config from the directory this names, so
+ * process and copies the parent's user config from the directory this names, so
  * it is pointed under the isolated HOME too: a developer's own providers must
- * not be linked into the tree the real CLI reads.
+ * not be copied into the tree the real CLI reads.
  */
 let realOpencodeConfigDir: string | undefined;
+
+/** The real OPENCODE_CONFIG, put back after every test. */
+let realOpencodeConfig: string | undefined;
 
 beforeEach(() => {
   realTmpdir = process.env.TMPDIR;
@@ -145,7 +150,9 @@ beforeEach(() => {
   fs.mkdirSync(path.join(home, ".config"), { recursive: true });
   fs.mkdirSync(path.join(home, ".local", "share"), { recursive: true });
   realOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  realOpencodeConfig = process.env.OPENCODE_CONFIG;
   process.env.OPENCODE_CONFIG_DIR = path.join(home, ".config", "opencode");
+  delete process.env.OPENCODE_CONFIG;
 });
 
 afterEach(() => {
@@ -156,21 +163,35 @@ afterEach(() => {
   } else {
     process.env.OPENCODE_CONFIG_DIR = realOpencodeConfigDir;
   }
+  if (realOpencodeConfig === undefined) {
+    delete process.env.OPENCODE_CONFIG;
+  } else {
+    process.env.OPENCODE_CONFIG = realOpencodeConfig;
+  }
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
 /** The environment a spawn gives opencode, with HOME moved to a temp dir. */
-function launchEnv(configDir: string): NodeJS.ProcessEnv {
-  return {
+function launchEnv(
+  configDir: string,
+  explicitConfigFile?: string,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
     XDG_CONFIG_HOME: path.join(home, ".config"),
     XDG_DATA_HOME: path.join(home, ".local", "share"),
     OPENCODE_CONFIG_DIR: configDir,
     OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
   };
+  delete env.OPENCODE_CONFIG;
+  if (explicitConfigFile !== undefined) {
+    env.OPENCODE_CONFIG = explicitConfigFile;
+  }
+  return env;
 }
 
 /** Write a file inside this test's temp root and return its path. */
@@ -180,28 +201,55 @@ function tempFile(name: string, text: string): string {
   return file;
 }
 
+/** The parent config directory the staging copies from. */
+function parentConfigDir(): string {
+  return process.env.OPENCODE_CONFIG_DIR as string;
+}
+
+/** Write the parent's user config where the staging looks for it. */
+function writeParentConfig(config: unknown): void {
+  fs.mkdirSync(parentConfigDir(), { recursive: true });
+  fs.writeFileSync(
+    path.join(parentConfigDir(), "opencode.json"),
+    JSON.stringify(config),
+  );
+}
+
 /** Stage a spawn's config directory through the committed module. */
-function stage(toolSelection: ToolSelection): string {
-  const configDir = writeOpencodeStaging({
+function stageTree(
+  toolSelection: ToolSelection,
+  configInclude: readonly OpencodeConfigRoot[] = [],
+): OpencodeStaging {
+  const staged = writeOpencodeStaging({
     subagentId: SUBAGENT_ID,
     systemPromptFile: tempFile("system.md", PROMPT),
     toolSelection,
+    configInclude,
   });
   // The resolver's own path, so every run below points at the directory the
   // module names rather than a path this file retyped.
-  expect(configDir).toBe(opencodeConfigDir(SUBAGENT_ID));
-  return configDir;
+  expect(staged.configDir).toBe(opencodeConfigDir(SUBAGENT_ID));
+  return staged;
+}
+
+/** Stage a spawn's config directory and return it. */
+function stage(
+  toolSelection: ToolSelection,
+  configInclude: readonly OpencodeConfigRoot[] = [],
+): string {
+  return stageTree(toolSelection, configInclude).configDir;
 }
 
 /** Run the real CLI against a staged directory, collecting both streams and the exit code. */
 function runOpencode(
   configDir: string,
   args: readonly string[],
+  explicitConfigFile?: string,
 ): Promise<CliRun> {
   const bin = opencodeBinary();
   return new Promise((resolve) => {
     const child = spawn(bin, [...args], {
-      env: launchEnv(configDir),
+      env: launchEnv(configDir, explicitConfigFile),
       cwd: path.dirname(configDir),
       // A pipe that is never written and never closed makes opencode wait for a
       // prompt that will not come: these runs submit their message on the argv,
@@ -284,10 +332,69 @@ describe.skipIf(opencodeMissing)(
       const configDir = stage({ kind: "default" });
 
       // The config directory is the spawn's whole opencode world: one agent
-      // definition, and nothing opencode reads for another reason. A dependency
-      // manifest or a `node_modules` here would mean the staging pays for an
-      // install check opencode does not perform.
+      // definition, with no user config to copy. A dependency manifest or a
+      // `node_modules` here would mean the staging pays for an install check
+      // opencode does not perform.
       expect(tree(configDir)).toEqual(["agent/", `agent/${SUBAGENT_ID}.md`]);
+    });
+
+    it("carries the parent's custom provider into the spawn", async () => {
+      writeParentConfig({
+        provider: {
+          "cowboy-test": {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Cowboy Test",
+            options: {
+              baseURL: "http://127.0.0.1:9/v1",
+              apiKey: "test-key",
+            },
+            models: {
+              "test-model": { name: "Test Model" },
+            },
+          },
+        },
+      });
+      const configDir = stage({ kind: "default" });
+
+      const run = await runOpencode(configDir, ["models", "--standalone"]);
+
+      expect(run.code, run.stderr).toBe(0);
+      expect(output(run)).toContain("cowboy-test/test-model");
+    });
+
+    it("carries a provider from the file OPENCODE_CONFIG names", async () => {
+      const explicitFile = path.join(home, "dotfiles", "config.json");
+      fs.mkdirSync(path.dirname(explicitFile), { recursive: true });
+      fs.writeFileSync(
+        explicitFile,
+        JSON.stringify({
+          provider: {
+            "cowboy-explicit": {
+              npm: "@ai-sdk/openai-compatible",
+              name: "Cowboy Explicit",
+              options: {
+                baseURL: "http://127.0.0.1:9/v1",
+                apiKey: "test-key",
+              },
+              models: { "test-model": { name: "Test Model" } },
+            },
+          },
+        }),
+      );
+      process.env.OPENCODE_CONFIG = explicitFile;
+      const { configDir, explicitConfigFile: stagedFile } = stageTree({
+        kind: "default",
+      });
+      expect(stagedFile).toBeDefined();
+
+      const run = await runOpencode(
+        configDir,
+        ["models", "--standalone"],
+        stagedFile,
+      );
+
+      expect(run.code, run.stderr).toBe(0);
+      expect(output(run)).toContain("cowboy-explicit/test-model");
     });
 
     it("resolves the staged agent under a private server", async () => {

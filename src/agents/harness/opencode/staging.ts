@@ -9,34 +9,30 @@
  *
  * The redirect also shadows the user's own `opencode.json` / `opencode.jsonc`,
  * which is where the providers live; a spawn without them has no provider and
- * fails ("User not found"). So the staging links the parent's user config file
- * in (parent-config-link.ts). Auth needs no link: `auth.json` lives in the XDG
- * data directory, which `OPENCODE_CONFIG_DIR` does not redirect.
+ * fails ("User not found"). So the staging copies the user's own config in,
+ * filtered by the extension's excluded roots (config.ts) through
+ * user-config.ts. Auth needs no copy:
+ * `auth.json` lives in the XDG data directory, which `OPENCODE_CONFIG_DIR` does
+ * not redirect.
  */
 
 import fs from "node:fs";
-import { homedir } from "node:os";
 import * as path from "node:path";
 import { subagentResultDirFor } from "../../../paths.js";
 import type { ToolSelection } from "../../harness.js";
-import { envDir, linkParentConfigFile } from "../parent-config-link.js";
+import type { OpencodeConfigRoot } from "./config.js";
 import { removeAgentDefinition, writeAgentDefinition } from "./definition.js";
+import { writeUserOpencodeConfig } from "./user-config.js";
 
 /** The config directory's name inside a spawn's staging directory. */
 const CONFIG_DIR_NAME = "opencode";
 
-/** The names opencode reads its user config under, in either dialect. */
-const USER_CONFIG_FILE_NAMES = ["opencode.json", "opencode.jsonc"] as const;
-
-/**
- * The config directory the parent session's opencode reads: its own
- * `OPENCODE_CONFIG_DIR` when set, else `opencode` under the XDG config home.
- * Resolved per call, like the staging directory.
- */
-function parentOpencodeConfigDir(): string {
-  const xdgConfigHome =
-    envDir("XDG_CONFIG_HOME") ?? path.join(homedir(), ".config");
-  return envDir("OPENCODE_CONFIG_DIR") ?? path.join(xdgConfigHome, "opencode");
+/** What staging wrote: the config directory, and the explicit config copy if any. */
+export interface OpencodeStaging {
+  /** The config directory `OPENCODE_CONFIG_DIR` names. */
+  readonly configDir: string;
+  /** The staged copy of the parent's `OPENCODE_CONFIG` file, when staging made one. */
+  readonly explicitConfigFile?: string;
 }
 
 /**
@@ -47,18 +43,19 @@ export function opencodeConfigDir(subagentId: string): string {
 }
 
 /**
- * Write the whole staging tree and return the config dir.
+ * Write the whole staging tree.
  *
  * The system prompt is read before anything is created, so an unreadable prompt
  * file fails the spawn without leaving a half-built tree behind. A definition
- * file already in place is overwritten. The user config links are best-effort:
- * a parent with neither file has no providers to carry.
+ * file already in place is overwritten. The user config copy is best-effort: a
+ * user with neither file has no providers to carry.
  */
 export function writeOpencodeStaging(input: {
   subagentId: string;
   systemPromptFile: string;
   toolSelection: ToolSelection;
-}): string {
+  configInclude: readonly OpencodeConfigRoot[];
+}): OpencodeStaging {
   const systemPrompt = fs.readFileSync(input.systemPromptFile, "utf-8");
   const configDir = opencodeConfigDir(input.subagentId);
   writeAgentDefinition(configDir, {
@@ -66,11 +63,11 @@ export function writeOpencodeStaging(input: {
     systemPrompt,
     toolSelection: input.toolSelection,
   });
-  const parentDir = parentOpencodeConfigDir();
-  for (const name of USER_CONFIG_FILE_NAMES) {
-    linkParentConfigFile(path.join(parentDir, name), configDir);
-  }
-  return configDir;
+  const explicitConfigFile = writeUserOpencodeConfig({
+    configDir,
+    configInclude: input.configInclude,
+  });
+  return { configDir, explicitConfigFile };
 }
 
 /**

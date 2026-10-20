@@ -273,11 +273,53 @@ export type LaunchRequestFor<K extends HarnessId> = {
   claude: ClaudeLaunchRequest;
 }[K];
 
+/**
+ * Represents an incompatible value rejected during harness configuration
+ * validation. `keyPath` is relative to the harness's section (for example,
+ * `configInclude[0]`), and `layer` indicates whether the value originated from
+ * the global or project file.
+ */
+export interface HarnessConfigIssue {
+  readonly layer: "global" | "project";
+  readonly keyPath: string;
+  readonly got: unknown;
+  readonly expected: string;
+}
+
+/** Callback a codec calls to report each value it rejected. */
+export type HarnessConfigReport = (issue: HarnessConfigIssue) => void;
+
+/**
+ * The configuration slices a codec validates, as the file loader kept them:
+ * absent when a file has no section for this harness, else a JSON object.
+ * `project` is absent unless the codec declared `scope: "project"`.
+ */
+export interface HarnessConfigLayers {
+  readonly global?: Readonly<Record<string, unknown>>;
+  readonly project?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Configuration codec for a harness. Defines the schema, validation rules, and
+ * defaults for a harness's configuration section. When `scope` is omitted,
+ * validation is global-only and ignores project configuration files. When set
+ * to `"project"`, `parse` receives both global and project layers. `parse`
+ * always returns a usable value, reporting each rejected value instead of
+ * failing the whole section.
+ */
+export interface HarnessConfigCodec<T = unknown> {
+  readonly scope?: "global" | "project";
+  parse(layers: HarnessConfigLayers, report: HarnessConfigReport): T;
+}
+
 /** What a harness needs to bring its host pane into the state it launches in. */
 export interface HarnessPrepareRequest<
   L extends SubagentLaunchInputs = HarnessLaunch,
+  C = unknown,
 > {
   readonly pi: ExtensionAPI;
+  /** The validated config for this harness, as its codec produced it. */
+  readonly config: C;
   /**
    * The pane surface the session's multiplexer offers. A harness types into its
    * pane through this, never through a multiplexer's own client, so one launch runs
@@ -369,7 +411,15 @@ export type HarnessAvailability =
  * implementation: a pi harness cannot name `variant`, and a plugin cannot name
  * any built-in option at all.
  */
-export interface Harness<L extends SubagentLaunchInputs = HarnessLaunch> {
+export interface Harness<
+  L extends SubagentLaunchInputs = HarnessLaunch,
+  C = unknown,
+> {
+  /**
+   * Configuration codec for this harness. Validated after plugins register; the
+   * parsed value is passed to `prepare` as `request.config`.
+   */
+  readonly config?: HarnessConfigCodec<C>;
   /**
    * The agent kind this harness launches as, in the multiplexer's vocabulary; the only
    * place a kind appears as a literal. A harness whose binary is not pi's can
@@ -389,7 +439,7 @@ export interface Harness<L extends SubagentLaunchInputs = HarnessLaunch> {
    * family's own request describes. Idempotent; throws when the state could not
    * be established.
    */
-  prepare(request: HarnessPrepareRequest<L>): Promise<void>;
+  prepare(request: HarnessPrepareRequest<L, C>): Promise<void>;
   /**
    * The complete argv the pane runs, including how the task rides (the pi
    * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.
@@ -449,8 +499,12 @@ export type HarnessLaunch = BuiltinLaunchRequest | PluginLaunchRequest;
  * because it is not keyed in this package's built-in table. The registry holds
  * it as the same `RegisteredHarness` a built-in becomes (see
  * harness/harness-registry.ts), so a caller never branches on where it came from.
+ * `C` is the value its codec parses, which types the prepare request's config.
  */
-export interface PluginHarness extends Harness<SubagentLaunchInputs> {
+export interface PluginHarness<C = unknown> extends Harness<
+  SubagentLaunchInputs,
+  C
+> {
   /** The id config and `harness_type`-shaped values name this harness by. */
   readonly id: AnyHarnessId;
   /** The label its settings rows show. */

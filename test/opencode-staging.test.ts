@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import type { ToolSelection } from "../src/agents/harness.js";
+import type { OpencodeConfigRoot } from "../src/agents/harness/opencode/config.js";
 import { opencodeAgentMarkdown } from "../src/agents/harness/opencode/definition.js";
 import { opencodePermissions } from "../src/agents/harness/opencode/permissions.js";
 import {
   opencodeConfigDir,
   removeOpencodeStaging,
   writeOpencodeStaging,
+  type OpencodeStaging,
 } from "../src/agents/harness/opencode/staging.js";
 
 /** The subagent these tests stage under; the shape a spawn id has. */
@@ -31,7 +33,7 @@ let realTmpdir: string | undefined;
 const madeRoots: string[] = [];
 
 /**
- * The real OPENCODE_CONFIG_DIR, put back after every test. Staging links the
+ * The real OPENCODE_CONFIG_DIR, put back after every test. Staging copies the
  * parent's user config from the directory this names (or the XDG default), so
  * every test points it at an empty directory of its own: a developer's own
  * providers must not decide what the staged tree holds.
@@ -41,15 +43,20 @@ let realOpencodeConfigDir: string | undefined;
 /** The parent config directory this test pointed OPENCODE_CONFIG_DIR at. */
 let parentConfigDir: string;
 
+/** The real OPENCODE_CONFIG, put back after every test. */
+let realOpencodeConfig: string | undefined;
+
 beforeEach(() => {
   realTmpdir = process.env.TMPDIR;
   const root = fs.mkdtempSync(join(tmpdir(), "cowboy-opencode-staging-"));
   madeRoots.push(root);
   process.env.TMPDIR = root;
   realOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  realOpencodeConfig = process.env.OPENCODE_CONFIG;
   parentConfigDir = join(root, "parent-opencode");
   fs.mkdirSync(parentConfigDir);
   process.env.OPENCODE_CONFIG_DIR = parentConfigDir;
+  delete process.env.OPENCODE_CONFIG;
 });
 
 afterEach(() => {
@@ -59,6 +66,11 @@ afterEach(() => {
     delete process.env.OPENCODE_CONFIG_DIR;
   } else {
     process.env.OPENCODE_CONFIG_DIR = realOpencodeConfigDir;
+  }
+  if (realOpencodeConfig === undefined) {
+    delete process.env.OPENCODE_CONFIG;
+  } else {
+    process.env.OPENCODE_CONFIG = realOpencodeConfig;
   }
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
@@ -238,11 +250,12 @@ describe("opencodeAgentMarkdown", () => {
 });
 
 describe("writeOpencodeStaging", () => {
-  it("writes the definition and nothing else, for a parent without user config", () => {
-    const dir = writeOpencodeStaging({
+  it("writes the definition, for a parent without user config", () => {
+    const { configDir: dir } = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
       toolSelection: { kind: "include", names: ["read", "edit"] },
+      configInclude: [],
     });
 
     expect(dir).toBe(opencodeConfigDir(SUBAGENT_ID));
@@ -260,16 +273,18 @@ describe("writeOpencodeStaging", () => {
   });
 
   it("replaces a definition the staging tree already holds", () => {
-    const dir = writeOpencodeStaging({
+    const { configDir: dir } = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt("first prompt\n"),
       toolSelection: { kind: "default" },
+      configInclude: [],
     });
 
     writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt("second prompt\n"),
       toolSelection: { kind: "default" },
+      configInclude: [],
     });
 
     expect(definitionBody(dir)).toBe("second prompt\n");
@@ -283,6 +298,7 @@ describe("writeOpencodeStaging", () => {
         subagentId: SUBAGENT_ID,
         systemPromptFile: missing,
         toolSelection: { kind: "default" },
+        configInclude: [],
       }),
     ).toThrow();
     expect(fs.existsSync(opencodeConfigDir(SUBAGENT_ID))).toBe(false);
@@ -290,52 +306,112 @@ describe("writeOpencodeStaging", () => {
 });
 
 describe("writeOpencodeStaging — the parent's user config", () => {
-  /** A stand-in for the parent's user config: the providers a spawn needs. */
-  const USER_CONFIG = `{"provider":{"anthropic":{}}}\n`;
+  /** A parent config with kept and excluded roots, and a file reference. */
+  const USER_CONFIG = JSON.stringify(
+    {
+      $schema: "https://opencode.ai/config.json",
+      provider: {
+        anthropic: { options: { apiKey: "{file:./key.txt}" } },
+      },
+      model: "anthropic/claude-opus-4",
+      mcp: { parent: { type: "remote", url: "https://example.test/mcp" } },
+      plugin: ["parent-plugin"],
+      instructions: ["AGENTS.md"],
+      permission: { edit: "allow" },
+      tools: { bash: false },
+      agent: { parentOnly: {} },
+      agents: {
+        reviewer: { model: "anthropic/claude-opus-4" },
+        parentOnly: { model: "anthropic/claude-opus-4" },
+      },
+      experimental: {
+        subagent_depth: 2,
+        policies: ["parent-policy"],
+      },
+      update: "auto",
+    },
+    null,
+    2,
+  );
 
-  /** Stage the default definition and return the config dir. */
-  function stage(): string {
+  /** Stage the default definition. */
+  function stageTree(
+    configInclude: readonly OpencodeConfigRoot[] = [],
+  ): OpencodeStaging {
     return writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
       toolSelection: { kind: "default" },
+      configInclude,
     });
   }
 
-  it("links the parent's opencode.json into the config dir", () => {
+  /** Stage the default definition and return the config dir. */
+  function stage(configInclude: readonly OpencodeConfigRoot[] = []): string {
+    return stageTree(configInclude).configDir;
+  }
+
+  /** The staged config file, parsed. */
+  function stagedConfig(dir: string, name = "opencode.json"): unknown {
+    return JSON.parse(fs.readFileSync(join(dir, name), "utf-8"));
+  }
+
+  it("copies the parent's opencode.json with the excluded roots removed", () => {
     const parentFile = join(parentConfigDir, "opencode.json");
     fs.writeFileSync(parentFile, USER_CONFIG);
 
     const dir = stage();
 
-    // A link, not a copy: the parent's file stays the one source of truth.
-    const link = join(dir, "opencode.json");
-    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(fs.readlinkSync(link)).toBe(fs.realpathSync(parentFile));
-    expect(fs.readFileSync(link, "utf-8")).toBe(USER_CONFIG);
+    // A copy, not a link: the parent's file is never written through.
+    const copied = join(dir, "opencode.json");
+    expect(fs.lstatSync(copied).isSymbolicLink()).toBe(false);
     expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
+    const config = stagedConfig(dir) as Record<string, unknown>;
+    expect(config.provider).toEqual({
+      anthropic: {
+        options: { apiKey: `{file:${join(parentConfigDir, "key.txt")}}` },
+      },
+    });
+    expect(config.model).toBe("anthropic/claude-opus-4");
+    expect(config).not.toHaveProperty("$schema");
+    // MCP servers are the parent's tools: copied without being asked for.
+    expect(config.mcp).toEqual({
+      parent: { type: "remote", url: "https://example.test/mcp" },
+    });
+    expect(config).not.toHaveProperty("plugin");
+    expect(config).not.toHaveProperty("instructions");
+    expect(config).not.toHaveProperty("permission");
+    expect(config).not.toHaveProperty("tools");
+    expect(config).not.toHaveProperty("agent");
+    expect(config).not.toHaveProperty("agents");
+    expect(config).not.toHaveProperty("experimental");
+    expect(config).not.toHaveProperty("update");
+    expect(fs.readFileSync(parentFile, "utf-8")).toBe(USER_CONFIG);
   });
 
-  it("links the parent's opencode.jsonc, the other dialect, the same way", () => {
+  it("copies the parent's opencode.jsonc, comments and trailing commas included", () => {
     const parentFile = join(parentConfigDir, "opencode.jsonc");
-    fs.writeFileSync(parentFile, USER_CONFIG);
-
-    const dir = stage();
-
-    expect(fs.readlinkSync(join(dir, "opencode.jsonc"))).toBe(
-      fs.realpathSync(parentFile),
+    fs.writeFileSync(
+      parentFile,
+      `{\n  // the provider the parent uses\n  "provider": { "anthropic": {} },\n  "model": "anthropic/claude-opus-4",\n}\n`,
     );
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.jsonc"]);
-  });
 
-  it("links nothing when the parent has no user config", () => {
     const dir = stage();
 
-    expect(fs.existsSync(join(dir, "opencode.json"))).toBe(false);
-    expect(fs.existsSync(join(dir, "opencode.jsonc"))).toBe(false);
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.jsonc"]);
+    expect(stagedConfig(dir, "opencode.jsonc")).toEqual({
+      provider: { anthropic: {} },
+      model: "anthropic/claude-opus-4",
+    });
   });
 
-  it("links only the user config, never the rest of the parent's directory", () => {
+  it("writes no config file when the parent has none", () => {
+    const dir = stage();
+
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent"]);
+  });
+
+  it("copies only the user config, never the rest of the parent's directory", () => {
     fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
     fs.mkdirSync(join(parentConfigDir, "agent"));
     fs.writeFileSync(join(parentConfigDir, "agent", "mine.md"), "parent's\n");
@@ -345,46 +421,127 @@ describe("writeOpencodeStaging — the parent's user config", () => {
 
     expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
     expect(fs.readdirSync(join(dir, "agent"))).toEqual([`${SUBAGENT_ID}.md`]);
+    expect(fs.existsSync(join(dir, "auth.json"))).toBe(false);
   });
 
   it("falls back to the XDG config home when OPENCODE_CONFIG_DIR is unset", () => {
     const xdgConfigHome = join(tmpdir(), "xdg-config");
     fs.mkdirSync(join(xdgConfigHome, "opencode"), { recursive: true });
     const parentFile = join(xdgConfigHome, "opencode", "opencode.json");
-    fs.writeFileSync(parentFile, USER_CONFIG);
+    fs.writeFileSync(
+      parentFile,
+      JSON.stringify({ provider: { anthropic: {} } }),
+    );
     const realXdgConfigHome = process.env.XDG_CONFIG_HOME;
     delete process.env.OPENCODE_CONFIG_DIR;
     process.env.XDG_CONFIG_HOME = xdgConfigHome;
     try {
       const dir = stage();
 
-      expect(fs.readlinkSync(join(dir, "opencode.json"))).toBe(
-        fs.realpathSync(parentFile),
-      );
+      expect(stagedConfig(dir)).toEqual({ provider: { anthropic: {} } });
     } finally {
       if (realXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = realXdgConfigHome;
     }
   });
 
-  it("replaces the link a previous call made", () => {
-    fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
+  it("replaces the copy a previous call made", () => {
+    fs.writeFileSync(
+      join(parentConfigDir, "opencode.json"),
+      JSON.stringify({ provider: { first: {} } }),
+    );
     stage();
 
     // The parent moved its config dir between the two stagings.
     const movedDir = join(tmpdir(), "moved-opencode");
     fs.mkdirSync(movedDir);
-    const movedFile = join(movedDir, "opencode.json");
-    fs.writeFileSync(movedFile, "moved\n");
+    fs.writeFileSync(
+      join(movedDir, "opencode.json"),
+      JSON.stringify({ provider: { moved: {} } }),
+    );
     process.env.OPENCODE_CONFIG_DIR = movedDir;
     const dir = stage();
 
-    const link = join(dir, "opencode.json");
-    expect(fs.readlinkSync(link)).toBe(fs.realpathSync(movedFile));
-    expect(fs.readFileSync(link, "utf-8")).toBe("moved\n");
+    expect(stagedConfig(dir)).toEqual({ provider: { moved: {} } });
   });
 
-  it("removes the link and leaves the parent's file in place", () => {
+  it("copies an excluded root whole when configInclude names it", () => {
+    fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
+
+    const dir = stage(["plugin"]);
+    const config = stagedConfig(dir) as Record<string, unknown>;
+
+    expect(config.plugin).toEqual(["parent-plugin"]);
+    expect(config).not.toHaveProperty("instructions");
+    expect(config).not.toHaveProperty("experimental");
+  });
+
+  it("stages the config and the explicit file owner-only", () => {
+    fs.writeFileSync(join(parentConfigDir, "opencode.json"), USER_CONFIG);
+    const explicitFile = join(parentConfigDir, "..", "explicit.json");
+    fs.writeFileSync(explicitFile, JSON.stringify({ provider: {} }));
+    process.env.OPENCODE_CONFIG = explicitFile;
+
+    const { configDir: dir, explicitConfigFile: staged } = stageTree();
+
+    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(join(dir, "opencode.json")).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(staged as string).mode & 0o777).toBe(0o600);
+  });
+
+  it("stages the file OPENCODE_CONFIG names, filtered like the config directory", () => {
+    const sourceDir = join(parentConfigDir, "..", "dotfiles");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    const sourceFile = join(sourceDir, "dotfiles.json");
+    fs.writeFileSync(
+      sourceFile,
+      JSON.stringify({
+        provider: { anthropic: {} },
+        instructions: ["AGENTS.md"],
+        plugin: ["parent-plugin"],
+      }),
+    );
+    process.env.OPENCODE_CONFIG = sourceFile;
+
+    const { configDir: dir, explicitConfigFile: stagedFile } = stageTree();
+
+    expect(stagedFile).toBe(join(dir, "explicit-config.json"));
+    expect(JSON.parse(fs.readFileSync(stagedFile as string, "utf-8"))).toEqual({
+      provider: { anthropic: {} },
+    });
+  });
+
+  it("stages the config directory and the explicit file side by side", () => {
+    fs.writeFileSync(
+      join(parentConfigDir, "opencode.json"),
+      JSON.stringify({ model: "anthropic/claude-opus-4" }),
+    );
+    const explicitFile = join(parentConfigDir, "..", "explicit.json");
+    fs.writeFileSync(
+      explicitFile,
+      JSON.stringify({ provider: { anthropic: {} } }),
+    );
+    process.env.OPENCODE_CONFIG = explicitFile;
+
+    const { configDir: dir, explicitConfigFile } = stageTree();
+
+    expect(stagedConfig(dir)).toEqual({ model: "anthropic/claude-opus-4" });
+    expect(
+      JSON.parse(fs.readFileSync(explicitConfigFile as string, "utf-8")),
+    ).toEqual({ provider: { anthropic: {} } });
+  });
+
+  it("writes no explicit config when OPENCODE_CONFIG names a missing file", () => {
+    process.env.OPENCODE_CONFIG = join(
+      parentConfigDir,
+      "..",
+      "no-such-explicit-config.json",
+    );
+
+    expect(stageTree().explicitConfigFile).toBeUndefined();
+  });
+
+  it("removes the copy and leaves the parent's file in place", () => {
     const parentFile = join(parentConfigDir, "opencode.json");
     fs.writeFileSync(parentFile, USER_CONFIG);
     const dir = stage();
@@ -398,10 +555,11 @@ describe("writeOpencodeStaging — the parent's user config", () => {
 
 describe("removeOpencodeStaging", () => {
   it("removes the staging tree it wrote", () => {
-    const dir = writeOpencodeStaging({
+    const { configDir: dir } = writeOpencodeStaging({
       subagentId: SUBAGENT_ID,
       systemPromptFile: stagePrompt(PROMPT),
       toolSelection: { kind: "default" },
+      configInclude: [],
     });
     expect(fs.existsSync(dir)).toBe(true);
 

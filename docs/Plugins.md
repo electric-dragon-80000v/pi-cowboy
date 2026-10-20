@@ -98,6 +98,19 @@ export default function (api: CowboyPluginApi) {
 | `teardown`             | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to clean up files or pane state after the process finishes.                                                                                |
 | `listModels`           | `() => Promise<Array<{ key: string, label: string }>>` | Returns available models for settings menus and model resolution.                                                                                        |
 | `prefetchModels`       | `() => void \| Promise<void>`                          | Optional hook to pre-warm slow model catalogs in the background at session boot.                                                                         |
+| `config`               | `HarnessConfigCodec`                                   | Optional codec that validates the `harness.<id>` configuration section after plugins load.                                                               |
+
+A harness configuration codec defines the schema, validation rules, and default values for its `harness.<id>` section. Its `parse` function returns the validated configuration and reports each rejected value through its `report` callback. The registry validates every registered harness after plugins load and passes the result to `prepare` as `config`:
+
+```ts
+async prepare({ config }: HarnessPrepareRequest<SubagentLaunchInputs, MyConfig>) {
+  // config is MyConfig
+}
+```
+
+Codecs use plain data and callback functions, avoiding shared schema library dependencies. The raw configuration is stored under `harness.<id>` in `config.json`. If an entry does not match any registered harness, `pi-cowboy` preserves the raw data until a matching plugin registers. A codec that throws takes its harness out of the session — the failure is logged and the harness is no longer offered, resolved, or launched — rather than ending session startup.
+
+By default, harness configuration is read only from the global `config.json` to prevent repository project files from altering machine-level behavior. If a harness's settings can be safely configured per project, set `scope: "project"` on the codec. The codec's `parse` function then receives both `global` and `project` layers to determine how they merge; without this setting, `project` is always `undefined`.
 
 ### Launch Inputs (`SubagentLaunchInputs`)
 
