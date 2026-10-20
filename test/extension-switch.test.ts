@@ -97,6 +97,7 @@ function memoryIO(global: RawConfig): {
         projectStatus: "untrusted",
       }),
       isGlobalWritable: () => true,
+      paths: () => ({ global: "config.json" }),
       saveGlobal: (config) => {
         savedGlobal.push(structuredClone(config));
       },

@@ -392,6 +392,7 @@ describe("cowboy_agent — the harness default at the global default's position"
         projectStatus: "untrusted",
       }),
       isGlobalWritable: () => true,
+      paths: () => ({ global: "config.json" }),
       saveGlobal: () => {},
       saveProject: () => {},
     });

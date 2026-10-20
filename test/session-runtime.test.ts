@@ -76,6 +76,8 @@ function fakeStore(
     agent: { harnessType },
     multiplexer: over.multiplexer ?? "herdr",
     configuredHarnessIds: () => [harnessType, ...(over.extraHarnessKeys ?? [])],
+    harnessConfigLayers: () => ({ global: {}, project: {} }),
+    reportHarnessConfigIssue: vi.fn(),
   };
 }
 

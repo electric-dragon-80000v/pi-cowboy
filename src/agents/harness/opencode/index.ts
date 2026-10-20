@@ -44,6 +44,7 @@ import {
   splitMarker,
   type PaneProof,
 } from "../pane-launcher.js";
+import { opencodeConfigCodec, type OpencodeConfig } from "./config.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 import { probeOpencode } from "./version.js";
 
@@ -90,11 +91,28 @@ const MODEL_FAILURE = "Model unavailable";
  * multi-line task: it becomes the initial message (opencode reads stdin as the
  * prompt when it is not a terminal), and mini mode then reopens the controlling
  * terminal for input, so later steers still reach the process.
+ *
+ * `OPENCODE_CONFIG` names the staged copy of the parent's explicit config
+ * file, when the parent had one, and is unset otherwise; either way the spawn
+ * reads only files the staging assembled. `OPENCODE_CONFIG_CONTENT` would
+ * point opencode at inline config the staging did not assemble, so it is
+ * always unset. Update checks are off: nobody can answer an update prompt in a
+ * background pane, and an install would replace the binary the parent session
+ * is running.
  */
-function launcherBody(configDir: string, taskFile: string): string {
+function launcherBody(
+  configDir: string,
+  taskFile: string,
+  explicitConfigFile: string | undefined,
+): string {
   return [
+    explicitConfigFile === undefined
+      ? "unset OPENCODE_CONFIG"
+      : `export OPENCODE_CONFIG=${singleQuoteShellWord(explicitConfigFile)}`,
+    "unset OPENCODE_CONFIG_CONTENT",
     `export OPENCODE_CONFIG_DIR=${singleQuoteShellWord(configDir)}`,
     "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
+    "export OPENCODE_DISABLE_AUTOUPDATE=1",
     `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
   ].join("; ");
 }
@@ -264,7 +282,8 @@ function opencodeAvailability(): HarnessAvailability {
   }
 }
 
-export const opencodeHarness: Harness<OpencodeLaunchRequest> = {
+export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
+  config: opencodeConfigCodec,
   agentMultiplexerKind: "opencode",
   availability: opencodeAvailability,
   /**
@@ -277,15 +296,20 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest> = {
     pane,
     paneId,
     launch,
-  }: HarnessPrepareRequest<OpencodeLaunchRequest>): Promise<void> {
-    const configDir = writeOpencodeStaging({
+    config,
+  }: HarnessPrepareRequest<
+    OpencodeLaunchRequest,
+    OpencodeConfig
+  >): Promise<void> {
+    const { configDir, explicitConfigFile } = writeOpencodeStaging({
       subagentId: launch.subagentId,
       systemPromptFile: launch.systemPromptFile,
       toolSelection: launch.toolSelection,
+      configInclude: config.configInclude,
     });
     await installPaneLauncher(pane, paneId, {
       commandName: OPENCODE_COMMAND,
-      body: launcherBody(configDir, launch.taskFile),
+      body: launcherBody(configDir, launch.taskFile, explicitConfigFile),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,
       proof: definitionProof(launch.subagentId),

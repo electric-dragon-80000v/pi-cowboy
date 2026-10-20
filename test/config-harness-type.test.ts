@@ -36,6 +36,7 @@ function memoryIO(
       projectStatus: project === null ? "untrusted" : "loaded",
     }),
     isGlobalWritable: () => true,
+    paths: () => ({ global: "config.json" }),
     saveGlobal: (config) => {
       savedGlobal.push(structuredClone(config));
     },

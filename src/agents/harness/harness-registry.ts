@@ -21,7 +21,7 @@
  * the wall holds a `RegisteredHarness` and never branches on origin.
  */
 
-import { assertNever } from "../../utils.js";
+import { assertNever, errorMessage } from "../../utils.js";
 import {
   isAvailable,
   isProven,
@@ -35,6 +35,7 @@ import {
   type AnyHarnessId,
   type BuiltinLaunchRequest,
   type Harness,
+  type HarnessConfigIssue,
   type HarnessFamily,
   type HarnessId,
   type HarnessLaunch,
@@ -176,6 +177,9 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
   return {
     id,
     displayName: BUILTIN_DISPLAY_NAMES[id],
+    // The codec is what `validateConfigs` reads for a built-in too, so the
+    // uniform entry carries it.
+    config: harness.config,
     agentMultiplexerKind: harness.agentMultiplexerKind,
     availability: () => harness.availability(),
     prepare: (request) =>
@@ -186,6 +190,7 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
           paneId: request.paneId,
           cwd: request.cwd,
           launch,
+          config: request.config,
         }),
       ),
     buildArgs: (launch) =>
@@ -219,6 +224,23 @@ export interface HarnessRegistry {
   /** The harness for one id, or undefined for an id nothing registered. */
   get(id: AnyHarnessId): RegisteredHarness | undefined;
   /**
+   * Validate every registered harness's configuration section against the
+   * session's raw layers, recording the value its launch reads. A codec that
+   * declares no project scope receives no project slice; one that throws takes
+   * its harness out of the session's vocabulary instead of ending startup.
+   */
+  validateConfigs(
+    layers: {
+      readonly global: Readonly<
+        Record<string, Readonly<Record<string, unknown>>>
+      >;
+      readonly project: Readonly<
+        Record<string, Readonly<Record<string, unknown>>>
+      >;
+    },
+    report: (id: AnyHarnessId, issue: HarnessConfigIssue) => void,
+  ): void;
+  /**
    * The harness for one id. A caller that reaches here has already narrowed the
    * id to a registered one (config resolve, request refusal), so an unregistered
    * id is a bug to name, not a state to branch on.
@@ -233,6 +255,8 @@ export interface HarnessRegistry {
    * built-in or plugin — needs the probe to have confirmed it.
    */
   runnable(availability: Availability<AnyHarnessId>): AnyHarnessId[];
+  /** The value this harness's codec validated, or undefined when it has none. */
+  config(id: AnyHarnessId): unknown;
   /**
    * Which harness a spawn launches under: the configured one when it is both
    * registered and launchable here, pi otherwise. Registration is checked as
@@ -267,6 +291,8 @@ export function createHarnessRegistry(): HarnessRegistry {
   );
   /** The ids this registry's plugins own, so `unregister` cannot remove another's. */
   const owned = new Set<string>();
+  /** Each harness's validated configuration, stored beside the entry. */
+  const configs = new Map<string, unknown>();
 
   const registry: HarnessRegistry = {
     register(harness) {
@@ -290,12 +316,39 @@ export function createHarnessRegistry(): HarnessRegistry {
       if (!owned.has(id)) return;
       registered.delete(id);
       owned.delete(id);
+      configs.delete(id);
     },
     ids() {
       return [...registered.keys()];
     },
     get(id) {
       return registered.get(id);
+    },
+    validateConfigs(layers, report) {
+      for (const [id, harness] of registered) {
+        const codec = harness.config;
+        if (codec === undefined) continue;
+        const project =
+          codec.scope === "project" ? layers.project[id] : undefined;
+        try {
+          configs.set(
+            id,
+            codec.parse({ global: layers.global[id], project }, (issue) =>
+              report(id, issue),
+            ),
+          );
+        } catch (error) {
+          // `parse` is plugin code. A harness whose codec cannot answer would
+          // hand `prepare` no config at all, so it leaves the session's
+          // vocabulary instead of ending session startup.
+          registered.delete(id);
+          owned.delete(id);
+          configs.delete(id);
+          console.warn(
+            `[subagents] Disabling harness "${id}": its configuration codec failed to parse it (${errorMessage(error)}).`,
+          );
+        }
+      }
     },
     require(id) {
       const harness = registered.get(id);
@@ -311,6 +364,9 @@ export function createHarnessRegistry(): HarnessRegistry {
       return registry
         .ids()
         .filter((id) => isPiFamilyHarness(id) || isProven(id, availability));
+    },
+    config(id) {
+      return configs.get(id);
     },
     resolve(configured, availability) {
       return registered.has(configured) && isAvailable(configured, availability)

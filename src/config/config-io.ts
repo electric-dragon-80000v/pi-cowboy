@@ -83,6 +83,8 @@ export interface RawConfig {
   /** The agent keys validation kept, at the types it accepted. */
   agent?: Partial<SubagentsConfig["agent"]>;
   concurrency?: RawConcurrency;
+  /** Per-harness slices, keyed by harness id, each validated by its harness. */
+  harness?: Record<string, Record<string, unknown>>;
   /** Machine-level: the multiplexer the session runs, by id. */
   multiplexer?: string;
 }
@@ -93,6 +95,12 @@ export interface LoadedConfig {
   projectStatus: ProjectLayerStatus;
 }
 
+/** The files a config layer came from, for warnings the layer formats later. */
+export interface ConfigPaths {
+  readonly global: string;
+  readonly project?: string;
+}
+
 /** Persistence port consumed by ConfigStore. */
 export interface ConfigIO {
   load(): LoadedConfig;
@@ -100,6 +108,8 @@ export interface ConfigIO {
   isGlobalWritable(): boolean;
   saveGlobal(config: RawConfig): void;
   saveProject(config: RawConfig): void;
+  /** The files this load read, for warnings that name them. */
+  paths(): ConfigPaths;
 }
 
 /** Agent keys a project file may set: the model family plus per-type overrides. */
@@ -159,6 +169,10 @@ export function createConfigIO(projectDir?: string): ConfigIO {
       return { global, project: projectRaw, projectStatus };
     },
     isGlobalWritable: () => !globalMalformed,
+    paths: () => ({
+      global: configPath(),
+      project: projectPath ?? undefined,
+    }),
     saveGlobal: (config) => {
       if (globalMalformed) {
         console.warn(

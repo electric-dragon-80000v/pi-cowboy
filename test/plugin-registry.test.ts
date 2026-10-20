@@ -7,12 +7,16 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
-import type { PluginHarness } from "../src/agents/harness.js";
+import type {
+  HarnessConfigCodec,
+  PluginHarness,
+} from "../src/agents/harness.js";
 import {
   createHarnessRegistry,
   harnessFamilyOf,
   type HarnessRegistry,
 } from "../src/agents/harness/harness-registry.js";
+import { opencodeConfigCodec } from "../src/agents/harness/opencode/config.js";
 import { probed, unprobed } from "../src/availability.js";
 import {
   BUILTIN_MULTIPLEXER,
@@ -71,6 +75,35 @@ describe("the open harness registry", () => {
     );
   });
 
+  it("validates each harness's config with its own codec, built-in or plugin", () => {
+    const codec: HarnessConfigCodec = {
+      scope: "global",
+      parse: () => ({ enabled: true }),
+    };
+    harnesses.register({
+      ...pluginHarness("reg-config", { status: "available" }),
+      config: codec,
+    });
+
+    harnesses.validateConfigs(
+      {
+        global: {
+          opencode: { configInclude: ["tools"] },
+          "reg-config": { enabled: false },
+        },
+        project: {},
+      },
+      () => {},
+    );
+
+    expect(harnesses.get("opencode")?.config).toBe(opencodeConfigCodec);
+    expect(harnesses.config("opencode")).toEqual({
+      configInclude: ["tools"],
+    });
+    expect(harnesses.get("reg-config")?.config).toBe(codec);
+    expect(harnesses.config("reg-config")).toEqual({ enabled: true });
+  });
+
   it("dispatches a plugin launch to the plugin's own buildArgs and prepare", async () => {
     const prepare = vi.fn(
       async (_request: Parameters<PluginHarness["prepare"]>[0]) => {},
@@ -102,6 +135,7 @@ describe("the open harness registry", () => {
       paneId: "w1:p1",
       cwd: "/repo",
       launch,
+      config: undefined,
     });
 
     // The plugin reads the shared inputs; nothing built-in-family-specific

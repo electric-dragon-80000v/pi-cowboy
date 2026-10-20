@@ -10,7 +10,7 @@ By default, `<agent dir>` is `~/.pi/agent` (override it with the `PI_CODING_AGEN
 - Project config: `<project dir>/.pi/pi-cowboy/config.json` (loaded only for trusted projects)
 - Custom system prompt: `<agent dir>/pi-cowboy/prompt.md`
 
-Settings live under the `agent` and `concurrency` objects, plus the machine-level `multiplexer` key:
+Settings live under the `agent`, `concurrency`, and `harness` objects, plus the machine-level `multiplexer` key:
 
 ```json
 {
@@ -19,6 +19,11 @@ Settings live under the `agent` and `concurrency` objects, plus the machine-leve
     "default": "anthropic/claude-sonnet-4",
     "defaultThinking": "medium",
     "worktreeMaterialization": "copy-on-write"
+  },
+  "harness": {
+    "opencode": {
+      "configInclude": []
+    }
   },
   "concurrency": {
     "default": 4
@@ -156,6 +161,32 @@ Sets the terminal multiplexer used to host subagent panes, specified by ID. This
 
 `pi-cowboy` requires a registered multiplexer that detects the current environment. If the configured `multiplexer` is unregistered or fails to detect the environment, `pi-cowboy` falls back to the first registered multiplexer whose environment check succeeds (`herdr` first, followed by plugin multiplexers in package-name order). If no registered multiplexer detects the environment, the extension loads its plugins but remains inactive, reporting that it cannot launch panes. Registering a plugin multiplexer allows `pi-cowboy` to operate inside terminal multiplexers other than herdr.
 
+## `harness`
+
+The `harness` object configures individual harnesses, keyed by harness ID. Each harness defines the schema, validation rules, and defaults for its configuration section. Unrecognized IDs retain their raw configuration until a matching plugin registers. Harnesses without custom configuration require no entry.
+
+### `harness.opencode`
+
+Configures the settings an `opencode` subagent inherits from the user's OpenCode configuration (`opencode.json` or `opencode.jsonc`). A file named by `OPENCODE_CONFIG` is filtered and staged alongside them. Because each subagent runs with an isolated `OPENCODE_CONFIG_DIR`, staging this configuration supplies the parent session's providers and models.
+
+By default, the staged configuration copies general settings (including providers, models, and unreserved top-level keys) while excluding `$schema` and the root keys listed below. Excluded roots are omitted unless explicitly included using `configInclude`:
+
+`agent`, `agents`, `autoupdate`, `experimental`, `instructions`, `mode`, `permission`, `permissions`, `plugin`, `plugins`, `policies`, `reference`, `references`, `skills`, `tools`, `update`
+
+MCP servers are copied as a general setting, so a subagent keeps the parent session's MCP tools without any configuration.
+
+| Key                              | Type             | Default | Description                                                                                               |
+| -------------------------------- | ---------------- | ------- | --------------------------------------------------------------------------------------------------------- |
+| `harness.opencode.configInclude` | array of strings | `[]`    | Excluded root keys to copy whole from the parent session's configuration (for example, `"instructions"`). |
+
+Entries in `configInclude` must name one of the excluded keys above; a root is copied whole, with no way to copy part of one. Keys outside the excluded set are rejected as invalid because unexcluded settings are already copied. The `$schema` key is never copied.
+
+To prevent subagents from checking for CLI updates, every spawn launches with `OPENCODE_DISABLE_AUTOUPDATE=1`.
+
+Relative `{file:...}` paths in copied configurations resolve against the directory of the file that contains them.
+
+This is a machine-level setting configured only in the global `config.json`; project configuration files cannot set it. It has no `/cowboy` menu row.
+
 ## `concurrency`
 
 | Key                            | Type             | Default | Description                                                                                                                                                               |
@@ -189,7 +220,7 @@ To keep project configs safe to share in version control, `.pi/pi-cowboy/config.
 - `agent.defaultThinking`
 - `concurrency` limits
 
-Any other recognized `agent` key (such as `defaultAgentType` or `worktreeRoot`) placed in a project file is ignored during merging. The machine-level `multiplexer` key is never read from a project file. Any unrecognized key inside `agent` is treated as an `agent.<agent-type>` model override.
+All other settings in a project file are ignored during merging: any other recognized `agent` key (such as `defaultAgentType` or `worktreeRoot`), the machine-level `multiplexer` key, and `harness.<id>` sections. Harness sections are never merged into the effective configuration layer: because harness settings configure the local machine rather than the repository (for example, `harness.opencode.configInclude` selects local OpenCode configuration to stage), they are read only from the global configuration file. A harness whose codec declares `scope: "project"` receives the project slice directly and decides how the layers combine; built-in harnesses do not opt in. Any unrecognized key inside `agent` is treated as an `agent.<agent-type>` model override.
 
 ### Invalid values
 

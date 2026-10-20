@@ -54,6 +54,7 @@ function createMemory(
       projectStatus: files.projectStatus,
     }),
     isGlobalWritable: () => options.globalWritable ?? true,
+    paths: () => ({ global: "config.json", project: "project config.json" }),
     saveGlobal: (config) => {
       files.global = structuredClone(config);
       saves.push({ layer: "global", config: structuredClone(config) });

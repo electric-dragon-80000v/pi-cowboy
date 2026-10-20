@@ -317,8 +317,9 @@ export class DelegationProtocol {
     }
 
     // An explicit harness is validated here, before any item runs: an unknown
-    // id and one this machine cannot launch both refuse, because an explicit
-    // request never falls back to pi. Nothing was spawned either way.
+    // id, one this machine cannot launch, and one whose configuration codec
+    // failed all refuse, because an explicit request never falls back to pi.
+    // Nothing was spawned either way.
     const requestedHarness = resolveRequestedHarness(params.harness_type);
 
     // The harness the launch will use, resolved the way the launch resolves it.

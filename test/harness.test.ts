@@ -145,14 +145,29 @@ function prepareRequest<K extends HarnessId>(
   id: K,
   paneId: string,
 ): HarnessPrepareRequest<LaunchRequestFor<K>> {
-  return { pi: PI, pane: PANE, paneId, cwd: "/repo", launch: LAUNCHES[id] };
+  return {
+    pi: PI,
+    pane: PANE,
+    paneId,
+    cwd: "/repo",
+    launch: LAUNCHES[id],
+    config: undefined,
+  };
 }
+
+/** The user opencode config env, put back after every test. */
+let realOpencodeConfigDir: string | undefined;
+let realOpencodeConfig: string | undefined;
 
 beforeEach(() => {
   realTmpdir = process.env.TMPDIR;
   tmpRoot = mkdtempSync(join(tmpdir(), "cowboy-harness-"));
   madeRoots.push(tmpRoot);
   process.env.TMPDIR = tmpRoot;
+  realOpencodeConfigDir = process.env.OPENCODE_CONFIG_DIR;
+  realOpencodeConfig = process.env.OPENCODE_CONFIG;
+  delete process.env.OPENCODE_CONFIG_DIR;
+  delete process.env.OPENCODE_CONFIG;
 });
 
 afterEach(() => {
@@ -161,6 +176,16 @@ afterEach(() => {
   removeOpencodeStaging("esp02hpw");
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  if (realOpencodeConfigDir === undefined) {
+    delete process.env.OPENCODE_CONFIG_DIR;
+  } else {
+    process.env.OPENCODE_CONFIG_DIR = realOpencodeConfigDir;
+  }
+  if (realOpencodeConfig === undefined) {
+    delete process.env.OPENCODE_CONFIG;
+  } else {
+    process.env.OPENCODE_CONFIG = realOpencodeConfig;
+  }
   for (const root of madeRoots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -447,6 +472,7 @@ describe("prepare: opencode", () => {
       paneId,
       cwd: "/repo",
       launch: opencodeLaunch(),
+      config: { configInclude: [] },
     });
   }
 
@@ -458,7 +484,7 @@ describe("prepare: opencode", () => {
       1,
       PI,
       "w1:p9",
-      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; command opencode "$@" < '${taskFile}'; }`,
+      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" < '${taskFile}'; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
@@ -480,6 +506,65 @@ describe("prepare: opencode", () => {
       "utf-8",
     );
     expect(definition).toContain("You review one diff.");
+  });
+
+  it("points the launcher at the staged copy of an explicit config file", async () => {
+    const explicitFile = inTmpRoot("dotfiles.json");
+    writeFileSync(
+      explicitFile,
+      JSON.stringify({ provider: { test: {} }, mcp: { parent: {} } }),
+    );
+    process.env.OPENCODE_CONFIG = explicitFile;
+
+    await prepareOpencode();
+
+    const configDir = opencodeConfigDir("esp02hpw");
+    expect(runInPaneMock.mock.calls[0][2]).toContain(
+      `export OPENCODE_CONFIG='${join(configDir, "explicit-config.json")}'`,
+    );
+    expect(
+      JSON.parse(
+        readFileSync(join(configDir, "explicit-config.json"), "utf-8"),
+      ),
+    ).toEqual({ provider: { test: {} }, mcp: { parent: {} } });
+  });
+
+  it("reads its config include from the prepare request", async () => {
+    const parentDir = inTmpRoot("parent-opencode");
+    mkdirSync(parentDir, { recursive: true });
+    writeFileSync(
+      join(parentDir, "opencode.json"),
+      JSON.stringify({
+        provider: { test: {} },
+        instructions: ["AGENTS.md"],
+      }),
+    );
+    const realConfigDir = process.env.OPENCODE_CONFIG_DIR;
+    process.env.OPENCODE_CONFIG_DIR = parentDir;
+    try {
+      await harnessFor("opencode").prepare({
+        pi: PI,
+        pane: PANE,
+        paneId: "w1:p9",
+        cwd: "/repo",
+        launch: opencodeLaunch(),
+        config: { configInclude: ["instructions"] },
+      });
+
+      const staged: unknown = JSON.parse(
+        readFileSync(
+          join(opencodeConfigDir("esp02hpw"), "opencode.json"),
+          "utf-8",
+        ),
+      );
+      expect(staged).toEqual({
+        provider: { test: {} },
+        instructions: ["AGENTS.md"],
+      });
+    } finally {
+      if (realConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+      else process.env.OPENCODE_CONFIG_DIR = realConfigDir;
+    }
   });
 
   it("reads the definition back through a private server and requires the staged agent", async () => {
@@ -535,6 +620,7 @@ describe("prepare: opencode", () => {
         paneId: "w1:p9",
         cwd: "/repo",
         launch: { ...launch, systemPromptFile: join(tmpdir(), "gone.md") },
+        config: { configInclude: [] },
       }),
     ).rejects.toThrow(/ENOENT/);
     expect(runInPaneMock).not.toHaveBeenCalled();
@@ -574,6 +660,7 @@ describe("prepare: codex", () => {
       paneId,
       cwd: "/repo",
       launch: codexLaunch(),
+      config: undefined,
     });
   }
 
@@ -1319,6 +1406,7 @@ describe("teardown", () => {
       subagentId: "esp02hpw",
       systemPromptFile: stagedPrompt(),
       toolSelection: { kind: "default" },
+      configInclude: [],
     });
     expect(existsSync(configDir)).toBe(true);
 

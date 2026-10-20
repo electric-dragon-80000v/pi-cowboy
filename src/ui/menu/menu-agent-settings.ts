@@ -66,17 +66,20 @@ function harnessDescription(availability: Availability<AnyHarnessId>): string {
   );
   const withMissing =
     missing.length === 0 ? base : `${base} Not on PATH: ${missing.join(", ")}.`;
+  const harnesses = getHarnessRegistry();
   // A plugin's harness is as launchable a default as a built-in's; name the ones
   // this machine registered so the row lists everything the value can carry.
-  const harnesses = getHarnessRegistry();
-  const plugins = harnesses
-    .ids()
-    .filter(
-      (id) => parseHarnessId(id) === undefined && isAvailable(id, availability),
-    );
+  const plugins = offerableHarnesses().filter(
+    (id) => parseHarnessId(id) === undefined,
+  );
   return plugins.length === 0
     ? withMissing
     : `${withMissing} Plugin harnesses: ${plugins.map((id) => harnesses.displayName(id)).join(", ")}.`;
+}
+
+/** The harnesses the row offers: registered and launchable here. */
+function offerableHarnesses(): AnyHarnessId[] {
+  return [...selectable(getHarnessRegistry().ids(), getHarnessAvailability())];
 }
 
 export async function showSpawnOptionsMenu(
@@ -143,9 +146,7 @@ export async function showSpawnOptionsMenu(
         id: "harnessType",
         label: "Default harness",
         currentValue: getHarnessType(),
-        values: [
-          ...selectable(getHarnessRegistry().ids(), getHarnessAvailability()),
-        ],
+        values: offerableHarnesses(),
         description: harnessDescription(getHarnessAvailability()),
       },
       { id: SEPARATOR_ID, label: " ", currentValue: "" },

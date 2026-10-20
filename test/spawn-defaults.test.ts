@@ -205,6 +205,32 @@ describe("spawn-defaults — harness", () => {
     expect(resolveHarnessType("plugin-agent")).toBe("sd-plugin");
   });
 
+  it("treats a harness whose codec failed as unregistered", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = getHarnessRegistry();
+    registry.register({
+      ...pluginHarness("sd-broken"),
+      config: {
+        scope: "global",
+        parse: () => {
+          throw new Error("bad slice");
+        },
+      },
+    });
+    registry.validateConfigs({ global: {}, project: {} }, () => {});
+
+    expect(registry.get("sd-broken")).toBeUndefined();
+    expect(requestedHarnessId("sd-broken")).toBeUndefined();
+    expect(() => resolveRequestedHarness("sd-broken")).toThrow(
+      /Unknown harness_type "sd-broken"/,
+    );
+
+    configured.harnessAvailability = probed(["sd-broken"]);
+    configured.harnessType = "sd-broken";
+    expect(resolveHarnessType("general-purpose")).toBe("pi");
+    vi.restoreAllMocks();
+  });
+
   it("lets the caller's harness_type win over both the template and the config setting", () => {
     configured.harnessType = "pi";
 

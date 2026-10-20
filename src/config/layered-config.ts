@@ -13,6 +13,7 @@ import {
   mergeDefaults,
   mergeLayers,
   type ConfigIO,
+  type ConfigPaths,
   type ConfigTarget,
   type LoadedConfig,
   type RawConfig,
@@ -51,6 +52,11 @@ export class LayeredConfig {
     const loaded = io.load();
     this.globalRaw = loaded.global;
     this.projectLayer = projectLayerFrom(loaded);
+  }
+
+  /** The files the current layers came from, for warnings formatted after load. */
+  get paths(): ConfigPaths {
+    return this.io.paths();
   }
 
   /** Project file over global file over the built-in defaults. */

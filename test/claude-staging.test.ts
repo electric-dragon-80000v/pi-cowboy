@@ -333,6 +333,7 @@ describe("prepare", () => {
       paneId,
       cwd: tmpRoot,
       launch: launchInputs({ taskFile }),
+      config: undefined,
     });
   }
 
@@ -374,6 +375,7 @@ describe("prepare", () => {
         taskFile,
         toolSelection: { kind: "include", names: ["Bash", "Read"] },
       }),
+      config: undefined,
     });
 
     // `--tools` / `--disallowedTools` take `<tools...>`: without the `--`, the

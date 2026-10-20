@@ -43,6 +43,7 @@ export function createMemoryStore(
       projectStatus: options.projectStatus ?? "untrusted",
     }),
     isGlobalWritable: () => true,
+    paths: () => ({ global: "config.json" }),
     saveGlobal: (config) => {
       writes.push({ layer: "global", config });
       globalConfig = config;
