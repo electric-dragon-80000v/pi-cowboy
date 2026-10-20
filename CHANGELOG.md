@@ -1,3 +1,11 @@
+## [0.17.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.1...v0.17.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* copy minimal opencode.jsonc subset for subagent ([d38ffeb](https://github.com/electric-dragon-80000v/pi-cowboy/commit/d38ffeb43264b244d70b2c3cca7e159042ea86f3))
+* **harness/opencode:** link parent user config into staged config dir ([b2bfab9](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b2bfab97939a6da85e148d012dbdbe03d5d160ce)), closes [#24](https://github.com/electric-dragon-80000v/pi-cowboy/issues/24)
+
 ## [0.17.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.0...v0.17.1) (2026-10-19)
 
 
