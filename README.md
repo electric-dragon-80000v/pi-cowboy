@@ -28,7 +28,7 @@ Give each agent a smaller, isolated subtask. A single task with clear instructio
 
 Multiple agents can edit, build, and run tests at the same time without interfering with each other. Copy-on-write worktrees make high parallelism practical by keeping disk usage small even when your repository is in the magnitude of gigabytes.
 
-The numbers below come from a Git repository with 153,607 files in total (479 MiB tracked, 27 GiB total including untracked files):
+The numbers below come from a Git repository on macOS with 153,607 files in total (479 MiB tracked, 27 GiB total including untracked files):
 
 | Method                                         | Including untracked | Size on disk |
 | ---------------------------------------------- | ------------------- | ------------ |
