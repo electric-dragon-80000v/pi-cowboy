@@ -221,15 +221,40 @@ function toolArgs(request: ClaudeLaunchRequest): string[] {
 }
 
 /**
+ * claude's effort levels: the values `--effort` accepts, verified against the
+ * installed CLI. The CLI enumerates nothing per model, so every alias carries
+ * the same list rather than a guess at which levels its model supports.
+ */
+const CLAUDE_THINKING_LEVELS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+/**
  * Every model this harness offers, as `anthropic/<alias>` keys. claude's CLI
  * has no list command, so this list is curated, not discovered: each alias was
  * seen to answer on the real CLI, and an alias that was seen refused stays
  * off. A menu therefore offers only models a launch can actually run.
  */
 const CLAUDE_MODELS: readonly ModelEntry[] = [
-  { key: "anthropic/haiku", label: "haiku" },
-  { key: "anthropic/sonnet", label: "sonnet" },
-  { key: "anthropic/opus", label: "opus" },
+  {
+    key: "anthropic/haiku",
+    label: "haiku",
+    thinkingLevels: CLAUDE_THINKING_LEVELS,
+  },
+  {
+    key: "anthropic/sonnet",
+    label: "sonnet",
+    thinkingLevels: CLAUDE_THINKING_LEVELS,
+  },
+  {
+    key: "anthropic/opus",
+    label: "opus",
+    thinkingLevels: CLAUDE_THINKING_LEVELS,
+  },
 ];
 
 export const claudeHarness: Harness<ClaudeLaunchRequest> = {
@@ -299,7 +324,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
   },
   // The list is a constant, not a fetch: claude offers no enumeration command,
   // so there is nothing to memoize, nothing to warm, and nothing that can fail.
-  listModels: () => Promise.resolve(CLAUDE_MODELS),
+  listModels: () => Promise.resolve({ kind: "listed", entries: CLAUDE_MODELS }),
   prefetchModels: (_pi: ExtensionAPI) => {},
   // Best effort and idempotent: the staged tree is this harness's only
   // filesystem state, and a launch that failed before prepare staged nothing.

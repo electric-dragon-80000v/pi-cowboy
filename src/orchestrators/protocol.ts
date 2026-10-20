@@ -68,6 +68,7 @@ import {
   getPiInstance,
   getSessionCtx,
   getStore,
+  piModelCatalog,
 } from "../shell.js";
 import { BUILTIN_MULTIPLEXER } from "../agents/multiplexer-registry.js";
 import {
@@ -75,7 +76,11 @@ import {
   modelSelectionName,
   parseThinkingLevel,
 } from "../utils.js";
-import type { AnyHarnessId } from "../agents/harness.js";
+import {
+  modelListEntries,
+  modelListNotice,
+  type AnyHarnessId,
+} from "../agents/harness.js";
 import type { OrchestratorConfig } from "./types.js";
 import {
   queuedCueContext,
@@ -334,11 +339,18 @@ export class DelegationProtocol {
         harness,
         registry: ctx.modelRegistry,
         parent: ctx.model,
-        listModels: (foreign) =>
-          getHarnessRegistry().require(foreign).listModels({
-            pi: getPiInstance(),
-            modelCatalog: ctx.modelRegistry,
-          }),
+        listModels: async (foreign) => {
+          const list = await getHarnessRegistry()
+            .require(foreign)
+            .listModels({
+              pi: getPiInstance(),
+              modelCatalog: piModelCatalog(ctx.modelRegistry),
+            });
+          const notice = modelListNotice(list);
+          if (notice !== undefined && ctx.hasUI)
+            ctx.ui.notify(notice, "warning");
+          return modelListEntries(list);
+        },
         notify: (message) => ctx.ui.notify(message, "warning"),
       },
     );

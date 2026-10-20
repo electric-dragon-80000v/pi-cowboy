@@ -31,6 +31,8 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   isPiFamilyHarness,
+  modelListEntries,
+  modelListNotice,
   parseHarnessId,
   type AnyHarnessId,
   type BuiltinLaunchRequest,
@@ -41,6 +43,7 @@ import {
   type HarnessLaunch,
   type HarnessListModelsRequest,
   type LaunchRequestFor,
+  type ModelList,
   type PiFamilyLaunchRequest,
   type PluginHarness,
 } from "../harness.js";
@@ -272,12 +275,13 @@ export interface HarnessRegistry {
    * One model list per runnable harness, each answering for itself, read once
    * when a menu tree opens so every picker under it selects from the same
    * answer. A harness whose list could not be produced is present with an empty
-   * list: "no models" belongs to that harness alone.
+   * list: "no models" belongs to that harness alone. A harness that could not
+   * answer for itself contributes a notice for the caller to show.
    */
   listModelOptions(
     request: HarnessListModelsRequest,
     availability: Availability<AnyHarnessId>,
-  ): Promise<HarnessModelOptions>;
+  ): Promise<HarnessModelListing>;
 }
 
 /**
@@ -374,23 +378,37 @@ export function createHarnessRegistry(): HarnessRegistry {
         : DEFAULT_HARNESS;
     },
     async listModelOptions(request, availability) {
-      const entries = await Promise.all(
-        registry
-          .runnable(availability)
-          .map(
-            async (id): Promise<readonly [AnyHarnessId, readonly string[]]> => {
-              try {
-                const models = await registry.require(id).listModels(request);
-                return [id, models.map((entry) => entry.key)];
-              } catch {
-                // `listModels` is not supposed to throw; one that does costs its
-                // own list, never the others'.
-                return [id, []];
-              }
-            },
-          ),
+      const answered = await Promise.all(
+        registry.runnable(availability).map(async (id) => {
+          try {
+            return { id, list: await registry.require(id).listModels(request) };
+          } catch (error) {
+            // `listModels` is not supposed to throw; one that does costs its
+            // own list, never the others'.
+            return {
+              id,
+              list: {
+                kind: "unavailable",
+                notice: `Could not list the ${registry.displayName(id)} models (${errorMessage(error)}).`,
+              } satisfies ModelList,
+            };
+          }
+        }),
       );
-      return new Map(entries);
+      const options = new Map(
+        answered.map(
+          (answer) =>
+            [
+              answer.id,
+              modelListEntries(answer.list).map((e) => e.key),
+            ] as const,
+        ),
+      );
+      const notices = answered.flatMap((answer) => {
+        const notice = modelListNotice(answer.list);
+        return notice === undefined ? [] : [notice];
+      });
+      return { options, notices };
     },
   };
   return registry;
@@ -414,6 +432,16 @@ export function harnessFamilyOf(id: AnyHarnessId): HarnessFamily | undefined {
  * another's.
  */
 export type HarnessModelOptions = ReadonlyMap<AnyHarnessId, readonly string[]>;
+
+/**
+ * One read of every harness's list: the keys for the menus, and one line per
+ * harness whose keys are not its own catalog's, for the caller that holds a UI
+ * to show them on.
+ */
+export interface HarnessModelListing {
+  readonly options: HarnessModelOptions;
+  readonly notices: readonly string[];
+}
 
 /**
  * The one merged view of the per-harness structure: every harness's keys, once

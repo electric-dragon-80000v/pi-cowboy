@@ -32,7 +32,11 @@ import * as path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { CodexLaunchRequest } from "../src/agents/harness.js";
+import {
+  modelListEntries,
+  modelListNotice,
+  type CodexLaunchRequest,
+} from "../src/agents/harness.js";
 import { codexHarness } from "../src/agents/harness/codex.js";
 import { commandPath } from "../src/infrastructure/exec-path.js";
 
@@ -301,10 +305,13 @@ describe.skipIf(codexMissing)("codex launch flags against the real CLI", () => {
       },
     } as unknown as ExtensionAPI;
 
-    const models = await codexHarness.listModels({
+    const list = await codexHarness.listModels({
       pi,
       modelCatalog: { getAvailable: () => [] },
     });
+    // A CLI that answered is the harness's own catalogue, with nothing to tell.
+    expect(list.kind).toBe("listed");
+    const models = modelListEntries(list);
 
     expect(runs).toHaveLength(1);
     const catalog: unknown = JSON.parse(stdout);
@@ -315,6 +322,7 @@ describe.skipIf(codexMissing)("codex launch flags against the real CLI", () => {
       (catalog as { models?: unknown }).models as {
         slug?: unknown;
         visibility?: unknown;
+        supported_reasoning_levels?: { effort?: unknown }[];
       }[]
     ).filter((model) => model.visibility === "list");
     expect(listed.length).toBeGreaterThan(0);
@@ -325,6 +333,58 @@ describe.skipIf(codexMissing)("codex launch flags against the real CLI", () => {
       listed.map((model) => `openai/${String(model.slug)}`),
     );
     expect(models.every((entry) => /^openai\/\S+$/.test(entry.key))).toBe(true);
+    // Each entry carries the levels the bundled catalog declares for it, so a
+    // level a model does not support is never offered.
+    expect(models.map((entry) => entry.thinkingLevels)).toEqual(
+      listed.map((model) =>
+        (model.supported_reasoning_levels ?? []).map((level) =>
+          String(level.effort),
+        ),
+      ),
+    );
+  });
+
+  it("falls back to a built-in catalogue the live CLI still names, with its levels", async () => {
+    const bin = codexBinary();
+    const { stdout } = await execFileAsync(
+      bin,
+      ["debug", "models", "--bundled"],
+      { env: launchEnv(), cwd: workdir },
+    );
+    const live = modelListEntries(
+      await codexHarness.listModels({
+        pi: {
+          exec: async () => ({ code: 0, stdout, stderr: "" }),
+        } as unknown as ExtensionAPI,
+        modelCatalog: { getAvailable: () => [] },
+      }),
+    );
+
+    // A CLI that cannot answer is the only way the fallback is read.
+    const answer = await codexHarness.listModels({
+      pi: {
+        exec: async () => ({ code: 1, stdout: "", stderr: "boom" }),
+      } as unknown as ExtensionAPI,
+      modelCatalog: { getAvailable: () => [] },
+    });
+
+    expect(answer.kind).toBe("fallback");
+    expect(modelListNotice(answer)).toContain("boom");
+    const fallback = modelListEntries(answer);
+    expect(fallback.length).toBeGreaterThan(0);
+    // A stale fallback is worse than none: every key it offers, at the levels it
+    // claims, must still be one this CLI names. A CLI release that dropped a
+    // model or a level fails here instead of offering a spawn that cannot run.
+    const liveKeys = new Set(live.map((entry) => entry.key));
+    expect(
+      fallback.map((entry) => entry.key).filter((key) => !liveKeys.has(key)),
+    ).toEqual([]);
+    const liveLevels = new Map(
+      live.map((entry) => [entry.key, entry.thinkingLevels]),
+    );
+    expect(fallback.map((entry) => [entry.key, entry.thinkingLevels])).toEqual(
+      fallback.map((entry) => [entry.key, liveLevels.get(entry.key)]),
+    );
   });
 });
 

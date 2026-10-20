@@ -40,6 +40,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { z } from "zod";
 import { commandPath } from "../../infrastructure/exec-path.js";
 import type {
   CodexLaunchRequest,
@@ -108,19 +109,98 @@ function codexModelFlag(modelKey: string | null): string | null {
   return slug === "" ? modelKey : slug;
 }
 
-/** Warns with the `[subagents]` prefix every other config-plane warning carries. */
-function warnListModels(reason: string): void {
-  console.warn(
-    `[subagents] Could not list the codex models: ${reason}. The Codex Default Model row offers no models until the command answers.`,
-  );
+/**
+ * The catalogue this harness offers when the CLI cannot answer: the bundled
+ * models as the real command was verified to report them here. A fallback,
+ * never a second source of truth — the CLI's own answer always replaces it.
+ */
+const CODEX_FALLBACK_MODELS: readonly ModelEntry[] = [
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-6-astra`,
+    label: "GPT-6-Astra",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-6.1-sol`,
+    label: "GPT-6.1-Sol",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-6-sol`,
+    label: "GPT-6-Sol",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-6-luna`,
+    label: "GPT-6-Luna",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-5.6-sol`,
+    label: "GPT-5.6-Sol",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-5.6-terra`,
+    label: "GPT-5.6-Terra",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-5.6-luna`,
+    label: "GPT-5.6-Luna",
+    thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
+  },
+  {
+    key: `${CODEX_KEY_PREFIX}gpt-5.5`,
+    label: "GPT-5.5",
+    thinkingLevels: ["low", "medium", "high", "xhigh"],
+  },
+];
+
+/**
+ * The catalogue's envelope: one object per model. An entry that is not listed
+ * is skipped before the model schema reads it, so this only has to be loose
+ * enough to keep every key around for that later read.
+ */
+const CodexCatalogSchema = z.object({
+  models: z.array(z.looseObject({ visibility: z.string().optional() })),
+});
+
+/** One reasoning level, as the catalogue declares it. */
+const CodexReasoningLevelSchema = z.object({ effort: z.string().min(1) });
+
+/**
+ * One listed model, as far as this harness reads it. A model without
+ * `supported_reasoning_levels` has no reasoning control.
+ */
+const CodexModelSchema = z.object({
+  slug: z.string().regex(/^\S+$/),
+  visibility: z.literal("list"),
+  display_name: z.string().optional(),
+  supported_reasoning_levels: z.array(CodexReasoningLevelSchema).optional(),
+});
+
+/** One listed model, as the schema read it. */
+type CodexModel = z.infer<typeof CodexModelSchema>;
+
+/** One listed model as the catalogue entry a spawn selects. */
+function codexEntry(model: CodexModel): ModelEntry {
+  const name = model.display_name;
+  return {
+    key: `${CODEX_KEY_PREFIX}${model.slug}`,
+    label: name !== undefined && name !== "" ? name : model.slug,
+    thinkingLevels: (model.supported_reasoning_levels ?? []).map(
+      (level) => level.effort,
+    ),
+  };
 }
 
 /**
  * The parsed list, or undefined when the output is a shape this parser does
- * not recognize. Unlisted entries are skipped before anything is validated, so
- * an oddly-shaped hidden entry cannot blank the catalogue; a listed entry
- * without a usable slug means this is not the assumed shape, so nothing here
- * is trustworthy.
+ * not recognize. Unlisted entries are skipped before anything is read, so an
+ * oddly-shaped hidden entry cannot blank the catalogue; a listed entry the
+ * schema rejects means this is not the assumed shape, so nothing here is
+ * trustworthy.
  */
 function parseCodexModels(stdout: string): readonly ModelEntry[] | undefined {
   let parsed: unknown;
@@ -129,55 +209,50 @@ function parseCodexModels(stdout: string): readonly ModelEntry[] | undefined {
   } catch {
     return undefined;
   }
-  if (typeof parsed !== "object" || parsed === null) return undefined;
-  const models: unknown = (parsed as { models?: unknown }).models;
-  if (!Array.isArray(models)) return undefined;
+  const catalog = CodexCatalogSchema.safeParse(parsed);
+  if (!catalog.success) return undefined;
   const entries: ModelEntry[] = [];
-  for (const model of models) {
-    if (typeof model !== "object" || model === null) return undefined;
-    const record = model as Record<string, unknown>;
-    if (record.visibility !== "list") continue;
-    const { slug, display_name: displayName } = record;
-    if (typeof slug !== "string" || slug === "" || /\s/.test(slug)) {
-      return undefined;
-    }
-    entries.push({
-      key: `${CODEX_KEY_PREFIX}${slug}`,
-      label:
-        typeof displayName === "string" && displayName !== ""
-          ? displayName
-          : slug,
-    });
+  for (const model of catalog.data.models) {
+    if (model.visibility !== "list") continue;
+    const listed = CodexModelSchema.safeParse(model);
+    if (!listed.success) return undefined;
+    entries.push(codexEntry(listed.data));
   }
   return entries;
 }
 
-/** Runs the CLI, then parses. Every failure mode resolves `[]`. */
-async function listCodexModels(
-  pi: ExtensionAPI,
-): Promise<readonly ModelEntry[]> {
-  let stdout: string;
+/** One list read: the CLI's own catalogue, or the fallback standing in for it. */
+type ModelListAnswer =
+  | { readonly kind: "listed"; readonly entries: readonly ModelEntry[] }
+  | {
+      readonly kind: "fallback";
+      readonly entries: readonly ModelEntry[];
+      /** Why the catalogue is the fallback's, for the caller to show. */
+      readonly notice: string;
+    };
+
+/** Runs the CLI, then parses. A list the CLI cannot answer is the fallback. */
+async function listCodexModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
+  let reason: string;
   try {
     const result = await pi.exec("codex", ["debug", "models", "--bundled"], {
       timeout: LIST_MODELS_TIMEOUT_MS,
     });
-    if (result.code !== 0) {
-      warnListModels(
-        `\`codex debug models --bundled\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`,
-      );
-      return [];
+    if (result.code === 0) {
+      const entries = parseCodexModels(result.stdout);
+      if (entries !== undefined) return { kind: "listed", entries };
+      reason = "unrecognized output";
+    } else {
+      reason = `\`codex debug models --bundled\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`;
     }
-    stdout = result.stdout;
   } catch (err) {
-    warnListModels(err instanceof Error ? err.message : String(err));
-    return [];
+    reason = err instanceof Error ? err.message : String(err);
   }
-  const entries = parseCodexModels(stdout);
-  if (entries === undefined) {
-    warnListModels("unrecognized output");
-    return [];
-  }
-  return entries;
+  return {
+    kind: "fallback",
+    entries: CODEX_FALLBACK_MODELS,
+    notice: `Could not list the codex models (${reason}); using the built-in defaults.`,
+  };
 }
 
 /**
@@ -188,24 +263,22 @@ async function listCodexModels(
  * the keying is strictness for tests and embedders, which also keeps cases
  * from leaking answers into each other with no reset helper). An empty
  * answer reads exactly like a failed list, so it is forgotten and the next
- * read retries instead of pinning an empty row.
+ * read retries instead of pinning an empty row; a fallback is a usable
+ * answer and is kept.
  */
-const modelFetches = new WeakMap<
-  ExtensionAPI,
-  Promise<readonly ModelEntry[]>
->();
+const modelFetches = new WeakMap<ExtensionAPI, Promise<ModelListAnswer>>();
 
 /** The models for this caller, fetching once and memoizing the answer. */
-function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
+function fetchModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
   const existing = modelFetches.get(pi);
   if (existing !== undefined) return existing;
   const fetch = listCodexModels(pi);
   modelFetches.set(pi, fetch);
-  // listModels never rejects — every failure mode resolves [] — so the
-  // rejection arm only guards the contract, never the CLI.
+  // listCodexModels never rejects — every failure mode resolves an answer — so
+  // the rejection arm only guards the contract, never the CLI.
   void fetch.then(
-    (models) => {
-      if (models.length === 0) modelFetches.delete(pi);
+    (answer) => {
+      if (answer.entries.length === 0) modelFetches.delete(pi);
     },
     () => {
       modelFetches.delete(pi);
@@ -266,9 +339,8 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   },
   // codex reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
-  // boot warm and every menu select ride one CLI run. Returned unwrapped, so
-  // every joiner holds the one shared promise — an `async` wrapper would mint
-  // a copy per call.
+  // boot warm and every menu select ride one CLI run. The answer carries its
+  // reason when it is the fallback's, so every reader sees why.
   listModels: ({ pi }) => fetchModels(pi),
   prefetchModels: (pi) => {
     void fetchModels(pi);

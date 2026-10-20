@@ -15,7 +15,7 @@ import {
   prefetchHarnessModels,
   startHarnessAvailabilityProbe,
 } from "../src/harness-availability-launch.js";
-import type { PluginHarness } from "../src/agents/harness.js";
+import type { ModelList, PluginHarness } from "../src/agents/harness.js";
 import {
   getHarnessAvailability,
   getHarnessRegistry,
@@ -115,8 +115,15 @@ describe("prefetchHarnessModels", () => {
     return { pi: { exec } as unknown as ExtensionAPI, exec };
   }
 
-  /** `listModels` the way registration calls it: pi plus a catalog. */
-  function listOpencode(pi: ExtensionAPI): Promise<unknown> {
+  /** One `opencode api GET /api/model` answer holding one model. */
+  function opencodeModelApi(): string {
+    return JSON.stringify({
+      data: [{ providerID: "anthropic", id: "claude-opus-4" }],
+    });
+  }
+
+  /** `listModels` the way registration calls it: pi and a catalog. */
+  function listOpencode(pi: ExtensionAPI): Promise<ModelList> {
     return getHarnessRegistry()
       .require("opencode")
       .listModels({
@@ -153,7 +160,7 @@ describe("prefetchHarnessModels", () => {
     const dir = freshPath();
     executable(dir, "opencode", "opencode v2.0.28");
     startHarnessAvailabilityProbe();
-    const { pi, exec } = answeringPi("anthropic/claude-opus-4\n");
+    const { pi, exec } = answeringPi(opencodeModelApi());
 
     // Boot warms without awaiting, exactly like the probes.
     prefetchHarnessModels(pi);
@@ -161,30 +168,34 @@ describe("prefetchHarnessModels", () => {
     expect(exec).toHaveBeenCalledTimes(1);
 
     // Registration's read path joins the warm instead of shelling out again.
-    await expect(listOpencode(pi)).resolves.toEqual([
-      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
-    ]);
+    await expect(listOpencode(pi)).resolves.toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "anthropic/claude-opus-4",
+          label: "claude-opus-4",
+          thinkingLevels: [],
+        },
+      ],
+    });
     expect(exec).toHaveBeenCalledTimes(1);
   });
 
-  it("forgets an empty answer so the next read retries", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      const dir = freshPath();
-      executable(dir, "opencode", "opencode v2.0.28");
-      startHarnessAvailabilityProbe();
-      const { pi, exec } = answeringPi("", 1);
+  it("forgets a failed answer so the next read retries, with its reason each run", async () => {
+    const dir = freshPath();
+    executable(dir, "opencode", "opencode v2.0.28");
+    startHarnessAvailabilityProbe();
+    const { pi, exec } = answeringPi("", 1);
 
-      await expect(listOpencode(pi)).resolves.toEqual([]);
-      await Promise.resolve();
+    const first = await listOpencode(pi);
+    await Promise.resolve();
 
-      // The next read starts a fresh run instead of pinning the empty row.
-      await expect(listOpencode(pi)).resolves.toEqual([]);
-      expect(exec).toHaveBeenCalledTimes(2);
-      expect(warn).toHaveBeenCalled();
-    } finally {
-      warn.mockRestore();
-    }
+    // The next read starts a fresh run instead of pinning the empty row, and
+    // every failed run answers with the reason rather than once per session.
+    const second = await listOpencode(pi);
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(first.kind).toBe("unavailable");
+    expect(second).toEqual(first);
   });
 });
 
@@ -231,7 +242,7 @@ describe("a harness whose hooks throw", () => {
       prepare: async () => {},
       buildArgs: () => [],
       teardown: async () => {},
-      listModels: async () => [],
+      listModels: async () => ({ kind: "listed", entries: [] }),
       prefetchModels: () => {
         throw new Error(`${id} exploded`);
       },

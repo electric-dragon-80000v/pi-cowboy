@@ -699,7 +699,7 @@ describe("the /cowboy model listing", () => {
     handler: (args: string, ctx: unknown) => Promise<void>;
   }
 
-  /** The `/cowboy` command as registered on a pi that answers `opencode models`. */
+  /** The `/cowboy` command as registered on a pi that answers the opencode model API. */
   function handlerWithOpencode(exec: unknown): CowboyCommand {
     let command: CowboyCommand | undefined;
     const pi = {
@@ -727,12 +727,14 @@ describe("the /cowboy model listing", () => {
     setHarnessAvailability(unprobed());
   });
 
-  it("joins the boot warm, so two menu opens run `opencode models` once", async () => {
+  it("joins the boot warm, so two menu opens run the opencode model API once", async () => {
     install({});
     setHarnessAvailability(probed(["pi", "opencode"]));
     const exec = vi.fn(async () => ({
       code: 0,
-      stdout: "anthropic/claude-opus-4\n",
+      stdout: JSON.stringify({
+        data: [{ providerID: "anthropic", id: "claude-opus-4" }],
+      }),
       stderr: "",
     }));
     const { handler } = handlerWithOpencode(exec);
@@ -756,5 +758,27 @@ describe("the /cowboy model listing", () => {
     expect(exec).toHaveBeenCalledTimes(1);
     expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(1, ctx, listed);
     expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(2, ctx, listed);
+  });
+
+  it("shows a failed opencode list as a warning on the command's UI", async () => {
+    install({});
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+    const { handler } = handlerWithOpencode(exec);
+    const notify = vi.fn();
+    const ctx = {
+      ...commandContext(notify),
+      modelRegistry: {
+        getAvailable: () => [{ provider: "openai", id: "gpt" }],
+      },
+    };
+
+    await handler("", ctx);
+
+    // The reason the row is empty reaches the human, not only the log.
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining("Could not list the opencode models"),
+      "warning",
+    );
   });
 });

@@ -34,6 +34,7 @@ import {
   getPiInstance,
   getRuntime,
   getStore,
+  piModelCatalog,
 } from "./shell.js";
 import { NO_HOST_REASON } from "./host-multiplexer.js";
 import type { HarnessModelOptions } from "./agents/harness/harness-registry.js";
@@ -233,10 +234,12 @@ async function harnessModelOptions(
   pi: ExtensionAPI,
   ctx: ExtensionCommandContext,
 ): Promise<HarnessModelOptions> {
-  return await getHarnessRegistry().listModelOptions(
-    { pi, modelCatalog: ctx.modelRegistry },
+  const listing = await getHarnessRegistry().listModelOptions(
+    { pi, modelCatalog: piModelCatalog(ctx.modelRegistry) },
     getHarnessAvailability(),
   );
+  for (const notice of listing.notices) ctx.ui.notify(notice, "warning");
+  return listing.options;
 }
 
 /** The one place the command name is spelled. */

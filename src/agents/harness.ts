@@ -33,7 +33,9 @@
  * Model lists belong to the harness too (`listModels`): one interface method
  * answers "what can this harness run" for the pi family's catalog and for a
  * foreign CLI alike, so a settings menu enumerates harness rows instead of
- * knowing each family's source.
+ * knowing each family's source. Each entry carries the thinking levels that
+ * model accepts, in the harness's own vocabulary, so a picker never has to
+ * know how a family names its reasoning effort.
  *
  * Evolution rule: a new *built-in* harness family is added by growing
  * `HARNESS_IDS`, one harness implementation, and — where that family needs them
@@ -361,6 +363,12 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 export interface ModelEntry {
   readonly key: string;
   readonly label?: string;
+  /**
+   * The levels this model accepts, in the launching harness's own vocabulary —
+   * pi's thinking levels, opencode's variant ids, codex's reasoning efforts.
+   * Empty when the model has no thinking control.
+   */
+  readonly thinkingLevels: readonly string[];
 }
 
 /**
@@ -370,7 +378,12 @@ export interface ModelEntry {
  * whole of what the pi family's list reads, nothing more.
  */
 export interface ModelCatalog {
-  getAvailable(): readonly { readonly provider: string; readonly id: string }[];
+  getAvailable(): readonly {
+    readonly provider: string;
+    readonly id: string;
+    /** pi's levels for this model; `["off"]` when it does not reason. */
+    readonly thinkingLevels: readonly string[];
+  }[];
 }
 
 /**
@@ -384,12 +397,44 @@ export interface HarnessListModelsRequest {
 }
 
 /**
- * Lists the models one harness can run. Never throws: a list that could not be
- * produced is an empty one with a logged reason, so a menu always opens.
+ * One harness's answer about what it can run.
+ *
+ * `listed` is the harness's own catalog. `fallback` is a built-in catalog
+ * standing in for one that could not be read, and `unavailable` is a list
+ * that could not be read with nothing to stand in for it — both carry the
+ * reason, which is the caller's to show because the caller holds the ctx and
+ * a harness does not.
+ */
+export type ModelList =
+  | { readonly kind: "listed"; readonly entries: readonly ModelEntry[] }
+  | {
+      readonly kind: "fallback";
+      readonly entries: readonly ModelEntry[];
+      readonly notice: string;
+    }
+  | { readonly kind: "unavailable"; readonly notice: string };
+
+/** The models this answer offers: its own, its fallback's, or none. */
+export function modelListEntries(list: ModelList): readonly ModelEntry[] {
+  return list.kind === "unavailable" ? [] : list.entries;
+}
+
+/**
+ * What a human should be told about this answer, or undefined when it is the
+ * harness's own catalog and there is nothing surprising to say.
+ */
+export function modelListNotice(list: ModelList): string | undefined {
+  return list.kind === "listed" ? undefined : list.notice;
+}
+
+/**
+ * Lists the models one harness can run. Never throws: a catalog that could not
+ * be read is a `fallback` or an `unavailable` answer carrying its reason, so a
+ * menu always opens and a boot warm never rejects.
  */
 export type HarnessListModels = (
   request: HarnessListModelsRequest,
-) => Promise<readonly ModelEntry[]>;
+) => Promise<ModelList>;
 
 /**
  * A harness's answer about this machine, with the line for the human riding the
@@ -462,9 +507,10 @@ export interface Harness<
    * every call. opencode and codex answer from their memoized fetches, so the
    * boot warm and every menu select share one CLI run; an empty answer is
    * never retained, so a failed list retries on the next read instead of
-   * pinning an empty row.
+   * pinning an empty row. A harness that cannot produce its own list answers
+   * with its fallback, if it has one, and carries the reason either way.
    */
-  listModels(request: HarnessListModelsRequest): Promise<readonly ModelEntry[]>;
+  listModels(request: HarnessListModelsRequest): Promise<ModelList>;
   /**
    * Warm the model list in the background at boot. Required, with an explicit
    * no-op for a harness whose list is cheap — a harness that needs warming

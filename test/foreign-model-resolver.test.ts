@@ -73,7 +73,9 @@ describe("resolveForeignModel — a foreign harness's own vocabulary", () => {
 
   it("warns when the harness's list is non-empty and lacks the key, and carries it anyway", async () => {
     const notify = vi.fn();
-    const list: readonly ModelEntry[] = [{ key: "openai/gpt-4o" }];
+    const list: readonly ModelEntry[] = [
+      { key: "openai/gpt-4o", thinkingLevels: [] },
+    ];
 
     const resolved = await resolveForeignModel(
       { source: "call", key: FOREIGN_KEY },
@@ -131,7 +133,7 @@ describe("resolveForeignModel — a foreign harness's own vocabulary", () => {
 
   it("names the model from the matching list entry", async () => {
     const list: readonly ModelEntry[] = [
-      { key: "openai/gpt-4o", label: "gpt-4o" },
+      { key: "openai/gpt-4o", label: "gpt-4o", thinkingLevels: [] },
     ];
 
     const resolved = await resolveForeignModel(

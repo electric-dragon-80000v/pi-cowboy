@@ -333,13 +333,23 @@ describe("DelegationProtocol.parse", () => {
   });
 
   /**
-   * A pi instance whose `opencode models` answers `stdout`. opencode memoizes
-   * its list per caller, so every case that lists opencode reads through an
-   * instance of its own.
+   * A pi instance whose `opencode api GET /api/model` answers with one model
+   * per key. opencode memoizes its list per caller, so every case that lists
+   * opencode reads through an instance of its own.
    */
-  function opencodePi(stdout: string): { exec: ReturnType<typeof vi.fn> } {
+  function opencodePi(keys: readonly string[]): {
+    exec: ReturnType<typeof vi.fn>;
+  } {
+    const data = keys.map((key) => {
+      const slash = key.indexOf("/");
+      return { providerID: key.slice(0, slash), id: key.slice(slash + 1) };
+    });
     return {
-      exec: vi.fn().mockResolvedValue({ code: 0, stdout, stderr: "" }),
+      exec: vi.fn().mockResolvedValue({
+        code: 0,
+        stdout: JSON.stringify({ data }),
+        stderr: "",
+      }),
     };
   }
 
@@ -348,7 +358,7 @@ describe("DelegationProtocol.parse", () => {
     // refuse it, and opencode's list does not name it either — neither is a
     // reason to refuse a model the caller asked for.
     setHarnessAvailability(probed(["pi", "opencode"]));
-    getPiInstanceMock.mockReturnValue(opencodePi("openai/gpt-4o\n"));
+    getPiInstanceMock.mockReturnValue(opencodePi(["openai/gpt-4o"]));
     const notify = vi.fn();
     try {
       const protocol = await DelegationProtocol.parse(
@@ -378,7 +388,7 @@ describe("DelegationProtocol.parse", () => {
 
   it("names a foreign model from the launching harness's own list, and says nothing when it knows the key", async () => {
     setHarnessAvailability(probed(["pi", "opencode"]));
-    getPiInstanceMock.mockReturnValue(opencodePi("openai/gpt-4o\n"));
+    getPiInstanceMock.mockReturnValue(opencodePi(["openai/gpt-4o"]));
     const notify = vi.fn();
     try {
       const protocol = await DelegationProtocol.parse(
@@ -405,7 +415,7 @@ describe("DelegationProtocol.parse", () => {
 
   it("carries a foreign key silently when the launching harness's list is empty", async () => {
     setHarnessAvailability(probed(["pi", "opencode"]));
-    getPiInstanceMock.mockReturnValue(opencodePi(""));
+    getPiInstanceMock.mockReturnValue(opencodePi([]));
     const notify = vi.fn();
     try {
       const protocol = await DelegationProtocol.parse(

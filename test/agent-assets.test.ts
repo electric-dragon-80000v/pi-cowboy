@@ -569,7 +569,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       prepare: async () => {},
       buildArgs: () => [],
       teardown,
-      listModels: async () => [],
+      listModels: async () => ({ kind: "listed", entries: [] }),
       prefetchModels: () => {},
     });
     const { host, catalog } = engineProbes();

@@ -158,7 +158,7 @@ describe("createPluginLoader", () => {
             prepare: async () => {},
             buildArgs: () => [],
             teardown: async () => {},
-            listModels: async () => [],
+            listModels: async () => ({ kind: "listed", entries: [] }),
             prefetchModels: () => {},
           });
         };
@@ -266,7 +266,7 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
             prepare: async () => {},
             buildArgs: () => [],
             teardown: async () => {},
-            listModels: async () => [],
+            listModels: async () => ({ kind: "listed", entries: [] }),
             prefetchModels: () => {},
           });
           throw new Error("half-built");
@@ -291,7 +291,7 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
         prepare: async () => {},
         buildArgs: () => [],
         teardown: async () => {},
-        listModels: async () => [],
+        listModels: async () => ({ kind: "listed", entries: [] }),
         prefetchModels: () => {},
       }),
     ).toBe(true);
@@ -314,7 +314,7 @@ export default (api) => {
     prepare: async () => {},
     buildArgs: () => [],
     teardown: async () => {},
-    listModels: async () => [],
+    listModels: async () => ({ kind: "listed", entries: [] }),
     prefetchModels: () => {},
   });
   return () => globalThis.__disposeGate ?? Promise.resolve();

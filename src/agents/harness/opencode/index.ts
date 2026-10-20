@@ -12,17 +12,22 @@
  * proves the definition is live; `buildArgs` is opencode's minimal interactive
  * CLI; `teardown` removes the staged tree.
  *
- * `listModels` shells `opencode models` through `pi.exec` (children inherit the
- * session environment, as every other child here does) and parses the output
- * defensively. The real format — verified against the installed CLI by
- * test/opencode-staging.integration.test.ts — is one bare
- * `provider/model-id` per line with no decoration, the provider carrying no
- * slash and the model id allowed to (a real id such as
- * `groq/canopylabs/orpheus-…` does). The parser also tolerates blank lines and
- * `#` comments, which that verified output never contained; any other shape
- * resolves to an empty list with a warning rather than an exception, because a
- * settings menu must never fail to open when a list command misbehaves. The
- * integration test is what keeps the verified shape true as opencode changes.
+ * `listModels` shells `opencode api --standalone GET /api/model` through
+ * `pi.exec` (children inherit the session environment, as every other child
+ * here does) and parses the output defensively. The real format — verified
+ * against the installed CLI by test/opencode-staging.integration.test.ts — is a
+ * JSON object whose `data` array holds one
+ * `{ providerID, id, name, variants }` per enabled model, each variant of the
+ * form `{ id, settings }`. A variant id is what a launch may name after `#`,
+ * and opencode resolves them itself — provider transforms and the user's own
+ * `variants` entries included — so they are carried as the model's thinking
+ * levels rather than reconstructed here. A model with no variants has no
+ * thinking control. Any other shape resolves to an empty list and reports the
+ * reason through the request rather than throwing, because a settings menu
+ * must never fail to open when a list command misbehaves. opencode's providers
+ * are per-user, so there is no built-in catalogue to fall back to: a list that
+ * cannot be read offers nothing until the command answers. The integration
+ * test is what keeps the verified shape true as opencode changes.
  *
  * The strict `[harness.opencode]` table carries `variant`, which joins the model
  * reference on the argv: a variant has no flag of its own, so `buildArgs`
@@ -30,13 +35,14 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { parseModelKey } from "../../../utils.js";
-import type {
-  Harness,
-  HarnessAvailability,
-  HarnessPrepareRequest,
-  ModelEntry,
-  OpencodeLaunchRequest,
+import { z } from "zod";
+import {
+  modelListEntries,
+  type Harness,
+  type HarnessAvailability,
+  type HarnessPrepareRequest,
+  type ModelEntry,
+  type OpencodeLaunchRequest,
 } from "../../harness.js";
 import {
   installPaneLauncher,
@@ -161,61 +167,93 @@ function modelReference(modelKey: string, variant: string | null): string {
   return variant === null ? modelKey : `${modelKey}#${variant}`;
 }
 
-/** Warns with the `[subagents]` prefix every other config-plane warning carries. */
-function warnListModels(reason: string): void {
-  console.warn(
-    `[subagents] Could not list the opencode models: ${reason}. The OpenCode Default Model row offers no models until the command answers.`,
-  );
+/** One variant, as the API resolves it: its id is what a launch may name after `#`. */
+const OpencodeVariantSchema = z.object({ id: z.string().regex(/^\S+$/) });
+
+/**
+ * One enabled model, as the API returns it. A model without `variants` has no
+ * thinking control.
+ */
+const OpencodeModelSchema = z.object({
+  providerID: z.string().regex(/^\S+$/),
+  id: z.string().regex(/^\S+$/),
+  name: z.string().optional(),
+  variants: z.array(OpencodeVariantSchema).optional(),
+});
+
+/** One enabled model, as the schema read it. */
+type OpencodeModel = z.infer<typeof OpencodeModelSchema>;
+
+/** The model API's envelope: one entry per enabled model. */
+const OpencodeModelApiSchema = z.object({
+  data: z.array(OpencodeModelSchema),
+});
+
+/** One model as the catalogue entry a spawn selects. */
+function opencodeEntry(model: OpencodeModel): ModelEntry {
+  const name = model.name;
+  return {
+    key: `${model.providerID}/${model.id}`,
+    label: name !== undefined && name !== "" ? name : model.id,
+    thinkingLevels: (model.variants ?? []).map((variant) => variant.id),
+  };
 }
 
 /**
- * The parsed list, or undefined when the output is a shape this parser does not
- * recognize. One line, one entry: the first field of a line is the model key,
- * so a decoration after it (a marker column, a trailing note) is ignored.
+ * The parsed list, or undefined when the output is a shape this parser does
+ * not recognize. One `data` entry per model: `providerID` and `id` make the
+ * key, and each `variants[].id` is one level a launch may name after `#`.
  */
 function parseOpencodeModels(
   stdout: string,
 ): readonly ModelEntry[] | undefined {
-  const entries: ModelEntry[] = [];
-  for (const line of stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) continue;
-    const key = trimmed.split(/\s+/)[0] ?? "";
-    const parsed = parseModelKey(key);
-    // A line that is not a provider/model pair means this is not the assumed
-    // shape — a table header, an error banner — so nothing here is trustworthy.
-    if (!parsed) return undefined;
-    entries.push({ key, label: parsed.modelId });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return undefined;
   }
-  return entries;
+  const payload = OpencodeModelApiSchema.safeParse(parsed);
+  if (!payload.success) return undefined;
+  return payload.data.data.map(opencodeEntry);
 }
 
-/** Runs the CLI, then parses. Every failure mode resolves `[]`. */
-async function listOpencodeModels(
-  pi: ExtensionAPI,
-): Promise<readonly ModelEntry[]> {
-  let stdout: string;
+/**
+ * One list read: the API's own answer, or the reason there is none. opencode's
+ * providers are per-user, so there is no catalogue to fall back to — the reason
+ * is all this harness has to offer.
+ */
+type ModelListAnswer =
+  | { readonly kind: "listed"; readonly entries: readonly ModelEntry[] }
+  | {
+      readonly kind: "unavailable";
+      /** Why no models are offered, for the caller to show. */
+      readonly notice: string;
+    };
+
+/** Runs the CLI, then parses. A list the API cannot answer is empty. */
+async function listOpencodeModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
+  let reason: string;
   try {
-    const result = await pi.exec("opencode", ["models", "--standalone"], {
-      timeout: LIST_MODELS_TIMEOUT_MS,
-    });
-    if (result.code !== 0) {
-      warnListModels(
-        `\`opencode models\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`,
-      );
-      return [];
+    const result = await pi.exec(
+      "opencode",
+      ["api", "--standalone", "GET", "/api/model"],
+      { timeout: LIST_MODELS_TIMEOUT_MS },
+    );
+    if (result.code === 0) {
+      const entries = parseOpencodeModels(result.stdout);
+      if (entries !== undefined) return { kind: "listed", entries };
+      reason = "unrecognized output";
+    } else {
+      reason = `\`opencode api GET /api/model\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`;
     }
-    stdout = result.stdout;
   } catch (err) {
-    warnListModels(err instanceof Error ? err.message : String(err));
-    return [];
+    reason = err instanceof Error ? err.message : String(err);
   }
-  const entries = parseOpencodeModels(stdout);
-  if (entries === undefined) {
-    warnListModels("unrecognized output");
-    return [];
-  }
-  return entries;
+  return {
+    kind: "unavailable",
+    notice: `Could not list the opencode models (${reason}); no models are offered until the command answers.`,
+  };
 }
 
 /**
@@ -228,22 +266,21 @@ async function listOpencodeModels(
  * answer reads exactly like a failed list, so it is forgotten and the next
  * read retries instead of pinning an empty row.
  */
-const modelFetches = new WeakMap<
-  ExtensionAPI,
-  Promise<readonly ModelEntry[]>
->();
+const modelFetches = new WeakMap<ExtensionAPI, Promise<ModelListAnswer>>();
 
 /** The models for this caller, fetching once and memoizing the answer. */
-function fetchModels(pi: ExtensionAPI): Promise<readonly ModelEntry[]> {
+function fetchModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
   const existing = modelFetches.get(pi);
   if (existing !== undefined) return existing;
   const fetch = listOpencodeModels(pi);
   modelFetches.set(pi, fetch);
-  // listModels never rejects — every failure mode resolves [] — so the
-  // rejection arm only guards the contract, never the CLI.
+  // listOpencodeModels never rejects — every failure mode resolves an answer —
+  // so the rejection arm only guards the contract, never the CLI.
   void fetch.then(
-    (models) => {
-      if (models.length === 0) modelFetches.delete(pi);
+    (answer) => {
+      if (modelListEntries(answer).length === 0) {
+        modelFetches.delete(pi);
+      }
     },
     () => {
       modelFetches.delete(pi);
@@ -339,9 +376,8 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
-  // boot warm and every menu select ride one CLI run. Returned unwrapped, so
-  // every joiner holds the one shared promise — an `async` wrapper would mint
-  // a copy per call.
+  // boot warm and every menu select ride one CLI run. With no built-in
+  // catalogue, an answer that could not be read offers nothing and says why.
   listModels: ({ pi }) => fetchModels(pi),
   prefetchModels: (pi) => {
     void fetchModels(pi);

@@ -69,7 +69,7 @@ function pluginHarness(id: string, config: HarnessConfigCodec): PluginHarness {
     prepare: async () => {},
     buildArgs: () => [],
     teardown: async () => {},
-    listModels: async () => [],
+    listModels: async () => ({ kind: "listed", entries: [] }),
     prefetchModels: () => {},
   };
 }

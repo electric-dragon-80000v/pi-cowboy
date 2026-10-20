@@ -22,7 +22,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
+  modelListEntries,
+  modelListNotice,
   type CodexLaunchRequest,
+  type ModelList,
   type HarnessId,
   type HarnessPrepareRequest,
   type LaunchRequestFor,
@@ -959,34 +962,66 @@ describe("buildArgs", () => {
   });
 });
 
+/** One `opencode api GET /api/model` answer in the API's own shape. */
+function opencodeModels(
+  models: readonly {
+    providerID: string;
+    id: string;
+    name?: string;
+    variants?: readonly string[];
+  }[],
+): string {
+  return JSON.stringify({
+    location: { directory: "/repo" },
+    data: models.map((model) => ({
+      providerID: model.providerID,
+      id: model.id,
+      ...(model.name === undefined ? {} : { name: model.name }),
+      ...(model.variants === undefined
+        ? {}
+        : { variants: model.variants.map((id) => ({ id, settings: {} })) }),
+    })),
+  });
+}
+
+/** The notice a list that is not the harness's own catalog carries. */
+function noticeOf(list: ModelList): string {
+  const notice = modelListNotice(list);
+  if (notice === undefined) {
+    throw new Error("expected a list that is not the harness's own catalog");
+  }
+  return notice;
+}
+
 describe("listModels", () => {
   /** A pi registry: the catalog the family's list reads, in its own order. */
   const CATALOG = {
     getAvailable: () => [
-      { provider: "anthropic", id: "claude-3" },
-      { provider: "openai", id: "gpt-4o" },
+      { provider: "anthropic", id: "claude-3", thinkingLevels: ["off", "low"] },
+      { provider: "openai", id: "gpt-4o", thinkingLevels: ["off"] },
     ],
   };
 
   it.each(["pi", "pig", "pi-bolt"] as const)(
-    "%s lists the pi catalog's models in the catalog's order",
+    "%s lists the pi catalog's models in the catalog's order, with their levels",
     async (id) => {
-      const entries = await harnessFor(id).listModels({
+      const list = await harnessFor(id).listModels({
         pi: PI,
         modelCatalog: CATALOG,
       });
 
-      expect(entries).toEqual([
-        { key: "anthropic/claude-3" },
-        { key: "openai/gpt-4o" },
-      ]);
+      expect(list).toEqual({
+        kind: "listed",
+        entries: [
+          { key: "anthropic/claude-3", thinkingLevels: ["off", "low"] },
+          { key: "openai/gpt-4o", thinkingLevels: ["off"] },
+        ],
+      });
     },
   );
 
   /** The opencode harness's own list, over a `pi.exec` the test supplies. */
-  function opencodeListModels(
-    exec: unknown,
-  ): Promise<readonly { key: string; label?: string }[]> {
+  function opencodeListModels(exec: unknown): Promise<ModelList> {
     return harnessFor("opencode").listModels({
       pi: { exec } as unknown as ExtensionAPI,
       modelCatalog: CATALOG,
@@ -994,9 +1029,7 @@ describe("listModels", () => {
   }
 
   /** The codex harness's own list, over a `pi.exec` the test supplies. */
-  function codexListModels(
-    exec: unknown,
-  ): Promise<readonly { key: string; label?: string }[]> {
+  function codexListModels(exec: unknown): Promise<ModelList> {
     return harnessFor("codex").listModels({
       pi: { exec } as unknown as ExtensionAPI,
       modelCatalog: CATALOG,
@@ -1009,31 +1042,68 @@ describe("listModels", () => {
         pi: PI,
         modelCatalog: { getAvailable: () => [] },
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ kind: "listed", entries: [] });
   });
 
-  it("parses opencode's own output into entries", async () => {
+  it("parses opencode's /api/model answer into entries with their variants", async () => {
     const exec = vi.fn(async () => ({
       code: 0,
-      stdout: "# Models\nanthropic/claude-opus-4\n\nopenai/gpt-4o\n",
+      stdout: opencodeModels([
+        {
+          providerID: "anthropic",
+          id: "claude-opus-4",
+          name: "Claude Opus 4",
+          variants: ["low", "high", "max"],
+        },
+        { providerID: "openai", id: "gpt-4o" },
+      ]),
       stderr: "",
     }));
 
-    const entries = await opencodeListModels(exec);
+    const list = await opencodeListModels(exec);
 
-    expect(exec).toHaveBeenCalledWith("opencode", ["models", "--standalone"], {
-      timeout: expect.any(Number),
+    expect(exec).toHaveBeenCalledWith(
+      "opencode",
+      ["api", "--standalone", "GET", "/api/model"],
+      { timeout: expect.any(Number) },
+    );
+    expect(list).toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "anthropic/claude-opus-4",
+          label: "Claude Opus 4",
+          thinkingLevels: ["low", "high", "max"],
+        },
+        // No name and no variants: the id labels it, and it has no thinking control.
+        { key: "openai/gpt-4o", label: "gpt-4o", thinkingLevels: [] },
+      ],
     });
-    expect(entries).toEqual([
-      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
-      { key: "openai/gpt-4o", label: "gpt-4o" },
-    ]);
+  });
+
+  it("offers no models when a variant has no usable id", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: JSON.stringify({
+        data: [
+          { providerID: "anthropic", id: "claude-opus-4", variants: [{}] },
+        ],
+      }),
+      stderr: "",
+    }));
+
+    const list = await opencodeListModels(exec);
+
+    expect(modelListEntries(list)).toEqual([]);
+    expect(noticeOf(list)).toContain("unrecognized");
   });
 
   it("shares one CLI run between reads from the same caller", async () => {
     const exec = vi.fn(async () => ({
       code: 0,
-      stdout: "anthropic/claude-opus-4\n",
+      stdout: opencodeModels([
+        { providerID: "anthropic", id: "claude-opus-4", variants: ["high"] },
+      ]),
       stderr: "",
     }));
     const pi = { exec } as unknown as ExtensionAPI;
@@ -1047,48 +1117,82 @@ describe("listModels", () => {
     // One run, and every joiner holds the one shared promise.
     expect(exec).toHaveBeenCalledTimes(1);
     expect(second).toBe(first);
-    expect(first).toEqual([
-      { key: "anthropic/claude-opus-4", label: "claude-opus-4" },
-    ]);
+    expect(first).toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "anthropic/claude-opus-4",
+          label: "claude-opus-4",
+          thinkingLevels: ["high"],
+        },
+      ],
+    });
   });
 
-  it("resolves an empty list and warns when the CLI fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("carries the reason when opencode's list fails, and offers no models", async () => {
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
 
-    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+    const list = await opencodeListModels(exec);
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("opencode");
-    warn.mockRestore();
+    expect(list).toEqual({
+      kind: "unavailable",
+      notice: expect.stringContaining("boom"),
+    });
+    expect(modelListEntries(list)).toEqual([]);
+    expect(noticeOf(list)).toContain("opencode");
   });
 
-  it("resolves an empty list and warns on output whose shape is unrecognized", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("carries an unrecognized shape as the reason, and offers no models", async () => {
     const exec = vi.fn(async () => ({
       code: 0,
       stdout: "PROVIDER        MODEL\nanthropic       claude-3\n",
       stderr: "",
     }));
 
-    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+    const list = await opencodeListModels(exec);
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("unrecognized");
-    warn.mockRestore();
+    expect(modelListEntries(list)).toEqual([]);
+    expect(noticeOf(list)).toContain("unrecognized");
   });
 
-  it("resolves an empty list and warns when the child could not be started at all", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("carries a child that could not be started at all as the reason", async () => {
     const exec = vi.fn(async () => {
       throw new Error("ENOENT: opencode not found");
     });
 
-    await expect(opencodeListModels(exec)).resolves.toEqual([]);
+    const list = await opencodeListModels(exec);
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("ENOENT");
-    warn.mockRestore();
+    expect(modelListEntries(list)).toEqual([]);
+    expect(noticeOf(list)).toContain("ENOENT");
+  });
+
+  it("retries an opencode list that failed instead of pinning the empty row", async () => {
+    const exec = vi
+      .fn()
+      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "boom" })
+      .mockResolvedValueOnce({
+        code: 0,
+        stdout: opencodeModels([
+          { providerID: "anthropic", id: "claude-opus-4" },
+        ]),
+        stderr: "",
+      });
+    const pi = { exec } as unknown as ExtensionAPI;
+    const request = { pi, modelCatalog: CATALOG };
+
+    expect(
+      modelListEntries(await harnessFor("opencode").listModels(request)),
+    ).toEqual([]);
+    expect(
+      modelListEntries(await harnessFor("opencode").listModels(request)),
+    ).toEqual([
+      {
+        key: "anthropic/claude-opus-4",
+        label: "claude-opus-4",
+        thinkingLevels: [],
+      },
+    ]);
+    expect(exec).toHaveBeenCalledTimes(2);
   });
 
   /** One `codex debug models --bundled` answer in the CLI's own shape. */
@@ -1100,24 +1204,60 @@ describe("listModels", () => {
     const exec = vi.fn(async () => ({
       code: 0,
       stdout: bundledCatalog([
-        { slug: "gpt-6-sol", visibility: "list", display_name: "GPT-6-Sol" },
+        {
+          slug: "gpt-6-sol",
+          visibility: "list",
+          display_name: "GPT-6-Sol",
+          supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+        },
         { slug: "gpt-5.6-terra", visibility: "list", display_name: "" },
         { slug: "daybreak-secret", visibility: "hide", display_name: "X" },
       ]),
       stderr: "",
     }));
 
-    const entries = await codexListModels(exec);
+    const list = await codexListModels(exec);
 
     expect(exec).toHaveBeenCalledWith(
       "codex",
       ["debug", "models", "--bundled"],
       { timeout: expect.any(Number) },
     );
-    expect(entries).toEqual([
-      { key: "openai/gpt-6-sol", label: "GPT-6-Sol" },
-      { key: "openai/gpt-5.6-terra", label: "gpt-5.6-terra" },
-    ]);
+    expect(list).toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "openai/gpt-6-sol",
+          label: "GPT-6-Sol",
+          thinkingLevels: ["low", "high"],
+        },
+        // No supported levels in the catalog answer: the model has no reasoning control.
+        {
+          key: "openai/gpt-5.6-terra",
+          label: "gpt-5.6-terra",
+          thinkingLevels: [],
+        },
+      ],
+    });
+  });
+
+  it("answers the built-in catalogue when a listed model's levels are not the assumed shape", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: bundledCatalog([
+        {
+          slug: "gpt-6-sol",
+          visibility: "list",
+          supported_reasoning_levels: "high",
+        },
+      ]),
+      stderr: "",
+    }));
+
+    const list = await codexListModels(exec);
+
+    expect(modelListEntries(list).length).toBeGreaterThan(0);
+    expect(noticeOf(list)).toContain("unrecognized");
   });
 
   it("skips unlisted entries before validating, so a misshapen hidden entry costs nothing", async () => {
@@ -1127,12 +1267,14 @@ describe("listModels", () => {
         { slug: "gpt-6-sol", visibility: "list", display_name: "GPT-6-Sol" },
         { slug: "has spaces", visibility: "hide", display_name: "X" },
         { visibility: "hide" },
+        // No visibility at all is unlisted too, so it is skipped unread.
+        { slug: "no-visibility" },
       ]),
       stderr: "",
     }));
 
-    await expect(codexListModels(exec)).resolves.toEqual([
-      { key: "openai/gpt-6-sol", label: "GPT-6-Sol" },
+    expect(modelListEntries(await codexListModels(exec))).toEqual([
+      { key: "openai/gpt-6-sol", label: "GPT-6-Sol", thinkingLevels: [] },
     ]);
   });
 
@@ -1155,33 +1297,58 @@ describe("listModels", () => {
     // One run, and every joiner holds the one shared promise.
     expect(exec).toHaveBeenCalledTimes(1);
     expect(second).toBe(first);
-    expect(first).toEqual([{ key: "openai/gpt-6-sol", label: "GPT-6-Sol" }]);
+    expect(first).toEqual({
+      kind: "listed",
+      entries: [
+        { key: "openai/gpt-6-sol", label: "GPT-6-Sol", thinkingLevels: [] },
+      ],
+    });
   });
 
-  it("resolves an empty codex list and warns when the CLI fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("answers the built-in catalogue, with its reason, when the CLI fails", async () => {
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
 
-    await expect(codexListModels(exec)).resolves.toEqual([]);
+    const list = await codexListModels(exec);
+    const entries = modelListEntries(list);
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("codex");
-    warn.mockRestore();
+    // A fallback worth offering carries a key a launch can pass and the levels
+    // that model accepts.
+    expect(list.kind).toBe("fallback");
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.every((entry) => /^openai\/\S+$/.test(entry.key))).toBe(
+      true,
+    );
+    expect(entries.every((entry) => entry.thinkingLevels.length > 0)).toBe(
+      true,
+    );
+    expect(noticeOf(list)).toContain("boom");
   });
 
-  it("resolves an empty codex list and warns on output whose shape is unrecognized", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("answers the same fallback to every read that joins it", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+    const pi = { exec } as unknown as ExtensionAPI;
+    const request = { pi, modelCatalog: CATALOG };
+
+    const first = await harnessFor("codex").listModels(request);
+    const second = await harnessFor("codex").listModels(request);
+
+    expect(second).toEqual(first);
+    expect(noticeOf(first)).toContain("boom");
+    // A fallback is an answer, so neither read shells out again.
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the built-in catalogue when codex's output is unrecognized", async () => {
     const exec = vi.fn(async () => ({
       code: 0,
       stdout: "gpt-6-sol\nopenai/gpt-5.6-terra\n",
       stderr: "",
     }));
 
-    await expect(codexListModels(exec)).resolves.toEqual([]);
+    const list = await codexListModels(exec);
 
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0][0])).toContain("unrecognized");
-    warn.mockRestore();
+    expect(modelListEntries(list).length).toBeGreaterThan(0);
+    expect(noticeOf(list)).toContain("unrecognized");
   });
 });
 
@@ -1189,8 +1356,8 @@ describe("listHarnessModelOptions", () => {
   /** A pi registry: the catalog the pi family's list reads. */
   const CATALOG = {
     getAvailable: () => [
-      { provider: "anthropic", id: "claude-3" },
-      { provider: "openai", id: "gpt-4o" },
+      { provider: "anthropic", id: "claude-3", thinkingLevels: ["off"] },
+      { provider: "openai", id: "gpt-4o", thinkingLevels: ["off"] },
     ],
   };
 
@@ -1198,13 +1365,16 @@ describe("listHarnessModelOptions", () => {
   function opencodeExec(): ReturnType<typeof vi.fn> {
     return vi.fn(async () => ({
       code: 0,
-      stdout: "anthropic/claude-opus-4\nopenai/gpt-4o\n",
+      stdout: opencodeModels([
+        { providerID: "anthropic", id: "claude-opus-4" },
+        { providerID: "openai", id: "gpt-4o" },
+      ]),
       stderr: "",
     }));
   }
 
   it("keeps one list per runnable harness, each key under its own harness", async () => {
-    const lists = await listHarnessModelOptions(
+    const { options: lists, notices } = await listHarnessModelOptions(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1212,6 +1382,7 @@ describe("listHarnessModelOptions", () => {
       probed(["pi", "opencode"]),
     );
 
+    expect(notices).toEqual([]);
     expect([...lists.keys()]).toEqual(["pi", "pig", "pi-bolt", "opencode"]);
     expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
     expect(lists.get("pig")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
@@ -1235,10 +1406,16 @@ describe("listHarnessModelOptions", () => {
           stderr: "",
         };
       }
-      return { code: 0, stdout: "anthropic/claude-opus-4\n", stderr: "" };
+      return {
+        code: 0,
+        stdout: opencodeModels([
+          { providerID: "anthropic", id: "claude-opus-4" },
+        ]),
+        stderr: "",
+      };
     });
 
-    const lists = await listHarnessModelOptions(
+    const { options: lists, notices } = await listHarnessModelOptions(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1246,6 +1423,7 @@ describe("listHarnessModelOptions", () => {
       probed(["pi", "opencode", "codex"]),
     );
 
+    expect(notices).toEqual([]);
     expect([...lists.keys()]).toEqual([
       "pi",
       "pig",
@@ -1257,7 +1435,7 @@ describe("listHarnessModelOptions", () => {
   });
 
   it("merges the per-harness lists once per key, in vocabulary order", async () => {
-    const lists = await listHarnessModelOptions(
+    const { options: lists } = await listHarnessModelOptions(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1275,7 +1453,7 @@ describe("listHarnessModelOptions", () => {
   it("asks only the harnesses this machine can run", async () => {
     const exec = opencodeExec();
 
-    const lists = await listHarnessModelOptions(
+    const { options: lists } = await listHarnessModelOptions(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1290,7 +1468,7 @@ describe("listHarnessModelOptions", () => {
   it("answers from pi before any probe has landed", async () => {
     const exec = opencodeExec();
 
-    const lists = await listHarnessModelOptions(
+    const { options: lists } = await listHarnessModelOptions(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1309,7 +1487,7 @@ describe("listHarnessModelOptions", () => {
       },
     };
 
-    const lists = await listHarnessModelOptions(
+    const { options: lists, notices } = await listHarnessModelOptions(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: throwing,
@@ -1323,13 +1501,16 @@ describe("listHarnessModelOptions", () => {
       "anthropic/claude-opus-4",
       "openai/gpt-4o",
     ]);
+    // Every pi-family harness failed on the same catalog; each says so once.
+    expect(notices).toHaveLength(3);
+    expect(
+      notices.every((notice) => notice.includes("catalog unavailable")),
+    ).toBe(true);
   });
-
-  it("gives a harness whose CLI fails an empty list of its own", async () => {
+  it("gives a harness whose CLI fails an empty list of its own, and its reason", async () => {
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const lists = await listHarnessModelOptions(
+    const { options: lists, notices } = await listHarnessModelOptions(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1340,7 +1521,29 @@ describe("listHarnessModelOptions", () => {
     expect(lists.get("opencode")).toEqual([]);
     // The failure costs opencode's list alone; pi's catalog is still offered.
     expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
-    warn.mockRestore();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("opencode");
+    expect(notices[0]).toContain("boom");
+  });
+
+  it("keeps codex's built-in catalogue when its CLI fails, and its reason", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+
+    const { options: lists, notices } = await listHarnessModelOptions(
+      {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      },
+      probed(["pi", "codex"]),
+    );
+
+    expect(lists.get("codex")?.length).toBeGreaterThan(0);
+    expect(
+      (lists.get("codex") ?? []).every((key) => /^openai\/\S+$/.test(key)),
+    ).toBe(true);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("codex");
+    expect(notices[0]).toContain("boom");
   });
 });
 

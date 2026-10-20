@@ -2,9 +2,10 @@
  * plugin/index.ts — the `pi-cowboy/plugin` subpath: the whole of what a plugin
  * package imports.
  *
- * It exports the contract's types and nothing else. A plugin never imports a
- * pi-cowboy internal path, so this subpath is the stable surface a plugin is
- * written against and the only thing that must stay compatible across versions.
+ * It exports the contract's types and the two reads over a model-list answer,
+ * and nothing else. A plugin never imports a pi-cowboy internal path, so this
+ * subpath is the stable surface a plugin is written against and the only thing
+ * that must stay compatible across versions.
  *
  * The list is deliberately complete rather than minimal: a plugin that writes a
  * helper function or class for its harness or multiplexer needs the parameter and
@@ -35,9 +36,14 @@ export type {
   HarnessTeardownContext,
   HarnessTeardownRequest,
   ModelEntry,
+  ModelList,
   SubagentLaunchInputs,
   ToolSelection,
 } from "../agents/harness.js";
+
+// The reads over a `ModelList` answer, so a plugin's own helper reads one
+// without reaching into its arms.
+export { modelListEntries, modelListNotice } from "../agents/harness.js";
 
 // The execution multiplexer a plugin multiplexer builds, and the surfaces it returns.
 export type {

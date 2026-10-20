@@ -40,7 +40,7 @@ function pluginHarness(
     prepare: async () => {},
     buildArgs: () => [`run-${id}`],
     teardown: async () => {},
-    listModels: async () => [],
+    listModels: async () => ({ kind: "listed", entries: [] }),
     prefetchModels: () => {},
   };
 }

@@ -13,6 +13,7 @@
 import {
   ModelSelectorComponent,
   type ExtensionCommandContext,
+  type ExtensionContext,
   type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import { fuzzyFilter, type AutocompleteItem } from "@earendil-works/pi-tui";
@@ -22,9 +23,14 @@ import {
   getPiInstance,
   getSessionCtx,
   getStore,
+  piModelCatalog,
 } from "../../shell.js";
 import { findModelInRegistry, parseModelKey } from "../../utils.js";
-import type { ModelCatalog, ModelEntry } from "../../agents/harness.js";
+import {
+  modelListEntries,
+  modelListNotice,
+  type ModelEntry,
+} from "../../agents/harness.js";
 import { SearchableSelectDialog } from "../searchable-select.js";
 import { buildModelOptions } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
@@ -86,7 +92,7 @@ export async function openSubagentModelPicker(
   const scoped = ctx.scopedModels;
   // The fallback list is read before the screen opens, because the screen's
   // builder is synchronous. The runtime branch reads its own catalog instead.
-  const entries = runtime ? [] : await piHarnessModels(ctx.modelRegistry);
+  const entries = runtime ? [] : await piHarnessModels(ctx);
 
   await new ScreenHost(ctx).open<void>(({ tui, theme, close }) => {
     const current = currentSubagentModel(ctx);
@@ -209,20 +215,25 @@ export async function cowboyCompletions(
  * and it must still open.
  */
 async function piHarnessModels(
-  modelCatalog: ModelCatalog,
+  ctx: ExtensionContext,
 ): Promise<readonly ModelEntry[]> {
   try {
-    return await getHarnessRegistry().require("pi").listModels({
-      pi: getPiInstance(),
-      modelCatalog,
-    });
+    const list = await getHarnessRegistry()
+      .require("pi")
+      .listModels({
+        pi: getPiInstance(),
+        modelCatalog: piModelCatalog(ctx.modelRegistry),
+      });
+    const notice = modelListNotice(list);
+    if (notice !== undefined && ctx.hasUI) ctx.ui.notify(notice, "warning");
+    return modelListEntries(list);
   } catch {
     return [];
   }
 }
 
 async function availableModelsForCompletion(): Promise<readonly ModelEntry[]> {
-  return await piHarnessModels(getSessionCtx().modelRegistry);
+  return await piHarnessModels(getSessionCtx());
 }
 
 export async function handleModelArg(

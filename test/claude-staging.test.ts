@@ -527,16 +527,22 @@ describe("buildArgs", () => {
 
 describe("listModels", () => {
   it("answers the curated aliases, keyed anthropic/<alias>", async () => {
-    const entries = await harnessFor("claude").listModels({
+    const list = await harnessFor("claude").listModels({
       pi: PI,
       modelCatalog: { getAvailable: () => [] },
     });
 
-    expect(entries).toEqual([
-      { key: "anthropic/haiku", label: "haiku" },
-      { key: "anthropic/sonnet", label: "sonnet" },
-      { key: "anthropic/opus", label: "opus" },
-    ]);
+    // The CLI enumerates no per-model effort, so every alias carries the
+    // levels `--effort` accepts.
+    const levels = ["low", "medium", "high", "xhigh", "max"];
+    expect(list).toEqual({
+      kind: "listed",
+      entries: [
+        { key: "anthropic/haiku", label: "haiku", thinkingLevels: levels },
+        { key: "anthropic/sonnet", label: "sonnet", thinkingLevels: levels },
+        { key: "anthropic/opus", label: "opus", thinkingLevels: levels },
+      ],
+    });
   });
 
   it("warms nothing: the list is a constant, not a fetch", () => {

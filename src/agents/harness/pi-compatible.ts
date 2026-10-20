@@ -66,13 +66,19 @@ export function buildPiLaunchArgs(request: PiFamilyLaunchRequest): string[] {
 
 /**
  * The pi family's model list: pi's own catalog, read in the order the registry
- * returns it. pig and pi-bolt run the pi binary, so they answer from this one
- * catalog — a second list for a second binary name could only disagree with it.
+ * returns it, with the levels pi declares for each model. pig and pi-bolt run
+ * the pi binary, so they answer from this one catalog — a second list for a
+ * second binary name could only disagree with it.
  */
-export const piFamilyListModels: HarnessListModels = async ({ modelCatalog }) =>
-  modelCatalog
-    .getAvailable()
-    .map((model): ModelEntry => ({ key: `${model.provider}/${model.id}` }));
+export const piFamilyListModels: HarnessListModels = async ({
+  modelCatalog,
+}) => ({
+  kind: "listed",
+  entries: modelCatalog.getAvailable().map((model): ModelEntry => ({
+    key: `${model.provider}/${model.id}`,
+    thinkingLevels: model.thinkingLevels,
+  })),
+});
 
 export interface PiCompatibleSpec {
   /** Binary the pane's `pi` forwards to, resolved on the pane's PATH. */

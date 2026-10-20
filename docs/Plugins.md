@@ -79,7 +79,16 @@ export default function (api: CowboyPluginApi) {
     ],
     prepare: async (paneId, pane) => {},
     teardown: async (paneId, pane) => {},
-    listModels: async () => [{ key: "provider/model", label: "Model" }],
+    listModels: async () => ({
+      kind: "listed",
+      entries: [
+        {
+          key: "provider/model",
+          label: "Model",
+          thinkingLevels: ["low", "high"],
+        },
+      ],
+    }),
     prefetchModels: () => {},
   });
 }
@@ -87,18 +96,30 @@ export default function (api: CowboyPluginApi) {
 
 ### Harness Fields
 
-| Field                  | Type                                                   | Description                                                                                                                                              |
-| ---------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                   | string (required)                                      | Unique harness identifier referenced by `agent.harnessType`, template `harness_type`, and `cowboy_agent` tool calls.                                     |
-| `displayName`          | string (required)                                      | Human-readable label displayed in `/cowboy` menus and settings.                                                                                          |
-| `agentMultiplexerKind` | string (required)                                      | The process type recognized by the multiplexer (for example, `"pi"`).                                                                                    |
-| `availability`         | `() => HarnessAvailability`                            | Probes whether the harness binary and environment are ready to launch. Return `{ status: "available" }` or `{ status: "unavailable", notice?: string }`. |
-| `buildArgs`            | `(launch: SubagentLaunchInputs) => string[]`           | Builds the argument list executed inside the pane.                                                                                                       |
-| `prepare`              | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to prepare terminal state before launching the subagent process.                                                                           |
-| `teardown`             | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to clean up files or pane state after the process finishes.                                                                                |
-| `listModels`           | `() => Promise<Array<{ key: string, label: string }>>` | Returns available models for settings menus and model resolution.                                                                                        |
-| `prefetchModels`       | `() => void \| Promise<void>`                          | Optional hook to pre-warm slow model catalogs in the background at session boot.                                                                         |
-| `config`               | `HarnessConfigCodec`                                   | Optional codec that validates the `harness.<id>` configuration section after plugins load.                                                               |
+| Field                  | Type                                                   | Description                                                                                                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                   | string (required)                                      | Unique harness identifier referenced by `agent.harnessType`, template `harness_type`, and `cowboy_agent` tool calls.                                                                                                                                                           |
+| `displayName`          | string (required)                                      | Human-readable label displayed in `/cowboy` menus and settings.                                                                                                                                                                                                                |
+| `agentMultiplexerKind` | string (required)                                      | The process type recognized by the multiplexer (for example, `"pi"`).                                                                                                                                                                                                          |
+| `availability`         | `() => HarnessAvailability`                            | Probes whether the harness binary and environment are ready to launch. Return `{ status: "available" }` or `{ status: "unavailable", notice?: string }`.                                                                                                                       |
+| `buildArgs`            | `(launch: SubagentLaunchInputs) => string[]`           | Builds the argument list executed inside the pane.                                                                                                                                                                                                                             |
+| `prepare`              | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to prepare terminal state before launching the subagent process.                                                                                                                                                                                                 |
+| `teardown`             | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to clean up files or pane state after the process finishes.                                                                                                                                                                                                      |
+| `listModels`           | `(request) => Promise<ModelList>`                      | Returns available models for settings menus and model resolution. `thinkingLevels` names the levels that model accepts in this harness's own vocabulary; an empty list means the model has no thinking control. See [Model lists](#model-lists) for the answer's three shapes. |
+| `prefetchModels`       | `() => void \| Promise<void>`                          | Optional hook to pre-warm slow model catalogs in the background at session boot.                                                                                                                                                                                               |
+| `config`               | `HarnessConfigCodec`                                   | Optional codec that validates the `harness.<id>` configuration section after plugins load.                                                                                                                                                                                     |
+
+### Model lists
+
+`listModels` answers with a `ModelList`, a tagged union of three cases. It never throws: a catalog that cannot be read is an answer, not an exception, because a listing also runs at session boot with no caller to catch one.
+
+| `kind`        | Shape                 | Meaning                                                                                                                      |
+| ------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `listed`      | `{ entries }`         | The harness's own catalog. Nothing to report.                                                                                |
+| `fallback`    | `{ entries, notice }` | The harness's catalog could not be read, so a built-in one stands in. The entry list is still offered.                       |
+| `unavailable` | `{ notice }`          | The catalog could not be read and there is nothing to stand in for it: no models are offered until the source answers again. |
+
+`notice` is the reason in the caller's words, e.g. `Could not list the codex models (exited 1: boom); using the built-in defaults.` The harness never prints it — it has no UI — and the caller that holds one shows it as a warning (`/cowboy` notifies its ctx, as does a menu's read).
 
 A harness configuration codec defines the schema, validation rules, and default values for its `harness.<id>` section. Its `parse` function returns the validated configuration and reports each rejected value through its `report` callback. The registry validates every registered harness after plugins load and passes the result to `prepare` as `config`:
 

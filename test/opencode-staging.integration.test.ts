@@ -54,7 +54,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolSelection } from "../src/agents/harness.js";
+import { modelListEntries, type ToolSelection } from "../src/agents/harness.js";
 import type { OpencodeConfigRoot } from "../src/agents/harness/opencode/config.js";
 import { opencodeHarness } from "../src/agents/harness/opencode/index.js";
 import {
@@ -461,7 +461,7 @@ describe.skipIf(opencodeMissing)(
       expect(fs.existsSync(configDir)).toBe(false);
     });
 
-    it("parses the real `opencode models` output into provider/model keys", async () => {
+    it("parses the real opencode model API answer into entries with variants", async () => {
       const configDir = stage({ kind: "default" });
       // A minimal exec-capable stub: the model list reads only stdout and the exit
       // code, and the child runs with the same isolated HOME as every other run.
@@ -479,34 +479,50 @@ describe.skipIf(opencodeMissing)(
         },
       } as unknown as ExtensionAPI;
 
-      const models = await opencodeHarness.listModels({
+      const list = await opencodeHarness.listModels({
         pi,
         modelCatalog: { getAvailable: () => [] },
       });
+      // An API that answered is the harness's own catalogue, with nothing to tell.
+      expect(list.kind).toBe("listed");
+      const models = modelListEntries(list);
 
       expect(runs).toHaveLength(1);
       const [{ args, run }] = runs;
-      // A shared-server `models` needs the user's background server and its one
+      // A shared-server read needs the user's background server and its one
       // fixed port; the private server keeps the call hermetic.
-      expect(args).toContain("--standalone");
+      expect(args).toEqual(["api", "--standalone", "GET", "/api/model"]);
       expect(run.code, run.stderr).toBe(0);
-      // Every non-empty, non-comment line is one bare `provider/model-id`. A
-      // decoration after the key (a marker column, a trailing note) would leave
-      // the parsed key shorter than its line; an unparseable line would leave the
-      // list short or empty.
-      const lines = run.stdout
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line !== "" && !line.startsWith("#"));
-      expect(lines.length).toBeGreaterThan(0);
-      expect(models.map((entry) => entry.key)).toEqual(lines);
-      // `parseModelKey` splits at the first slash, so the provider carries none
-      // and the model id may (a real id such as `groq/canopylabs/orpheus-…` does).
-      expect(models.every((entry) => /^[^/\s]+\/\S+$/.test(entry.key))).toBe(
-        true,
+      // Every entry is one enabled model, read off the API's own answer rather
+      // than retyped here: the key is `provider/model`, the label its name (or
+      // its id when unnamed), and every variant id one level a launch may name
+      // after `#`.
+      const payload = JSON.parse(run.stdout) as {
+        data: {
+          providerID: string;
+          id: string;
+          name?: string;
+          variants?: { id: string }[];
+        }[];
+      };
+      expect(payload.data.length).toBeGreaterThan(0);
+      expect(models.map((entry) => entry.key)).toEqual(
+        payload.data.map((model) => `${model.providerID}/${model.id}`),
       );
       expect(models.map((entry) => entry.label)).toEqual(
-        models.map((entry) => entry.key.slice(entry.key.indexOf("/") + 1)),
+        payload.data.map((model) =>
+          model.name === undefined || model.name === "" ? model.id : model.name,
+        ),
+      );
+      expect(models.map((entry) => entry.thinkingLevels)).toEqual(
+        payload.data.map((model) =>
+          (model.variants ?? []).map((variant) => variant.id),
+        ),
+      );
+      // The provider carries no slash, so the key splits at its first one; a
+      // model id may carry more (a real id such as `groq/canopylabs/orpheus-…` does).
+      expect(models.every((entry) => /^[^/\s]+\/\S+$/.test(entry.key))).toBe(
+        true,
       );
     });
   },

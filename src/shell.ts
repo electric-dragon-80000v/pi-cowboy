@@ -7,6 +7,11 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+  getSupportedThinkingLevels,
+  type Api,
+  type Model,
+} from "@earendil-works/pi-ai";
 import type { AgentManager } from "./agents/agent-manager.js";
 import type { ExecutionRuntime } from "./agents/agent-host.js";
 import type { AgentConfig } from "./agents/types.js";
@@ -17,7 +22,7 @@ import {
   resolveWorktreeMaterialization,
   type WorktreeMaterialization,
 } from "./spawn/worktree-policy.js";
-import type { AnyHarnessId } from "./agents/harness.js";
+import type { AnyHarnessId, ModelCatalog } from "./agents/harness.js";
 import {
   createHarnessRegistry,
   type HarnessRegistry,
@@ -229,6 +234,24 @@ export function setCowAvailability(
 /** The session's harness vocabulary: built-ins plus the plugins this session loaded. */
 export function getHarnessRegistry(): HarnessRegistry {
   return shell.harnesses;
+}
+
+/**
+ * pi's registry in the shape a harness reads. The harness layer never imports
+ * pi-ai or pi's registry type — the levels are pi's, and this is the one place
+ * they are read into the contract's catalog.
+ */
+export function piModelCatalog(registry: {
+  getAvailable(): readonly Model<Api>[];
+}): ModelCatalog {
+  return {
+    getAvailable: () =>
+      registry.getAvailable().map((model) => ({
+        provider: model.provider,
+        id: model.id,
+        thinkingLevels: getSupportedThinkingLevels(model),
+      })),
+  };
 }
 
 /** The session's multiplexers: the built-in plus the plugins this session loaded. */

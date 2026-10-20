@@ -759,7 +759,7 @@ describe("Model Settings — a picker offers only its harness's models", () => {
   });
 
   it("offers nothing under the OpenCode row when its list is empty", async () => {
-    // An empty harness entry is what a failed `opencode models` leaves behind.
+    // An empty harness entry is what a failed opencode model fetch leaves behind.
     setHarnessAvailability(probed(["pi", "opencode"]));
     harnessModelOptions = new Map([
       ["pi", PI_MODELS],
