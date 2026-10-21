@@ -13,7 +13,7 @@ import { showExtensionIndicator } from "../../src/ui/indicator.js";
 import { probed } from "../../src/availability.js";
 import type { ThinkingLevel } from "../../src/types.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
-import { reasoningModel, registryOver } from "./models.js";
+import { listedModel, reasoningModel, registryOver } from "./models.js";
 import {
   resetShell,
   setHarnessAvailability,
@@ -41,7 +41,12 @@ const { showAgentsMainMenu } = await import("../../src/ui/menu/menus.js");
 
 /** Three models so the picker always offers more than the current value. */
 const MODEL_OPTIONS: HarnessModelOptions = new Map([
-  ["pi", ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"]],
+  [
+    "pi",
+    ["anthropic/claude-3", "openai/gpt-4", "openai/gpt-4o"].map((key) =>
+      listedModel(key),
+    ),
+  ],
 ]);
 
 let memory: MemoryStore;
@@ -177,6 +182,7 @@ describe("Agents menu — the Model overrides row", () => {
     expect(session.text()).toContain("Override another type...");
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Pi Default Model",
+      "Pi Default Thinking",
       "Override another type...",
     ]);
   });

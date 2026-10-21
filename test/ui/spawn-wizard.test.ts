@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { registerAgents } from "../../src/agents/agent-types.js";
+import type { ModelEntry } from "../../src/agents/harness.js";
 import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
 import { registerOrchestrators } from "../../src/orchestrators/orchestrator-types.js";
 import { DEFAULT_ORCHESTRATORS } from "../../src/orchestrators/default-orchestrators.js";
@@ -29,7 +30,12 @@ import {
   setSession,
 } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
-import { plainModel, reasoningModel, registryOver } from "./models.js";
+import {
+  listedModel,
+  plainModel,
+  reasoningModel,
+  registryOver,
+} from "./models.js";
 import { walk } from "./walk.js";
 
 vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
@@ -52,8 +58,12 @@ const AVAILABLE_MODELS = [
   reasoningModel("openai", "gpt-4"),
   plainModel("openai", "gpt-3"),
 ];
-const PI_MODELS = ["openai/gpt-4", "openai/gpt-3", "anthropic/claude-3"];
-const OPENCODE_MODELS = ["anthropic/claude-opus-4", "google/gemini-2"];
+const PI_MODELS = ["openai/gpt-4", "openai/gpt-3", "anthropic/claude-3"].map(
+  (key) => listedModel(key),
+);
+const OPENCODE_MODELS = ["anthropic/claude-opus-4", "google/gemini-2"].map(
+  (key) => listedModel(key),
+);
 
 /** The per-harness structure registration hands the wizard; setup() resets it. */
 let harnessModelOptions: HarnessModelOptions;
@@ -629,7 +639,7 @@ describe("Spawn wizard — model and thinking level", () => {
     expect(spawnCalls[0]!.invocation.thinkingLevel).toBeUndefined();
   });
 
-  it("keeps the level when the picked model does not list it", async () => {
+  it("drops a seeded level when the picked model has no control", async () => {
     setup({
       global: { agent: { default: "openai/gpt-4", defaultThinking: "high" } },
     });
@@ -645,11 +655,11 @@ describe("Spawn wizard — model and thinking level", () => {
         { open: "gpt-3 [openai]" },
         {
           expect: {
-            // gpt-3 is non-reasoning, and the configured level still rides the
-            // spawn unchanged: a model's list is not licence to rewrite it.
+            // gpt-3 has no thinking control, so the token the layers named is
+            // dropped rather than sent to a model that cannot take it.
             rows: [
               ["Model", "openai/gpt-3"],
-              ["Thinking level", "high"],
+              ["Thinking level", "inherit"],
             ],
           },
         },
@@ -662,9 +672,288 @@ describe("Spawn wizard — model and thinking level", () => {
       "model change",
     );
 
-    expect(spawnCalls[0]!.args).toMatchObject({
-      modelChoice: { thinking: "high" },
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      model: expect.objectContaining({ id: "gpt-3" }),
+      key: "openai/gpt-3",
+      thinking: null,
     });
+  });
+
+  it("keeps a configured level the model's own list does not map", async () => {
+    // "max" is opt-in on this model, so its supported list excludes it; the
+    // configured level still rides the spawn rather than silently becoming
+    // "inherit" — the same token the tool path sends.
+    setup({
+      global: { agent: { default: "openai/gpt-4", defaultThinking: "max" } },
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "max",
+    });
+
+    await spawnWith(session, { prompt: "Do the thing" });
+    expect(spawnCalls[0]!.args.modelChoice).toMatchObject({
+      key: "openai/gpt-4",
+      thinking: "max",
+    });
+    expect(spawnCalls[0]!.invocation.thinkingLevel).toBe("max");
+  });
+});
+
+describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
+  const CODEX_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultra"];
+
+  /** An agent type whose template names `harnessId`, with that harness's own list. */
+  function installForeign(options: {
+    harnessId: "codex" | "opencode";
+    entries: readonly ModelEntry[];
+    /** The harness's default model, named here so the wizard needs no pick. */
+    defaultModel?: string;
+    agent?: Record<string, unknown>;
+  }): void {
+    setup({
+      global: {
+        agent: {
+          ...(options.defaultModel === undefined
+            ? {}
+            : {
+                defaultModelByHarness: {
+                  [options.harnessId]: options.defaultModel,
+                },
+              }),
+          ...options.agent,
+        },
+      },
+    });
+    registerAgents(
+      new Map([
+        [
+          "auditor",
+          {
+            name: "auditor",
+            displayName: "Auditor",
+            description: "Audits a change",
+            systemPrompt: "",
+            harnessType: options.harnessId,
+          },
+        ],
+      ]),
+    );
+    setHarnessAvailability(probed(["pi", options.harnessId]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      [options.harnessId, options.entries],
+    ]);
+  }
+
+  it("offers the codex model's own levels and spawns it by key", async () => {
+    installForeign({
+      harnessId: "codex",
+      entries: [
+        {
+          key: "openai/gpt-6-astra",
+          label: "GPT-6 Astra",
+          thinkingLevels: { kind: "closed", levels: CODEX_LEVELS },
+        },
+      ],
+      defaultModel: "openai/gpt-6-astra",
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    session.open("Thinking level");
+    await session.settle();
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Low",
+      "Medium",
+      "High",
+      "Xhigh",
+      "Max",
+      "Ultra",
+      "Inherit",
+    ]);
+
+    session.open("Ultra");
+    await session.settle();
+    await spawnWith(session, { prompt: "Do the thing" });
+
+    // No pi lookup: a codex key is not in pi's catalogue, and codex is the
+    // authority on what it accepts. The harness list's label is the display name.
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      harness: "codex",
+      key: "openai/gpt-6-astra",
+      name: "GPT-6 Astra",
+      thinking: "ultra",
+    });
+  });
+
+  it("gives a model with no thinking control no list at all", async () => {
+    installForeign({
+      harnessId: "codex",
+      entries: [listedModel("openai/codex-mini")],
+      defaultModel: "openai/codex-mini",
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "inherit",
+    });
+
+    session.open("Thinking level");
+    await session.settle();
+    // The row is the whole statement: no submenu opens.
+    expect(session.screenCount).toBe(1);
+    expect(session.text()).toContain("takes no thinking level");
+
+    await spawnWith(session, { prompt: "Do the thing" });
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      harness: "codex",
+      key: "openai/codex-mini",
+      name: "openai/codex-mini",
+      thinking: null,
+    });
+  });
+
+  it("offers an advisory list plus a custom token", async () => {
+    installForeign({
+      harnessId: "opencode",
+      entries: [
+        listedModel("anthropic/claude-opus-4", {
+          kind: "advisory",
+          levels: ["minimal", "low"],
+        }),
+      ],
+      defaultModel: "anthropic/claude-opus-4",
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    session.open("Thinking level");
+    await session.settle();
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Minimal",
+      "Low",
+      "Custom token...",
+      "Inherit",
+    ]);
+
+    session.open("Custom token...");
+    await session.settle();
+    session.fillField("extreme");
+    session.press(KEY.enter);
+    await session.settle();
+
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "extreme",
+    });
+
+    await spawnWith(session, { prompt: "Do the thing" });
+    // An advisory list advertises; it does not enforce, so the token rides.
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      harness: "opencode",
+      key: "anthropic/claude-opus-4",
+      name: "anthropic/claude-opus-4",
+      thinking: "extreme",
+    });
+  });
+
+  it("carries a seeded level its model's closed list does not contain", async () => {
+    installForeign({
+      harnessId: "codex",
+      entries: [
+        listedModel("openai/gpt-6-astra", {
+          kind: "closed",
+          levels: CODEX_LEVELS,
+        }),
+      ],
+      defaultModel: "openai/gpt-6-astra",
+      // pi's own level names are not codex's vocabulary.
+      agent: { thinking: { auditor: "absolute" } },
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    // The chain resolved this token and the user never edited the row, so the
+    // spawn carries it as written — the harness warns about its own vocabulary,
+    // it does not refuse, exactly as the tool path does.
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "absolute",
+    });
+
+    await spawnWith(session, { prompt: "Do the thing" });
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      harness: "codex",
+      key: "openai/gpt-6-astra",
+      name: "openai/gpt-6-astra",
+      thinking: "absolute",
+    });
+  });
+
+  it("spawns a level alone on the foreign harness's own default model", async () => {
+    installForeign({
+      harnessId: "codex",
+      entries: [
+        listedModel("openai/gpt-6-astra", {
+          kind: "closed",
+          levels: CODEX_LEVELS,
+        }),
+      ],
+      // No default model, so the level is the only choice.
+      agent: { thinking: { auditor: "high" } },
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "high",
+    });
+
+    await spawnWith(session, { prompt: "Do the thing" });
+    // "inherit" would name the parent's pi model, which codex cannot run.
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      levelOnly: true,
+      thinking: "high",
+    });
+  });
+
+  it("offers the levels its models advertise when the spawn names no model", async () => {
+    installForeign({
+      harnessId: "codex",
+      entries: [
+        listedModel("openai/gpt-6-astra", {
+          kind: "closed",
+          levels: CODEX_LEVELS,
+        }),
+      ],
+    });
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    // No model is named, so the launch runs codex's own default: its list is
+    // the union of what its models advertise, the same rule the Model Settings
+    // default row uses, rather than a free-token-only picker.
+    session.open("Thinking level");
+    await session.settle();
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Low",
+      "Medium",
+      "High",
+      "Xhigh",
+      "Max",
+      "Ultra",
+      "Inherit",
+    ]);
   });
 });
 

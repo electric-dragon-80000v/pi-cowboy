@@ -12,7 +12,10 @@ import {
 } from "@earendil-works/pi-tui";
 import { getHarnessRegistry, getStore } from "../../shell.js";
 import type { AnyHarnessId } from "../../agents/harness.js";
-import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
+import {
+  modelKeysOf,
+  type HarnessModelOptions,
+} from "../../agents/harness/harness-registry.js";
 import { parsePoolKey } from "../../concurrency-pools.js";
 import type { RawConcurrency } from "../../config/config-store.js";
 import { parseModelKey } from "../../utils.js";
@@ -283,7 +286,7 @@ export async function showConcurrencySettingsMenu(
 
     /** Candidate provider names for one harness, from its own model list. */
     const providerOptionsFor = (harness: AnyHarnessId): string[] => {
-      const modelKeys = harnessModelOptions.get(harness) ?? [];
+      const modelKeys = modelKeysOf(harnessModelOptions, harness);
       return [
         ...new Set(
           modelKeys
@@ -428,7 +431,7 @@ export async function showConcurrencySettingsMenu(
       const configured =
         groupKeysByHarness(Object.keys(live.concurrency.models)).get(harness) ??
         [];
-      const candidates = (harnessModelOptions.get(harness) ?? []).map((key) =>
+      const candidates = modelKeysOf(harnessModelOptions, harness).map((key) =>
         qualifiedKey(harness, key),
       );
       const keys = [...new Set([...candidates, ...configured])].sort();
@@ -450,7 +453,8 @@ export async function showConcurrencySettingsMenu(
           if (kind === "providers")
             return hasConfigured || providerOptionsFor(harness).length > 0;
           return (
-            hasConfigured || (harnessModelOptions.get(harness) ?? []).length > 0
+            hasConfigured ||
+            modelKeysOf(harnessModelOptions, harness).length > 0
           );
         })
         .map((harness) => ({

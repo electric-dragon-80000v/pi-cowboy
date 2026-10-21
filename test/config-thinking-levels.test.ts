@@ -271,3 +271,214 @@ describe("ConfigStore — per-harness default thinking", () => {
     expect(store.thinkingFor("auditor", undefined, "pi")).toBe("low");
   });
 });
+
+/** In-memory ConfigIO that records every save, so persistence is assertable. */
+function recordingIO(
+  global: RawConfig,
+  project: RawConfig | null = null,
+  projectStatus: LoadedConfig["projectStatus"] = "loaded",
+): { io: ConfigIO; savedGlobal: RawConfig[]; savedProject: RawConfig[] } {
+  const savedGlobal: RawConfig[] = [];
+  const savedProject: RawConfig[] = [];
+  const io: ConfigIO = {
+    load: (): LoadedConfig => ({
+      global: structuredClone(global),
+      project: project === null ? null : structuredClone(project),
+      projectStatus,
+    }),
+    isGlobalWritable: () => true,
+    paths: () => ({ global: "config.json" }),
+    saveGlobal: (config) => {
+      savedGlobal.push(structuredClone(config));
+    },
+    saveProject: (config) => {
+      savedProject.push(structuredClone(config));
+    },
+  };
+  return { io, savedGlobal, savedProject };
+}
+
+describe("ConfigStore — per-type thinking writers", () => {
+  it("writes one type's token entry-wise, keeping the others", () => {
+    const { io, savedGlobal } = recordingIO({
+      agent: { thinking: { auditor: "low" } },
+    });
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setThinkingOverride("scribe", "high", "global");
+
+    expect(savedGlobal.at(-1)?.agent?.thinking).toEqual({
+      auditor: "low",
+      scribe: "high",
+    });
+  });
+
+  it("writes a null as a real mask at a file layer", () => {
+    const { io, savedProject } = recordingIO(
+      { agent: { thinking: { auditor: "low" } } },
+      {},
+    );
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setThinkingOverride("auditor", null, "project");
+
+    expect(savedProject.at(-1)?.agent?.thinking).toEqual({ auditor: null });
+    expect(store.thinkingOverrideLevels("auditor")).toEqual({
+      session: false,
+      global: true,
+      project: true,
+    });
+  });
+
+  it("clears one layer's entry, dropping the table with its last entry", () => {
+    const { io, savedGlobal } = recordingIO({
+      agent: { thinking: { auditor: "low", scribe: "max" } },
+    });
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.clearThinkingOverride("scribe", "global");
+    expect(savedGlobal.at(-1)?.agent?.thinking).toEqual({ auditor: "low" });
+
+    store.mutate.agent.clearThinkingOverride("auditor", "global");
+    expect(savedGlobal.at(-1)?.agent?.thinking).toBeUndefined();
+    expect(store.thinkingOverrideLevels("auditor").global).toBe(false);
+  });
+
+  it("unpins the session on a null instead of masking it", () => {
+    const { io } = recordingIO({});
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setThinkingOverride("auditor", "low", "session");
+    expect(store.sessionThinkingOverride("auditor")).toBe("low");
+
+    store.mutate.agent.setThinkingOverride("auditor", null, "session");
+    expect(store.sessionThinkingOverride("auditor")).toBeNull();
+    expect(store.thinkingOverrideLevels("auditor").session).toBe(false);
+  });
+});
+
+describe("ConfigStore — per-harness default thinking writers", () => {
+  it("writes one harness's entry, keeping the others, and clears it alone", () => {
+    const { io, savedGlobal } = recordingIO({
+      agent: { defaultThinkingByHarness: { codex: "low" } },
+    });
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setHarnessDefaultThinking("opencode", "max", "global");
+    expect(savedGlobal.at(-1)?.agent?.defaultThinkingByHarness).toEqual({
+      codex: "low",
+      opencode: "max",
+    });
+
+    store.mutate.agent.clearHarnessDefaultThinking("codex", "global");
+    expect(savedGlobal.at(-1)?.agent?.defaultThinkingByHarness).toEqual({
+      opencode: "max",
+    });
+
+    // The table goes with its last entry.
+    store.mutate.agent.clearHarnessDefaultThinking("opencode", "global");
+    expect(savedGlobal.at(-1)?.agent?.defaultThinkingByHarness).toBeUndefined();
+  });
+
+  it("keeps one session slot for the whole pi family", () => {
+    const { io } = recordingIO({});
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setHarnessDefaultThinking("pi", "high", "session");
+
+    // Every pi-family id reads the same slot; another harness reads its own.
+    expect(store.defaultThinkingForHarness("pi")).toBe("high");
+    expect(store.defaultThinkingForHarness("pig")).toBe("high");
+    expect(store.defaultThinkingForHarness("pi-bolt")).toBe("high");
+    expect(store.defaultThinkingForHarness("opencode")).toBeNull();
+    expect(store.harnessDefaultThinkingLevels("pi-bolt").session).toBe(true);
+  });
+
+  it("reads a session null as no session entry, leaving the files to answer", () => {
+    const { io } = recordingIO({ agent: { defaultThinking: "low" } });
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setHarnessDefaultThinking("pi", null, "session");
+
+    expect(store.defaultThinkingForHarness("pig")).toBe("low");
+    expect(store.harnessDefaultThinkingLevels("pig").session).toBe(false);
+  });
+
+  it("reports which layers carry a default: pi's scalar, or the table's entry", () => {
+    const { io } = recordingIO(
+      {
+        agent: {
+          defaultThinking: "low",
+          defaultThinkingByHarness: { opencode: null },
+        },
+      },
+      { agent: { defaultThinkingByHarness: { opencode: "high" } } },
+    );
+    const store = new ConfigStore(io);
+
+    expect(store.harnessDefaultThinkingLevels("pi")).toEqual({
+      session: false,
+      global: true,
+      project: false,
+    });
+    // A null entry is a mask a file layer carries, so the layer counts.
+    expect(store.harnessDefaultThinkingLevels("opencode")).toEqual({
+      session: false,
+      global: true,
+      project: true,
+    });
+  });
+});
+
+describe("ConfigStore — Clear-all covers thinking alone", () => {
+  it("offers Clear-all for a file holding only agent.thinking, and clears the table", () => {
+    const { io, savedGlobal } = recordingIO({
+      agent: { thinking: { auditor: "low" } },
+    });
+    const store = new ConfigStore(io);
+
+    expect(store.modelSettingsLevels().global).toBe(true);
+    expect(store.modelSettingsLevels().project).toBe(false);
+
+    store.mutate.agent.clearAllModelOverrides("global");
+
+    expect(savedGlobal.at(-1)?.agent?.thinking).toBeUndefined();
+    expect(store.modelSettingsLevels().global).toBe(false);
+  });
+
+  it("does not offer a session level for an unpinned thinking default", () => {
+    const { io } = recordingIO({});
+    const store = new ConfigStore(io);
+
+    store.mutate.agent.setHarnessDefaultThinking("pi", null, "session");
+
+    expect(store.modelSettingsLevels().session).toBe(false);
+  });
+});
+
+describe("ConfigStore — the pi family's file default is the scalar", () => {
+  it("writes agent.defaultThinking for a pi-family id, never its table entry", () => {
+    const { io, savedGlobal } = recordingIO({});
+    const store = new ConfigStore(io);
+
+    // pig shares pi's slot and pi's scalar: a table entry here would persist a
+    // key no launch ever reads.
+    store.mutate.agent.setHarnessDefaultThinking("pig", "high", "global");
+
+    expect(savedGlobal.at(-1)?.agent).toEqual({ defaultThinking: "high" });
+    expect(store.defaultThinkingForHarness("pi-bolt")).toBe("high");
+
+    store.mutate.agent.clearHarnessDefaultThinking("pig", "global");
+    expect(savedGlobal.at(-1)?.agent?.defaultThinking).toBeUndefined();
+    expect(store.defaultThinkingForHarness("pi")).toBeNull();
+  });
+
+  it("refuses a token the scalar's own level list does not name", () => {
+    const { io } = recordingIO({});
+    const store = new ConfigStore(io);
+
+    expect(() =>
+      store.mutate.agent.setHarnessDefaultThinking("pi", "absolute", "global"),
+    ).toThrow(RangeError);
+  });
+});

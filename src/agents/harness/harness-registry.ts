@@ -43,6 +43,7 @@ import {
   type HarnessLaunch,
   type HarnessListModelsRequest,
   type LaunchRequestFor,
+  type ModelEntry,
   type ModelList,
   type PiFamilyLaunchRequest,
   type PluginHarness,
@@ -436,11 +437,7 @@ export function createHarnessRegistry(): HarnessRegistry {
       );
       const options = new Map(
         answered.map(
-          (answer) =>
-            [
-              answer.id,
-              modelListEntries(answer.list).map((e) => e.key),
-            ] as const,
+          (answer) => [answer.id, modelListEntries(answer.list)] as const,
         ),
       );
       const notices = answered.flatMap((answer) => {
@@ -465,12 +462,24 @@ export function harnessFamilyOf(id: AnyHarnessId): HarnessFamily | undefined {
 }
 
 /**
- * The model keys each harness this machine can run offers, keyed by harness.
- * A harness whose list could not be produced is present with an empty list:
- * "no models" belongs to that harness alone and is never filled in from
- * another's.
+ * The models each harness this machine can run offers, keyed by harness — the
+ * entries themselves, because a picker offers a key and a launch offers a
+ * level, and both answers come from the same listing. A harness whose list
+ * could not be produced is present with an empty list: "no models" belongs to
+ * that harness alone and is never filled in from another's.
  */
-export type HarnessModelOptions = ReadonlyMap<AnyHarnessId, readonly string[]>;
+export type HarnessModelOptions = ReadonlyMap<
+  AnyHarnessId,
+  readonly ModelEntry[]
+>;
+
+/** The keys one harness's entries carry, for the pickers that offer keys alone. */
+export function modelKeysOf(
+  options: HarnessModelOptions,
+  harness: AnyHarnessId,
+): readonly string[] {
+  return (options.get(harness) ?? []).map((entry) => entry.key);
+}
 
 /**
  * One read of every harness's list: the keys for the menus, and one line per
@@ -492,8 +501,8 @@ export function mergeHarnessModelOptions(
   options: HarnessModelOptions,
 ): string[] {
   const keys = new Set<string>();
-  for (const list of options.values()) {
-    for (const key of list) keys.add(key);
+  for (const entries of options.values()) {
+    for (const entry of entries) keys.add(entry.key);
   }
   return [...keys];
 }

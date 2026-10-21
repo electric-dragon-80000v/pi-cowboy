@@ -316,15 +316,18 @@ interface ResolveThinkingOptions {
   sessionThinking?: SessionThinkingOverrides;
 }
 
+/** The chain position that named a thinking token. */
+export type ThinkingSource =
+  "session-per-type" | "config-per-type" | "agent-template" | "harness-default";
+
 /**
- * The level a spawn runs at: the first layer that names a token wins, or
- * undefined when no layer names one. Undefined is not a missing answer — the
- * run asks for no level and the harness's own default applies, so resolving one
- * here would send an override nobody asked for.
+ * The winning token and the position that named it. Undefined when no layer
+ * names one: the run asks for no level and the harness's own default applies,
+ * so resolving one here would send an override nobody asked for.
  */
-export function resolveThinking(
+export function resolveThinkingSource(
   options: ResolveThinkingOptions,
-): string | undefined {
+): { value: string; source: ThinkingSource } | undefined {
   const {
     subagentType,
     agentConfig,
@@ -341,15 +344,28 @@ export function resolveThinking(
     harnessFamily === undefined
       ? undefined
       : agentConfig?.thinkingByFamily?.[harnessFamily];
-  return firstResolved([
+  return firstResolved<ThinkingSource>([
     ["session-per-type", sessionThinking?.[subagentType]],
     ["config-per-type", config.agent.thinking?.[subagentType]],
     ["agent-template", templateThinking],
     ["harness-default", harnessDefault],
-  ])?.value;
+  ]);
 }
 
-/** Null/undefined/empty read as unset, for a model key and a thinking token alike. */
-function isNamedValue(value: string | null | undefined): value is string {
+/** The level a spawn runs at, or undefined when no layer names one. */
+export function resolveThinking(
+  options: ResolveThinkingOptions,
+): string | undefined {
+  return resolveThinkingSource(options)?.value;
+}
+
+/**
+ * Null/undefined/empty read as unset, for a model key and a thinking token
+ * alike. Exported because a presence read must agree with the chain's: a layer
+ * whose entry this predicate rejects never wins.
+ */
+export function isNamedValue(
+  value: string | null | undefined,
+): value is string {
   return typeof value === "string" && value.length > 0;
 }

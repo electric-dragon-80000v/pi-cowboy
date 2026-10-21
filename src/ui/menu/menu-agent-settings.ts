@@ -6,14 +6,7 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  SettingsList,
-  SelectList,
-  Input,
-  type SettingItem,
-  type Component,
-} from "@earendil-works/pi-tui";
-import { ThinkingLevelSchema, type ThinkingLevel } from "../../types.js";
+import { SettingsList, Input, type SettingItem } from "@earendil-works/pi-tui";
 import type { Theme } from "../types.js";
 import { defaultWorktreeRoot } from "../../paths.js";
 import {
@@ -44,14 +37,7 @@ import {
 import { refreshCowSupportProbe } from "../../cow-support-launch.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { ScreenHost } from "./screen-host.js";
-import { createTargetSelectSubmenu } from "./submenus/target-select.js";
-import {
-  SEPARATOR_ID,
-  buildSettingsListTheme,
-  buildSelectListTheme,
-  headerItem,
-  withVimKeys,
-} from "./helpers.js";
+import { SEPARATOR_ID, buildSettingsListTheme, headerItem } from "./helpers.js";
 
 /**
  * The harness row's description. Narrows with the row: an unlaunchable harness is
@@ -85,61 +71,11 @@ export async function showSpawnOptionsMenu(
   ctx: ExtensionCommandContext,
 ): Promise<void> {
   const store = getStore();
-  /** " [project]" when the effective value comes from the project layer. */
-  const projectTag = (key: string): string =>
-    store.hasProjectModelKey(key) ? " [project]" : "";
-
-  /** Submenu: pick a persisted layer (global or project), then edit the value. No session target. */
-  const persistedTargetSubmenu = (
-    theme: Theme,
-    onPick: (
-      target: "global" | "project",
-      pickDone: (selectedValue?: string) => void,
-    ) => Component | void,
-  ) =>
-    createTargetSelectSubmenu({
-      theme,
-      projectOffered: store.isProjectWritable,
-      includeSession: false,
-      // Narrow TargetChoice: only global/project are offered here.
-      onPick: (target, pickDone) =>
-        onPick(target as "global" | "project", pickDone),
-    });
 
   const buildItems = (theme: Theme): SettingItem[] => {
     return [
       headerItem(theme, "Spawn defaults"),
       { id: SEPARATOR_ID, label: " ", currentValue: "" },
-      {
-        id: "defaultThinking",
-        label: "Default thinking level",
-        currentValue: `${store.agent.defaultThinking ?? "inherit"}${projectTag("defaultThinking")}`,
-
-        submenu: persistedTargetSubmenu(theme, (target, pickDone) => {
-          const levelItems = [...ThinkingLevelSchema.options, "inherit"].map(
-            (v) => ({ value: v, label: v }),
-          );
-          const list = withVimKeys(
-            new SelectList(levelItems, 10, buildSelectListTheme(theme)),
-          );
-          list.onSelect = (item) => {
-            store.mutate.agent.setDefaultThinking(
-              item.value === "inherit"
-                ? undefined
-                : (item.value as ThinkingLevel),
-              target,
-            );
-            ctx.ui.notify(
-              `Default thinking level set to ${item.value} (${target})`,
-              "info",
-            );
-            pickDone(item.value);
-          };
-          list.onCancel = () => pickDone();
-          return list;
-        }),
-        description: "Thinking level applied when an agent template omits one.",
-      },
       {
         id: "harnessType",
         label: "Default harness",

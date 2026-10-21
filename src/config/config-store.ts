@@ -15,12 +15,14 @@ import type {
 import {
   harnessDefaultModel,
   harnessDefaultThinking,
+  isNamedValue,
   resolveModel,
   resolveThinking,
 } from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
 import {
   DEFAULT_HARNESS,
+  isPiFamilyHarness,
   type AnyHarnessId,
   type HarnessConfigIssue,
 } from "../agents/harness.js";
@@ -31,14 +33,19 @@ import type {
   SystemPromptMode,
   ThinkingByFamily,
 } from "../agents/types.js";
-import type { ThinkingLevel } from "../types.js";
+
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
   DEFAULT_WORKTREE_MATERIALIZATION,
   type WorktreeCheckoutType,
   type WorktreeMaterialization,
 } from "../spawn/worktree-policy.js";
-import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
+import {
+  DEFAULT_AGENT_TYPE,
+  DEFAULT_ORCHESTRATOR_NAME,
+  ThinkingLevelSchema,
+  type ThinkingLevel,
+} from "../types.js";
 import type { ConcurrencyConfig } from "../concurrency-pools.js";
 import {
   CONFIG_AGENT_NON_MODEL_KEYS,
@@ -76,6 +83,40 @@ function agentLayerHasModelSettings(layer: RawConfig | null): boolean {
 /** True when a raw layer carries the agent key with a defined value. */
 function layerHasAgentKey(layer: RawConfig | null, key: string): boolean {
   return layer?.agent != null && layer.agent[key] !== undefined;
+}
+
+/**
+ * Presence of one entry in a per-entry agent table. The value cannot answer:
+ * a null entry is a real answer at that layer, masking the ones below, so only
+ * the key's own presence tells it apart from an absent entry.
+ */
+function layerCarriesEntry<K extends string>(
+  entries: Partial<Record<K, string | null>> | undefined,
+  key: K,
+): boolean {
+  return entries != null && Object.hasOwn(entries, key);
+}
+
+/**
+ * A token for the pi family's `agent.defaultThinking` scalar, whose type is pi's
+ * own level list. A caller passing anything else is asking for a file the next
+ * load would reject, so it fails before the write.
+ */
+function piThinkingLevel(token: string): ThinkingLevel {
+  const parsed = ThinkingLevelSchema.safeParse(token);
+  if (!parsed.success) {
+    throw new RangeError(`Invalid pi thinking level ${JSON.stringify(token)}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * The session slot one harness's default thinking token lives in. The pi family
+ * runs one binary, so pig and pi-bolt share pi's slot rather than each holding
+ * a private default.
+ */
+function thinkingSlot(harness: AnyHarnessId): string {
+  return isPiFamilyHarness(harness) ? "pi" : harness;
 }
 
 function sessionOverridesHasModelSettings(
@@ -124,6 +165,20 @@ function rawHarnessDefaults(
   agent: Partial<SubagentsConfig["agent"]>,
 ): Record<string, string | null> {
   return agent.defaultModelByHarness ?? {};
+}
+
+/** The per-harness default thinking tokens of one agent layer, or an empty map. */
+function rawThinkingByHarness(
+  agent: Partial<SubagentsConfig["agent"]>,
+): Record<string, string | null> {
+  return agent.defaultThinkingByHarness ?? {};
+}
+
+/** The per-type thinking tokens of one agent layer, or an empty map. */
+function rawThinkingByType(
+  agent: Partial<SubagentsConfig["agent"]>,
+): Record<string, string | null> {
+  return agent.thinking ?? {};
 }
 
 interface ResolvedAgentSettings {
@@ -299,7 +354,9 @@ export class ConfigStore {
    * session default model does.
    */
   defaultThinkingForHarness(harness: AnyHarnessId): string | null {
-    const session = nonBlankString(this.sessionThinkingDefaults[harness]);
+    const session = nonBlankString(
+      this.sessionThinkingDefaults[thinkingSlot(harness)],
+    );
     return (
       session ?? harnessDefaultThinking(this.layers.effective.agent, harness)
     );
@@ -384,26 +441,69 @@ export class ConfigStore {
     return {
       session:
         nonBlankString(this.sessionHarnessDefaults[harness]) !== undefined,
-      global: this.harnessDefaultAt(this.layers.global, harness),
-      project: this.harnessDefaultAt(this.layers.project, harness),
+      global: layerCarriesEntry(
+        this.layers.global.agent?.defaultModelByHarness,
+        harness,
+      ),
+      project: layerCarriesEntry(
+        this.layers.project?.agent?.defaultModelByHarness,
+        harness,
+      ),
     };
   }
 
-  /** A layer carries the harness's entry when the key is present, even when null. */
-  private harnessDefaultAt(
+  /**
+   * Which layers carry a default thinking token for one harness. The pi family's
+   * default is the `agent.defaultThinking` scalar every layer writes; every
+   * other harness reads its own entry in `defaultThinkingByHarness`. The
+   * session layer is one slot per family, so pig and pi-bolt answer through pi's.
+   */
+  harnessDefaultThinkingLevels(harness: AnyHarnessId): ConfigLayerPresence {
+    return {
+      session:
+        nonBlankString(this.sessionThinkingDefaults[thinkingSlot(harness)]) !==
+        undefined,
+      global: this.harnessThinkingAt(this.layers.global, harness),
+      project: this.harnessThinkingAt(this.layers.project, harness),
+    };
+  }
+
+  /** A layer carries a harness's thinking default: pi's scalar, or the table's entry. */
+  private harnessThinkingAt(
     layer: RawConfig | null,
     harness: AnyHarnessId,
   ): boolean {
-    if (!layer?.agent) return false;
-    return Object.prototype.hasOwnProperty.call(
-      rawHarnessDefaults(layer.agent),
-      harness,
-    );
+    return isPiFamilyHarness(harness)
+      ? layerHasAgentKey(layer, "defaultThinking")
+      : layerCarriesEntry(layer?.agent?.defaultThinkingByHarness, harness);
+  }
+
+  /**
+   * Which layers carry a thinking override for one type. A file layer carries
+   * the entry when the key is present, null included — a null there masks the
+   * layers below. The session carries one only when its in-memory value is
+   * non-null: a session null unpins the session instead of masking.
+   */
+  thinkingOverrideLevels(type: string): ConfigLayerPresence {
+    return {
+      session: this.sessionThinking[type] != null,
+      global: layerCarriesEntry(this.layers.global.agent?.thinking, type),
+      project: layerCarriesEntry(this.layers.project?.agent?.thinking, type),
+    };
   }
 
   /** The project layer's own model key, for the row tags model-groups derives. */
   hasProjectModelKey(key: string): boolean {
     return layerHasAgentKey(this.layers.project, key);
+  }
+
+  /**
+   * Whether the project layer names a thinking token for one type, for the row
+   * tags model-groups derives. A null entry there is a mask rather than a
+   * level, so it does not count: the level the row shows came from elsewhere.
+   */
+  hasProjectThinkingKey(type: string): boolean {
+    return isNamedValue(this.layers.project?.agent?.thinking?.[type]);
   }
 
   /** Which layers carry any model setting, for the Clear-all row. */
@@ -413,7 +513,11 @@ export class ConfigStore {
         sessionOverridesHasModelSettings(this.sessionOverrides) ||
         Object.keys(this.sessionHarnessDefaults).length > 0 ||
         Object.values(this.sessionThinking).some((value) => value != null) ||
-        Object.keys(this.sessionThinkingDefaults).length > 0,
+        // A thinking default set to null unpins the session; only a real
+        // token is something Clear-all would remove.
+        Object.values(this.sessionThinkingDefaults).some(
+          (value) => nonBlankString(value) !== undefined,
+        ),
       global: agentLayerHasModelSettings(this.layers.global),
       project: agentLayerHasModelSettings(this.layers.project),
     };
@@ -602,6 +706,110 @@ export class ConfigStore {
           },
           () => {
             delete this.sessionHarnessDefaults[harness];
+          },
+        );
+      },
+      /**
+       * One type's thinking token, entry-wise for the same reason the harness
+       * map is: a whole-map write would drop every other type's entry. `null` is
+       * a real answer at a file layer — it masks the layers below — while the
+       * session's null unpins the session instead.
+       */
+      setThinkingOverride: (
+        type: string,
+        value: string | null,
+        target: ConfigTarget = "global",
+      ): void => {
+        if (target === "session") {
+          this.sessionThinking[type] = value;
+          return;
+        }
+        this.layers.mutate(target, (raw) => {
+          raw.agent ??= {};
+          raw.agent.thinking = {
+            ...rawThinkingByType(raw.agent),
+            [type]: value,
+          };
+        });
+      },
+      clearThinkingOverride: (
+        type: string,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.layers.clear(
+          target,
+          (raw) => {
+            if (!raw.agent) return;
+            const entries = rawThinkingByType(raw.agent);
+            delete entries[type];
+            if (Object.keys(entries).length === 0) {
+              delete raw.agent.thinking;
+            } else {
+              raw.agent.thinking = entries;
+            }
+          },
+          () => {
+            delete this.sessionThinking[type];
+          },
+        );
+      },
+      /**
+       * One harness's default thinking token. A non-pi harness writes its own
+       * entry in the table, entry-wise: the map is a whole value in the file,
+       * so writing it whole would drop every other harness's entry. The pi
+       * family's file default is the scalar `agent.defaultThinking`, so a file
+       * target for it writes that scalar. The session layer is one slot per
+       * family, whichever target is asked for.
+       */
+      setHarnessDefaultThinking: (
+        harness: AnyHarnessId,
+        value: string | null,
+        target: ConfigTarget = "global",
+      ): void => {
+        if (target === "session") {
+          this.sessionThinkingDefaults[thinkingSlot(harness)] = value;
+          return;
+        }
+        // A pi-family id reads the one `agent.defaultThinking` scalar, never a
+        // table entry, so a file target writes that scalar. Null clears it: a
+        // scalar has no mask to carry.
+        if (isPiFamilyHarness(harness)) {
+          const level = value === null ? undefined : piThinkingLevel(value);
+          this.setAgentLayerEntry("defaultThinking", level, target);
+          return;
+        }
+        this.layers.mutate(target, (raw) => {
+          raw.agent ??= {};
+          raw.agent.defaultThinkingByHarness = {
+            ...rawThinkingByHarness(raw.agent),
+            [harness]: value,
+          };
+        });
+      },
+      clearHarnessDefaultThinking: (
+        harness: AnyHarnessId,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.layers.clear(
+          target,
+          (raw) => {
+            if (!raw.agent) return;
+            // The pi family's file default is the scalar, so clearing it is a
+            // key delete rather than a table edit.
+            if (isPiFamilyHarness(harness)) {
+              delete raw.agent.defaultThinking;
+              return;
+            }
+            const entries = rawThinkingByHarness(raw.agent);
+            delete entries[harness];
+            if (Object.keys(entries).length === 0) {
+              delete raw.agent.defaultThinkingByHarness;
+            } else {
+              raw.agent.defaultThinkingByHarness = entries;
+            }
+          },
+          () => {
+            delete this.sessionThinkingDefaults[thinkingSlot(harness)];
           },
         );
       },

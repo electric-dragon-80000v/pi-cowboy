@@ -3,13 +3,7 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  SettingsList,
-  SelectList,
-  type Component,
-  type SettingItem,
-} from "@earendil-works/pi-tui";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
 import type { AgentWorktree, ModelChoice } from "../../types.js";
 import type { Theme } from "../types.js";
 import { getAgentConfig, getAvailableTypes } from "../../agents/agent-types.js";
@@ -19,8 +13,10 @@ import {
   resolveHarnessType,
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
-import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
-import { findModelInRegistry, modelChoiceName } from "../../utils.js";
+import {
+  modelKeysOf,
+  type HarnessModelOptions,
+} from "../../agents/harness/harness-registry.js";
 import { agentBulletPrefix } from "../format.js";
 import {
   getManager,
@@ -31,18 +27,22 @@ import {
   getRuntime,
   getWorktreeMaterialization,
 } from "../../shell.js";
+
 import { AgentSandbox, formatLaunchCleanupNote } from "../../spawn/sandbox.js";
 import {
   SEPARATOR_ID,
   actionReport,
   buildSettingsListTheme,
-  buildSelectListTheme,
   extractConfiguredModels,
   mergedModelsForHarness,
-  withVimKeys,
 } from "./helpers.js";
 import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
 import { createModelSelectSubmenu } from "./submenus/model-select.js";
+import {
+  choiceInvocation,
+  spawnChoices,
+  THINKING_LEVEL_ROW_ID,
+} from "./spawn-choice.js";
 import {
   buildWorktreeRow,
   loadWorktreeChoices,
@@ -73,50 +73,6 @@ interface SpawnConfiguration {
 
 /** How much of the prompt a derived description keeps. */
 const DERIVED_DESCRIPTION_MAX_LENGTH = 50;
-
-function createThinkingLevelSubmenu(
-  registry: Parameters<typeof findModelInRegistry>[1],
-  currentModelStr: string,
-  fallbackModel: Parameters<typeof findModelInRegistry>[2],
-  theme: Theme,
-  onThinkingChange: (level: string | undefined) => void,
-): (_currentValue: string, done: (v?: string) => void) => Component {
-  return (_currentValue, done) => {
-    const model = findModelInRegistry(currentModelStr, registry, fallbackModel);
-    if (!model) {
-      done();
-      return CLOSED_SUBMENU;
-    }
-
-    const supported = getSupportedThinkingLevels(model);
-    const isReasoning = model.reasoning;
-
-    const items: Array<{ value: string; label: string; description?: string }> =
-      supported.map((level) => ({
-        value: level,
-        label:
-          level === "off"
-            ? "Off"
-            : level.charAt(0).toUpperCase() + level.slice(1),
-        description: !isReasoning ? "(not supported by this model)" : undefined,
-      }));
-
-    if (isReasoning) {
-      items.push({ value: "inherit", label: "Inherit" });
-    }
-
-    const list = withVimKeys(
-      new SelectList(items, 10, buildSelectListTheme(theme)),
-    );
-    list.onSelect = (item) => {
-      onThinkingChange(item.value === "inherit" ? undefined : item.value);
-      done(item.value);
-    };
-    list.onCancel = () => done();
-
-    return list;
-  };
-}
 
 /** Multi-step spawn wizard: options → worktree name (when new) → prompt → spawn. */
 export async function showSpawnAgentMenu(
@@ -152,12 +108,24 @@ export async function showSpawnAgentMenu(
       resolveHarnessType(type),
     ) ?? "";
 
+  /** The choices this spawn makes, against the lists this menu tree loaded. */
+  const choices = spawnChoices({
+    entries: harnessModelOptions,
+    registry: session.modelRegistry,
+    parentModel: session.model,
+  });
+
+  /**
+   * The type's configured token, carried as the chain resolved it. A token the
+   * model's own list does not contain still rides the spawn — the resolved
+   * level is what the other spawn paths send, and a harness that knows its
+   * vocabulary warns rather than refusing.
+   */
+  const seedThinking = (type: string): string | undefined =>
+    store.thinkingFor(type, getAgentConfig(type), resolveHarnessType(type));
+
   let currentModelStr = modelForType(selectedType);
-  let currentThinking: string | undefined = store.thinkingFor(
-    selectedType,
-    getAgentConfig(selectedType),
-    resolveHarnessType(selectedType),
-  );
+  let currentThinking = seedThinking(selectedType);
   let currentBackground: boolean = true;
   let forkState: boolean = getAgentConfig(selectedType)?.fork ?? false;
   // A new worktree is the default, and its name is asked after Spawn.
@@ -170,11 +138,7 @@ export async function showSpawnAgentMenu(
   const applyType = (type: string): void => {
     selectedType = type;
     currentModelStr = modelForType(type);
-    currentThinking = store.thinkingFor(
-      type,
-      getAgentConfig(type),
-      resolveHarnessType(type),
-    );
+    currentThinking = seedThinking(type);
     forkState = getAgentConfig(type)?.fork ?? false;
   };
 
@@ -191,34 +155,21 @@ export async function showSpawnAgentMenu(
         currentValue: "",
         description: "Ask for the worktree name and prompt, then launch",
         submenu: (_v, subDone) => {
-          // The level rides the choice as it was picked: a token belongs to the
-          // harness that will run it, so nothing here rewrites it.
-          // Naming no model still names a level — the child inherits the parent's
-          // model — so that case is its own arm rather than a level on its own.
-          let modelChoice: ModelChoice | undefined;
-          if (currentModelStr) {
-            const model = findModelInRegistry(
-              currentModelStr,
-              session.modelRegistry,
-              undefined,
-            );
-            if (!model) {
-              ctx.ui.notify(`Model not found: ${currentModelStr}`, "error");
-              subDone();
-              return CLOSED_SUBMENU;
-            }
-            modelChoice = {
-              model,
-              key: `${model.provider}/${model.id}`,
-              thinking: currentThinking ?? null,
-            };
-          } else if (currentThinking !== undefined) {
-            modelChoice = { inherit: true, thinking: currentThinking };
+          const result = choices.choice(
+            selectedHarness,
+            currentModelStr,
+            currentThinking,
+          );
+          if (result.kind === "missing") {
+            ctx.ui.notify(`Model not found: ${result.modelKey}`, "error");
+            subDone();
+            return CLOSED_SUBMENU;
           }
 
           closeConfig({
             type: selectedType,
-            modelChoice,
+            modelChoice:
+              result.kind === "chosen" ? result.modelChoice : undefined,
             worktreeChoice,
             description: currentDescription,
             fork: forkState,
@@ -266,7 +217,7 @@ export async function showSpawnAgentMenu(
         currentValue: displayModel,
         description: "Override the default model for this agent",
         submenu: createModelSelectSubmenu({
-          modelOptions: harnessModelOptions.get(selectedHarness) ?? [],
+          modelOptions: modelKeysOf(harnessModelOptions, selectedHarness),
           mergedModels: mergedModelsForHarness(
             selectedHarness,
             extractConfiguredModels(store.agentConfigSnapshot()),
@@ -276,6 +227,13 @@ export async function showSpawnAgentMenu(
           theme,
           onSet: (_target, model) => {
             currentModelStr = model ?? "";
+            // A token belongs to the model it was picked for: the new one may
+            // have no control, or a closed list that does not contain it.
+            currentThinking = choices.clamp(
+              selectedHarness,
+              currentModelStr,
+              currentThinking,
+            );
             // Rebuild so the row shows the model just picked.
             rebuild?.(buildItems());
           },
@@ -306,21 +264,10 @@ export async function showSpawnAgentMenu(
             }),
           ]
         : []),
-      {
-        id: "thinkingLevel",
-        label: "Thinking level",
-        currentValue: currentThinking ?? "inherit",
-        description: "Set the reasoning effort level",
-        submenu: createThinkingLevelSubmenu(
-          session.modelRegistry,
-          currentModelStr,
-          session.model,
-          theme,
-          (level) => {
-            currentThinking = level;
-          },
-        ),
-      },
+      choices.row(selectedHarness, currentModelStr, currentThinking, {
+        ctx,
+        theme,
+      }),
       { id: SEPARATOR_ID, label: " ", currentValue: "" },
       {
         id: "description",
@@ -418,8 +365,7 @@ export async function showSpawnAgentMenu(
         hostRef: sandbox?.hostRef,
         projectTrusted: sandbox?.projectTrusted,
         invocation: {
-          modelName: modelChoiceName(configuration.modelChoice),
-          thinkingLevel: configuration.modelChoice?.thinking ?? undefined,
+          ...choiceInvocation(configuration.modelChoice),
           runInBackground: configuration.runInBackground,
           fork: configuration.fork,
         },
@@ -452,7 +398,7 @@ export async function showSpawnAgentMenu(
           case "type":
             applyType(newValue);
             break;
-          case "thinkingLevel":
+          case THINKING_LEVEL_ROW_ID:
             currentThinking = newValue === "inherit" ? undefined : newValue;
             break;
           case "background":

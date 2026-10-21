@@ -16,10 +16,12 @@ import {
   type SettingItem,
 } from "@earendil-works/pi-tui";
 import type { ThinkingLevel } from "../../types.js";
+import type { ThinkingOffering } from "../../models/thinking-offering.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
 import {
   harnessFamilyOf,
+  modelKeysOf,
   type HarnessModelOptions,
 } from "../../agents/harness/harness-registry.js";
 import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
@@ -33,6 +35,7 @@ import {
 } from "../../shell.js";
 import {
   buildModelGroups,
+  displayedThinking,
   hasExplicitPerTypeOverride,
   type AgentTypeModelConfig,
 } from "../../models/model-groups.js";
@@ -45,10 +48,18 @@ import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { asSubmenuComponent } from "./screen-host.js";
 import {
   createClearAllSubmenu,
+  createClearPickerSubmenu,
+  createLevelPickerSubmenu,
   type AvailableLevels,
   type TargetChoice,
 } from "./submenus/target-select.js";
 import { createModelSelectSubmenu } from "./submenus/model-select.js";
+import { createThinkingSelectSubmenu } from "./submenus/thinking-select.js";
+import {
+  buildHarnessDefaultThinkingRow,
+  buildPiDefaultThinkingRow,
+  thinkingOfferingForType,
+} from "./model-thinking-rows.js";
 import {
   SEPARATOR_ID,
   buildSettingsListTheme,
@@ -59,9 +70,6 @@ import {
   type Notify,
   type SubmenuFactory,
 } from "./helpers.js";
-
-/** Pad level labels so every row's tag aligns ("minimal" is the longest at 7 chars). */
-const THINKING_COLUMN_WIDTH = 7;
 
 /** Global-default display value. Tags mark the winning non-global layer (session > project); untagged means global won. */
 function defaultRowValue(
@@ -152,7 +160,7 @@ function createModelOverridePlumbing(
       showClear,
       availableLevels,
     ) => {
-      const modelOptions = harnessModelOptions.get(harnessId) ?? [];
+      const modelOptions = modelKeysOf(harnessModelOptions, harnessId);
       const mergedModels = mergedModelsForHarness(harnessId, configuredModels);
       const onSet = modelOverrideOnSelect(typeName, typeName);
       if (showClear) {
@@ -312,11 +320,27 @@ function buildModelSettingsList(
       refresh: () => rebuild?.(buildItems(theme)),
     });
 
+    const notify: Notify = (message, type) => ctx.ui.notify(message, type);
     const session = getSessionCtx();
     const parentModel = session.model ?? ctx.model;
     const parentModelId = parentModel
       ? `${parentModel.provider}/${parentModel.id}`
       : null;
+    /** The thinking control a type's model offers, in its harness's vocabulary. */
+    const offeringFor = (
+      harnessId: AnyHarnessId,
+      modelKey: string | null,
+    ): ThinkingOffering =>
+      thinkingOfferingForType({
+        harnessId,
+        modelKey,
+        entries: harnessModelOptions,
+        registry: session.modelRegistry,
+        // The model the chain would inherit, which ctx.model answers when the
+        // session names none.
+        parentModel,
+      });
+
     const agentConfigSnapshot = store.agentConfigSnapshot();
     const sessionDefault = store.sessionDefaultModel;
     const effectiveDefault = agentConfigSnapshot.default;
@@ -342,15 +366,26 @@ function buildModelSettingsList(
       ),
     });
 
+    items.push(buildPiDefaultThinkingRow({ ctx, store, theme }));
+
     for (const harnessId of harnessIds) {
       items.push(
         buildHarnessDefaultRow({
           harnessId,
-          modelOptions: harnessModelOptions.get(harnessId) ?? [],
+          modelOptions: modelKeysOf(harnessModelOptions, harnessId),
           ctx,
           store,
           theme,
           refresh: () => rebuild?.(buildItems(theme)),
+        }),
+      );
+      items.push(
+        buildHarnessDefaultThinkingRow({
+          harnessId,
+          entries: harnessModelOptions.get(harnessId) ?? [],
+          ctx,
+          store,
+          theme,
         }),
       );
     }
@@ -391,26 +426,138 @@ function buildModelSettingsList(
       },
       harnessFamilyFor: (type) => harnessFamilyOf(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
+      hasProjectThinkingKey: (type) => store.hasProjectThinkingKey(type),
       parentModelId,
     });
+
+    /**
+     * The per-type action sheet: either dimension, or both at one layer. A pick
+     * that writes unwinds the sheet, so setting both takes two visits.
+     */
+    const typeSheetFor = (
+      type: string,
+      harnessId: AnyHarnessId,
+      effectiveModel: string | null,
+      effectiveThinking: string | null,
+    ): SubmenuFactory => {
+      const modelLevels = store.modelOverrideLevels(type);
+      const thinkingLevels = store.thinkingOverrideLevels(type);
+      const offering = offeringFor(harnessId, effectiveModel);
+      const sheet: SettingItem[] = [
+        {
+          id: "model",
+          label: "Model",
+          currentValue: effectiveModel ?? "(none)",
+          description: `Model for the ${type} agent type.`,
+        },
+        {
+          id: "thinking",
+          label: "Thinking level",
+          currentValue: effectiveThinking ?? "inherit",
+          description:
+            offering.kind === "none"
+              ? `${type} runs a model with no thinking control.`
+              : `Reasoning effort for ${type}, from its harness's own list.`,
+        },
+      ];
+      // "Clear the override" means both halves, so a layer carrying either is
+      // a target the picker must offer.
+      const clearLevels: AvailableLevels = {
+        session: modelLevels.session || thinkingLevels.session,
+        global: modelLevels.global || thinkingLevels.global,
+        project: modelLevels.project || thinkingLevels.project,
+      };
+      if (clearLevels.session || clearLevels.global || clearLevels.project) {
+        sheet.push({
+          id: "clear",
+          label: "Clear...",
+          currentValue: "",
+          description: `Remove ${type}'s model and thinking overrides at one layer.`,
+        });
+      }
+
+      return createLevelPickerSubmenu({
+        theme,
+        items: sheet,
+        onPick: (id, subDone) => {
+          if (id === "model") {
+            const anyModelLevel =
+              modelLevels.session || modelLevels.global || modelLevels.project;
+            return modelSubmenuFor(
+              type,
+              harnessId,
+              effectiveModel,
+              anyModelLevel,
+              modelLevels,
+            )(effectiveModel ?? "", subDone);
+          }
+          if (id === "thinking") {
+            return createThinkingSelectSubmenu({
+              theme,
+              ctx,
+              offering,
+              current: effectiveThinking,
+              projectOffered,
+              showClear:
+                thinkingLevels.session ||
+                thinkingLevels.global ||
+                thinkingLevels.project,
+              availableLevels: thinkingLevels,
+              onSet: (target, token) => {
+                if (token === null) {
+                  store.mutate.agent.clearThinkingOverride(type, target);
+                } else {
+                  store.mutate.agent.setThinkingOverride(type, token, target);
+                }
+                notify(
+                  token === null
+                    ? `${type} thinking level cleared (${target})`
+                    : `${type} thinking level set to ${token} (${target})`,
+                  "info",
+                );
+              },
+              onClear: (target) => {
+                store.mutate.agent.clearThinkingOverride(type, target);
+                notify(`${type} thinking level cleared (${target})`, "info");
+              },
+            })("", subDone);
+          }
+          return createClearPickerSubmenu({
+            theme,
+            projectOffered,
+            availableLevels: clearLevels,
+            onClear: (target) => {
+              store.mutate.agent.clearModelOverride(type, target);
+              store.mutate.agent.clearThinkingOverride(type, target);
+              notify(`${type} overrides cleared (${target})`, "info");
+            },
+          })("", subDone);
+        },
+      });
+    };
 
     for (const group of groups) {
       items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
       // A null model id means no layer sets a model and the parent has none to inherit.
       items.push(headerItem(theme, group.modelId ?? "(no model)"));
+      // Widest thinking cell in this group, so the model tags line up under it.
+      const thinkingWidth = Math.max(
+        ...group.rows.map(
+          (row) => `${row.thinking ?? "inherit"}${row.thinkingTag}`.length,
+        ),
+      );
       for (const row of group.rows) {
+        const thinkingDisplay = `${row.thinking ?? "inherit"}${row.thinkingTag}`;
         items.push({
           id: `type:${row.type}`,
           label: `${agentBulletPrefix(theme)}${row.type}`,
-          currentValue: `${(row.thinking ?? "inherit").padEnd(THINKING_COLUMN_WIDTH)} ${row.tag}`,
-          description: `Model for the ${row.type} agent type. Select to set or clear its override.`,
-          // Listed rows always carry an explicit override, so Clear is always offered.
-          submenu: modelSubmenuFor(
+          currentValue: `${thinkingDisplay.padEnd(thinkingWidth)} ${row.tag}`,
+          description: `Model and thinking level for the ${row.type} agent type. Select to set or clear either.`,
+          submenu: typeSheetFor(
             row.type,
             resolveHarnessType(row.type),
             group.modelId,
-            true,
-            levelsFor(row.type),
+            row.thinking,
           ),
         });
       }
@@ -427,6 +574,7 @@ function buildModelSettingsList(
           sessionOverrides,
           agentConfigSnapshot,
           type,
+          sessionThinking,
         ),
     );
     if (nonOverridden.length > 0) {
@@ -435,7 +583,7 @@ function buildModelSettingsList(
         label: "Override another type...",
         currentValue: "",
         description:
-          "Add a model override for an agent type that currently inherits.",
+          "Add a model or thinking override for an agent type that currently inherits.",
         submenu: (_currentValue, subDone) =>
           createSearchableSelect(
             nonOverridden.map((typeName) => ({
@@ -446,20 +594,28 @@ function buildModelSettingsList(
               onSelect: (typeName) => {
                 if (typeName == null) return subDone();
                 const harnessId = resolveHarnessType(typeName);
+                const config = getAgentConfig(typeName);
                 const effectiveModel = store.modelFor(
                   typeName,
                   parentModelId,
-                  getAgentConfig(typeName),
+                  config,
                   harnessId,
                 );
-                return modelSubmenuFor(
+                // Nothing is written yet, so the sheet offers only sets: its
+                // Clear row appears once a layer carries one of the two keys.
+                return typeSheetFor(
                   typeName,
                   harnessId,
                   effectiveModel,
-                  false,
-                  // The factory ignores its currentValue arg (pre-selection
-                  // rides the closure above), so null needs no display form here.
-                )(effectiveModel ?? "", subDone);
+                  displayedThinking({
+                    type: typeName,
+                    agentConfig: config,
+                    harnessFamily: harnessFamilyOf(harnessId),
+                    config: agentConfigSnapshot,
+                    harnessDefault: store.defaultThinkingForHarness(harnessId),
+                    sessionThinking,
+                  }).level,
+                )("", subDone);
               },
               onCancel: () => subDone(),
             },
@@ -469,7 +625,7 @@ function buildModelSettingsList(
     }
 
     items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
-    // Each level is offered only when it has model settings.
+    // Each level is offered only when it carries model or thinking settings.
     const modelLevels = store.modelSettingsLevels();
     const availableLevels: AvailableLevels = {
       ...modelLevels,
@@ -482,19 +638,19 @@ function buildModelSettingsList(
     ) {
       items.push({
         id: "clearAll",
-        label: "Clear all model overrides...",
+        label: "Clear all model and thinking overrides...",
         currentValue: "",
         description:
-          "Discard model overrides at the chosen level (session, global, project, or all).",
+          "Discard model and thinking overrides at the chosen level (session, global, project, or all).",
         submenu: createClearAllSubmenu({
           theme,
           projectOffered,
           availableLevels,
           message: (target) =>
-            `Clear all model overrides at the ${target} level?`,
+            `Clear all model and thinking overrides at the ${target} level?`,
           onConfirm: (target) => {
             store.mutate.agent.clearAllModelOverrides(target);
-            ctx.ui.notify(`Model overrides cleared (${target})`, "info");
+            notify(`Model and thinking overrides cleared (${target})`, "info");
           },
         }),
       });

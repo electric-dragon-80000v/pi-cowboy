@@ -53,7 +53,7 @@ describe("Agent settings — structure", () => {
   it("shows each section header once its rows scroll into view", () => {
     const session = openAgentSettings();
 
-    session.focus("Default thinking level");
+    session.focus("Default harness");
     expect(session.text()).toContain("Spawn defaults");
 
     session.focus("Worktree materialization");
@@ -69,6 +69,8 @@ describe("Agent settings — structure", () => {
     // Relocated rows must not render here (nor keep a duplicate handler).
     expect(session.text()).not.toContain("Default agent type");
     expect(session.text()).not.toContain("Orchestrator");
+    // Thinking defaults live on the Model Settings screen, per model.
+    expect(session.text()).not.toContain("Default thinking level");
     expect(session.walkRows().map((row) => row.label)).not.toContain(
       "Default agent type",
     );
@@ -77,7 +79,6 @@ describe("Agent settings — structure", () => {
   it("discovers every row in cursor order", () => {
     expect(rowLabels()).toEqual([
       // Opens on the first selectable row; the leading header is never visited.
-      "Default thinking level",
       "Default harness",
       "Worktree root",
       "Worktree materialization",
@@ -88,7 +89,6 @@ describe("Agent settings — structure", () => {
   });
 
   const rowTable = [
-    ["Default thinking level", "inherit"],
     ["Default harness", "pi"],
     ["Worktree root", "(default)"],
     ["Worktree materialization", "copy-on-write"],
@@ -158,12 +158,8 @@ describe("Agent settings — worktree checkout", () => {
 });
 
 describe("Agent settings — default harness", () => {
-  it("sits directly under Default thinking level", () => {
-    const labels = rowLabels();
-
-    expect(labels.indexOf("Default harness")).toBe(
-      labels.indexOf("Default thinking level") + 1,
-    );
+  it("is the first selectable row", () => {
+    expect(rowLabels()[0]).toBe("Default harness");
   });
 
   it("shows the configured harness instead of the default", () => {
@@ -327,88 +323,6 @@ describe("Agent settings — toggles", () => {
   });
 });
 
-describe("Agent settings — default thinking level", () => {
-  it("offers every level plus inherit, at a picked layer", async () => {
-    const session = openAgentSettings();
-    session.open("Default thinking level");
-    expect(session.text()).toContain("Saves to the global config file");
-
-    session.open("Global");
-    const labels = session.walkRows().map((row) => row.label);
-    expect(labels).toEqual([
-      "off",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "inherit",
-    ]);
-  });
-
-  it("persists the chosen level and tags the row", async () => {
-    const session = openAgentSettings();
-    await walk(
-      session,
-      [
-        { open: "Default thinking level" },
-        { focus: "Project" },
-        {
-          expect: {
-            active: "Project",
-            shows: ["Saves to the project config file"],
-          },
-        },
-        { enter: true },
-        { expect: { shows: ["inherit"] } },
-        { open: "high" },
-        {
-          expect: {
-            rows: [["Default thinking level", "high [project]"]],
-            notified: ["Default thinking level set to high (project)"],
-            store: (store) => expect(store.agent.defaultThinking).toBe("high"),
-          },
-        },
-      ],
-      memory.store,
-      "thinking = high (project)",
-    );
-
-    expect(memory.lastLayer()).toBe("project");
-  });
-
-  it("maps inherit back to an unset level", async () => {
-    memory = createMemoryStore({
-      projectStatus: "absent",
-      global: { agent: { defaultThinking: "high" } },
-    });
-    memory.install();
-
-    const session = openAgentSettings();
-    await walk(
-      session,
-      [
-        { open: "Default thinking level" },
-        { open: "Global" },
-        { open: "inherit" },
-        {
-          expect: {
-            rows: [["Default thinking level", "inherit"]],
-            notified: ["Default thinking level set to inherit (global)"],
-            store: (store) =>
-              expect(store.agent.defaultThinking).toBeUndefined(),
-          },
-        },
-      ],
-      memory.store,
-      "thinking = inherit",
-    );
-
-    expect(memory.lastLayer()).toBe("global");
-  });
-});
-
 describe("Agent settings — worktree root", () => {
   it("sets a root and then clears it back to the default", async () => {
     const session = openAgentSettings();
@@ -477,28 +391,28 @@ describe("Agent settings — worktree root", () => {
 describe("Agent settings — keyboard navigation", () => {
   it("moves with j/k and skips group headers", () => {
     const session = openAgentSettings();
-    session.focus("Default thinking level");
+    session.focus("Default harness");
 
     session.press(KEY.j);
-    expect(session.activeRow()?.label).toBe("Default harness");
+    expect(session.activeRow()?.label).toBe("Worktree root");
 
     session.press(KEY.k);
-    expect(session.activeRow()?.label).toBe("Default thinking level");
+    expect(session.activeRow()?.label).toBe("Default harness");
   });
 
   it("opens on the first selectable row, not on a group header", () => {
     const session = openAgentSettings();
 
-    expect(session.activeRow()?.label).toBe("Default thinking level");
+    expect(session.activeRow()?.label).toBe("Default harness");
   });
 
   it("keeps the cursor on the first selectable row when Up is pressed there", () => {
     const session = openAgentSettings();
-    session.focus("Default thinking level");
+    session.focus("Default harness");
 
     session.press(KEY.up);
     // The leading header blocks the wrap (Up targets index 0, a separator); the defect is pinned below.
-    expect(session.activeRow()?.label).toBe("Default thinking level");
+    expect(session.activeRow()?.label).toBe("Default harness");
   });
 
   it("wraps from the last row to the first selectable row with Down", () => {
@@ -507,18 +421,16 @@ describe("Agent settings — keyboard navigation", () => {
 
     session.press(KEY.down);
     // The last row is real, so the wrap branch is reachable.
-    expect(session.activeRow()?.label).toBe("Default thinking level");
+    expect(session.activeRow()?.label).toBe("Default harness");
   });
 
-  it("opens the row's value editor on Space", async () => {
+  it("cycles the focused toggle on Space", async () => {
     const session = openAgentSettings();
-    session.focus("Default thinking level");
+    session.focus("Worktree checkout");
     session.press(KEY.space);
     await session.settle();
 
-    // Space opens the layer picker on its first row.
-    expect(session.activeRow()?.label).toBe("Global");
-    expect(session.text()).toContain("Saves to the global config file");
+    expect(session.activeRow()?.value).toBe("dirty");
   });
 });
 
@@ -543,20 +455,6 @@ describe("Agent settings — keys reach the focused control", () => {
       "worktree root with j/k",
     );
   });
-
-  it("moves a picker submenu's list with j/k", async () => {
-    const session = openAgentSettings();
-    session.open("Default thinking level");
-    await session.settle();
-    session.press(KEY.enter);
-    await session.settle();
-
-    expect(session.activeRow()?.label).toBe("off");
-    session.press(KEY.j);
-    expect(session.activeRow()?.label).toBe("minimal");
-    session.press(KEY.k);
-    expect(session.activeRow()?.label).toBe("off");
-  });
 });
 
 /**
@@ -566,7 +464,7 @@ describe("Agent settings — keys reach the focused control", () => {
 describe("Agent settings — known head-wrap defect", () => {
   it.fails("wraps from the first selectable row to the last with Up", () => {
     const session = openAgentSettings();
-    session.focus("Default thinking level");
+    session.focus("Default harness");
     session.press(KEY.up);
 
     expect(session.activeRow()?.label).toBe("Disable default agents");

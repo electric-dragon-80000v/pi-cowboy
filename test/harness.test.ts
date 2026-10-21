@@ -25,6 +25,7 @@ import {
   modelListEntries,
   modelListNotice,
   type CodexLaunchRequest,
+  type ModelEntry,
   type ModelList,
   type HarnessId,
   type HarnessPrepareRequest,
@@ -1376,6 +1377,11 @@ describe("listModels", () => {
   });
 });
 
+/** The keys one harness's entries carry. */
+function keysOf(entries: readonly ModelEntry[] | undefined): string[] {
+  return (entries ?? []).map((entry) => entry.key);
+}
+
 describe("listHarnessModelOptions", () => {
   /** A pi registry: the catalog the pi family's list reads. */
   const CATALOG = {
@@ -1408,9 +1414,15 @@ describe("listHarnessModelOptions", () => {
 
     expect(notices).toEqual([]);
     expect([...lists.keys()]).toEqual(["pi", "pig", "pi-bolt", "opencode"]);
-    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
-    expect(lists.get("pig")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
-    expect(lists.get("opencode")).toEqual([
+    expect(keysOf(lists.get("pi"))).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
+    expect(keysOf(lists.get("pig"))).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
+    expect(keysOf(lists.get("opencode"))).toEqual([
       "anthropic/claude-opus-4",
       "openai/gpt-4o",
     ]);
@@ -1455,7 +1467,7 @@ describe("listHarnessModelOptions", () => {
       "opencode",
       "codex",
     ]);
-    expect(lists.get("codex")).toEqual(["openai/gpt-6-sol"]);
+    expect(keysOf(lists.get("codex"))).toEqual(["openai/gpt-6-sol"]);
   });
 
   it("merges the per-harness lists once per key, in vocabulary order", async () => {
@@ -1500,7 +1512,10 @@ describe("listHarnessModelOptions", () => {
       unprobed(),
     );
 
-    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
+    expect(keysOf(lists.get("pi"))).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
     expect(exec).not.toHaveBeenCalled();
   });
 
@@ -1520,8 +1535,8 @@ describe("listHarnessModelOptions", () => {
     );
 
     // The failing harness keeps its own empty list; opencode's is untouched.
-    expect(lists.get("pi")).toEqual([]);
-    expect(lists.get("opencode")).toEqual([
+    expect(keysOf(lists.get("pi"))).toEqual([]);
+    expect(keysOf(lists.get("opencode"))).toEqual([
       "anthropic/claude-opus-4",
       "openai/gpt-4o",
     ]);
@@ -1542,9 +1557,12 @@ describe("listHarnessModelOptions", () => {
       probed(["pi", "opencode"]),
     );
 
-    expect(lists.get("opencode")).toEqual([]);
+    expect(keysOf(lists.get("opencode"))).toEqual([]);
     // The failure costs opencode's list alone; pi's catalog is still offered.
-    expect(lists.get("pi")).toEqual(["anthropic/claude-3", "openai/gpt-4o"]);
+    expect(keysOf(lists.get("pi"))).toEqual([
+      "anthropic/claude-3",
+      "openai/gpt-4o",
+    ]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain("opencode");
     expect(notices[0]).toContain("boom");
@@ -1563,7 +1581,9 @@ describe("listHarnessModelOptions", () => {
 
     expect(lists.get("codex")?.length).toBeGreaterThan(0);
     expect(
-      (lists.get("codex") ?? []).every((key) => /^openai\/\S+$/.test(key)),
+      (lists.get("codex") ?? []).every((entry) =>
+        /^openai\/\S+$/.test(entry.key),
+      ),
     ).toBe(true);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain("codex");

@@ -7,6 +7,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
 import { formatSlotLimit } from "../../src/ui/format.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
+import { listedModel } from "./models.js";
 import { resetShell, setPi } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
 import { expandTree, walk, type Branch, type Expect } from "./walk.js";
@@ -17,8 +18,8 @@ const { showConcurrencySettingsMenu } =
   await import("../../src/ui/menu/menu-concurrency.js");
 
 const MODEL_OPTIONS: HarnessModelOptions = new Map([
-  ["pi", ["anthropic/claude-3", "openai/gpt-4"]],
-  ["opencode", ["google/gemini-2"]],
+  ["pi", ["anthropic/claude-3", "openai/gpt-4"].map((key) => listedModel(key))],
+  ["opencode", ["google/gemini-2"].map((key) => listedModel(key))],
 ]);
 
 function openConcurrency(width = 80): MenuSession {

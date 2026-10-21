@@ -20,6 +20,8 @@ import {
   type RawConfig,
 } from "../src/config/config-store.js";
 import type { LoadedConfig } from "../src/config/config-io.js";
+import type { HarnessModelOptions } from "../src/agents/harness/harness-registry.js";
+import { modelKeysOf } from "../src/agents/harness/harness-registry.js";
 import { probed, unprobed } from "../src/availability.js";
 import {
   getStore,
@@ -58,9 +60,22 @@ vi.mock("../src/shell.js", async (importOriginal) => ({
 }));
 
 const menus = vi.hoisted(() => ({
-  showAgentsMainMenu: vi.fn(async () => {}),
-  showAgentsActionMenu: vi.fn(async () => {}),
+  showAgentsMainMenu: vi.fn(
+    async (_ctx: unknown, _options: HarnessModelOptions) => {},
+  ),
+  showAgentsActionMenu: vi.fn(
+    async (
+      _ctx: unknown,
+      _subcommand: string,
+      _options: HarnessModelOptions,
+    ) => {},
+  ),
 }));
+
+/** The per-harness keys a menu call received, in the map's own order. */
+function listedKeys(options: HarnessModelOptions): Array<[string, string[]]> {
+  return [...options.keys()].map((id) => [id, [...modelKeysOf(options, id)]]);
+}
 vi.mock("../src/ui/menu/menus.js", () => menus);
 
 const worktreeCommand = vi.hoisted(() => ({
@@ -493,16 +508,16 @@ describe("/cowboy dispatch", () => {
 
       await captureCommand().handler(subcommand, ctx);
 
-      const list = new Map([
+      expect(menus.showAgentsActionMenu).toHaveBeenCalledTimes(1);
+      const [ctxArg, subcommandArg, received] =
+        menus.showAgentsActionMenu.mock.calls[0]!;
+      expect(ctxArg).toBe(ctx);
+      expect(subcommandArg).toBe(subcommand);
+      expect(listedKeys(received)).toEqual([
         ["pi", ["anthropic/claude"]],
         ["pig", ["anthropic/claude"]],
         ["pi-bolt", ["anthropic/claude"]],
       ]);
-      expect(menus.showAgentsActionMenu).toHaveBeenCalledWith(
-        ctx,
-        subcommand,
-        list,
-      );
       expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
       expect(notify).not.toHaveBeenCalled();
     },
@@ -608,14 +623,14 @@ describe("/cowboy dispatch", () => {
 
     await captureCommand().handler("", ctx);
 
-    expect(menus.showAgentsMainMenu).toHaveBeenCalledWith(
-      ctx,
-      new Map([
-        ["pi", ["openai/gpt"]],
-        ["pig", ["openai/gpt"]],
-        ["pi-bolt", ["openai/gpt"]],
-      ]),
-    );
+    expect(menus.showAgentsMainMenu).toHaveBeenCalledTimes(1);
+    const [mainCtx, mainOptions] = menus.showAgentsMainMenu.mock.calls[0]!;
+    expect(mainCtx).toBe(ctx);
+    expect(listedKeys(mainOptions)).toEqual([
+      ["pi", ["openai/gpt"]],
+      ["pig", ["openai/gpt"]],
+      ["pi-bolt", ["openai/gpt"]],
+    ]);
     expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
   });
 
@@ -744,20 +759,23 @@ describe("the /cowboy model listing", () => {
         getAvailable: () => [{ provider: "openai", id: "gpt" }],
       },
     };
-    const listed = new Map([
-      ["pi", ["openai/gpt"]],
-      ["pig", ["openai/gpt"]],
-      ["pi-bolt", ["openai/gpt"]],
-      ["opencode", ["anthropic/claude-opus-4"]],
-    ]);
-
     await handler("", ctx);
     // The second open reads the fetch the first one started, not a new run.
     await handler("", ctx);
 
     expect(exec).toHaveBeenCalledTimes(1);
-    expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(1, ctx, listed);
-    expect(menus.showAgentsMainMenu).toHaveBeenNthCalledWith(2, ctx, listed);
+    const expected: Array<[string, string[]]> = [
+      ["pi", ["openai/gpt"]],
+      ["pig", ["openai/gpt"]],
+      ["pi-bolt", ["openai/gpt"]],
+      ["opencode", ["anthropic/claude-opus-4"]],
+    ];
+    const calls = menus.showAgentsMainMenu.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]![0]).toBe(ctx);
+    expect(listedKeys(calls[0]![1])).toEqual(expected);
+    expect(calls[1]![0]).toBe(ctx);
+    expect(listedKeys(calls[1]![1])).toEqual(expected);
   });
 
   it("shows a failed opencode list as a warning on the command's UI", async () => {
