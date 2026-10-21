@@ -84,7 +84,7 @@ describe("parseAgentFile TOML templates", () => {
       name: "typed",
       hidden: true,
       harness: {
-        thinking: "high",
+        thinkingByFamily: { pi: "high" },
         toolsByFamily: { pi: { tools: ["read", "bash"] } },
       },
     });
@@ -575,7 +575,7 @@ describe("mergeAgents harness family split", () => {
     const config = merged.get("split")!;
 
     expect(config.modelsByFamily?.pi).toBe("m");
-    expect(config.thinkingLevel).toBe("high");
+    expect(config.thinkingByFamily?.pi).toBe("high");
     expect(config.fork).toBe(true);
   });
 
@@ -593,7 +593,7 @@ describe("mergeAgents harness family split", () => {
     const config = merged.get("legacy")!;
 
     expect(config.modelsByFamily?.pi).toBe("m");
-    expect(config.thinkingLevel).toBe("high");
+    expect(config.thinkingByFamily?.pi).toBe("high");
     expect(config.fork).toBe(true);
   });
 
@@ -612,8 +612,7 @@ describe("mergeAgents harness family split", () => {
 
     expect(config.harnessType).toBe("opencode");
     expect(config.modelsByFamily).toEqual({ opencode: "m" });
-    expect(config.variant).toBe("high");
-    expect(config.thinkingLevel).toBeUndefined();
+    expect(config.thinkingByFamily).toEqual({ opencode: "high" });
   });
 
   it("files the flat model under pi even when harness_type is opencode", () => {
@@ -642,7 +641,7 @@ describe("mergeAgents harness family split", () => {
     const merged = mergeAgents(new Map(), user, [], project);
     const config = merged.get("oc")!;
 
-    expect(config.variant).toBe("high");
+    expect(config.thinkingByFamily).toEqual({ opencode: "high" });
     expect(config.harnessType).toBe("opencode");
     expect(config.modelsByFamily?.pi).toBe("m");
   });
@@ -690,8 +689,8 @@ describe("mergeAgents harness family split", () => {
       parseAgentFile('name = "oc"\n[harness.opencode]\nvariant = "max"'),
     ];
 
-    expect(mergeAgents(new Map(), user, [], project).get("oc")?.variant).toBe(
-      "max",
-    );
+    expect(
+      mergeAgents(new Map(), user, [], project).get("oc")?.thinkingByFamily,
+    ).toEqual({ opencode: "max" });
   });
 });

@@ -164,8 +164,8 @@ const PARAMS_TEMPLATE = {
 
 /**
  * Fresh deep clone per call: the listener mutates `input.agents[0]`
- * (injecting `_configuredModel` and `thinking`), and a shallow spread of a
- * shared PARAMS would let one test's mutation bleed into the next.
+ * (injecting `_configuredModel` and `_configuredThinking`), and a shallow
+ * spread of a shared PARAMS would let one test's mutation bleed into the next.
  */
 const PARAMS = () => structuredClone(PARAMS_TEMPLATE);
 
@@ -214,6 +214,8 @@ beforeEach(() => {
       harnessType: "pi",
     },
     modelFor: configuredModelMock,
+    // The store resolves the level too; a case that pins one overrides this.
+    thinkingFor: () => undefined,
   });
   getRuntimeMock.mockReturnValue({ host: { hostAt: hostAtMock } });
   getCoordinatorMock.mockReturnValue({ spawn: spawnMock });
@@ -413,7 +415,7 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: {
+      modelChoice: {
         harness: "opencode",
         key: OPENCODE_DEFAULT,
         name: OPENCODE_DEFAULT,
@@ -430,7 +432,7 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+      modelChoice: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
     });
   });
 
@@ -444,7 +446,7 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: {
+      modelChoice: {
         harness: "opencode",
         key: CONFIGURED_KEY,
         name: CONFIGURED_KEY,
@@ -464,7 +466,7 @@ describe("cowboy_agent — the harness default at the global default's position"
     );
 
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: {
+      modelChoice: {
         harness: "opencode",
         key: OPENCODE_DEFAULT,
         name: OPENCODE_DEFAULT,
@@ -480,7 +482,23 @@ describe("cowboy_agent — the harness default at the global default's position"
 
     const options = await runTool();
 
-    expect(options.modelSelection).toBeUndefined();
+    expect(options.modelChoice).toBeUndefined();
+  });
+
+  it("keeps a configured level when the launch resolves no model", async () => {
+    // The common foreign setup: codex runs its own default model, and only the
+    // level is configured. Dropping it with the model would send no effort at
+    // all, with nothing said about it.
+    getAgentConfigMock.mockReturnValue({ harnessType: "codex" });
+    setHarnessAvailability(probed(["pi", "codex"]));
+    getStoreMock.mockReturnValue(
+      realStore({ defaultThinkingByHarness: { codex: "high" } }),
+    );
+
+    const options = await runTool();
+
+    expect(options.modelChoice).toEqual({ levelOnly: true, thinking: "high" });
+    expect(options.invocation).toMatchObject({ thinkingLevel: "high" });
   });
 
   it("carries a caller's opencode key instead of refusing it", async () => {
@@ -489,7 +507,7 @@ describe("cowboy_agent — the harness default at the global default's position"
     await expect(
       runTool({ harness_type: "opencode", model: OPENCODE_DEFAULT }),
     ).resolves.toMatchObject({
-      modelSelection: {
+      modelChoice: {
         harness: "opencode",
         key: OPENCODE_DEFAULT,
         name: OPENCODE_DEFAULT,
@@ -523,9 +541,10 @@ describe("cowboy_agent per-call model override", () => {
     await executeAgentTool("", input, undefined, undefined, ctx);
 
     const options = spawnMock.mock.calls[0]![1] as Record<string, unknown>;
-    expect(options.modelSelection).toEqual({
+    expect(options.modelChoice).toEqual({
       model: OVERRIDE_MODEL,
       key: OVERRIDE_KEY,
+      thinking: null,
     });
     expect(options.invocation).toMatchObject({ modelName: "special-model" });
   });
@@ -548,23 +567,24 @@ describe("cowboy_agent per-call model override", () => {
     await executeAgentTool("", input, undefined, undefined, ctx);
 
     const options = spawnMock.mock.calls[0]![1] as Record<string, unknown>;
-    expect(options.modelSelection).toEqual({
+    expect(options.modelChoice).toEqual({
       model: CONFIGURED_MODEL,
       key: CONFIGURED_KEY,
+      thinking: null,
     });
     expect(options.invocation).toMatchObject({ modelName: "configured-model" });
   });
 
   it("treats null (the constrained-sampling unset shape) as unset", async () => {
     await expect(runTool({ model: null })).resolves.toMatchObject({
-      modelSelection: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
+      modelChoice: { model: CONFIGURED_MODEL, key: CONFIGURED_KEY },
     });
   });
 
   it("keeps the legacy soft fallback to the parent when the configured default is gone", async () => {
     configuredModelMock.mockReturnValue("config/vanished");
     await expect(runTool()).resolves.toMatchObject({
-      modelSelection: { model: PARENT_MODEL, key: "parent/parent-1" },
+      modelChoice: { model: PARENT_MODEL, key: "parent/parent-1" },
     });
   });
 
@@ -616,7 +636,7 @@ describe("cowboy_agent per-call model override", () => {
     await expect(
       runTool({ model: OVERRIDE_KEY, _modelInjected: true }),
     ).resolves.toMatchObject({
-      modelSelection: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
+      modelChoice: { model: OVERRIDE_MODEL, key: OVERRIDE_KEY },
     });
   });
 

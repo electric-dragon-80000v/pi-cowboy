@@ -34,9 +34,9 @@
  * must never fail to open when a list command misbehaves. The integration
  * test is what keeps the verified shape true as codex changes.
  *
- * The strict `[harness.codex]` table carries `model` alone: codex has no tools
- * flag, so there is no tool pair to stage, and the shared `toolSelection` a
- * codex launch receives is left unread.
+ * The strict `[harness.codex]` table carries `model` and `thinking`: codex has
+ * no tools flag, so there is no tool pair to stage, and the shared
+ * `toolSelection` a codex launch receives is left unread.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -114,47 +114,75 @@ function codexModelFlag(modelKey: string | null): string | null {
  * models as the real command was verified to report them here. A fallback,
  * never a second source of truth — the CLI's own answer always replaces it.
  */
+/** One bundled model, with the reasoning efforts codex accepts for it. */
+function bundledModel(
+  slug: string,
+  label: string,
+  levels: readonly string[],
+): ModelEntry {
+  return {
+    key: `${CODEX_KEY_PREFIX}${slug}`,
+    label,
+    thinkingLevels: { kind: "closed", levels },
+  };
+}
+
 const CODEX_FALLBACK_MODELS: readonly ModelEntry[] = [
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-6-astra`,
-    label: "GPT-6-Astra",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-6.1-sol`,
-    label: "GPT-6.1-Sol",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-6-sol`,
-    label: "GPT-6-Sol",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-6-luna`,
-    label: "GPT-6-Luna",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-5.6-sol`,
-    label: "GPT-5.6-Sol",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-5.6-terra`,
-    label: "GPT-5.6-Terra",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-5.6-luna`,
-    label: "GPT-5.6-Luna",
-    thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
-  },
-  {
-    key: `${CODEX_KEY_PREFIX}gpt-5.5`,
-    label: "GPT-5.5",
-    thinkingLevels: ["low", "medium", "high", "xhigh"],
-  },
+  bundledModel("gpt-6-astra", "GPT-6-Astra", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+  ]),
+  bundledModel("gpt-6.1-sol", "GPT-6.1-Sol", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+  ]),
+  bundledModel("gpt-6-sol", "GPT-6-Sol", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+  ]),
+  bundledModel("gpt-6-luna", "GPT-6-Luna", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]),
+  bundledModel("gpt-5.6-sol", "GPT-5.6-Sol", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+  ]),
+  bundledModel("gpt-5.6-terra", "GPT-5.6-Terra", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+  ]),
+  bundledModel("gpt-5.6-luna", "GPT-5.6-Luna", [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]),
+  bundledModel("gpt-5.5", "GPT-5.5", ["low", "medium", "high", "xhigh"]),
 ];
 
 /**
@@ -189,9 +217,13 @@ function codexEntry(model: CodexModel): ModelEntry {
   return {
     key: `${CODEX_KEY_PREFIX}${model.slug}`,
     label: name !== undefined && name !== "" ? name : model.slug,
-    thinkingLevels: (model.supported_reasoning_levels ?? []).map(
-      (level) => level.effort,
-    ),
+    // The CLI's own list for this model is the vocabulary it enforces.
+    thinkingLevels: {
+      kind: "closed",
+      levels: (model.supported_reasoning_levels ?? []).map(
+        (level) => level.effort,
+      ),
+    },
   };
 }
 
@@ -321,7 +353,10 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
    * `never` where pi passes `--approve`, `on-request` where pi passes
    * `--no-approve` — because a background pane answers an approval the way
    * pi's does. The model rides `-m` only when one was resolved, as codex's
-   * bare slug.
+   * bare slug. The reasoning effort rides `model_reasoning_effort` as a
+   * config override when one was resolved: the level is codex's own effort
+   * token, exactly as its catalogue declares it, so no translation happens
+   * here.
    */
   buildArgs(request: CodexLaunchRequest): string[] {
     const args = [
@@ -335,6 +370,8 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
     ];
     const model = codexModelFlag(request.modelKey);
     if (model !== null) args.push("-m", model);
+    if (request.thinking !== null)
+      args.push("-c", `model_reasoning_effort=${tomlString(request.thinking)}`);
     return args;
   },
   // codex reads its own catalog; the injected pi catalog is the pi family's,

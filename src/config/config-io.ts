@@ -21,6 +21,8 @@ import { errorMessage } from "../utils.js";
 import {
   CONFIG_AGENT_NON_MODEL_KEYS,
   DEFAULT_MODEL_BY_HARNESS_KEY,
+  DEFAULT_THINKING_BY_HARNESS_KEY,
+  THINKING_BY_TYPE_KEY,
 } from "./types.js";
 import { validateRawLayer } from "./config-validation.js";
 
@@ -117,6 +119,18 @@ export const MODEL_FAMILY_KEYS = new Set([
   "default",
   "defaultThinking",
   DEFAULT_MODEL_BY_HARNESS_KEY,
+  DEFAULT_THINKING_BY_HARNESS_KEY,
+  THINKING_BY_TYPE_KEY,
+]);
+
+/**
+ * Agent keys whose value is a per-entry map. A project entry for one key of
+ * the map never drops the global layer's entries for the others.
+ */
+const PER_ENTRY_AGENT_KEYS: ReadonlySet<string> = new Set([
+  DEFAULT_MODEL_BY_HARNESS_KEY,
+  DEFAULT_THINKING_BY_HARNESS_KEY,
+  THINKING_BY_TYPE_KEY,
 ]);
 
 /** True when a project file may carry this agent key (model keys only). */
@@ -210,10 +224,8 @@ export function mergeLayers(
   if (project?.agent) {
     for (const [key, value] of Object.entries(project.agent)) {
       if (!isProjectAllowedAgentKey(key)) continue;
-      // The per-harness default models merge per entry, so a project entry for
-      // one harness never drops the global layer's entries for the others.
       if (
-        key === DEFAULT_MODEL_BY_HARNESS_KEY &&
+        PER_ENTRY_AGENT_KEYS.has(key) &&
         isRecord(agent[key]) &&
         isRecord(value)
       ) {

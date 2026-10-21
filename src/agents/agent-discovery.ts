@@ -15,7 +15,12 @@ import {
   type TemplateScanWarning,
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
-import type { AgentConfig, ModelsByFamily, ToolsByFamily } from "./types.js";
+import type {
+  AgentConfig,
+  ModelsByFamily,
+  ThinkingByFamily,
+  ToolsByFamily,
+} from "./types.js";
 
 /** One parsed agent template. */
 export type AgentTemplateFile = AgentTemplate;
@@ -93,11 +98,16 @@ function mergeAgentOverrides(
         existing.toolsByFamily,
         incoming.toolsByFamily,
       );
+      const thinkingByFamily = mergeThinkingByFamily(
+        existing.thinkingByFamily,
+        incoming.thinkingByFamily,
+      );
       result.set(template.name, {
         ...existing,
         ...incoming,
         ...(modelsByFamily ? { modelsByFamily } : {}),
         ...(toolsByFamily ? { toolsByFamily } : {}),
+        ...(thinkingByFamily ? { thinkingByFamily } : {}),
         ...identity,
       });
     } else {
@@ -136,6 +146,18 @@ function mergeToolsByFamily(
 }
 
 /**
+ * Per-family merge of the layers' thinking tokens: a later layer's token for
+ * one family replaces that family's and leaves every other family's intact.
+ */
+function mergeThinkingByFamily(
+  existing: ThinkingByFamily | undefined,
+  incoming: ThinkingByFamily | undefined,
+): ThinkingByFamily | undefined {
+  const merged = { ...existing, ...incoming };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
  * Only explicitly-set fields (undefined falls through). An empty `inlined_skills` list is a set value,
  * so a higher layer clears inlining with it.
  */
@@ -151,8 +173,7 @@ function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
     skills: harness?.skills,
     inlinedSkills: harness?.inlined_skills,
     modelsByFamily: harness?.modelsByFamily,
-    thinkingLevel: harness?.thinking,
-    variant: harness?.variant,
+    thinkingByFamily: harness?.thinkingByFamily,
     hidden: template.hidden,
     fork: harness?.fork,
     includeContextFiles: harness?.include_context_files,

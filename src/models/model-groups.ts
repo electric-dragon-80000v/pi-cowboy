@@ -6,23 +6,22 @@
  * Exports: buildModelGroups, hasExplicitPerTypeOverride.
  */
 
-import {
-  clampThinkingLevel,
-  type Api,
-  type Model,
-} from "@earendil-works/pi-ai";
-import type { ThinkingLevel } from "../types.js";
-import type { ModelsByFamily } from "../agents/types.js";
+import type { ModelsByFamily, ThinkingByFamily } from "../agents/types.js";
 import type { HarnessFamily } from "../agents/harness.js";
 import type {
   SubagentsConfig,
   SessionModelOverrides,
+  SessionThinkingOverrides,
 } from "./model-precedence.js";
-import { resolveModelSource } from "./model-precedence.js";
+import {
+  DEFAULT_THINKING_LEVEL,
+  resolveModelSource,
+  resolveThinking,
+} from "./model-precedence.js";
 
 export interface AgentTypeModelConfig {
   modelsByFamily?: ModelsByFamily;
-  thinkingLevel?: ThinkingLevel;
+  thinkingByFamily?: ThinkingByFamily;
 }
 
 interface ModelGroupsInput {
@@ -43,16 +42,16 @@ interface ModelGroupsInput {
   hasProjectModelKey: (key: string) => boolean;
   /** Null when the parent session has no model: nothing further to inherit. */
   parentModelId: string | null;
-  /** pi's defaultThinkingLevel setting. */
-  piDefaultThinking?: ThinkingLevel;
-  /** Registry lookup for clamping. */
-  findModel: (modelId: string) => Model<Api> | undefined;
+  /** The session's per-type thinking tokens, in each type's own harness vocabulary. */
+  sessionThinking: SessionThinkingOverrides;
+  /** The launching harness's default thinking token for one type, flattened across its layers. */
+  harnessDefaultThinkingFor: (type: string) => string | null;
 }
 
 interface ModelGroupRow {
   type: string;
-  /** Clamped to the group model's supported levels. */
-  thinking: ThinkingLevel;
+  /** The level as the chain resolved it; null = no level, rendered as "inherit". */
+  thinking: string | null;
   /** Winning layer: "[session]", "[project]", or "" for global. */
   tag: string;
 }
@@ -64,9 +63,6 @@ interface ModelGroup {
 }
 
 type ModelGroups = ModelGroup[];
-
-/** Mirrors pi's DEFAULT_THINKING_LEVEL. */
-const PI_FALLBACK_THINKING_LEVEL: ThinkingLevel = "medium";
 
 export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
   const {
@@ -106,11 +102,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
           : "";
 
     const rows = byModel.get(resolved) ?? [];
-    rows.push({
-      type,
-      thinking: displayThinking(cfg, resolved, input),
-      tag,
-    });
+    rows.push({ type, thinking: displayThinking(type, cfg, input), tag });
     byModel.set(resolved, rows);
   }
 
@@ -144,20 +136,26 @@ export function hasExplicitPerTypeOverride(
 }
 
 /**
- * Precedence: agent-template thinking > defaultThinking > pi's
- * defaultThinkingLevel > medium, clamped to the model's supported levels.
+ * The level the row shows: the chain's winner. When no layer names one, only a
+ * pi-family launch has a level to show — pi runs the default this screen would
+ * otherwise have to guess. Another harness has no default here: its own binary
+ * picks one, or applies none, so the row shows no level rather than a token the
+ * launch never sends.
  */
 function displayThinking(
+  type: string,
   cfg: AgentTypeModelConfig | undefined,
-  modelId: string | null,
   input: ModelGroupsInput,
-): ThinkingLevel {
-  const base =
-    cfg?.thinkingLevel ??
-    input.config.defaultThinking ??
-    input.piDefaultThinking ??
-    PI_FALLBACK_THINKING_LEVEL;
-  // Null inherits with no model to clamp against, so the base level stands.
-  const model = modelId != null ? input.findModel(modelId) : undefined;
-  return model ? clampThinkingLevel(model, base) : base;
+): string | null {
+  const family = input.harnessFamilyFor(type);
+  const resolved = resolveThinking({
+    subagentType: type,
+    harnessFamily: family,
+    agentConfig: cfg,
+    config: { agent: input.config },
+    harnessDefault: input.harnessDefaultThinkingFor(type),
+    sessionThinking: input.sessionThinking,
+  });
+  if (resolved !== undefined) return resolved;
+  return family === "pi" ? DEFAULT_THINKING_LEVEL : null;
 }

@@ -7,11 +7,11 @@
  */
 
 import { z } from "zod";
-import { VALID_THINKING_LEVELS } from "../utils.js";
+import { ThinkingLevelSchema } from "../types.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
 import { compactDefined } from "../templates/template-files.js";
 import type { HarnessFamily } from "./harness.js";
-import type { ToolFilter, ToolsByFamily } from "./types.js";
+import type { ThinkingByFamily, ToolFilter, ToolsByFamily } from "./types.js";
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
 
@@ -33,7 +33,7 @@ const filterList = z.union([z.boolean(), z.array(z.string())]);
 const PI_HARNESS_SHAPE = {
   /** A model key in pi's catalogue, as "provider/model-id". */
   model: z.string().optional(),
-  thinking: z.enum(VALID_THINKING_LEVELS).optional(),
+  thinking: ThinkingLevelSchema.optional(),
   extensions: filterList.optional(),
   skills: filterList.optional(),
   /** Names inlined in full into the system prompt; a `skills` entry is only a name, description, and file path. An empty list inlines nothing. */
@@ -62,18 +62,22 @@ const OpencodeHarnessSchema = z.strictObject({
 
 /**
  * codex's own `[harness.codex]` keys; no other family reads them. codex has
- * no tools flag, so the table carries the model alone — a tool pair here
- * would have no reader.
+ * no tools flag, so the table carries the model and the reasoning effort — a
+ * tool pair here would have no reader.
  */
 const CodexHarnessSchema = z.strictObject({
   /** A model key in codex's catalogue, as "provider/model-id". */
   model: z.string().optional(),
+  /** codex's `model_reasoning_effort`, in codex's own vocabulary. */
+  thinking: z.string().optional(),
 });
 
 /** claude's own `[harness.claude]` keys; no other family reads them. */
 const ClaudeHarnessSchema = z.strictObject({
   /** A model key in claude's catalogue, as "provider/model-id" (`anthropic/<alias>`); the launch strips the prefix to the bare alias the CLI takes. */
   model: z.string().optional(),
+  /** claude's `--effort` level, in claude's own vocabulary. */
+  thinking: z.string().optional(),
   /** Tools available to a claude launch, as claude's own tool names (`Bash`, `Read`, …), carried onto `--tools` exactly as written. */
   tools: z.array(z.string()).optional(),
   /** Tools withheld from a claude launch, as claude's own tool names, carried onto `--disallowedTools` exactly as written. */
@@ -118,25 +122,33 @@ const HarnessSchema = z
   .transform(({ pi, opencode, codex, claude, ...flat }) => {
     const {
       model: flatModel,
+      thinking: flatThinking,
       tools: flatTools,
       exclude_tools: flatExcludeTools,
       ...sharedFlat
     } = flat;
     const {
       model: piModel,
+      thinking: piThinking,
       tools: piTools,
       exclude_tools: piExcludeTools,
       ...piSlice
     } = compactDefined(pi ?? {});
     const {
       model: opencodeModel,
+      variant: opencodeThinking,
       tools: opencodeTools,
       exclude_tools: opencodeExcludeTools,
       ...opencodeSlice
     } = compactDefined(opencode ?? {});
-    const { model: codexModel, ...codexSlice } = compactDefined(codex ?? {});
+    const {
+      model: codexModel,
+      thinking: codexThinking,
+      ...codexSlice
+    } = compactDefined(codex ?? {});
     const {
       model: claudeModel,
+      thinking: claudeThinking,
       tools: claudeTools,
       exclude_tools: claudeExcludeTools,
     } = compactDefined(claude ?? {});
@@ -155,6 +167,14 @@ const HarnessSchema = z
       opencode: toToolFilter(opencodeTools, opencodeExcludeTools),
       claude: toToolFilter(claudeTools, claudeExcludeTools),
     });
+    // One token per family, each in the vocabulary its own catalogue defines:
+    // `[harness.pi].thinking` wins over the flat key when both are set.
+    const thinkingByFamily: ThinkingByFamily = compactDefined({
+      pi: piThinking ?? flatThinking, // the flat key, kept for backward compatibility
+      opencode: opencodeThinking,
+      codex: codexThinking,
+      claude: claudeThinking,
+    });
     return {
       ...sharedFlat,
       ...piSlice,
@@ -162,6 +182,7 @@ const HarnessSchema = z
       ...codexSlice,
       ...(Object.keys(modelsByFamily).length > 0 ? { modelsByFamily } : {}),
       ...(Object.keys(toolsByFamily).length > 0 ? { toolsByFamily } : {}),
+      ...(Object.keys(thinkingByFamily).length > 0 ? { thinkingByFamily } : {}),
     };
   });
 

@@ -80,7 +80,9 @@ Because each harness family has its own model catalog, CLI flags, and tool names
 - `[harness.codex]` applies to `codex`.
 - `[harness.claude]` applies to `claude`.
 
-A single template can include sections for multiple families so the agent works seamlessly whichever harness launches it. For backward compatibility, `[harness.pi]` keys may also be written flat under `[harness]`; if a key is set in both places, `[harness.pi]` wins.
+A single template can include sections for multiple families so the agent works seamlessly whichever harness launches it. For backward compatibility, `[harness.pi]` keys — `thinking` among them — may also be written flat under `[harness]`; a flat key means the Pi family's, and no other family reads it. If a key is set in both places, `[harness.pi]` wins.
+
+Each family's `thinking` token is carried as written: nothing translates one harness's vocabulary into another's, and a level this section names sits below the per-type config layers in [Thinking levels](Configuration.md#thinking-levels).
 
 #### `[harness.pi]`
 
@@ -92,4 +94,31 @@ A single template can include sections for multiple families so the agent works 
 | `exclude_tools`  | string[]            | none excluded                    | Blocklist of Pi tool names. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                                    |
 | `skills`         | boolean or string[] | `agent.loadSkillsImplicitly`     | `true` loads all Pi skills, `false` loads none, or a list of skill names loads only those skills (name, description, and file path). |
 | `inlined_skills` | string[]            | `[]`                             | Skill names whose full Markdown contents are inlined directly into the agent's system prompt.                                        |
-| `extensions`     | boolean or string[] | `agent.loadExtensionsImplicitly` |
+| `extensions`     | boolean or string[] | `agent.loadExtensionsImplicitly` | `true` loads all Pi extensions, `false` loads none, or a list of extension names loads only those extensions.                        |
+
+#### `[harness.opencode]`
+
+| Field           | Type     | Default                                   | Description                                                                                                                                                                                  |
+| --------------- | -------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`         | string   | unset                                     | Model from opencode's catalog as `"provider/model-id"`. See [Model keys](Configuration.md#model-keys) for precedence.                                                                        |
+| `variant`       | string   | `agent.defaultThinkingByHarness.opencode` | Reasoning effort variant, joined to this agent's model as `"provider/model#variant"`. A variant names a member of one model's catalog, so a variant with no `model` here refuses the launch. |
+| `tools`         | string[] | all tools                                 | Allowlist of opencode permission actions (for example, `["bash", "edit"]`).                                                                                                                  |
+| `exclude_tools` | string[] | none excluded                             | Blocklist of opencode permission actions. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                                                                              |
+
+#### `[harness.codex]`
+
+codex accepts no tools flag, so this section carries no tool pair.
+
+| Field      | Type   | Default                                | Description                                                                                                                                                                 |
+| ---------- | ------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`    | string | unset                                  | Model from codex's catalog as `"provider/model-id"`. See [Model keys](Configuration.md#model-keys) for precedence.                                                          |
+| `thinking` | string | `agent.defaultThinkingByHarness.codex` | Reasoning effort, passed as `model_reasoning_effort` in codex's own vocabulary (for example, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, or `"ultra"`). |
+
+#### `[harness.claude]`
+
+| Field           | Type     | Default                                 | Description                                                                                                                                                        |
+| --------------- | -------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `model`         | string   | unset                                   | Model from claude's catalog as `"anthropic/<alias>"`; the launch passes the bare alias to `--model`. See [Model keys](Configuration.md#model-keys) for precedence. |
+| `thinking`      | string   | `agent.defaultThinkingByHarness.claude` | Reasoning effort, passed as `--effort`: `"low"`, `"medium"`, `"high"`, `"xhigh"`, or `"max"`.                                                                      |
+| `tools`         | string[] | all tools                               | Allowlist of claude tool names (for example, `["Bash", "Read"]`), passed to `--tools` exactly as written.                                                          |
+| `exclude_tools` | string[] | none excluded                           | Blocklist of claude tool names, passed to `--disallowedTools`. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                               |

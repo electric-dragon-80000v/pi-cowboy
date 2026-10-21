@@ -10,7 +10,8 @@
  *
  * This is the only place that knows both families exist. Resolution runs
  * BEFORE worktree resolution, so a refusal fails the call without spawning
- * anything or touching the in-flight attempt.
+ * anything or touching the in-flight attempt. It answers with its warnings
+ * rather than showing them: the caller owns the UI.
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
@@ -21,7 +22,10 @@ import {
   type ForeignModelResolverDeps,
   type HarnessModelList,
 } from "./foreign-model-resolver.js";
-import type { ModelRequest, ResolvedModel } from "./model-request-types.js";
+import type {
+  ModelRequest,
+  SpawnModelResolution,
+} from "./model-request-types.js";
 
 export * from "./model-request-types.js";
 export { resolvePiModel, type ModelLookup } from "./pi-model-resolver.js";
@@ -40,8 +44,13 @@ export interface SpawnModelDeps {
   parent: Model<Api> | undefined;
   /** The launching harness's own list, for a harness whose keys pi's catalog does not hold. */
   listModels: HarnessModelList;
-  /** The user-facing channel the advisory warning goes out on. */
-  notify: (message: string) => void;
+  /**
+   * The level the layers asked for, already chosen (the caller's own value over
+   * the configured chain), in the launching harness's vocabulary. It is carried
+   * as written: the harness that runs it decides what the token means, and the
+   * most a family may do is warn that it does not know it.
+   */
+  thinking: string | undefined;
 }
 
 /**
@@ -55,16 +64,20 @@ export interface SpawnModelDeps {
 export async function resolveSpawnModel(
   request: ModelRequest | undefined,
   deps: SpawnModelDeps,
-): Promise<ResolvedModel> {
+): Promise<SpawnModelResolution> {
   const { harness } = deps;
   if (isPiFamilyHarness(harness)) {
-    return resolvePiModel(request, deps.registry, deps.parent);
+    return resolvePiModel(request, {
+      registry: deps.registry,
+      parent: deps.parent,
+      thinking: deps.thinking,
+    });
   }
 
   const foreign: ForeignModelResolverDeps = {
     harness,
     listModels: deps.listModels,
-    notify: deps.notify,
+    thinking: deps.thinking,
   };
   return resolveForeignModel(request, foreign);
 }

@@ -38,6 +38,7 @@ export type {
   ModelEntry,
   ModelList,
   SubagentLaunchInputs,
+  ThinkingLevels,
   ToolSelection,
 } from "../agents/harness.js";
 

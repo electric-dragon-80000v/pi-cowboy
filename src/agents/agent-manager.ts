@@ -21,7 +21,7 @@ import {
 } from "../concurrency-pools.js";
 import { HerdrTaskRegistry } from "../task-registry.js";
 import { createLogger } from "../logger.js";
-import { errorMessage } from "../utils.js";
+import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
   ACTIVE_AGENT_PHASES,
   ALL_AGENT_PHASES,
@@ -179,7 +179,7 @@ export class AgentManager {
     const admission = this.pools.admitSpawn(
       {
         harness: resolvedOptions.harness,
-        modelKey: resolvedOptions.modelSelection?.key,
+        modelKey: modelChoiceKey(resolvedOptions.modelChoice),
       },
       {
         id,

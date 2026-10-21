@@ -11,7 +11,11 @@ import { HARNESS_IDS, type AnyHarnessId } from "../agents/harness.js";
 import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
-import { DEFAULT_MODEL_BY_HARNESS_KEY } from "./types.js";
+import {
+  DEFAULT_MODEL_BY_HARNESS_KEY,
+  DEFAULT_THINKING_BY_HARNESS_KEY,
+  THINKING_BY_TYPE_KEY,
+} from "./types.js";
 import type { RawConfig } from "./config-io.js";
 import {
   CONCURRENCY_LIMIT_EXPECTED,
@@ -65,6 +69,19 @@ const HARNESS_EXPECTED = HARNESS_IDS.map((id) => `"${id}"`).join(" | ");
  * check is "a non-empty string", not membership in `HARNESS_IDS`.
  */
 const HARNESS_DEFAULT_MODELS_EXPECTED = `an object keyed by a harness id (${HARNESS_EXPECTED} or a plugin's), with string or null values`;
+/** A thinking token is non-blank in whatever vocabulary names it; the harness that reads it is what decides whether it means anything. */
+const HARNESS_DEFAULT_THINKING_EXPECTED = `an object keyed by a harness id (${HARNESS_EXPECTED} or a plugin's), with a non-empty thinking token or null per entry`;
+const THINKING_BY_TYPE_EXPECTED =
+  "an object keyed by an agent type, with a non-empty thinking token or null per entry";
+const THINKING_TOKEN_EXPECTED = "non-empty string or null";
+
+/** A per-entry value naming a model key: any string, or null for "none at this layer". */
+const isModelKeyOrNull = (value: unknown): value is string | null =>
+  typeof value === "string" || value === null;
+
+/** A per-entry value naming a thinking token: a non-blank string, or null for "none at this layer". */
+const isThinkingTokenOrNull = (value: unknown): value is string | null =>
+  value === null || (typeof value === "string" && /\S/.test(value));
 
 /** An agent key outside the table is a per-type model key. */
 const AGENT_KEY_SPECS: Record<string, KeySpec> = {
@@ -226,7 +243,28 @@ function cleanAgentEntries(
   for (const [key, value] of Object.entries(agent)) {
     if (value === undefined) continue;
     if (key === DEFAULT_MODEL_BY_HARNESS_KEY) {
-      const entries = cleanHarnessDefaultModels(value, filePath);
+      const entries = cleanEntryMap(value, filePath, {
+        keyPath: `agent.${key}`,
+        expected: HARNESS_DEFAULT_MODELS_EXPECTED,
+        valueExpected: MODEL_KEY.expected,
+        accepts: isModelKeyOrNull,
+      });
+      if (entries !== undefined) kept[key] = entries;
+      continue;
+    }
+    if (
+      key === DEFAULT_THINKING_BY_HARNESS_KEY ||
+      key === THINKING_BY_TYPE_KEY
+    ) {
+      const entries = cleanEntryMap(value, filePath, {
+        keyPath: `agent.${key}`,
+        expected:
+          key === DEFAULT_THINKING_BY_HARNESS_KEY
+            ? HARNESS_DEFAULT_THINKING_EXPECTED
+            : THINKING_BY_TYPE_EXPECTED,
+        valueExpected: THINKING_TOKEN_EXPECTED,
+        accepts: isThinkingTokenOrNull,
+      });
       if (entries !== undefined) kept[key] = entries;
       continue;
     }
@@ -238,39 +276,46 @@ function cleanAgentEntries(
   return kept;
 }
 
+/** One per-entry map's shape, so its warnings can name its own keys and values. */
+interface EntryMapShape {
+  /** The path warnings name, e.g. `agent.thinking`. */
+  keyPath: string;
+  /** What the whole value must be, for the warning a non-object draws. */
+  expected: string;
+  /** What a rejected entry's value must have been. */
+  valueExpected: string;
+  accepts: (value: unknown) => value is string | null;
+}
+
 /**
- * Per-entry validation of the harness map: a key that is not a non-empty harness
- * id, or a value that is not a model key, warns and is dropped. An empty result
- * reads as absent so the built-in default applies. Never throws.
+ * Per-entry validation of a map from an id or an agent type to one value: a
+ * blank key, or a value the map does not accept, warns and is dropped while
+ * every other entry survives. An empty result reads as absent, so no layer of
+ * the chain sees an empty table. Never throws.
  */
-function cleanHarnessDefaultModels(
+function cleanEntryMap(
   value: unknown,
   filePath: string,
+  { keyPath, expected, valueExpected, accepts }: EntryMapShape,
 ): Record<string, string | null> | undefined {
-  const keyPath = `agent.${DEFAULT_MODEL_BY_HARNESS_KEY}`;
   if (!isRecord(value)) {
-    warnIncompatible(filePath, keyPath, value, HARNESS_DEFAULT_MODELS_EXPECTED);
+    warnIncompatible(filePath, keyPath, value, expected);
     return undefined;
   }
   const kept: Record<string, string | null> = {};
-  for (const [harness, model] of Object.entries(value)) {
-    if (model === undefined) continue;
-    if (!/\S/.test(harness)) {
-      warnIncompatible(
-        filePath,
-        `${keyPath}.${harness}`,
-        harness,
-        "non-empty harness id",
-      );
+  for (const [entry, candidate] of Object.entries(value)) {
+    if (candidate === undefined) continue;
+    if (!/\S/.test(entry)) {
+      warnIncompatible(filePath, `${keyPath}.${entry}`, entry, "non-empty key");
       continue;
     }
-    if (typeof model === "string" || model === null) kept[harness] = model;
+    if (accepts(candidate)) kept[entry] = candidate;
     else
       warnIncompatible(
         filePath,
-        `${keyPath}.${harness}`,
-        model,
-        MODEL_KEY.expected,
+        `${keyPath}.${entry}`,
+        candidate,
+        valueExpected,
       );
   }
   return Object.keys(kept).length > 0 ? kept : undefined;

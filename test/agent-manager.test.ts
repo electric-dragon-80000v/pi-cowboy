@@ -23,7 +23,7 @@ import { HerdrTaskRegistry as HerdrTaskRegistryImpl } from "../src/task-registry
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
 import type { OrchestratorConfig } from "../src/orchestrators/types.js";
 import { DEFAULT_ORCHESTRATORS } from "../src/orchestrators/default-orchestrators.js";
-import type { AgentSpawn, ModelSelection } from "../src/types.js";
+import type { AgentSpawn, ModelChoice } from "../src/types.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
 import type {
   DeliverableReport,
@@ -37,10 +37,11 @@ import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 import { noMultiplexer } from "./helpers/transport.js";
 
 /** A paired model selection for spawns that opt into concurrency slots. */
-function testSelection(): ModelSelection {
+function testSelection(): ModelChoice {
   return {
     model: { provider: "test", id: "model" } as unknown as Model<Api>,
     key: "test/model",
+    thinking: null,
   };
 }
 
@@ -337,7 +338,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       {
         description: "do it",
         spawnId: nextSpawnId(),
-        modelSelection: testSelection(),
+        modelChoice: testSelection(),
         orchestration: TEST_ORCHESTRATION,
       },
     );
@@ -426,7 +427,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       {
         description: "do it",
         spawnId: nextSpawnId(),
-        modelSelection: testSelection(),
+        modelChoice: testSelection(),
         orchestration: TEST_ORCHESTRATION,
       },
     );
@@ -484,7 +485,7 @@ describe("AgentManager.spawn start failure", () => {
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
         description: "do it",
         spawnId: nextSpawnId(),
-        modelSelection: testSelection(),
+        modelChoice: testSelection(),
       } as SpawnOptions),
     ).toThrow("start boom");
 
@@ -650,7 +651,7 @@ describe("AgentManager fleet routing", () => {
     return manager.spawn({} as never, {} as never, "general-purpose", "do it", {
       description: "do it",
       spawnId: nextSpawnId(),
-      modelSelection: testSelection(),
+      modelChoice: testSelection(),
       orchestration: TEST_ORCHESTRATION,
     });
   }

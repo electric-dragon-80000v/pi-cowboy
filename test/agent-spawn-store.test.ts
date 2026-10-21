@@ -19,7 +19,7 @@ import { AgentManager } from "../src/agents/agent-manager.js";
 import type {
   AgentLifecycleState,
   AgentSpawn,
-  ModelSelection,
+  ModelChoice,
 } from "../src/types.js";
 import type { AgentHost, AgentHostRef } from "../src/agents/agent-host.js";
 import { ConcurrencyPools } from "../src/concurrency-pools.js";
@@ -119,10 +119,11 @@ const BRANCH = "cow-fix-login-flow-0123456789abcdef0";
 const WT_PATH = `/work/.herdr-subagents/repo/${BRANCH}`;
 
 /** A paired model selection for spawns that opt into concurrency slots. */
-function testSelection(): ModelSelection {
+function testSelection(): ModelChoice {
   return {
     model: { provider: "test", id: "model" } as unknown as Model<Api>,
     key: "test/model",
+    thinking: null,
   };
 }
 
@@ -245,7 +246,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     {
       spawnId: options.id ?? nextSpawnId(),
       description: "do it",
-      modelSelection: testSelection(),
+      modelChoice: testSelection(),
       orchestration: TEST_ORCHESTRATION,
       ...(options.worktree
         ? {
@@ -294,7 +295,7 @@ function spawnQueued(): Harness {
     {
       spawnId: nextSpawnId(),
       description: "do it",
-      modelSelection: testSelection(),
+      modelChoice: testSelection(),
       orchestration: TEST_ORCHESTRATION,
     },
   );
@@ -621,7 +622,7 @@ describe("spawn retention through the manager", () => {
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
         spawnId: nextSpawnId(),
         description: "do it",
-        modelSelection: testSelection(),
+        modelChoice: testSelection(),
       } as never),
     ).toThrow("start boom");
 
@@ -650,7 +651,7 @@ describe("spawn retention through the manager", () => {
       manager.spawn({} as never, {} as never, "general-purpose", "do it", {
         spawnId: "dup00001",
         description: "do it",
-        modelSelection: testSelection(),
+        modelChoice: testSelection(),
         orchestration: TEST_ORCHESTRATION,
       }),
     ).toThrow(SpawnIdCollisionError);

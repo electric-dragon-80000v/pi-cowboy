@@ -210,8 +210,9 @@ describe("Model Settings — the listing rule", () => {
     });
   });
 
-  it("clamps the thinking level to what the model supports", async () => {
-    // "max" is opt-in (gated behind thinkingLevelMap), so the row shows the nearest level below.
+  it("shows the level as configured, never rewritten to the model's list", async () => {
+    // "max" is opt-in on this model (gated behind thinkingLevelMap), and the row
+    // still shows it: what the launch asks for is the configured level.
     installStore({
       global: {
         agent: { defaultThinking: "max", auditor: "anthropic/claude-3" },
@@ -220,7 +221,7 @@ describe("Model Settings — the listing rule", () => {
 
     expect((await openModelSettings()).rows()).toContainEqual({
       label: "• auditor",
-      value: "high",
+      value: "max",
     });
   });
 
@@ -835,6 +836,24 @@ describe("Model Settings — a per-type row follows its resolved harness", () =>
       memory.store,
       "type resolving to opencode",
     );
+  });
+
+  it("shows no level when the harness has no default this screen knows", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
+    // A per-type model override and no thinking anywhere: the launch sends no
+    // level, so the row must not report pi's medium for an opencode spawn.
+    installStore({ global: { agent: { auditor: "openai/gpt-4o" } } });
+    const session = await openModelSettings();
+
+    expect(session.rows()).toContainEqual({
+      label: "• auditor",
+      value: "inherit",
+    });
   });
 
   it("falls back to pi's keys when opencode cannot launch", async () => {

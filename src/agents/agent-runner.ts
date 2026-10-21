@@ -14,7 +14,7 @@ import {
   type ExtensionAPI,
   type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../utils.js";
+import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
   agentDir,
   subagentResultDirFor,
@@ -33,7 +33,6 @@ import {
   type CodexLaunchInputs,
   type ExtensionLaunchMode,
   type HarnessLaunch,
-  type OpencodeLaunchInputs,
   type PiLaunchInputs,
   type SkillLaunchMode,
   type SubagentLaunchInputs,
@@ -251,7 +250,6 @@ function buildLaunchRequest(
   harnessType: AnyHarnessId,
   sharedInputs: SubagentLaunchInputs,
   piInputs: PiLaunchInputs,
-  opencodeInputs: OpencodeLaunchInputs,
   codexInputs: CodexLaunchInputs,
 ): HarnessLaunch {
   switch (harnessType) {
@@ -260,7 +258,7 @@ function buildLaunchRequest(
     case "pi-bolt":
       return { ...sharedInputs, family: "pi", ...piInputs };
     case "opencode":
-      return { ...sharedInputs, family: "opencode", ...opencodeInputs };
+      return { ...sharedInputs, family: "opencode" };
     case "codex":
       return { ...sharedInputs, family: "codex", ...codexInputs };
     case "claude":
@@ -423,28 +421,25 @@ export async function buildLaunchPlan(
     );
   }
 
-  // The harness owns the argv — including how the task rides — because the
-  // CLI surface is the harness's, not the orchestrator's. One request is built
-  // here, keyed by family, and the argv is built from that same object: pi's
-  // flags only ever reach a pi-family harness, opencode's variant only
-  // reaches opencode's, and codex's trust only reaches codex.
+  // The harness owns the argv — including how the task rides, and how the
+  // level is spelled — because the CLI surface is the harness's, not the
+  // orchestrator's. One request is built here, keyed by family, and the argv is
+  // built from that same object: pi's flags only ever reach a pi-family
+  // harness, and codex's trust only reaches codex.
   const sharedInputs: SubagentLaunchInputs = {
     subagentId: agentId,
     systemPromptFile: systemFile,
     taskFile,
     resultFile,
-    modelKey: options.modelSelection?.key ?? null,
+    modelKey: modelChoiceKey(options.modelChoice) ?? null,
+    thinking: options.modelChoice?.thinking ?? null,
     toolSelection,
   };
   const piInputs: PiLaunchInputs = {
-    thinkingLevel: options.thinkingLevel ?? null,
     forkSessionFile: forkSessionFile ?? null,
     skills: skillMode,
     extensions: extMode,
     projectTrusted: options.projectTrusted !== false,
-  };
-  const opencodeInputs: OpencodeLaunchInputs = {
-    variant: agentConfig?.variant ?? null,
   };
   const codexInputs: CodexLaunchInputs = {
     projectTrusted: options.projectTrusted !== false,
@@ -453,7 +448,6 @@ export async function buildLaunchPlan(
     harnessType,
     sharedInputs,
     piInputs,
-    opencodeInputs,
     codexInputs,
   );
   const piArgs = buildHarnessArgs(harnessType, launch);

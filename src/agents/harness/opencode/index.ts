@@ -29,9 +29,12 @@
  * cannot be read offers nothing until the command answers. The integration
  * test is what keeps the verified shape true as opencode changes.
  *
- * The strict `[harness.opencode]` table carries `variant`, which joins the model
- * reference on the argv: a variant has no flag of its own, so `buildArgs`
- * appends it to the model key as `provider/model#variant`.
+ * The strict `[harness.opencode]` table carries `variant`, which is the level
+ * this launch runs at. A variant has no flag of its own, so `buildArgs` joins it
+ * to the model reference as `provider/model#variant`; a selection made from
+ * opencode's own list carries the variant as picked — the list is advisory, so
+ * nothing here second-guesses it — and a variant without a model has nothing to
+ * join and is refused.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -195,7 +198,12 @@ function opencodeEntry(model: OpencodeModel): ModelEntry {
   return {
     key: `${model.providerID}/${model.id}`,
     label: name !== undefined && name !== "" ? name : model.id,
-    thinkingLevels: (model.variants ?? []).map((variant) => variant.id),
+    // Variants are what this model advertises; the user may define more, so the
+    // list is a menu, never the closed set the harness accepts.
+    thinkingLevels: {
+      kind: "advisory",
+      levels: (model.variants ?? []).map((variant) => variant.id),
+    },
   };
 }
 
@@ -364,14 +372,14 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
   buildArgs(request: OpencodeLaunchRequest): string[] {
     const args = ["mini", "--standalone", "--agent", request.subagentId];
     if (request.modelKey === null) {
-      if (request.variant !== null) {
+      if (request.thinking !== null) {
         throw new Error(
-          `the opencode variant ${JSON.stringify(request.variant)} has no model to attach to: opencode takes a variant as part of a model reference (\`provider/model#variant\`), and this launch resolved no model. Give the agent an opencode model, or drop the variant.`,
+          `the opencode variant ${JSON.stringify(request.thinking)} has no model to attach to: opencode takes a variant as part of a model reference (\`provider/model#variant\`), and this launch resolved no model. Give the agent an opencode model, or drop the variant.`,
         );
       }
       return args;
     }
-    args.push("--model", modelReference(request.modelKey, request.variant));
+    args.push("--model", modelReference(request.modelKey, request.thinking));
     return args;
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,

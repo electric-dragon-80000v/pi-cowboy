@@ -224,7 +224,7 @@ describe("AgentTemplateSchema harness family split", () => {
     );
 
     expect(parsed.harness).toMatchObject({
-      thinking: "high",
+      thinkingByFamily: { pi: "high" },
       fork: true,
       skills: false,
       inlined_skills: ["git"],
@@ -243,7 +243,7 @@ describe("AgentTemplateSchema harness family split", () => {
     );
 
     expect(parsed.harness).toMatchObject({
-      thinking: "low",
+      thinkingByFamily: { pi: "low" },
       fork: true,
       toolsByFamily: { pi: { tools: ["read"] } },
     });
@@ -264,7 +264,10 @@ describe("AgentTemplateSchema harness family split", () => {
       ].join("\n"),
     );
 
-    expect(parsed.harness).toMatchObject({ thinking: "high", fork: true });
+    expect(parsed.harness).toMatchObject({
+      thinkingByFamily: { pi: "high" },
+      fork: true,
+    });
     // The explicit pi tools win per key over the flat tools, and the whitelist
     // then wins over the flat exclude_tools arm.
     expect(parsed.harness?.toolsByFamily).toEqual({
@@ -291,7 +294,9 @@ describe("AgentTemplateSchema harness family split", () => {
       ['name = "x"', "[harness.opencode]", 'variant = "high"'].join("\n"),
     );
 
-    expect(parsed.harness).toMatchObject({ variant: "high" });
+    expect(parsed.harness).toMatchObject({
+      thinkingByFamily: { opencode: "high" },
+    });
   });
 
   it("reads opencode tool arms into that family's entry alone, whitelist winning", () => {
@@ -327,14 +332,15 @@ describe("AgentTemplateSchema harness family split", () => {
 
     expect(parsed.harness).toMatchObject({
       modelsByFamily: { pi: "anthropic/claude-sonnet-4" },
-      thinking: "low",
-      variant: "max",
+      thinkingByFamily: { pi: "low", opencode: "max" },
       toolsByFamily: { pi: { excludeTools: ["write"] } },
     });
   });
 
-  it("leaves variant undefined when the template omits it", () => {
-    expect(parseAgentFile('name = "x"').harness?.variant).toBeUndefined();
+  it("leaves the thinking families empty when the template omits one", () => {
+    expect(
+      parseAgentFile('name = "x"').harness?.thinkingByFamily,
+    ).toBeUndefined();
   });
 
   it("rejects variant under the flat [harness] table and inside [harness.pi]", () => {
@@ -388,12 +394,26 @@ describe("AgentTemplateSchema harness family split", () => {
     ).toBe('harness.claude: Unrecognized key: "variant"');
   });
 
-  it("rejects a pi-only key inside the claude table", () => {
+  it("reads claude's own thinking token, in claude's vocabulary", () => {
+    expect(
+      parseAgentFile('name = "x"\n[harness.claude]\nthinking = "xhigh"').harness
+        ?.thinkingByFamily,
+    ).toEqual({ claude: "xhigh" });
+  });
+
+  it("reads codex's reasoning effort, in codex's vocabulary", () => {
+    expect(
+      parseAgentFile('name = "x"\n[harness.codex]\nthinking = "ultra"').harness
+        ?.thinkingByFamily,
+    ).toEqual({ codex: "ultra" });
+  });
+
+  it("rejects a pi-only fork key inside the claude table", () => {
     expect(
       parseError(() =>
-        parseAgentFile('name = "x"\n[harness.claude]\nthinking = "high"'),
+        parseAgentFile('name = "x"\n[harness.claude]\nfork = true'),
       ),
-    ).toBe('harness.claude: Unrecognized key: "thinking"');
+    ).toBe('harness.claude: Unrecognized key: "fork"');
   });
 
   it("rejects an unknown [harness.<family>] table", () => {

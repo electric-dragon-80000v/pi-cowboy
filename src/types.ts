@@ -1,11 +1,36 @@
-import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { z } from "zod";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
 import type { AnyHarnessId } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
-export type ThinkingLevel = ModelThinkingLevel;
+/**
+ * pi's closed thinking vocabulary: `off` plus the six effort levels its CLI
+ * accepts. The schema is the one definition — the agent-template config
+ * validates against it — and the type is its inference, so the two cannot
+ * disagree.
+ */
+export const ThinkingLevelSchema = z.enum([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
+export type ThinkingLevel = z.infer<typeof ThinkingLevelSchema>;
+
+/**
+ * A thinking token for a spawn: one of pi's levels, or one in the vocabulary of
+ * the harness that will run it. Each harness names its own levels, so the set
+ * is open; whether a token means anything on a launch is that launch's
+ * business. The known members stay in the union for completion.
+ */
+export type SpawnThinkingLevel = ThinkingLevel | (string & {});
 
 /**
  * Built-in fallbacks for the configurable spawn defaults. A persisted setting
@@ -16,16 +41,27 @@ export const DEFAULT_AGENT_TYPE = "general-purpose";
 export const DEFAULT_ORCHESTRATOR_NAME = "default";
 
 /**
- * A resolved spawn model. pi's member is its catalog entry, whose `model.id`
- * names the run; a foreign harness's member is the key alone plus its display
- * name, because a key from another harness's list has no `Model` in this
- * session to carry. Absent means inherit the parent.
+ * A run's model choice and the thinking level it runs at. pi's member is its
+ * catalog entry, whose `model.id` names the run; a foreign harness's member is
+ * the key alone plus its display name, because a key from another harness's
+ * list has no `Model` in this session to carry; the third member is the choice
+ * to run on the parent's model; the fourth is a level with no model of its own,
+ * which the harness's default model runs at. Absent means inherit as well — no
+ * choice was made at all.
+ *
+ * The level rides the choice rather than a field of its own because it is the
+ * model's harness that decides what the token means, so the two are chosen
+ * together; choosing an effort without choosing a model is a real spawn, and
+ * `levelOnly` is that case rather than a level with no model at all. `null` is
+ * a set value — no level was asked for, so the harness's own default applies.
  */
-export type ModelSelection =
+export type ModelChoice =
   | {
       model: Model<Api>;
       /** The concurrency pool identity, always "provider/id". */
       key: string;
+      /** The level as the layers named it; null = none was named. */
+      thinking: string | null;
     }
   | {
       /** The harness whose vocabulary `key` belongs to. */
@@ -33,12 +69,33 @@ export type ModelSelection =
       key: string;
       /** The display form: the harness list's label for the key, or the key itself. */
       name: string;
+      /** The level as the layers named it; null = none was named. */
+      thinking: string | null;
+    }
+  | {
+      /**
+       * The child inherits the parent's own model rather than naming one. The
+       * level still rides here: choosing an effort without choosing a model is
+       * a real spawn, and a level outside this shape would be a level with no
+       * model at all.
+       */
+      inherit: true;
+      thinking: string | null;
+    }
+  | {
+      /**
+       * The level alone. No layer named a model, so the child runs the
+       * harness's own default model at this level; `thinking` is always set,
+       * because a spawn that names neither model nor level carries no choice.
+       */
+      levelOnly: true;
+      thinking: string;
     };
 
 /** Shared by every spawn/run shape; add a tunable here once. */
 export interface RunTunables {
-  modelSelection?: ModelSelection;
-  thinkingLevel?: ThinkingLevel;
+  /** The model and the level it runs at, resolved as one answer. */
+  modelChoice?: ModelChoice;
   /** Fork the parent session into the run (`pi --fork <sessionFile>`). */
   fork?: boolean;
 }

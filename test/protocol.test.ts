@@ -296,7 +296,7 @@ describe("DelegationProtocol.parse", () => {
       resolvedType: "general-purpose",
       isBackground: false,
     });
-    expect(protocol.intent.modelSelection).toBeUndefined();
+    expect(protocol.intent.modelChoice).toBeUndefined();
     expect(protocol.intent.orchestrator.name).toBe("default");
   });
 
@@ -316,7 +316,7 @@ describe("DelegationProtocol.parse", () => {
       "",
     );
 
-    expect(protocol.intent.modelSelection).toMatchObject({
+    expect(protocol.intent.modelChoice).toMatchObject({
       key: "override/special-model",
       model: { provider: "override", id: "special-model" },
     });
@@ -372,10 +372,11 @@ describe("DelegationProtocol.parse", () => {
         "",
       );
 
-      expect(protocol.intent.modelSelection).toEqual({
+      expect(protocol.intent.modelChoice).toEqual({
         harness: "opencode",
         key: "anthropic/claude-3",
         name: "anthropic/claude-3",
+        thinking: null,
       });
       expect(notify).toHaveBeenCalledWith(
         'The opencode model list does not include "anthropic/claude-3"; launching with that key anyway.',
@@ -402,10 +403,11 @@ describe("DelegationProtocol.parse", () => {
         "",
       );
 
-      expect(protocol.intent.modelSelection).toEqual({
+      expect(protocol.intent.modelChoice).toEqual({
         harness: "opencode",
         key: "openai/gpt-4o",
         name: "gpt-4o",
+        thinking: null,
       });
       expect(notify).not.toHaveBeenCalled();
     } finally {
@@ -429,10 +431,11 @@ describe("DelegationProtocol.parse", () => {
         "",
       );
 
-      expect(protocol.intent.modelSelection).toEqual({
+      expect(protocol.intent.modelChoice).toEqual({
         harness: "opencode",
         key: "anthropic/claude-3",
         name: "anthropic/claude-3",
+        thinking: null,
       });
       expect(notify).not.toHaveBeenCalled();
     } finally {

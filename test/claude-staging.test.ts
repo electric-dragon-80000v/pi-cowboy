@@ -106,6 +106,7 @@ function launchInputs(
     taskFile: "/spawn/esp02hpw/task.md",
     resultFile: "/spawn/esp02hpw/result.md",
     modelKey: null,
+    thinking: null,
     toolSelection: { kind: "default" },
   };
   return { ...shared, family: "claude", ...overrides };
@@ -497,6 +498,16 @@ describe("buildArgs", () => {
     expect(args).toEqual(expect.arrayContaining(["--model", "openai/gpt-5"]));
   });
 
+  it("carries the effort on --effort only when one was resolved", () => {
+    expect(
+      harnessFor("claude").buildArgs(launchInputs({ thinking: "xhigh" })),
+    ).toEqual([...BASE, "--effort", "xhigh"]);
+
+    expect(harnessFor("claude").buildArgs(launchInputs())).not.toContain(
+      "--effort",
+    );
+  });
+
   it("maps the tool selection union onto claude's own tool flags, untranslated", () => {
     expect(
       harnessFor("claude").buildArgs(
@@ -533,14 +544,17 @@ describe("listModels", () => {
     });
 
     // The CLI enumerates no per-model effort, so every alias carries the
-    // levels `--effort` accepts.
-    const levels = ["low", "medium", "high", "xhigh", "max"];
+    // levels `--effort` accepts — the whole of them, as a closed list.
+    const thinkingLevels = {
+      kind: "closed",
+      levels: ["low", "medium", "high", "xhigh", "max"],
+    } as const;
     expect(list).toEqual({
       kind: "listed",
       entries: [
-        { key: "anthropic/haiku", label: "haiku", thinkingLevels: levels },
-        { key: "anthropic/sonnet", label: "sonnet", thinkingLevels: levels },
-        { key: "anthropic/opus", label: "opus", thinkingLevels: levels },
+        { key: "anthropic/haiku", label: "haiku", thinkingLevels },
+        { key: "anthropic/sonnet", label: "sonnet", thinkingLevels },
+        { key: "anthropic/opus", label: "opus", thinkingLevels },
       ],
     });
   });

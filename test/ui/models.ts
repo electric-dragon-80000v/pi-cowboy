@@ -1,7 +1,7 @@
 /**
  * Model fixtures for the menu suites.
  *
- * `reasoning` drives pi-ai's supported thinking levels (and the clamping the menus display).
+ * `reasoning` drives pi-ai's supported thinking levels, which the menus offer.
  */
 import type { Api, Model } from "@earendil-works/pi-ai";
 

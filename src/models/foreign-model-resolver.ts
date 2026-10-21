@@ -13,10 +13,19 @@
  * the list does not know is warned about and carried anyway. A caller's
  * explicit `model` and the user's configured default are both honoured, not
  * second-guessed.
+ *
+ * The thinking level is carried exactly as the layers named it. A harness whose
+ * level list is closed may say that the token is not one it knows, and the
+ * warning is the whole of its objection: the level is carried, never replaced.
+ * What it says lands in the answer's `notices`, for the caller that holds a UI.
  */
 
 import type { AnyHarnessId, ModelEntry } from "../agents/harness.js";
-import type { ModelRequest, ResolvedModel } from "./model-request-types.js";
+import {
+  withoutModel,
+  type ModelRequest,
+  type SpawnModelResolution,
+} from "./model-request-types.js";
 
 /**
  * The models one harness can run, listed on demand. Read only for a foreign
@@ -33,8 +42,11 @@ export interface ForeignModelResolverDeps {
   harness: AnyHarnessId;
   /** The launching harness's own list, whose keys this session cannot vouch for. */
   listModels: HarnessModelList;
-  /** The user-facing channel the advisory warning goes out on. */
-  notify: (message: string) => void;
+  /**
+   * The level the layers asked for, in this harness's vocabulary. The entry's
+   * own levels are read only to warn about a token they do not name.
+   */
+  thinking: string | undefined;
 }
 
 /**
@@ -53,6 +65,26 @@ async function harnessModels(
 }
 
 /**
+ * The warning for a level the model's closed list does not name, or undefined
+ * when there is nothing to say. Only a closed list can say a token is wrong:
+ * an advisory list is what the harness advertises, not the whole of what it
+ * accepts, so a level outside it is not a mistake.
+ */
+function undeclaredLevelWarning(
+  harness: AnyHarnessId,
+  entry: ModelEntry | undefined,
+  level: string,
+): string | undefined {
+  if (entry === undefined) return undefined;
+  if (entry.thinkingLevels.kind !== "closed") return undefined;
+  const { levels } = entry.thinkingLevels;
+  if (levels.includes(level)) return undefined;
+  return levels.length === 0
+    ? `The ${harness} model "${entry.key}" has no thinking levels; launching with "${level}" anyway.`
+    : `The thinking level "${level}" is not one the ${harness} model "${entry.key}" declares (${levels.join(", ")}); launching with it anyway.`;
+}
+
+/**
  * Resolve a request against the harness that will run it. The key is that
  * harness's vocabulary, so it is carried as written: pi's catalog cannot answer
  * for it and pi's probe cannot know its credential state.
@@ -60,26 +92,37 @@ async function harnessModels(
 export async function resolveForeignModel(
   request: ModelRequest | undefined,
   deps: ForeignModelResolverDeps,
-): Promise<ResolvedModel> {
+): Promise<SpawnModelResolution> {
   // A foreign launch inherits nothing. The parent's key is pi's; letting it
   // ride here would run a model on a harness whose catalog does not define it,
-  // and nobody asked for that model on this launch.
-  if (!request) return { kind: "none" };
+  // and nobody asked for that model on this launch. The level is the spawn's
+  // own and rides without a model: the harness's default model runs at it.
+  if (!request) return withoutModel(deps.thinking);
 
   // No credential probe runs here: `getProviderAuthStatus` is pi's own
   // registry, and no answer it gives says anything about another harness's
   // credential state.
   const list = await harnessModels(deps);
   const entry = list.find((candidate) => candidate.key === request.key);
+  const notices: string[] = [];
   if (list.length > 0 && !entry) {
-    deps.notify(
+    notices.push(
       `The ${deps.harness} model list does not include "${request.key}"; launching with that key anyway.`,
     );
   }
+  if (deps.thinking !== undefined) {
+    const warning = undeclaredLevelWarning(deps.harness, entry, deps.thinking);
+    if (warning !== undefined) notices.push(warning);
+  }
+
   return {
-    kind: "foreign",
-    harness: deps.harness,
-    modelKey: request.key,
-    modelName: entry?.label ?? request.key,
+    resolved: {
+      kind: "foreign",
+      harness: deps.harness,
+      modelKey: request.key,
+      modelName: entry?.label ?? request.key,
+      thinking: deps.thinking ?? null,
+    },
+    notices,
   };
 }

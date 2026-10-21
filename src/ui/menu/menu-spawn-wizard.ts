@@ -9,15 +9,8 @@ import {
   type Component,
   type SettingItem,
 } from "@earendil-works/pi-tui";
-import {
-  getSupportedThinkingLevels,
-  clampThinkingLevel,
-} from "@earendil-works/pi-ai";
-import type {
-  AgentWorktree,
-  ModelSelection,
-  ThinkingLevel,
-} from "../../types.js";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import type { AgentWorktree, ModelChoice } from "../../types.js";
 import type { Theme } from "../types.js";
 import { getAgentConfig, getAvailableTypes } from "../../agents/agent-types.js";
 import {
@@ -27,7 +20,7 @@ import {
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
 import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
-import { findModelInRegistry, modelSelectionName } from "../../utils.js";
+import { findModelInRegistry, modelChoiceName } from "../../utils.js";
 import { agentBulletPrefix } from "../format.js";
 import {
   getManager,
@@ -69,8 +62,8 @@ type WorktreeTarget =
 /** Everything the config screen collects; the run starts once the prompts after it answer. */
 interface SpawnConfiguration {
   type: string;
-  modelSelection?: ModelSelection;
-  thinkingLevel?: ThinkingLevel;
+  /** The model and its level, when this spawn names either. */
+  modelChoice?: ModelChoice;
   worktreeChoice: WorktreePick;
   /** Empty means "derive from the prompt at spawn time". */
   description: string;
@@ -86,7 +79,7 @@ function createThinkingLevelSubmenu(
   currentModelStr: string,
   fallbackModel: Parameters<typeof findModelInRegistry>[2],
   theme: Theme,
-  onThinkingChange: (level: ThinkingLevel | undefined) => void,
+  onThinkingChange: (level: string | undefined) => void,
 ): (_currentValue: string, done: (v?: string) => void) => Component {
   return (_currentValue, done) => {
     const model = findModelInRegistry(currentModelStr, registry, fallbackModel);
@@ -116,9 +109,7 @@ function createThinkingLevelSubmenu(
       new SelectList(items, 10, buildSelectListTheme(theme)),
     );
     list.onSelect = (item) => {
-      onThinkingChange(
-        item.value === "inherit" ? undefined : (item.value as ThinkingLevel),
-      );
+      onThinkingChange(item.value === "inherit" ? undefined : item.value);
       done(item.value);
     };
     list.onCancel = () => done();
@@ -162,8 +153,11 @@ export async function showSpawnAgentMenu(
     ) ?? "";
 
   let currentModelStr = modelForType(selectedType);
-  let currentThinking: ThinkingLevel | undefined =
-    getAgentConfig(selectedType)?.thinkingLevel ?? store.agent.defaultThinking;
+  let currentThinking: string | undefined = store.thinkingFor(
+    selectedType,
+    getAgentConfig(selectedType),
+    resolveHarnessType(selectedType),
+  );
   let currentBackground: boolean = true;
   let forkState: boolean = getAgentConfig(selectedType)?.fork ?? false;
   // A new worktree is the default, and its name is asked after Spawn.
@@ -175,10 +169,13 @@ export async function showSpawnAgentMenu(
   /** Launch defaults follow the type, as they did when the type led the wizard. */
   const applyType = (type: string): void => {
     selectedType = type;
-    const config = getAgentConfig(type);
     currentModelStr = modelForType(type);
-    currentThinking = config?.thinkingLevel ?? store.agent.defaultThinking;
-    forkState = config?.fork ?? false;
+    currentThinking = store.thinkingFor(
+      type,
+      getAgentConfig(type),
+      resolveHarnessType(type),
+    );
+    forkState = getAgentConfig(type)?.fork ?? false;
   };
 
   const buildItems = (): SettingItem[] => {
@@ -194,7 +191,11 @@ export async function showSpawnAgentMenu(
         currentValue: "",
         description: "Ask for the worktree name and prompt, then launch",
         submenu: (_v, subDone) => {
-          let modelSelection: ModelSelection | undefined;
+          // The level rides the choice as it was picked: a token belongs to the
+          // harness that will run it, so nothing here rewrites it.
+          // Naming no model still names a level — the child inherits the parent's
+          // model — so that case is its own arm rather than a level on its own.
+          let modelChoice: ModelChoice | undefined;
           if (currentModelStr) {
             const model = findModelInRegistry(
               currentModelStr,
@@ -206,16 +207,18 @@ export async function showSpawnAgentMenu(
               subDone();
               return CLOSED_SUBMENU;
             }
-            modelSelection = {
+            modelChoice = {
               model,
               key: `${model.provider}/${model.id}`,
+              thinking: currentThinking ?? null,
             };
+          } else if (currentThinking !== undefined) {
+            modelChoice = { inherit: true, thinking: currentThinking };
           }
 
           closeConfig({
             type: selectedType,
-            modelSelection,
-            thinkingLevel: currentThinking,
+            modelChoice,
             worktreeChoice,
             description: currentDescription,
             fork: forkState,
@@ -273,20 +276,7 @@ export async function showSpawnAgentMenu(
           theme,
           onSet: (_target, model) => {
             currentModelStr = model ?? "";
-
-            if (currentThinking != null && currentModelStr) {
-              const registry = session.modelRegistry;
-              const resolved = findModelInRegistry(
-                currentModelStr,
-                registry,
-                session.model,
-              );
-              if (resolved) {
-                const clamped = clampThinkingLevel(resolved, currentThinking);
-                currentThinking = clamped;
-              }
-            }
-            // Rebuild so displayed values reflect the clamp.
+            // Rebuild so the row shows the model just picked.
             rebuild?.(buildItems());
           },
         }),
@@ -423,14 +413,13 @@ export async function showSpawnAgentMenu(
         prompt,
         description,
         orchestration,
-        modelSelection: configuration.modelSelection,
-        thinkingLevel: configuration.thinkingLevel,
+        modelChoice: configuration.modelChoice,
         worktree: runWorktree,
         hostRef: sandbox?.hostRef,
         projectTrusted: sandbox?.projectTrusted,
         invocation: {
-          modelName: modelSelectionName(configuration.modelSelection),
-          thinkingLevel: configuration.thinkingLevel,
+          modelName: modelChoiceName(configuration.modelChoice),
+          thinkingLevel: configuration.modelChoice?.thinking ?? undefined,
           runInBackground: configuration.runInBackground,
           fork: configuration.fork,
         },
@@ -464,8 +453,7 @@ export async function showSpawnAgentMenu(
             applyType(newValue);
             break;
           case "thinkingLevel":
-            currentThinking =
-              newValue === "inherit" ? undefined : (newValue as ThinkingLevel);
+            currentThinking = newValue === "inherit" ? undefined : newValue;
             break;
           case "background":
             currentBackground = newValue === "ON";

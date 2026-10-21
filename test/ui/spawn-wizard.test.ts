@@ -364,8 +364,7 @@ describe("Spawn wizard — spawn", () => {
     expect(call.args.spawnId).toMatch(
       new RegExp(`^[${SPAWN_ID_ALPHABET}]{${SPAWN_ID_LENGTH}}$`),
     );
-    expect(call.args.modelSelection).toBeUndefined();
-    expect(call.args.thinkingLevel).toBeUndefined();
+    expect(call.args.modelChoice).toBeUndefined();
     expect(call.args.fork).toBe(false);
     // toEqual: every invocation key present, unset ones explicit.
     expect(call.invocation).toEqual({
@@ -528,9 +527,10 @@ describe("Spawn wizard — spawn", () => {
 
     await spawnWith(session, { prompt: "Do the thing" });
 
-    expect(spawnCalls[0]!.args.modelSelection).toEqual({
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
       model: expect.objectContaining({ provider: "openai", id: "gpt-4" }),
       key: "openai/gpt-4",
+      thinking: null,
     });
     expect(spawnCalls[0]!.invocation.modelName).toBe("gpt-4");
   });
@@ -590,7 +590,10 @@ describe("Spawn wizard — model and thinking level", () => {
 
     await spawnWith(session, { prompt: "Do the thing" });
 
-    expect(spawnCalls[0]!.args.thinkingLevel).toBe("high");
+    // The level rides the selection: one object carries the model and its effort.
+    expect(spawnCalls[0]!.args).toMatchObject({
+      modelChoice: { thinking: "high" },
+    });
     expect(spawnCalls[0]!.invocation.thinkingLevel).toBe("high");
   });
 
@@ -617,10 +620,16 @@ describe("Spawn wizard — model and thinking level", () => {
 
     await spawnWith(session, { prompt: "Do the thing" });
 
-    expect(spawnCalls[0]!.args.thinkingLevel).toBeUndefined();
+    // The level rides the choice, so an unset level is a null on the choice
+    // that still names the model.
+    expect(spawnCalls[0]!.args.modelChoice).toMatchObject({
+      key: "openai/gpt-4",
+      thinking: null,
+    });
+    expect(spawnCalls[0]!.invocation.thinkingLevel).toBeUndefined();
   });
 
-  it("clamps the level when the picked model does not support it", async () => {
+  it("keeps the level when the picked model does not list it", async () => {
     setup({
       global: { agent: { default: "openai/gpt-4", defaultThinking: "high" } },
     });
@@ -636,10 +645,11 @@ describe("Spawn wizard — model and thinking level", () => {
         { open: "gpt-3 [openai]" },
         {
           expect: {
-            // gpt-3 is non-reasoning, so the displayed level clamps to "off".
+            // gpt-3 is non-reasoning, and the configured level still rides the
+            // spawn unchanged: a model's list is not licence to rewrite it.
             rows: [
               ["Model", "openai/gpt-3"],
-              ["Thinking level", "off"],
+              ["Thinking level", "high"],
             ],
           },
         },
@@ -649,10 +659,12 @@ describe("Spawn wizard — model and thinking level", () => {
         { enter: true },
       ],
       memory.store,
-      "clamp on model change",
+      "model change",
     );
 
-    expect(spawnCalls[0]!.args.thinkingLevel).toBe("off");
+    expect(spawnCalls[0]!.args).toMatchObject({
+      modelChoice: { thinking: "high" },
+    });
   });
 });
 

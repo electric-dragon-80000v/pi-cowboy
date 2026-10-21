@@ -33,26 +33,28 @@ Settings live under the `agent`, `concurrency`, and `harness` objects, plus the 
 
 ## `agent`
 
-| Key                        | Type                                                                                               | Default             | Description                                                                                                                                  |
-| -------------------------- | -------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `default`                  | string or null                                                                                     | `null`              | Default model for Pi-family agents. See [`agent.default`](#agentdefault).                                                                    |
-| `defaultModelByHarness`    | map from harness ID to string or null                                                              | unset               | Per-harness default models for foreign harnesses. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness).                          |
-| `agent.<agent-type>`       | string or null                                                                                     | unset               | Model override for a specific agent type (`null` clears it). See [Model keys](#model-keys).                                                  |
-| `defaultAgentType`         | non-empty string                                                                                   | `"general-purpose"` | Agent template used when a spawn omits `agent_type`.                                                                                         |
-| `defaultOrchestrator`      | non-empty string                                                                                   | `"default"`         | Orchestrator template used when a spawn omits one.                                                                                           |
-| `harnessType`              | `"pi"` \| `"pig"` \| `"pi-bolt"` \| `"opencode"` \| `"codex"` \| `"claude"` \| a plugin harness ID | `"pi"`              | Default harness when an agent template omits `harness_type`. See [`agent.harnessType`](#agentharnesstype).                                   |
-| `defaultThinking`          | `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"`                | unset               | Thinking level used when an agent template omits `thinking`. See [`agent.defaultThinking`](#agentdefaultthinking).                           |
-| `systemPromptMode`         | `"replace"` \| `"inherit"` \| `"custom"`                                                           | `"replace"`         | How `pi-cowboy` builds the agent system prompt. See [`agent.systemPromptMode`](#agentsystempromptmode).                                      |
-| `includeContextFiles`      | boolean                                                                                            | `true`              | Load `AGENTS.md` context files into the agent prompt. See [`agent.includeContextFiles`](#agentincludecontextfiles).                          |
-| `loadSkillsImplicitly`     | boolean                                                                                            | `true`              | Default skill loading when an agent template omits `skills`. See [`agent.loadSkillsImplicitly`](#agentloadskillsimplicitly).                 |
-| `loadExtensionsImplicitly` | boolean                                                                                            | `true`              | Default extension loading when an agent template omits `extensions`. See [`agent.loadExtensionsImplicitly`](#agentloadextensionsimplicitly). |
-| `worktreeRoot`             | string                                                                                             | unset               | Directory where worktrees are created. See [`agent.worktreeRoot`](#agentworktreeroot).                                                       |
-| `worktreeMaterialization`  | `"copy-on-write"` \| `"checkout"`                                                                  | `"copy-on-write"`   | How a worktree is populated from the parent working tree. See [`agent.worktreeMaterialization`](#agentworktreematerialization).              |
-| `worktreeCheckoutType`     | `"dirty"` \| `"clean"`                                                                             | `"clean"`           | Whether a new worktree starts at `HEAD` or carries uncommitted work. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).         |
-| `disableDefaultAgents`     | boolean                                                                                            | `false`             | Skip built-in agent types and load only template files from disk. See [`agent.disableDefaultAgents`](#agentdisabledefaultagents).            |
-| `extensionEnabled`         | boolean                                                                                            | `true`              | Enable or disable `pi-cowboy`. See [`agent.extensionEnabled`](#agentextensionenabled).                                                       |
-| `showActiveIndicator`      | boolean                                                                                            | `true`              | Show the 🤠 marker while `pi-cowboy` is active.                                                                                              |
-| `grazingEnabled`           | boolean                                                                                            | `true`              | Show the pasture and grazing cows under the cowboy.                                                                                          |
+| Key                           | Type                                                                                               | Default             | Description                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default`                     | string or null                                                                                     | `null`              | Default model for Pi-family agents. See [`agent.default`](#agentdefault).                                                                    |
+| `defaultModelByHarness`       | map from harness ID to string or null                                                              | unset               | Per-harness default models for foreign harnesses. See [`agent.defaultModelByHarness`](#agentdefaultmodelbyharness).                          |
+| `defaultThinkingByHarness`    | map from harness ID to string or null                                                              | unset               | Per-harness default thinking tokens for foreign harnesses. See [`agent.defaultThinkingByHarness`](#agentdefaultthinkingbyharness).           |
+| `agent.<agent-type>`          | string or null                                                                                     | unset               | Model override for a specific agent type (`null` clears it). See [Model keys](#model-keys).                                                  |
+| `agent.thinking.<agent-type>` | string or null                                                                                     | unset               | Thinking token for a specific agent type (`null` clears it). See [Thinking levels](#thinking-levels).                                        |
+| `defaultAgentType`            | non-empty string                                                                                   | `"general-purpose"` | Agent template used when a spawn omits `agent_type`.                                                                                         |
+| `defaultOrchestrator`         | non-empty string                                                                                   | `"default"`         | Orchestrator template used when a spawn omits one.                                                                                           |
+| `harnessType`                 | `"pi"` \| `"pig"` \| `"pi-bolt"` \| `"opencode"` \| `"codex"` \| `"claude"` \| a plugin harness ID | `"pi"`              | Default harness when an agent template omits `harness_type`. See [`agent.harnessType`](#agentharnesstype).                                   |
+| `defaultThinking`             | `"off"` \| `"minimal"` \| `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` \| `"max"`                | unset               | Default thinking level for Pi-family agents. See [`agent.defaultThinking`](#agentdefaultthinking).                                           |
+| `systemPromptMode`            | `"replace"` \| `"inherit"` \| `"custom"`                                                           | `"replace"`         | How `pi-cowboy` builds the agent system prompt. See [`agent.systemPromptMode`](#agentsystempromptmode).                                      |
+| `includeContextFiles`         | boolean                                                                                            | `true`              | Load `AGENTS.md` context files into the agent prompt. See [`agent.includeContextFiles`](#agentincludecontextfiles).                          |
+| `loadSkillsImplicitly`        | boolean                                                                                            | `true`              | Default skill loading when an agent template omits `skills`. See [`agent.loadSkillsImplicitly`](#agentloadskillsimplicitly).                 |
+| `loadExtensionsImplicitly`    | boolean                                                                                            | `true`              | Default extension loading when an agent template omits `extensions`. See [`agent.loadExtensionsImplicitly`](#agentloadextensionsimplicitly). |
+| `worktreeRoot`                | string                                                                                             | unset               | Directory where worktrees are created. See [`agent.worktreeRoot`](#agentworktreeroot).                                                       |
+| `worktreeMaterialization`     | `"copy-on-write"` \| `"checkout"`                                                                  | `"copy-on-write"`   | How a worktree is populated from the parent working tree. See [`agent.worktreeMaterialization`](#agentworktreematerialization).              |
+| `worktreeCheckoutType`        | `"dirty"` \| `"clean"`                                                                             | `"clean"`           | Whether a new worktree starts at `HEAD` or carries uncommitted work. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).         |
+| `disableDefaultAgents`        | boolean                                                                                            | `false`             | Skip built-in agent types and load only template files from disk. See [`agent.disableDefaultAgents`](#agentdisabledefaultagents).            |
+| `extensionEnabled`            | boolean                                                                                            | `true`              | Enable or disable `pi-cowboy`. See [`agent.extensionEnabled`](#agentextensionenabled).                                                       |
+| `showActiveIndicator`         | boolean                                                                                            | `true`              | Show the 🤠 marker while `pi-cowboy` is active.                                                                                              |
+| `grazingEnabled`              | boolean                                                                                            | `true`              | Show the pasture and grazing cows under the cowboy.                                                                                          |
 
 ### `agent.default`
 
@@ -80,7 +82,21 @@ A `cowboy_agent` tool call can override this setting per task with its `harness_
 
 ### `agent.defaultThinking`
 
-Sets the reasoning effort level when an agent template omits `thinking`. When left unset, `pi`'s own default thinking level applies.
+Sets the default thinking level for agents launched under the Pi family (`pi`, `pig`, and `pi-bolt`). Used when no higher-priority rule in [Thinking levels](#thinking-levels) applies. When left unset, `pi`'s own default thinking level applies.
+
+### `agent.defaultThinkingByHarness`
+
+Maps each foreign harness ID (`opencode`, `codex`, `claude`) to its default thinking token, in that harness's own vocabulary, or `null` for none. Because the Pi family (`pi`, `pig`, `pi-bolt`) shares `agent.defaultThinking`, only foreign harnesses need entries here. A harness with no entry, or one set to `null`, has no configured default: the launch asks for no level, and the harness's own default applies.
+
+The token is passed to the harness as written; whether it is one the harness knows is that harness's business (see [Agent Templates](Agent%20Templates.md#harness-family-sections)). The key set is open — a plugin harness's ID is as valid as a built-in's.
+
+Global and project layers merge entry by entry, so setting a project default for `codex` leaves your global defaults for `claude` and `opencode` intact.
+
+### `agent.thinking`
+
+Sets a thinking token for one agent type, in the vocabulary of the harness that type launches under. `null` clears the entry and falls through to the next level.
+
+A type is not a harness, so an entry here says nothing about which model the type runs: the token applies whether or not the type names a model of its own. If the type's harness changes, so does the vocabulary the token is read in. You can set the same value for the current session alone in `/cowboy` > `Model overrides`.
 
 ### `agent.systemPromptMode`
 
@@ -152,6 +168,20 @@ When spawning an agent, `pi-cowboy` resolves the model in this order (highest pr
 6. The launching harness's configured default: `agent.default` for the Pi family, or `agent.defaultModelByHarness.<harness>` for foreign harnesses.
 7. The parent session's active model (Pi-family launches only).
 
+### Thinking levels
+
+`agent.defaultThinking`, `agent.defaultThinkingByHarness`, and `agent.thinking.<agent-type>` all accept a thinking token, or `null` to clear the entry and fall through to the next level. The token is in the vocabulary of the harness that reads it: pi's levels are `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, and `"max"`, while each foreign harness names its own.
+
+When spawning an agent, `pi-cowboy` resolves the thinking level in this order (highest precedence first):
+
+1. Session per-type override (set for the current session in `/cowboy` > `Model overrides`).
+2. Config per-type override (`agent.thinking.<agent-type>` in project or global `config.json`).
+3. The agent template's `thinking` for the launching harness family (tokens for other harness families are ignored).
+4. The launching harness's configured default: `agent.defaultThinking` for the Pi family, or `agent.defaultThinkingByHarness.<harness>` for foreign harnesses.
+5. No level resolves: the launch asks for no level, and the harness's own default applies.
+
+The level is carried as written and is never rewritten to suit the model. A level resolves with or without a model, so a spawn that names no model still runs at the configured level.
+
 ## `multiplexer`
 
 Sets the terminal multiplexer used to host subagent panes, specified by ID. This is a machine-level setting and cannot be configured in project files.
@@ -217,7 +247,7 @@ Each file stores only the keys set at that layer; `pi-cowboy` never writes the m
 To keep project configs safe to share in version control, `.pi/pi-cowboy/config.json` is only loaded for trusted projects and may only configure:
 
 - Model keys (`agent.default`, `agent.defaultModelByHarness`, and per-type overrides `agent.<agent-type>`)
-- `agent.defaultThinking`
+- Thinking keys (`agent.defaultThinking`, `agent.defaultThinkingByHarness`, and per-type overrides `agent.thinking.<agent-type>`)
 - `concurrency` limits
 
 All other settings in a project file are ignored during merging: any other recognized `agent` key (such as `defaultAgentType` or `worktreeRoot`), the machine-level `multiplexer` key, and `harness.<id>` sections. Harness sections are never merged into the effective configuration layer: because harness settings configure the local machine rather than the repository (for example, `harness.opencode.configInclude` selects local OpenCode configuration to stage), they are read only from the global configuration file. A harness whose codec declares `scope: "project"` receives the project slice directly and decides how the layers combine; built-in harnesses do not opt in. Any unrecognized key inside `agent` is treated as an `agent.<agent-type>` model override.

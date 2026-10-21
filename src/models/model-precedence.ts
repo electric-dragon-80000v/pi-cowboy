@@ -1,7 +1,7 @@
 /**
- * model-precedence.ts — model resolution with explicit precedence.
- * Precedence chain (highest to lowest): agent-specific layers first, then the
- * generic defaults, then the parent.
+ * model-precedence.ts — model and thinking resolution with explicit precedence.
+ * Model precedence chain (highest to lowest): agent-specific layers first, then
+ * the generic defaults, then the parent.
  *   1. sessionOverrides[subagentType]  (session per-type override)
  *   2. config.agent[subagentType]      (config per-type override)
  *   3. agentConfig?.modelsByFamily[family] (the agent config / agent template,
@@ -23,6 +23,24 @@
  * session default and is therefore pi's alone, and step 6 is gated the same way.
  * A key written for pi contributes nothing to an opencode launch, which falls
  * through to its own default.
+ *
+ * Thinking resolves through the same layers, shorter by the two pi-only steps:
+ * a thinking token names a level in one harness's vocabulary, so it never
+ * inherits from the parent (a parent session runs pi), and the per-type
+ * session override is a thinking map of its own rather than the model map:
+ *   1. sessionThinking[subagentType]        (session per-type override)
+ *   2. config.agent.thinking[subagentType]  (config per-type override)
+ *   3. agentConfig?.thinkingByFamily[family] (the agent template, read only for
+ *      the launching harness's family)
+ *   4. the launching harness's default (pi's family: agent.defaultThinking at
+ *      any layer; any other harness: agent.defaultThinkingByHarness[harness])
+ *   5. no layer names a level — the run asks for none, and the harness's own
+ *      default applies.
+ *
+ * The chain does not rewrite a level to suit the model: a token is one
+ * harness's vocabulary, and only that harness can say what it accepts, so the
+ * winner is carried as written and a harness that knows its own closed
+ * vocabulary warns (without refusing) about a token outside it.
  */
 
 import type { ThinkingLevel } from "../types.js";
@@ -31,7 +49,11 @@ import {
   type AnyHarnessId,
   type HarnessFamily,
 } from "../agents/harness.js";
-import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
+import type {
+  ModelsByFamily,
+  SystemPromptMode,
+  ThinkingByFamily,
+} from "../agents/types.js";
 import type {
   WorktreeCheckoutType,
   WorktreeMaterialization,
@@ -48,8 +70,21 @@ export interface SubagentsConfig {
     systemPromptMode?: SystemPromptMode;
     /** Default: true. */
     includeContextFiles?: boolean;
-    /** Undefined = inherit from agent config. */
+    /** Undefined = inherit from agent config. The pi family's default level. */
     defaultThinking?: ThinkingLevel;
+    /**
+     * The default thinking token per harness, keyed by harness id: the pi family
+     * reads `defaultThinking` instead (one binary, one default), so only a
+     * non-pi harness has an entry. The token is in that harness's own
+     * vocabulary. A missing or null entry means that harness has no default.
+     */
+    defaultThinkingByHarness?: Record<string, string | null>;
+    /**
+     * Per-type thinking tokens, keyed by agent type, each in the vocabulary of
+     * the harness that type launches under. A key names no harness, so the
+     * token it holds is only meaningful for that type's own launch.
+     */
+    thinking?: Record<string, string | null>;
     loadSkillsImplicitly?: boolean;
     loadExtensionsImplicitly?: boolean;
     /** When true, skip the embedded default agent at registration. */
@@ -102,6 +137,16 @@ export interface SessionModelOverrides {
   [agentType: string]: string | null | undefined;
 }
 
+/**
+ * The session's per-type thinking tokens, in the vocabulary of the harness each
+ * type launches under. A sibling of `SessionModelOverrides` rather than a field
+ * on it: that map's per-type keys are model keys, and a model key is always a
+ * string, so one map cannot hold both vocabularies without lying about one.
+ */
+export interface SessionThinkingOverrides {
+  [agentType: string]: string | null | undefined;
+}
+
 interface ResolveModelOptions {
   subagentType: string;
   /**
@@ -148,7 +193,21 @@ export function harnessDefaultModel(
 ): string | null {
   if (isPiFamilyHarness(harnessId)) return agent.default ?? null;
   const configured = agent.defaultModelByHarness?.[harnessId];
-  return isValidModelValue(configured) ? configured : null;
+  return isNamedValue(configured) ? configured : null;
+}
+
+/**
+ * The first layer that names a value, with that layer's name. Both chains are
+ * a ranked list of layers, and this is the one walk over them: the ranking
+ * belongs to each chain, the fall-through is shared.
+ */
+function firstResolved<K extends string>(
+  candidates: ReadonlyArray<readonly [K, string | null | undefined]>,
+): { value: string; source: K } | undefined {
+  for (const [source, value] of candidates) {
+    if (isNamedValue(value)) return { value, source };
+  }
+  return undefined;
 }
 
 /**
@@ -196,9 +255,8 @@ export function resolveModelSource(options: ResolveModelOptions): {
     ],
     ["harness-default", harnessDefault],
   ];
-  for (const [source, value] of candidates) {
-    if (isValidModelValue(value)) return { model: value, source };
-  }
+  const resolved = firstResolved(candidates);
+  if (resolved) return { model: resolved.value, source: resolved.source };
   // The parent's key is pi's, so only a pi-family launch can inherit it: any
   // other harness's launch must carry a key of its own catalogue or none.
   return {
@@ -212,7 +270,86 @@ export function resolveModel(options: ResolveModelOptions): string | null {
   return resolveModelSource(options).model;
 }
 
-/** Null/undefined/empty read as unset. */
-function isValidModelValue(value: string | null | undefined): value is string {
+/**
+ * The default thinking token one harness's spawns use. The pi family reads the
+ * one default every layer already writes; any other harness reads its own key,
+ * in its own vocabulary, and an absent or null entry means it has none. The
+ * session layer sits above the merged file layers and is the caller's to apply.
+ */
+export function harnessDefaultThinking(
+  agent: Pick<
+    SubagentsConfig["agent"],
+    "defaultThinking" | "defaultThinkingByHarness"
+  >,
+  harnessId: AnyHarnessId,
+): string | null {
+  const configured = isPiFamilyHarness(harnessId)
+    ? agent.defaultThinking
+    : agent.defaultThinkingByHarness?.[harnessId];
+  return isNamedValue(configured) ? configured : null;
+}
+
+/**
+ * pi's own default thinking level. A level no layer names reads as this one on
+ * a model that supports it: pi's child would have used it anyway, so a menu
+ * that showed "inherit" would be describing a level the run never runs at.
+ */
+export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
+
+interface ResolveThinkingOptions {
+  subagentType: string;
+  /**
+   * The built-in family whose template token step 3 reads. Undefined for a
+   * plugin harness, whose family is its own id and therefore keys no template
+   * table — it contributes no token rather than another family's.
+   */
+  harnessFamily?: HarnessFamily;
+  /** The agent config's thinking tokens, each under the family whose vocabulary defines it. */
+  agentConfig?: { thinkingByFamily?: ThinkingByFamily };
+  config: Pick<SubagentsConfig, "agent">;
+  /**
+   * The launching harness's default token, flattened across the layers that
+   * carry one (session over project over global). The caller flattens it
+   * because which harness launches is resolved the way the launch resolves it.
+   */
+  harnessDefault: string | null;
+  sessionThinking?: SessionThinkingOverrides;
+}
+
+/**
+ * The level a spawn runs at: the first layer that names a token wins, or
+ * undefined when no layer names one. Undefined is not a missing answer — the
+ * run asks for no level and the harness's own default applies, so resolving one
+ * here would send an override nobody asked for.
+ */
+export function resolveThinking(
+  options: ResolveThinkingOptions,
+): string | undefined {
+  const {
+    subagentType,
+    agentConfig,
+    harnessFamily,
+    config,
+    harnessDefault,
+    sessionThinking,
+  } = options;
+
+  // A token names a level in one harness's vocabulary, so the template step
+  // reads the launching family's entry and nothing else — the same rule the
+  // model chain applies to model keys.
+  const templateThinking =
+    harnessFamily === undefined
+      ? undefined
+      : agentConfig?.thinkingByFamily?.[harnessFamily];
+  return firstResolved([
+    ["session-per-type", sessionThinking?.[subagentType]],
+    ["config-per-type", config.agent.thinking?.[subagentType]],
+    ["agent-template", templateThinking],
+    ["harness-default", harnessDefault],
+  ])?.value;
+}
+
+/** Null/undefined/empty read as unset, for a model key and a thinking token alike. */
+function isNamedValue(value: string | null | undefined): value is string {
   return typeof value === "string" && value.length > 0;
 }

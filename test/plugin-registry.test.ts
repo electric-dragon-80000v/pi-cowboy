@@ -9,6 +9,8 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import type {
   HarnessConfigCodec,
+  HarnessListModelsRequest,
+  ModelEntry,
   PluginHarness,
 } from "../src/agents/harness.js";
 import {
@@ -124,6 +126,7 @@ describe("the open harness registry", () => {
       taskFile: "/p/task.md",
       resultFile: "/p/result.md",
       modelKey: null,
+      thinking: null,
       toolSelection: { kind: "default" as const },
     };
 
@@ -139,8 +142,8 @@ describe("the open harness registry", () => {
     });
 
     // The plugin reads the shared inputs; nothing built-in-family-specific
-    // (opencode's `variant`, codex's `projectTrusted`) rides along. The request
-    // is the same object the caller built, as on the built-in path.
+    // (codex's `projectTrusted`, pi's `forkSessionFile`) rides along. The
+    // request is the same object the caller built, as on the built-in path.
     expect(prepare).toHaveBeenCalledTimes(1);
     const received = prepare.mock.calls[0]![0];
     expect(received.paneId).toBe("w1:p1");
@@ -148,6 +151,33 @@ describe("the open harness registry", () => {
     expect(received.launch.resultFile).toBe("/p/result.md");
     expect(received.launch).not.toHaveProperty("variant");
     expect(received.launch).not.toHaveProperty("projectTrusted");
+  });
+
+  it("reads a plugin's flat level array as the closed vocabulary it was", async () => {
+    // The earlier contract named a model's levels as a bare array; reading that
+    // as advisory would drop the warning an out-of-list level earns.
+    const flat = {
+      key: "acme/one",
+      thinkingLevels: ["low", "high"],
+    } as unknown as ModelEntry;
+    harnesses.register({
+      ...pluginHarness("reg-levels", { status: "available" }),
+      listModels: async () => ({ kind: "listed", entries: [flat] }),
+    });
+
+    const answer = await harnesses
+      .require("reg-levels")
+      .listModels({} as HarnessListModelsRequest);
+
+    expect(answer).toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "acme/one",
+          thinkingLevels: { kind: "closed", levels: ["low", "high"] },
+        },
+      ],
+    });
   });
 
   it("offers a plugin harness only once the probe has confirmed it, like any other", () => {

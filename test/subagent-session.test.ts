@@ -32,7 +32,7 @@ import type {
   AgentLifecycleState,
   AgentSpawn,
   AgentWorktree,
-  ModelSelection,
+  ModelChoice,
 } from "../src/types.js";
 import {
   ConcurrencyPools,
@@ -47,9 +47,9 @@ import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
 /** A paired model selection for the given "provider/modelId" concurrency key. */
-function selectionFor(key: string): ModelSelection {
+function selectionFor(key: string): ModelChoice {
   const [provider, id] = key.split("/");
-  return { model: { provider, id } as never, key };
+  return { model: { provider, id } as never, key, thinking: null };
 }
 
 /** One pool, so a test can see the reservation a session hands its slots dep. */
@@ -354,7 +354,7 @@ beforeEach(() => {
       resultFile: path.join(resultDir, "result.md"),
       modelKey: null,
       toolSelection: { kind: "default" },
-      thinkingLevel: null,
+      thinking: null,
       forkSessionFile: null,
       skills: { kind: "default" },
       extensions: { kind: "default" },
@@ -1437,7 +1437,7 @@ describe("SubagentSession revive on steer", () => {
       host: fake.host,
       deliverable: new ScriptedDeliverable({ deliverable: "the final answer" }),
       hostRef: fake.ref,
-      options: { modelSelection: selectionFor("acme/fast") },
+      options: { modelChoice: selectionFor("acme/fast") },
     });
     run.session.start(makeReservation());
     await driveRun(DRIVE_COMPLETED_MS);

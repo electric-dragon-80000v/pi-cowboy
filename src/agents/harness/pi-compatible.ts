@@ -40,8 +40,7 @@ export function buildPiLaunchArgs(request: PiFamilyLaunchRequest): string[] {
     "--no-context-files",
   ];
   if (request.modelKey !== null) args.push("--model", request.modelKey);
-  if (request.thinkingLevel !== null)
-    args.push("--thinking", request.thinkingLevel);
+  if (request.thinking !== null) args.push("--thinking", request.thinking);
   if (request.forkSessionFile !== null)
     args.push("--fork", request.forkSessionFile);
   const tools = request.toolSelection;
@@ -76,7 +75,8 @@ export const piFamilyListModels: HarnessListModels = async ({
   kind: "listed",
   entries: modelCatalog.getAvailable().map((model): ModelEntry => ({
     key: `${model.provider}/${model.id}`,
-    thinkingLevels: model.thinkingLevels,
+    // pi's own levels are the vocabulary its binary enforces.
+    thinkingLevels: { kind: "closed", levels: model.thinkingLevels },
   })),
 });
 

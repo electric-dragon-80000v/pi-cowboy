@@ -36,8 +36,10 @@ import {
   hasExplicitPerTypeOverride,
   type AgentTypeModelConfig,
 } from "../../models/model-groups.js";
-import { findModelInRegistry } from "../../utils.js";
-import type { SessionModelOverrides } from "../../models/model-precedence.js";
+import type {
+  SessionModelOverrides,
+  SessionThinkingOverrides,
+} from "../../models/model-precedence.js";
 import type { Availability } from "../../availability.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { asSubmenuComponent } from "./screen-host.js";
@@ -363,7 +365,6 @@ function buildModelSettingsList(
     }
 
     // One group per resolved model with a listed row, alphabetical by model id.
-    const registry = session.modelRegistry;
     const types = getAllTypes();
 
     const sessionOverrides: SessionModelOverrides = {
@@ -376,18 +377,30 @@ function buildModelSettingsList(
       agentConfigs[type] = getAgentConfig(type);
     }
 
+    const sessionThinking: SessionThinkingOverrides = {};
+    for (const type of types) {
+      sessionThinking[type] = store.sessionThinkingOverride(type);
+    }
     const groups = buildModelGroups({
       types,
       agentConfigs,
       config: agentConfigSnapshot,
       sessionOverrides,
+      sessionThinking,
       harnessDefaultFor: (type) =>
         store.defaultModelForHarness(resolveHarnessType(type)),
+      harnessDefaultThinkingFor: (type) => {
+        const harnessId = resolveHarnessType(type);
+        return (
+          store.defaultThinkingForHarness(harnessId) ??
+          // pi's own settings file sits below the config layers; a pi-family
+          // launch reads it as its default when config names none.
+          (isPiFamilyHarness(harnessId) ? (piDefaultThinking ?? null) : null)
+        );
+      },
       harnessFamilyFor: (type) => harnessFamilyOf(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
       parentModelId,
-      piDefaultThinking,
-      findModel: (modelId) => findModelInRegistry(modelId, registry, undefined),
     });
 
     for (const group of groups) {
@@ -398,7 +411,7 @@ function buildModelSettingsList(
         items.push({
           id: `type:${row.type}`,
           label: `${agentBulletPrefix(theme)}${row.type}`,
-          currentValue: `${row.thinking.padEnd(THINKING_COLUMN_WIDTH)} ${row.tag}`,
+          currentValue: `${(row.thinking ?? "inherit").padEnd(THINKING_COLUMN_WIDTH)} ${row.tag}`,
           description: `Model for the ${row.type} agent type. Select to set or clear its override.`,
           // Listed rows always carry an explicit override, so Clear is always offered.
           submenu: modelSubmenuFor(

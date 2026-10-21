@@ -428,7 +428,7 @@ describe.skipIf(opencodeMissing)(
         resultFile: path.join(home, "result.md"),
         modelKey: PROBE_MODEL,
         toolSelection: { kind: "default" },
-        variant: VARIANT,
+        thinking: VARIANT,
       });
 
       // The private server is what makes the staged definition the one this
@@ -514,10 +514,13 @@ describe.skipIf(opencodeMissing)(
           model.name === undefined || model.name === "" ? model.id : model.name,
         ),
       );
+      // Variants are advertised, not enforced: the user may define more, so the
+      // list is advisory rather than the closed set this harness accepts.
       expect(models.map((entry) => entry.thinkingLevels)).toEqual(
-        payload.data.map((model) =>
-          (model.variants ?? []).map((variant) => variant.id),
-        ),
+        payload.data.map((model) => ({
+          kind: "advisory",
+          levels: (model.variants ?? []).map((variant) => variant.id),
+        })),
       );
       // The provider carries no slash, so the key splits at its first one; a
       // model id may carry more (a real id such as `groq/canopylabs/orpheus-…` does).

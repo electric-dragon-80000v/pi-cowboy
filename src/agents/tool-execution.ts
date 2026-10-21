@@ -17,7 +17,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { isActivePhase, lifecycleStatus, type AgentStatus } from "../types.js";
-import { CONFIGURED_MODEL_KEY, readModelKey } from "../models/model-request.js";
+import {
+  CONFIGURED_MODEL_KEY,
+  CONFIGURED_THINKING_KEY,
+  readModelKey,
+} from "../models/model-request.js";
 import { getManager, getStore } from "../shell.js";
 import {
   formatActiveAgents,
@@ -189,9 +193,16 @@ export async function toolCallListener(
       item[CONFIGURED_MODEL_KEY] = effectiveModel;
     }
 
+    // The configured level travels in its own key for the same reason the model
+    // does: it is a default this extension chose, and the resolution that reads
+    // it must be able to tell it apart from the caller's own `thinking`.
     if (item.thinking === undefined) {
-      item.thinking =
-        agentConfig?.thinkingLevel ?? getStore().agent.defaultThinking;
+      const thinking = getStore().thinkingFor(
+        subagentType,
+        agentConfig,
+        harnessType,
+      );
+      if (thinking !== undefined) item[CONFIGURED_THINKING_KEY] = thinking;
     }
   }
 }

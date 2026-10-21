@@ -147,6 +147,7 @@ function launchRequest(): CodexLaunchRequest {
     taskFile: path.join(workdir, "prompt.md"),
     resultFile: path.join(workdir, "result.md"),
     modelKey: null,
+    thinking: null,
     toolSelection: { kind: "default" },
     projectTrusted: true,
   };
@@ -333,14 +334,15 @@ describe.skipIf(codexMissing)("codex launch flags against the real CLI", () => {
       listed.map((model) => `openai/${String(model.slug)}`),
     );
     expect(models.every((entry) => /^openai\/\S+$/.test(entry.key))).toBe(true);
-    // Each entry carries the levels the bundled catalog declares for it, so a
-    // level a model does not support is never offered.
+    // Each entry carries the levels the bundled catalog declares for it, as the
+    // closed list codex enforces.
     expect(models.map((entry) => entry.thinkingLevels)).toEqual(
-      listed.map((model) =>
-        (model.supported_reasoning_levels ?? []).map((level) =>
+      listed.map((model) => ({
+        kind: "closed",
+        levels: (model.supported_reasoning_levels ?? []).map((level) =>
           String(level.effort),
         ),
-      ),
+      })),
     );
   });
 

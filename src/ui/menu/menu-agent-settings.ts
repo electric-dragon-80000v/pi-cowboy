@@ -13,9 +13,8 @@ import {
   type SettingItem,
   type Component,
 } from "@earendil-works/pi-tui";
-import type { ThinkingLevel } from "../../types.js";
+import { ThinkingLevelSchema, type ThinkingLevel } from "../../types.js";
 import type { Theme } from "../types.js";
-import { VALID_THINKING_LEVELS } from "../../utils.js";
 import { defaultWorktreeRoot } from "../../paths.js";
 import {
   HARNESS_IDS,
@@ -117,10 +116,9 @@ export async function showSpawnOptionsMenu(
         currentValue: `${store.agent.defaultThinking ?? "inherit"}${projectTag("defaultThinking")}`,
 
         submenu: persistedTargetSubmenu(theme, (target, pickDone) => {
-          const levelItems = [...VALID_THINKING_LEVELS, "inherit"].map((v) => ({
-            value: v,
-            label: v,
-          }));
+          const levelItems = [...ThinkingLevelSchema.options, "inherit"].map(
+            (v) => ({ value: v, label: v }),
+          );
           const list = withVimKeys(
             new SelectList(levelItems, 10, buildSelectListTheme(theme)),
           );

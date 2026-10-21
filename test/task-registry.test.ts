@@ -18,18 +18,20 @@ import {
   type PoolReservation,
 } from "../src/concurrency-pools.js";
 import type { SpawnOptions } from "../src/agents/agent-manager.js";
+import { modelChoiceKey } from "../src/utils.js";
 import type { SpawnIntent } from "../src/spawn/spawn-coordinator.js";
-import type { AgentSpawn, ModelSelection } from "../src/types.js";
+import type { AgentSpawn, ModelChoice } from "../src/types.js";
 import type { HarnessId } from "../src/agents/harness.js";
 import { nextSpawnId } from "./helpers/spawn-ids.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 
 /** A paired model selection for the given "provider/id" concurrency key. */
-function selectionFor(key: string): ModelSelection {
+function selectionFor(key: string): ModelChoice {
   const [provider, id] = key.split("/");
   return {
     model: { provider, id } as unknown as Model<Api>,
     key,
+    thinking: null,
   };
 }
 
@@ -84,7 +86,10 @@ class FakeManager implements TaskRegistryDeps {
       },
     } as unknown as AgentSpawn;
     const admission = this.pools.admitSpawn(
-      { harness: this.harness, modelKey: options.modelSelection?.key },
+      {
+        harness: this.harness,
+        modelKey: modelChoiceKey(options.modelChoice),
+      },
       { id, start: (reservation) => this.startQueued(id, reservation) },
     );
     this.spawns.set(id, spawn);
@@ -144,7 +149,7 @@ function intent(overrides: Partial<SpawnIntent> = {}): SpawnIntent {
     spawnId: nextSpawnId(),
     orchestration: TEST_ORCHESTRATION,
     // A model selection adds its model and provider pools; every spawn counts against the global pool.
-    modelSelection: selectionFor("freebuff/gpt-5.2"),
+    modelChoice: selectionFor("freebuff/gpt-5.2"),
     ...overrides,
   };
 }

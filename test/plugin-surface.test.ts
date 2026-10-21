@@ -12,7 +12,9 @@ import type { ModelEntry, ModelList } from "../src/plugin/index.js";
 /** Compiles only while the subpath exports `ModelList` as a type. */
 const catalog: ModelList = {
   kind: "listed",
-  entries: [{ key: "openai/gpt", thinkingLevels: [] }],
+  entries: [
+    { key: "openai/gpt", thinkingLevels: { kind: "closed", levels: [] } },
+  ],
 };
 
 /** Compiles only while the subpath exports the reads over an answer. */

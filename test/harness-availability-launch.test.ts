@@ -174,7 +174,7 @@ describe("prefetchHarnessModels", () => {
         {
           key: "anthropic/claude-opus-4",
           label: "claude-opus-4",
-          thinkingLevels: [],
+          thinkingLevels: { kind: "advisory", levels: [] },
         },
       ],
     });

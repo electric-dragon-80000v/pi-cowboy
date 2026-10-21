@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelEntry } from "../src/agents/harness.js";
 import {
   CONFIGURED_MODEL_KEY,
+  modelChoiceFor,
   readModelKey,
   readModelRequest,
   resolveSpawnModel,
@@ -76,6 +77,17 @@ describe("readModelRequest", () => {
   });
 });
 
+describe("modelChoiceFor", () => {
+  it("maps a level with no model onto the level-only choice", () => {
+    expect(modelChoiceFor({ kind: "level", thinking: "high" })).toEqual({
+      levelOnly: true,
+      thinking: "high",
+    });
+    // Neither a model nor a level is still no choice at all.
+    expect(modelChoiceFor({ kind: "none" })).toBeUndefined();
+  });
+});
+
 /** The harness-aware resolution's deps, over a list the case controls. */
 function spawnDeps(
   overrides: Pick<SpawnModelDeps, "harness"> & Partial<SpawnModelDeps>,
@@ -84,7 +96,7 @@ function spawnDeps(
     registry,
     parent: PARENT,
     listModels: async () => [],
-    notify: () => {},
+    thinking: undefined,
     ...overrides,
   };
 }
@@ -101,9 +113,13 @@ describe("resolveSpawnModel — the pi family keeps pi's rules", () => {
           spawnDeps({ harness, listModels }),
         ),
       ).toEqual({
-        kind: "resolved",
-        model: OVERRIDE,
-        modelKey: "override/special-model",
+        resolved: {
+          kind: "resolved",
+          model: OVERRIDE,
+          modelKey: "override/special-model",
+          thinking: null,
+        },
+        notices: [],
       });
       expect(listModels).not.toHaveBeenCalled();
     },
@@ -113,9 +129,13 @@ describe("resolveSpawnModel — the pi family keeps pi's rules", () => {
     expect(
       await resolveSpawnModel(undefined, spawnDeps({ harness: "pig" })),
     ).toEqual({
-      kind: "resolved",
-      model: PARENT,
-      modelKey: "parent/parent-1",
+      resolved: {
+        kind: "resolved",
+        model: PARENT,
+        modelKey: "parent/parent-1",
+        thinking: null,
+      },
+      notices: [],
     });
   });
 
@@ -137,9 +157,13 @@ describe("resolveSpawnModel — the pi family keeps pi's rules", () => {
         spawnDeps({ harness: "pi" }),
       ),
     ).toEqual({
-      kind: "resolved",
-      model: PARENT,
-      modelKey: "parent/parent-1",
+      resolved: {
+        kind: "resolved",
+        model: PARENT,
+        modelKey: "parent/parent-1",
+        thinking: null,
+      },
+      notices: [],
     });
   });
 });

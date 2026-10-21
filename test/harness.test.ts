@@ -112,6 +112,7 @@ function sharedInputs(): SubagentLaunchInputs {
     taskFile: "/spawn/esp02hpw/task.md",
     resultFile: "/spawn/esp02hpw/result.md",
     modelKey: null,
+    thinking: null,
     toolSelection: { kind: "default" },
   };
 }
@@ -120,7 +121,6 @@ function sharedInputs(): SubagentLaunchInputs {
 const PI_FAMILY_LAUNCH: PiFamilyLaunchRequest = {
   ...sharedInputs(),
   family: "pi",
-  thinkingLevel: null,
   forkSessionFile: null,
   skills: { kind: "default" },
   extensions: { kind: "default" },
@@ -135,7 +135,7 @@ const LAUNCHES: { [K in HarnessId]: LaunchRequestFor<K> } = {
   pi: PI_FAMILY_LAUNCH,
   pig: PI_FAMILY_LAUNCH,
   "pi-bolt": PI_FAMILY_LAUNCH,
-  opencode: { ...sharedInputs(), family: "opencode", variant: null },
+  opencode: { ...sharedInputs(), family: "opencode" },
   codex: { ...sharedInputs(), family: "codex", projectTrusted: true },
   claude: { ...sharedInputs(), family: "claude" },
 };
@@ -461,7 +461,7 @@ describe("prepare: opencode", () => {
     return {
       ...sharedInputs(),
       family: "opencode",
-      variant: "high",
+      thinking: "high",
       systemPromptFile: stagedPrompt(),
       taskFile,
     };
@@ -706,7 +706,6 @@ describe("buildArgs", () => {
     return {
       ...sharedInputs(),
       family: "pi",
-      thinkingLevel: null,
       forkSessionFile: null,
       skills: { kind: "default" },
       extensions: { kind: "default" },
@@ -741,7 +740,6 @@ describe("buildArgs", () => {
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
-        variant: null,
       }),
     ).toEqual(["mini", "--standalone", "--agent", "esp02hpw"]);
   });
@@ -751,7 +749,6 @@ describe("buildArgs", () => {
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
-        variant: null,
         modelKey: "anthropic/claude-opus-4",
       }),
     ).toEqual([
@@ -767,7 +764,6 @@ describe("buildArgs", () => {
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
-        variant: null,
       }),
     ).not.toContain("--model");
   });
@@ -776,7 +772,7 @@ describe("buildArgs", () => {
     const args = harnessFor("opencode").buildArgs({
       ...sharedInputs(),
       family: "opencode",
-      variant: "high",
+      thinking: "high",
       modelKey: "anthropic/claude-opus-4",
     });
 
@@ -793,7 +789,7 @@ describe("buildArgs", () => {
       harnessFor("opencode").buildArgs({
         ...sharedInputs(),
         family: "opencode",
-        variant: "high",
+        thinking: "high",
       }),
     ).toThrow(/variant/);
   });
@@ -873,6 +869,16 @@ describe("buildArgs", () => {
     ).toEqual(expect.arrayContaining(["-m", "other/model"]));
   });
 
+  it("carries the reasoning effort as a config override only when one was resolved", () => {
+    expect(
+      harnessFor("codex").buildArgs(codexRequest({ thinking: "ultra" })),
+    ).toEqual(expect.arrayContaining(["-c", 'model_reasoning_effort="ultra"']));
+
+    expect(harnessFor("codex").buildArgs(codexRequest())).not.toContain(
+      "model_reasoning_effort",
+    );
+  });
+
   it("derives the report token from the subagent id, never a second field", () => {
     const args = harnessFor("pi").buildArgs(
       request({ subagentId: "another-id" }),
@@ -887,7 +893,7 @@ describe("buildArgs", () => {
     const withAll = harnessFor("pi").buildArgs(
       request({
         modelKey: "override/special-model",
-        thinkingLevel: "high",
+        thinking: "high",
         forkSessionFile: "/sessions/parent.jsonl",
       }),
     );
@@ -1013,8 +1019,14 @@ describe("listModels", () => {
       expect(list).toEqual({
         kind: "listed",
         entries: [
-          { key: "anthropic/claude-3", thinkingLevels: ["off", "low"] },
-          { key: "openai/gpt-4o", thinkingLevels: ["off"] },
+          {
+            key: "anthropic/claude-3",
+            thinkingLevels: { kind: "closed", levels: ["off", "low"] },
+          },
+          {
+            key: "openai/gpt-4o",
+            thinkingLevels: { kind: "closed", levels: ["off"] },
+          },
         ],
       });
     },
@@ -1073,10 +1085,14 @@ describe("listModels", () => {
         {
           key: "anthropic/claude-opus-4",
           label: "Claude Opus 4",
-          thinkingLevels: ["low", "high", "max"],
+          thinkingLevels: { kind: "advisory", levels: ["low", "high", "max"] },
         },
         // No name and no variants: the id labels it, and it has no thinking control.
-        { key: "openai/gpt-4o", label: "gpt-4o", thinkingLevels: [] },
+        {
+          key: "openai/gpt-4o",
+          label: "gpt-4o",
+          thinkingLevels: { kind: "advisory", levels: [] },
+        },
       ],
     });
   });
@@ -1123,7 +1139,7 @@ describe("listModels", () => {
         {
           key: "anthropic/claude-opus-4",
           label: "claude-opus-4",
-          thinkingLevels: ["high"],
+          thinkingLevels: { kind: "advisory", levels: ["high"] },
         },
       ],
     });
@@ -1189,7 +1205,7 @@ describe("listModels", () => {
       {
         key: "anthropic/claude-opus-4",
         label: "claude-opus-4",
-        thinkingLevels: [],
+        thinkingLevels: { kind: "advisory", levels: [] },
       },
     ]);
     expect(exec).toHaveBeenCalledTimes(2);
@@ -1229,13 +1245,13 @@ describe("listModels", () => {
         {
           key: "openai/gpt-6-sol",
           label: "GPT-6-Sol",
-          thinkingLevels: ["low", "high"],
+          thinkingLevels: { kind: "closed", levels: ["low", "high"] },
         },
         // No supported levels in the catalog answer: the model has no reasoning control.
         {
           key: "openai/gpt-5.6-terra",
           label: "gpt-5.6-terra",
-          thinkingLevels: [],
+          thinkingLevels: { kind: "closed", levels: [] },
         },
       ],
     });
@@ -1274,7 +1290,11 @@ describe("listModels", () => {
     }));
 
     expect(modelListEntries(await codexListModels(exec))).toEqual([
-      { key: "openai/gpt-6-sol", label: "GPT-6-Sol", thinkingLevels: [] },
+      {
+        key: "openai/gpt-6-sol",
+        label: "GPT-6-Sol",
+        thinkingLevels: { kind: "closed", levels: [] },
+      },
     ]);
   });
 
@@ -1300,7 +1320,11 @@ describe("listModels", () => {
     expect(first).toEqual({
       kind: "listed",
       entries: [
-        { key: "openai/gpt-6-sol", label: "GPT-6-Sol", thinkingLevels: [] },
+        {
+          key: "openai/gpt-6-sol",
+          label: "GPT-6-Sol",
+          thinkingLevels: { kind: "closed", levels: [] },
+        },
       ],
     });
   });
@@ -1318,9 +1342,9 @@ describe("listModels", () => {
     expect(entries.every((entry) => /^openai\/\S+$/.test(entry.key))).toBe(
       true,
     );
-    expect(entries.every((entry) => entry.thinkingLevels.length > 0)).toBe(
-      true,
-    );
+    expect(
+      entries.every((entry) => entry.thinkingLevels.levels.length > 0),
+    ).toBe(true);
     expect(noticeOf(list)).toContain("boom");
   });
 

@@ -21,7 +21,7 @@ import type {
   AgentLifecycleState,
   AgentPhase,
   AgentSpawn,
-  ModelSelection,
+  ModelChoice,
 } from "../types.js";
 import {
   ACTIVE_AGENT_PHASES,
@@ -58,7 +58,8 @@ import {
 } from "../agents/spawn-defaults.js";
 import {
   readModelRequest,
-  modelSelectionFor,
+  readThinkingRequest,
+  modelChoiceFor,
   resolveSpawnModel,
 } from "../models/model-request.js";
 import {
@@ -71,11 +72,7 @@ import {
   piModelCatalog,
 } from "../shell.js";
 import { BUILTIN_MULTIPLEXER } from "../agents/multiplexer-registry.js";
-import {
-  assertNever,
-  modelSelectionName,
-  parseThinkingLevel,
-} from "../utils.js";
+import { assertNever, modelChoiceName } from "../utils.js";
 import {
   modelListEntries,
   modelListNotice,
@@ -108,13 +105,11 @@ interface DelegationIntent {
   orchestrator: OrchestratorConfig;
   /** Fork the parent session into the child; false means a fresh session. */
   fork: boolean;
-  /** Absent means inherit the parent. */
-  modelSelection?: ModelSelection;
+  /** Absent means inherit the parent. The thinking level rides it. */
+  modelChoice?: ModelChoice;
   /** The caller's validated `harness_type`; absent means the agent template's `harness_type` and the config setting resolve it. */
   requestedHarness?: AnyHarnessId;
   isBackground: boolean;
-  /** Raw `thinking` override, possibly injected by the tool_call listener. */
-  thinkingOverride: string | undefined;
 }
 
 /** A completed turn: prose `message` the orchestrating LLM reads plus structured `details`. */
@@ -261,13 +256,14 @@ export function formatResultContent(spawn: AgentSpawn): string {
  * through here so a single-item call and a batch item go through the same
  * parse path.
  *
- * The `thinking` and `_configuredModel` fields are injected by the
- * `tool_call` listener — never authored by the LLM — so the JSON schema does
- * not name them.
+ * The caller may name its own `thinking`. The `_configuredThinking` and
+ * `_configuredModel` fields are injected by the `tool_call` listener — never
+ * authored by the LLM — so the JSON schema does not name them.
  */
 type PerItemParams = CowboyAgentParams & {
   run_in_background?: boolean;
   thinking?: string;
+  _configuredThinking?: string;
   _configuredModel?: string;
 };
 
@@ -333,12 +329,18 @@ export class DelegationProtocol {
     const harness = resolveHarnessType(resolution.key, requestedHarness);
 
     // An unresolvable model fails here, before touching the in-flight attempt or leaving a checkout behind. Provenance is explicit (ModelRequest), never inferred from the args object.
+    // The caller's own level wins over the one the listener injected; the
+    // resolution below carries whichever wins as written.
+    const thinking = readThinkingRequest(
+      params as unknown as Record<string, unknown>,
+    );
     const requested = await resolveSpawnModel(
       readModelRequest(params as unknown as Record<string, unknown>),
       {
         harness,
         registry: ctx.modelRegistry,
         parent: ctx.model,
+        thinking,
         listModels: async (foreign) => {
           const list = await getHarnessRegistry()
             .require(foreign)
@@ -351,9 +353,12 @@ export class DelegationProtocol {
             ctx.ui.notify(notice, "warning");
           return modelListEntries(list);
         },
-        notify: (message) => ctx.ui.notify(message, "warning"),
       },
     );
+
+    // Resolution reports, the caller shows: a level outside the vocabulary is
+    // a warning, and the launch proceeds with the level as written.
+    for (const notice of requested.notices) ctx.ui.notify(notice, "warning");
 
     // Background is the default — delegation never blocks the orchestrator's turn. Only an explicit run_in_background: false opts into foreground.
     const isBackground = params.run_in_background !== false;
@@ -368,10 +373,9 @@ export class DelegationProtocol {
       resolvedType: resolution.key,
       orchestrator,
       fork: getAgentConfig(agentType)?.fork ?? false,
-      modelSelection: modelSelectionFor(requested),
+      modelChoice: modelChoiceFor(requested.resolved),
       requestedHarness,
       isBackground,
-      thinkingOverride: params.thinking,
     });
   }
 
@@ -385,12 +389,10 @@ export class DelegationProtocol {
     // The checkout the launch will create, named by the same policy the sandbox uses, so the cue can name the branch the orchestrator merges without the worktree existing yet.
     const worktree = await this.expectedWorktree(pi, spawnId);
 
-    const thinkingLevel =
-      parseThinkingLevel(this.intent.thinkingOverride) ??
-      getAgentConfig(resolvedType)?.thinkingLevel ??
-      getStore().agent.defaultThinking;
-
-    const modelName = modelSelectionName(this.intent.modelSelection);
+    // The level rides the choice, resolved together with the model it belongs
+    // to, so nothing here re-derives one.
+    const thinkingLevel = this.intent.modelChoice?.thinking ?? undefined;
+    const modelName = modelChoiceName(this.intent.modelChoice);
 
     const { agentId, spawn } = await getCoordinator().spawn(ctx, {
       spawnId,
@@ -399,9 +401,8 @@ export class DelegationProtocol {
       description: this.intent.description,
       taskSlug,
       orchestration: this.intent.orchestrator,
-      modelSelection: this.intent.modelSelection,
+      modelChoice: this.intent.modelChoice,
       requestedHarness: this.intent.requestedHarness,
-      thinkingLevel,
       fork: this.intent.fork,
       // Coordinates only: the launch provisions the checkout once the run holds a slot.
       worktree,

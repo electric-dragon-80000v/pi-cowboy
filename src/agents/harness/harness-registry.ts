@@ -46,6 +46,7 @@ import {
   type ModelList,
   type PiFamilyLaunchRequest,
   type PluginHarness,
+  type ThinkingLevels,
 } from "../harness.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
@@ -205,6 +206,44 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
 }
 
 /**
+ * A plugin written against the earlier `ModelEntry` shape names a model's
+ * levels as a bare array. That array was an exact vocabulary, so it folds to
+ * `closed`: read as `advisory` it would drop the warning a level outside it
+ * earns, and a shape mismatch must not change what the answer means. Folding at
+ * registration leaves one shape for every reader.
+ */
+function withOneLevelShape(harness: PluginHarness): PluginHarness {
+  return {
+    ...harness,
+    listModels: async (request) => {
+      const list = await harness.listModels(request);
+      if (list.kind === "unavailable") return list;
+      return {
+        ...list,
+        entries: list.entries.map((entry) => ({
+          ...entry,
+          thinkingLevels: foldLevels(entry.thinkingLevels),
+        })),
+      };
+    },
+  };
+}
+
+/** One model entry's levels in the current shape; a flat array is a closed vocabulary. */
+function foldLevels(
+  levels: ThinkingLevels | readonly string[],
+): ThinkingLevels {
+  return isFlatLevels(levels) ? { kind: "closed", levels } : levels;
+}
+
+/** Whether an answer named its levels as the earlier contract's bare array. */
+function isFlatLevels(
+  levels: ThinkingLevels | readonly string[],
+): levels is readonly string[] {
+  return Array.isArray(levels);
+}
+
+/**
  * One session's harness vocabulary: the built-ins plus whatever that session's
  * plugins registered.
  */
@@ -312,7 +351,7 @@ export function createHarnessRegistry(): HarnessRegistry {
         );
         return false;
       }
-      registered.set(harness.id, harness);
+      registered.set(harness.id, withOneLevelShape(harness));
       owned.add(harness.id);
       return true;
     },

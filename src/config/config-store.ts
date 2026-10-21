@@ -10,10 +10,13 @@
 import type {
   SubagentsConfig,
   SessionModelOverrides,
+  SessionThinkingOverrides,
 } from "../models/model-precedence.js";
 import {
   harnessDefaultModel,
+  harnessDefaultThinking,
   resolveModel,
+  resolveThinking,
 } from "../models/model-precedence.js";
 import type { AgentManager } from "../agents/agent-manager.js";
 import {
@@ -23,7 +26,11 @@ import {
 } from "../agents/harness.js";
 import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
 import { parsePoolKey } from "../concurrency-pools.js";
-import type { ModelsByFamily, SystemPromptMode } from "../agents/types.js";
+import type {
+  ModelsByFamily,
+  SystemPromptMode,
+  ThinkingByFamily,
+} from "../agents/types.js";
 import type { ThinkingLevel } from "../types.js";
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
@@ -116,6 +123,23 @@ function rawHarnessDefaults(
   return agent.defaultModelByHarness ?? {};
 }
 
+/**
+ * The per-harness default thinking tokens of one agent layer: the map validation
+ * kept, or an empty one when the layer has none.
+ */
+function rawThinkingByHarness(
+  agent: Partial<SubagentsConfig["agent"]>,
+): Record<string, string | null> {
+  return agent.defaultThinkingByHarness ?? {};
+}
+
+/** The per-type thinking tokens of one agent layer, or an empty map. */
+function rawThinkingByType(
+  agent: Partial<SubagentsConfig["agent"]>,
+): Record<string, string | null> {
+  return agent.thinking ?? {};
+}
+
 interface ResolvedAgentSettings {
   /** Null = inherit parent. */
   readonly defaultModel: string | null;
@@ -155,8 +179,12 @@ interface ConfigStoreDeps {
 export class ConfigStore {
   private readonly layers: LayeredConfig;
   private sessionOverrides: SessionModelOverrides = { default: null };
+  /** Per-type thinking tokens, in the vocabulary of each type's own harness. */
+  private sessionThinking: SessionThinkingOverrides = {};
   /** Per-harness defaults set for this session only; cleared at session_start. */
   private sessionHarnessDefaults: Partial<Record<string, string | null>> = {};
+  /** Per-harness default thinking tokens set for this session only; cleared at session_start. */
+  private sessionThinkingDefaults: Partial<Record<string, string | null>> = {};
   private sessionConcurrencyLayer: RawConcurrency = {};
   private manager?: AgentManager;
 
@@ -272,6 +300,90 @@ export class ConfigStore {
     return session ?? harnessDefaultModel(this.layers.effective.agent, harness);
   }
 
+  /** This session's per-type thinking token, or null when it sets none. */
+  sessionThinkingOverride(type: string): string | null {
+    return this.sessionThinking[type] ?? null;
+  }
+
+  /**
+   * One harness's default thinking token, session over project over global. The
+   * pi family's own `defaultThinking` answers for it; every other harness reads
+   * its entry in `defaultThinkingByHarness`, in that harness's own vocabulary.
+   * A session entry set to null reads as no session entry, exactly as the
+   * session default model does.
+   */
+  defaultThinkingForHarness(harness: AnyHarnessId): string | null {
+    const session = nonBlankString(this.sessionThinkingDefaults[harness]);
+    return (
+      session ?? harnessDefaultThinking(this.layers.effective.agent, harness)
+    );
+  }
+
+  /**
+   * The thinking token a spawn of `type` runs at, resolved through the layers
+   * in the order model-precedence.ts documents. Undefined when no layer names
+   * one: the run asks for no level, and the harness's own default applies.
+   * `harnessId` must be the harness the launch resolves, because it names both
+   * the template family and the default the chain reads.
+   */
+  thinkingFor(
+    type: string,
+    agentConfig: { thinkingByFamily?: ThinkingByFamily } | undefined,
+    harnessId: AnyHarnessId,
+  ): string | undefined {
+    return resolveThinking({
+      subagentType: type,
+      agentConfig,
+      harnessFamily: harnessFamilyOf(harnessId),
+      config: this.layers.effective,
+      harnessDefault: this.defaultThinkingForHarness(harnessId),
+      sessionThinking: this.sessionThinking,
+    });
+  }
+
+  hasSessionHarnessDefaultThinking(harness: AnyHarnessId): boolean {
+    return nonBlankString(this.sessionThinkingDefaults[harness]) !== undefined;
+  }
+
+  hasGlobalHarnessDefaultThinking(harness: AnyHarnessId): boolean {
+    return this.harnessThinkingAt(this.layers.global, harness);
+  }
+
+  hasProjectHarnessDefaultThinking(harness: AnyHarnessId): boolean {
+    return this.harnessThinkingAt(this.layers.project, harness);
+  }
+
+  /** A layer carries the harness's entry when the key is present, even when null. */
+  private harnessThinkingAt(
+    layer: RawConfig | null,
+    harness: AnyHarnessId,
+  ): boolean {
+    const entries = layer?.agent?.defaultThinkingByHarness;
+    return (
+      entries != null && Object.prototype.hasOwnProperty.call(entries, harness)
+    );
+  }
+
+  hasSessionThinkingOverride(type: string): boolean {
+    return nonBlankString(this.sessionThinking[type]) !== undefined;
+  }
+
+  hasGlobalThinkingOverride(type: string): boolean {
+    return this.thinkingEntryAt(this.layers.global, type);
+  }
+
+  hasProjectThinkingOverride(type: string): boolean {
+    return this.thinkingEntryAt(this.layers.project, type);
+  }
+
+  /** The per-type thinking table in one layer. */
+  private thinkingEntryAt(layer: RawConfig | null, type: string): boolean {
+    const entries = layer?.agent?.thinking;
+    return (
+      entries != null && Object.prototype.hasOwnProperty.call(entries, type)
+    );
+  }
+
   /**
    * Every harness id the config names, wherever it names one: the `harnessType`
    * setting, the `defaultModelByHarness` keys, the `concurrency.harnesses` keys,
@@ -338,7 +450,9 @@ export class ConfigStore {
   get hasSessionModelSettings(): boolean {
     return (
       sessionOverridesHasModelSettings(this.sessionOverrides) ||
-      Object.keys(this.sessionHarnessDefaults).length > 0
+      Object.keys(this.sessionHarnessDefaults).length > 0 ||
+      Object.values(this.sessionThinking).some((value) => value != null) ||
+      Object.keys(this.sessionThinkingDefaults).length > 0
     );
   }
 
@@ -446,7 +560,96 @@ export class ConfigStore {
           (raw) => this.clearAgentModelKeys(raw),
           () => {
             this.sessionOverrides = { default: null };
+            this.sessionThinking = {};
             this.sessionHarnessDefaults = {};
+            this.sessionThinkingDefaults = {};
+          },
+        );
+      },
+      /**
+       * This type's thinking token for the harness it launches under. `null` is
+       * a real answer — no level at this layer — and is written as such rather
+       * than deleting the key, exactly as a model override is.
+       */
+      setThinkingOverride: (
+        type: string,
+        value: string | null,
+        target: ConfigTarget = "global",
+      ): void => {
+        if (target === "session") {
+          this.sessionThinking[type] = value;
+          return;
+        }
+        this.layers.mutate(target, (raw) => {
+          raw.agent ??= {};
+          raw.agent.thinking = {
+            ...rawThinkingByType(raw.agent),
+            [type]: value,
+          };
+        });
+      },
+      clearThinkingOverride: (
+        type: string,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.layers.clear(
+          target,
+          (raw) => {
+            if (!raw.agent) return;
+            const entries = rawThinkingByType(raw.agent);
+            delete entries[type];
+            if (Object.keys(entries).length === 0) {
+              delete raw.agent.thinking;
+            } else {
+              raw.agent.thinking = entries;
+            }
+          },
+          () => {
+            delete this.sessionThinking[type];
+          },
+        );
+      },
+      /**
+       * One harness's default thinking token, written entry-wise: the map is a
+       * whole value in the file, so writing it whole would drop every other
+       * harness's entry. `null` is a real answer — that harness has no default
+       * at this layer — and is written as such rather than deleting the key.
+       */
+      setHarnessDefaultThinking: (
+        harness: AnyHarnessId,
+        value: string | null,
+        target: ConfigTarget = "global",
+      ): void => {
+        if (target === "session") {
+          this.sessionThinkingDefaults[harness] = value;
+          return;
+        }
+        this.layers.mutate(target, (raw) => {
+          raw.agent ??= {};
+          raw.agent.defaultThinkingByHarness = {
+            ...rawThinkingByHarness(raw.agent),
+            [harness]: value,
+          };
+        });
+      },
+      clearHarnessDefaultThinking: (
+        harness: AnyHarnessId,
+        target: ConfigTarget | "all" = "global",
+      ): void => {
+        this.layers.clear(
+          target,
+          (raw) => {
+            if (!raw.agent) return;
+            const entries = rawThinkingByHarness(raw.agent);
+            delete entries[harness];
+            if (Object.keys(entries).length === 0) {
+              delete raw.agent.defaultThinkingByHarness;
+            } else {
+              raw.agent.defaultThinkingByHarness = entries;
+            }
+          },
+          () => {
+            delete this.sessionThinkingDefaults[harness];
           },
         );
       },
@@ -626,7 +829,9 @@ export class ConfigStore {
   reload(): void {
     this.layers.reload();
     this.sessionOverrides = { default: null };
+    this.sessionThinking = {};
     this.sessionHarnessDefaults = {};
+    this.sessionThinkingDefaults = {};
     this.sessionConcurrencyLayer = {};
     this.applyConcurrency();
   }

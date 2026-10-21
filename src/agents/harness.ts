@@ -8,12 +8,12 @@
  * (`prefetchModels`). One `Harness<L>` contract serves a built-in and a plugin;
  * `L` is the launch type the implementation reads. What every harness has in
  * common lives here as `SubagentLaunchInputs`; what one built-in family alone
- * uses (pi's CLI flags, opencode's variant, codex's project trust) lives beside
- * it as that family's inputs, so a second family adds a request member — never
- * an optional field, a passthrough schema, or a raw config record on a shared
- * type. One request carries one launch, and both `buildArgs` and `prepare` read
- * it, so a built-in is handed its family's request and a plugin is handed the
- * shared inputs alone. The listing request below (`HarnessListModelsRequest`) is
+ * uses (pi's fork, codex's project trust) lives beside it as that family's
+ * inputs, so a second family adds a request member — never an optional field, a
+ * passthrough schema, or a raw config record on a shared type. One request
+ * carries one launch, and both `buildArgs` and `prepare` read it, so a built-in
+ * is handed its family's request and a plugin is handed the shared inputs
+ * alone. The listing request below (`HarnessListModelsRequest`) is
  * the one shared request that breaks that shape, because one call answers for
  * every runnable harness at once: a family's own input rides it as a field
  * named after that family, never as a member a caller has to pick. Each
@@ -163,28 +163,25 @@ export interface SubagentLaunchInputs {
   readonly resultFile: string;
   /** `null` = no model override was requested. */
   readonly modelKey: string | null;
+  /**
+   * The level this launch runs at, in the launching harness's own vocabulary and
+   * exactly as the layers named it: pi's thinking level, opencode's variant,
+   * codex's reasoning effort. `null` = none was requested, so the harness's own
+   * default applies. How it rides the argv is the harness's — pi takes a flag,
+   * opencode a suffix on the model reference — so no caller here interprets the
+   * token.
+   */
+  readonly thinking: string | null;
   readonly toolSelection: ToolSelection;
 }
 
 /** pi CLI specifics; no other harness family reads these. */
 export interface PiLaunchInputs {
-  /** `null` = no thinking override was requested. */
-  readonly thinkingLevel: string | null;
   /** `null` = no fork — not requested, or requested with no parent session file (the orchestrator warns there). */
   readonly forkSessionFile: string | null;
   readonly skills: SkillLaunchMode;
   readonly extensions: ExtensionLaunchMode;
   readonly projectTrusted: boolean;
-}
-
-/** opencode CLI specifics; no other harness family reads these. */
-export interface OpencodeLaunchInputs {
-  /**
-   * `null` = no variant was requested. A variant has no flag of its own: it
-   * rides the model reference on the argv, so one with no model to join names
-   * nothing.
-   */
-  readonly variant: string | null;
 }
 
 /** codex CLI specifics; no other harness family reads these. */
@@ -222,12 +219,13 @@ export type PiFamilyLaunchRequest = HarnessFamilyTag<"pi"> &
   PiLaunchInputs;
 
 /**
- * opencode's argv request: the shared launch inputs plus opencode's own CLI
- * specifics.
+ * opencode's argv request: the shared launch inputs alone. opencode reads the
+ * launch's level as the variant it joins to the model reference, and its model
+ * key, tool selection and task already ride the shared inputs — so the member is
+ * the tag plus the shared shape, with no family-specific field to grow stale.
  */
 export type OpencodeLaunchRequest = HarnessFamilyTag<"opencode"> &
-  SubagentLaunchInputs &
-  OpencodeLaunchInputs;
+  SubagentLaunchInputs;
 
 /**
  * codex's argv request: the shared launch inputs plus codex's own CLI
@@ -356,6 +354,20 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 }
 
 /**
+ * The thinking control one model offers, and what its list is worth.
+ *
+ * `closed` is a vocabulary the harness itself enforces — pi's levels, claude's
+ * effort names, codex's reasoning efforts — so a level outside the list is one
+ * the launch rejects or silently drops, and saying so is a warning a caller can
+ * act on. `advisory` is a list the harness merely advertises: opencode's
+ * variants can be added by the user, so a level outside the list may still be
+ * legal and none of this may treat it as a mistake.
+ */
+export type ThinkingLevels =
+  | { readonly kind: "closed"; readonly levels: readonly string[] }
+  | { readonly kind: "advisory"; readonly levels: readonly string[] };
+
+/**
  * One model a harness can run. `key` is the bare `"provider/model"` every layer
  * stores and every CLI flag carries; `label` is the optional display form a
  * picker shows in place of the key.
@@ -364,11 +376,11 @@ export interface ModelEntry {
   readonly key: string;
   readonly label?: string;
   /**
-   * The levels this model accepts, in the launching harness's own vocabulary —
-   * pi's thinking levels, opencode's variant ids, codex's reasoning efforts.
-   * Empty when the model has no thinking control.
+   * The levels this model accepts, in the launching harness's own vocabulary,
+   * with the list's kind. An empty `closed` list means the model has no
+   * thinking control.
    */
-  readonly thinkingLevels: readonly string[];
+  readonly thinkingLevels: ThinkingLevels;
 }
 
 /**
@@ -453,8 +465,8 @@ export type HarnessAvailability =
  * One harness implementation, over the launch type it reads: a built-in's
  * `LaunchRequestFor<K>` (its family's request), or `SubagentLaunchInputs` for a
  * plugin. The type parameter is what keeps one family's options out of another
- * implementation: a pi harness cannot name `variant`, and a plugin cannot name
- * any built-in option at all.
+ * implementation: a pi harness cannot name codex's project trust, and a plugin
+ * cannot name any built-in option at all.
  */
 export interface Harness<
   L extends SubagentLaunchInputs = HarnessLaunch,

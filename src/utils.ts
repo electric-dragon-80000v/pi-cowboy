@@ -4,33 +4,13 @@
  */
 
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ModelSelection, ThinkingLevel } from "./types.js";
+import type { ModelChoice } from "./types.js";
 
 /** Alphanumeric, hyphen, underscore, dot — no leading dot. */
 export function isUnsafeName(name: string): boolean {
   return (
     !name || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name)
   );
-}
-
-/** Tuple shape: the agent-template Zod schema builds an enum from it, so the two can never drift. */
-export const VALID_THINKING_LEVELS = [
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const satisfies readonly ThinkingLevel[];
-
-export function parseThinkingLevel(
-  raw: string | undefined,
-): ThinkingLevel | undefined {
-  if (raw === undefined) return undefined;
-  return VALID_THINKING_LEVELS.includes(raw as ThinkingLevel)
-    ? (raw as ThinkingLevel)
-    : undefined;
 }
 
 /** Line-based TUI output breaks on raw CR/LF. */
@@ -77,14 +57,26 @@ export function findModelInRegistry(
 
 /**
  * The name a spawn's model records and displays: pi's catalog id, or a foreign
- * selection's own name — the launching harness's label for the key, or the key
+ * choice's own name — the launching harness's label for the key, or the key
  * itself when that harness's list did not name it.
  */
-export function modelSelectionName(
-  selection: ModelSelection | undefined,
+export function modelChoiceName(
+  choice: ModelChoice | undefined,
 ): string | undefined {
-  if (!selection) return undefined;
-  return "model" in selection ? selection.model.id : selection.name;
+  if (!choice) return undefined;
+  if ("model" in choice) return choice.model.id;
+  // An inherited model names nothing: there is no key of the spawn's own to show.
+  return "harness" in choice ? choice.name : undefined;
+}
+
+/**
+ * The model key a choice names, or undefined when it names none — an inherited
+ * model has no key of the spawn's own to pool or display against.
+ */
+export function modelChoiceKey(
+  choice: ModelChoice | undefined,
+): string | undefined {
+  return choice != null && "key" in choice ? choice.key : undefined;
 }
 
 /** Shared by agent-runner and worktree-validator. */

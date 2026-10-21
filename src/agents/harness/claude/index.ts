@@ -17,11 +17,11 @@
  * run was seen to answer (`haiku`, `sonnet`, `opus`) and nothing it was seen
  * to refuse.
  *
- * The strict `[harness.claude]` table carries only `model` and the tool pair,
- * both in claude's own vocabulary: the tool names ride `--tools` /
- * `--disallowedTools` exactly as written, with no translation, and the model
- * key's `anthropic/` prefix is stripped at the argv boundary because the CLI
- * takes a bare alias or full model name.
+ * The strict `[harness.claude]` table carries `model`, `thinking`, and the tool
+ * pair, all in claude's own vocabulary: the tool names ride `--tools` /
+ * `--disallowedTools` and the effort rides `--effort` exactly as written, with
+ * no translation, and the model key's `anthropic/` prefix is stripped at the
+ * argv boundary because the CLI takes a bare alias or full model name.
  */
 
 import { homedir } from "node:os";
@@ -34,6 +34,7 @@ import type {
   Harness,
   HarnessPrepareRequest,
   ModelEntry,
+  ThinkingLevels,
 } from "../../harness.js";
 import { installPaneLauncher, type PaneProof } from "../pane-launcher.js";
 import {
@@ -233,6 +234,12 @@ const CLAUDE_THINKING_LEVELS = [
   "max",
 ] as const;
 
+/** Every alias carries the same closed list: `--effort` accepts these and no others. */
+const CLAUDE_THINKING: ThinkingLevels = {
+  kind: "closed",
+  levels: CLAUDE_THINKING_LEVELS,
+};
+
 /**
  * Every model this harness offers, as `anthropic/<alias>` keys. claude's CLI
  * has no list command, so this list is curated, not discovered: each alias was
@@ -240,21 +247,9 @@ const CLAUDE_THINKING_LEVELS = [
  * off. A menu therefore offers only models a launch can actually run.
  */
 const CLAUDE_MODELS: readonly ModelEntry[] = [
-  {
-    key: "anthropic/haiku",
-    label: "haiku",
-    thinkingLevels: CLAUDE_THINKING_LEVELS,
-  },
-  {
-    key: "anthropic/sonnet",
-    label: "sonnet",
-    thinkingLevels: CLAUDE_THINKING_LEVELS,
-  },
-  {
-    key: "anthropic/opus",
-    label: "opus",
-    thinkingLevels: CLAUDE_THINKING_LEVELS,
-  },
+  { key: "anthropic/haiku", label: "haiku", thinkingLevels: CLAUDE_THINKING },
+  { key: "anthropic/sonnet", label: "sonnet", thinkingLevels: CLAUDE_THINKING },
+  { key: "anthropic/opus", label: "opus", thinkingLevels: CLAUDE_THINKING },
 ];
 
 export const claudeHarness: Harness<ClaudeLaunchRequest> = {
@@ -302,7 +297,9 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
    * and `--strict-mcp-config` keep the worktree's own settings and MCP
    * servers out of the spawn, so a launch reads only what this harness
    * staged. The task is absent: the launcher appends it as the positional
-   * initial prompt, because multi-line text cannot cross herdr's argv.
+   * initial prompt, because multi-line text cannot cross herdr's argv. The
+   * effort rides `--effort` only when one was resolved, as the level claude's
+   * own vocabulary names it.
    */
   buildArgs(request: ClaudeLaunchRequest): string[] {
     const args = [
@@ -319,6 +316,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     ];
     if (request.modelKey !== null)
       args.push("--model", claudeModelName(request.modelKey));
+    if (request.thinking !== null) args.push("--effort", request.thinking);
     args.push(...toolArgs(request));
     return args;
   },

@@ -19,6 +19,7 @@ import type {
 } from "../src/agents/harness.js";
 import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import type { AgentConfig } from "../src/agents/types.js";
+import type { ModelChoice } from "../src/types.js";
 import {
   ConfigStore,
   type ConfigIO,
@@ -120,6 +121,7 @@ async function launch(
   model?: { provider: string; id: string },
   fork?: boolean,
   sessionFile?: string,
+  selection?: ModelChoice,
 ) {
   const pi = {
     exec: vi.fn().mockResolvedValue({ code: 1, stdout: "" }),
@@ -139,9 +141,15 @@ async function launch(
     cwd,
     agentGuidance,
     fork,
-    modelSelection: model
-      ? { model: model as never, key: `${model.provider}/${model.id}` }
-      : undefined,
+    modelChoice:
+      selection ??
+      (model
+        ? {
+            model: model as never,
+            key: `${model.provider}/${model.id}`,
+            thinking: null,
+          }
+        : undefined),
   });
 }
 
@@ -338,8 +346,8 @@ describe("buildLaunchPlan CLI flags", () => {
       toolSelection: { kind: "default" },
       projectTrusted: true,
     });
-    // Exactly the shared inputs plus codex's own: no pi or opencode input
-    // rides this request.
+    // Exactly the shared inputs plus codex's own: no pi input rides this
+    // request.
     expect(Object.keys(plan.launch).sort()).toEqual([
       "family",
       "modelKey",
@@ -348,6 +356,7 @@ describe("buildLaunchPlan CLI flags", () => {
       "subagentId",
       "systemPromptFile",
       "taskFile",
+      "thinking",
       "toolSelection",
     ]);
     // codex's own CLI: the instructions override, no project docs, and no pi
@@ -362,6 +371,90 @@ describe("buildLaunchPlan CLI flags", () => {
       ]),
     );
     expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
+  });
+
+  it("carries a level with no model of its own onto that harness's flag", async () => {
+    const codex = setup(makeAgent({ harnessType: "codex" }));
+    const codexPlan = await launch(
+      "test-agent",
+      codex.cwd,
+      codex.notify,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { levelOnly: true, thinking: "high" },
+    );
+
+    // The spawn named no model, so codex runs its own default at this effort.
+    expect(codexPlan.launch.modelKey).toBeNull();
+    expect(codexPlan.piArgs).toEqual(
+      expect.arrayContaining(["-c", 'model_reasoning_effort="high"']),
+    );
+
+    const pi = setup(makeAgent({ harnessType: "pi" }));
+    const piPlan = await launch(
+      "test-agent",
+      pi.cwd,
+      pi.notify,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { levelOnly: true, thinking: "high" },
+    );
+
+    expect(piPlan.piArgs).toContain("--thinking");
+    expect(piPlan.piArgs).toContain("high");
+    expect(piPlan.piArgs).not.toContain("--model");
+  });
+
+  it("carries a resolved reasoning effort onto codex's own config override", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
+
+    const plan = await launch(
+      "test-agent",
+      cwd,
+      notify,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        harness: "codex",
+        key: "openai/gpt-6-sol",
+        name: "GPT-6-Sol",
+        thinking: "ultra",
+      },
+    );
+
+    expect(plan.launch.thinking).toBe("ultra");
+    expect(plan.piArgs).toEqual(
+      expect.arrayContaining(["-c", 'model_reasoning_effort="ultra"']),
+    );
+  });
+
+  it("carries a resolved effort onto claude's own --effort flag", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "claude" }));
+
+    const plan = await launch(
+      "test-agent",
+      cwd,
+      notify,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        harness: "claude",
+        key: "anthropic/sonnet",
+        name: "sonnet",
+        thinking: "xhigh",
+      },
+    );
+
+    expect(plan.launch.thinking).toBe("xhigh");
+    expect(plan.piArgs).toEqual(expect.arrayContaining(["--effort", "xhigh"]));
   });
 
   it("hands codex its own family's request object for argv and prepare alike", async () => {
@@ -380,6 +473,7 @@ describe("buildLaunchPlan CLI flags", () => {
       taskFile: expect.any(String),
       resultFile: expect.any(String),
       modelKey: null,
+      thinking: null,
       toolSelection: { kind: "default" },
       projectTrusted: true,
     } satisfies CodexLaunchRequest);
@@ -410,8 +504,8 @@ describe("buildLaunchPlan CLI flags", () => {
       family: "pi",
       subagentId: "runner-test",
       modelKey: null,
+      thinking: null,
       toolSelection: { kind: "default" },
-      thinkingLevel: null,
       forkSessionFile: null,
       skills: { kind: "default" },
       extensions: { kind: "default" },
@@ -420,16 +514,25 @@ describe("buildLaunchPlan CLI flags", () => {
     expect(plan.launch).not.toHaveProperty("variant");
   });
 
-  it("hands opencode its own family's request, carrying the template's variant", async () => {
-    const { cwd, notify } = setup(
-      makeAgent({ harnessType: "opencode", variant: "high" }),
-    );
+  it("hands opencode the shared request, the level riding it as the harness reads it", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "opencode" }));
     const capture = captureOpencodeBuildArgs();
 
-    const plan = await launch("test-agent", cwd, notify, undefined, {
-      provider: "anthropic",
-      id: "claude-opus-4",
-    });
+    const plan = await launch(
+      "test-agent",
+      cwd,
+      notify,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        harness: "opencode",
+        key: "anthropic/claude-opus-4",
+        name: "claude-opus-4",
+        thinking: "high",
+      },
+    );
     const requests = capture.requests();
     capture.restore();
 
@@ -441,23 +544,23 @@ describe("buildLaunchPlan CLI flags", () => {
       taskFile: expect.any(String),
       resultFile: expect.any(String),
       modelKey: "anthropic/claude-opus-4",
+      thinking: "high",
       toolSelection: { kind: "default" },
-      variant: "high",
     });
     // One object: the argv and the plan were built from the same request.
     expect(requests[0]).toBe(plan.launch);
   });
 
-  it("carries no variant and no pi flag when the template sets none", async () => {
+  it("carries no level and no pi flag when the template sets none", async () => {
     const { cwd, notify } = setup(makeAgent({ harnessType: "opencode" }));
     const capture = captureOpencodeBuildArgs();
 
     const plan = await launch("test-agent", cwd, notify);
     capture.restore();
 
-    expect(plan.launch).toMatchObject({ family: "opencode", variant: null });
-    // Exactly the shared inputs plus opencode's own: no pi input rides this
-    // request.
+    expect(plan.launch).toMatchObject({ family: "opencode", thinking: null });
+    // Exactly the shared inputs plus the family tag: no pi input and no
+    // opencode-only field rides this request.
     expect(Object.keys(plan.launch).sort()).toEqual([
       "family",
       "modelKey",
@@ -465,8 +568,8 @@ describe("buildLaunchPlan CLI flags", () => {
       "subagentId",
       "systemPromptFile",
       "taskFile",
+      "thinking",
       "toolSelection",
-      "variant",
     ]);
   });
 
@@ -999,6 +1102,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
       "subagentId",
       "systemPromptFile",
       "taskFile",
+      "thinking",
       "toolSelection",
     ]);
   });

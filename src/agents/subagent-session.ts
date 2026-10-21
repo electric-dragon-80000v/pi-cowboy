@@ -39,7 +39,7 @@ import type {
   WorktreeRetentionReason,
 } from "../types.js";
 import { lifecycleResult } from "../types.js";
-import { errorMessage } from "../utils.js";
+import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
   buildWorktreeBranch,
   slugifyWorktreeType,
@@ -369,7 +369,7 @@ export class SubagentSession {
         // turn held: its model's, its provider's, its harness's, and the global limit.
         this.deps.pools.reacquire(this.id, {
           harness: this.args.options.harness,
-          modelKey: this.args.options.modelSelection?.key,
+          modelKey: modelChoiceKey(this.args.options.modelChoice),
         });
         this.supervisor = supervisor;
         this.launchState = launch;
@@ -511,8 +511,7 @@ export class SubagentSession {
         {
           agentId: this.id,
           harness: options.harness,
-          modelSelection: options.modelSelection,
-          thinkingLevel: options.thinkingLevel,
+          modelChoice: options.modelChoice,
           fork: options.fork,
           cwd: options.worktree?.path,
           projectTrusted: options.projectTrusted,

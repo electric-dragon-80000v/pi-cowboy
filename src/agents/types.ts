@@ -1,4 +1,4 @@
-import type { ThinkingLevel } from "../types.js";
+import type { SpawnThinkingLevel } from "../types.js";
 import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
 import type { AnyHarnessId, HarnessFamily } from "./harness.js";
 
@@ -9,6 +9,14 @@ import type { AnyHarnessId, HarnessFamily } from "./harness.js";
  * name has none.
  */
 export type ModelsByFamily = Partial<Record<HarnessFamily, string>>;
+
+/**
+ * A template's thinking tokens, each under the harness family whose vocabulary
+ * defines it. A token names a level in one family's vocabulary, so a token
+ * written for one family is invisible to every other: it can never ride onto a
+ * launch that would misread it.
+ */
+export type ThinkingByFamily = Partial<Record<HarnessFamily, string>>;
 
 export type SubagentType = string;
 
@@ -64,9 +72,8 @@ interface BaseAgentConfig {
   modelsByFamily?: ModelsByFamily;
   /** This agent's tool filters, one per harness family; a launch reads only its own family's. */
   toolsByFamily?: ToolsByFamily;
-  thinkingLevel?: ThinkingLevel;
-  /** opencode's reasoning-effort variant, carried on the model as "provider/model#variant". Undefined = none requested. */
-  variant?: string;
+  /** This agent's thinking token, one per harness family; a launch reads only its own family's. */
+  thinkingByFamily?: ThinkingByFamily;
   systemPrompt: string;
   /** Include pi's context files in this agent's system prompt. Undefined = use global config. */
   includeContextFiles?: boolean;
@@ -90,7 +97,7 @@ export type AgentConfig = BaseAgentConfig;
 export interface AgentInvocation {
   /** Short display name, e.g. "haiku" — only set when different from parent. */
   modelName?: string;
-  thinkingLevel?: ThinkingLevel;
+  thinkingLevel?: SpawnThinkingLevel;
   runInBackground?: boolean;
   /** Whether the run forked the parent session. */
   fork?: boolean;

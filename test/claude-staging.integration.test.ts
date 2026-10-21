@@ -258,6 +258,7 @@ describe.skipIf(!canRunRealClaude)(
         resultFile: path.join(cwd, "result.md"),
         modelKey: "anthropic/sonnet",
         toolSelection: { kind: "include", names: ["Bash"] },
+        thinking: null,
       });
       const result = await runClaude(
         configDir,
