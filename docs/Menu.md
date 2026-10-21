@@ -26,7 +26,7 @@ Run `/cowboy enable` or flip `Enabled` back to `ON` to restore the tools and men
 
 ## `/cowboy` > `Model overrides`
 
-Opens the `Model Settings` screen. A model and its thinking level are one setting: every row shows the pair as `model · level`, and picking a model asks for its level right after, so both halves are written at the same layer. Each override can be saved at the `session`, `global`, or `project` level. A value from a non-global layer carries a `[session]` or `[project]` tag beside the half it names — or once at the end when both halves came from that layer.
+Opens the `Model Settings` screen. Each row displays the configured model and thinking level as `model · level`. Selecting a model prompts immediately for its thinking level, saving both values to the chosen configuration layer (`session`, `global`, or `project`). Non-global values display a `[session]` or `[project]` tag adjacent to the overridden field, or at the end of the row if both fields originate from that layer.
 
 | Row                                         | What it does                                                                                                                                                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42,16 +42,16 @@ Default rows for OpenCode, Claude, and Codex appear only when that harness's bin
 
 ### Picking a pair
 
-Selecting a default row, a type row, or a type under `Override another type...` asks for the layer first, then the model, then the level that model offers:
+Selecting a default row, an agent type row, or an entry under `Override another type...` prompts sequentially for the configuration layer, the model, and the model's supported thinking level:
 
-| Step                             | What it does                                                                                                                                                              |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Session` / `Global` / `Project` | The layer both halves are written to.                                                                                                                                     |
-| Model search                     | The row's harness catalogue; on pi's rows, also the models the config already names. `(none)` removes both halves at the layer.                                           |
-| Level list                       | The levels the picked model advertises, plus `Inherit` to leave no level at that layer. A model with no thinking control skips this step and drops the layer's old token. |
-| `Clear...`                       | Removes both halves at one layer. Shown only when a layer carries either one.                                                                                             |
+| Step                             | Description                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Session` / `Global` / `Project` | Target configuration layer for the model and thinking level.                                                                                                                                                                   |
+| Model search                     | Available models from the harness catalog (plus previously configured models on Pi rows). Selecting `(none)` clears both model and thinking overrides at the chosen layer.                                                     |
+| Level list                       | Thinking levels supported by the selected model, plus `Inherit` to defer to lower-precedence defaults. Selecting a model that does not support thinking controls skips this step and removes any existing token at that layer. |
+| `Clear...`                       | Clears both overrides at the selected layer. Available only when at least one override exists at that layer.                                                                                                                   |
 
-A type stays listed while it carries a model or a thinking override at any layer, so a hand-written thinking-only override is always reachable here.
+An agent type remains listed as long as an override exists for either its model or its thinking level at any layer.
 
 ## `/cowboy` > `Settings`
 
@@ -89,7 +89,7 @@ Opens the `Agent settings` screen, organized into three sections:
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Default harness` | Harness used when an agent template omits `harness_type`. Lists all harnesses this machine can launch (built-ins found on `PATH` and registered plugin harnesses) while noting any missing built-ins. See [`agent.harnessType`](Configuration.md#agentharnesstype) and [`harness_type`](Agent%20Templates.md). |
 
-Thinking defaults are per model, so they live on the `Model Settings` screen: which levels are legal depends on the model a launch resolves to.
+Default thinking levels are configured per model in the `Model Settings` screen, as available levels depend on the resolved model.
 
 ### Worktrees
 

@@ -164,12 +164,10 @@ export interface SubagentLaunchInputs {
   /** `null` = no model override was requested. */
   readonly modelKey: string | null;
   /**
-   * The level this launch runs at, in the launching harness's own vocabulary and
-   * exactly as the layers named it: pi's thinking level, opencode's variant,
-   * codex's reasoning effort. `null` = none was requested, so the harness's own
-   * default applies. How it rides the argv is the harness's — pi takes a flag,
-   * opencode a suffix on the model reference — so no caller here interprets the
-   * token.
+   * Thinking level for this launch in the harness's native vocabulary
+   * (Pi thinking level, OpenCode variant, or Codex reasoning effort).
+   * `null` indicates no level was requested, delegating to the harness default.
+   * Argument formatting is handled by the specific harness implementation.
    */
   readonly thinking: string | null;
   readonly toolSelection: ToolSelection;
@@ -354,14 +352,12 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 }
 
 /**
- * The thinking control one model offers, and what its list is worth.
+ * Supported thinking levels for a model and the enforcement policy of the list.
  *
- * `closed` is a vocabulary the harness itself enforces — pi's levels, claude's
- * effort names, codex's reasoning efforts — so a level outside the list is one
- * the launch rejects or silently drops, and saying so is a warning a caller can
- * act on. `advisory` is a list the harness merely advertises: opencode's
- * variants can be added by the user, so a level outside the list may still be
- * legal and none of this may treat it as a mistake.
+ * - `closed`: Fixed vocabulary enforced by the harness (Pi levels, Claude effort
+ *   names, Codex reasoning efforts). Unlisted levels generate a warning.
+ * - `advisory`: Open vocabulary advertised by the harness (e.g., custom OpenCode
+ *   variants). Unlisted levels are accepted without warning.
  */
 export type ThinkingLevels =
   | { readonly kind: "closed"; readonly levels: readonly string[] }
@@ -432,8 +428,8 @@ export function modelListEntries(list: ModelList): readonly ModelEntry[] {
 }
 
 /**
- * What a human should be told about this answer, or undefined when it is the
- * harness's own catalog and there is nothing surprising to say.
+ * Diagnostic warning message associated with a fallback or unavailable model
+ * list, or undefined if the harness returned its native catalog successfully.
  */
 export function modelListNotice(list: ModelList): string | undefined {
   return list.kind === "listed" ? undefined : list.notice;

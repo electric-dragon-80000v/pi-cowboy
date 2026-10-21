@@ -159,8 +159,8 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
         currentValue: current ?? "inherit",
         description:
           offering.kind === "none"
-            ? "This model takes no thinking level."
-            : "Reasoning effort for this spawn, from the selected harness's own list",
+            ? "The selected model does not support thinking levels."
+            : "Reasoning effort for this spawn, supported by the selected harness",
         submenu: levelRow(offering, current, view),
       };
     },

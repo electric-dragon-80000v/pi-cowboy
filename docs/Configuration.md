@@ -86,17 +86,17 @@ Sets the default thinking level for agents launched under the Pi family (`pi`, `
 
 ### `agent.defaultThinkingByHarness`
 
-Maps each foreign harness ID (`opencode`, `codex`, `claude`) to its default thinking token, in that harness's own vocabulary, or `null` for none. Because the Pi family (`pi`, `pig`, `pi-bolt`) shares `agent.defaultThinking`, only foreign harnesses need entries here. A harness with no entry, or one set to `null`, has no configured default: the launch asks for no level, and the harness's own default applies.
+Maps each non-Pi harness ID (`opencode`, `codex`, `claude`, or plugin IDs) to its default thinking token, or `null` for none. Pi-family harnesses (`pi`, `pig`, `pi-bolt`) use `agent.defaultThinking` instead. If a harness entry is omitted or set to `null`, no thinking flag is passed at launch, allowing the harness binary's internal default to apply.
 
-The token is passed to the harness as written; whether it is one the harness knows is that harness's business (see [Agent Templates](Agent%20Templates.md#harness-family-sections)). The key set is open — a plugin harness's ID is as valid as a built-in's.
+The token is forwarded without validation or translation (see [Agent Templates](Agent%20Templates.md#harness-family-sections)).
 
-Global and project layers merge entry by entry, so setting a project default for `codex` leaves your global defaults for `claude` and `opencode` intact.
+Global and project layers merge per entry: defining a project-level default for `codex` preserves global defaults for `claude` and `opencode`.
 
 ### `agent.thinking`
 
-Sets a thinking token for one agent type, in the vocabulary of the harness that type launches under. `null` clears the entry and falls through to the next level.
+Sets the thinking token for a specific agent type in the vocabulary of its launching harness. Setting the value to `null` clears the override.
 
-A type is not a harness, so an entry here says nothing about which model the type runs: the token applies whether or not the type names a model of its own. If the type's harness changes, so does the vocabulary the token is read in. You can set the same value for the current session alone in `/cowboy` > `Model overrides`.
+This setting applies regardless of whether the agent type defines an explicit model. If the agent type's configured harness changes, the token is interpreted in the new harness's vocabulary. To configure this override for the current session only, use `/cowboy` > `Model overrides`.
 
 ### `agent.systemPromptMode`
 
@@ -180,7 +180,7 @@ When spawning an agent, `pi-cowboy` resolves the thinking level in this order (h
 4. The launching harness's configured default: `agent.defaultThinking` for the Pi family, or `agent.defaultThinkingByHarness.<harness>` for foreign harnesses.
 5. No level resolves: the launch asks for no level, and the harness's own default applies.
 
-The level is carried as written and is never rewritten to suit the model. A level resolves with or without a model, so a spawn that names no model still runs at the configured level.
+The resolved thinking level passes to the launch process without alteration. Because thinking levels resolve independently of models, an agent spawning without an explicit model override still applies the configured thinking level.
 
 ## `multiplexer`
 

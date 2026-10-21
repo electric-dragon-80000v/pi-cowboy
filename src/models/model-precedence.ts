@@ -37,10 +37,9 @@
  *   5. no layer names a level — the run asks for none, and the harness's own
  *      default applies.
  *
- * The chain does not rewrite a level to suit the model: a token is one
- * harness's vocabulary, and only that harness can say what it accepts, so the
- * winner is carried as written and a harness that knows its own closed
- * vocabulary warns (without refusing) about a token outside it.
+ * The precedence chain forwards the resolved token unchanged. Harnesses with
+ * a closed vocabulary emit a warning if the token is not recognized, but do
+ * not reject or rewrite it.
  */
 
 import type { ThinkingLevel } from "../types.js";

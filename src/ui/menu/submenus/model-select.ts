@@ -113,7 +113,7 @@ export interface ModelThinkingSubmenuOptions {
   currentModel: string | null;
   /** The level in force, pre-selected in the level list. */
   currentThinking: string | null;
-  /** Offer the nested "Clear..." flow (removes both halves at the layer). */
+  /** Offer the nested "Clear..." flow (removes the model and level at the layer). */
   showClear: boolean;
   /**
    * Filters the nested clear picker to the layers carrying either half. A
@@ -125,7 +125,7 @@ export interface ModelThinkingSubmenuOptions {
   offeringFor: (modelKey: string) => ThinkingOffering;
   /** Write the pair at one layer; a null token leaves no level there. */
   onSet: (target: SetTarget, model: string, token: string | null) => void;
-  /** Remove both halves at the picked layer. */
+  /** Remove the model and level at the picked layer. */
   onClear: (target: TargetChoice) => void;
 }
 

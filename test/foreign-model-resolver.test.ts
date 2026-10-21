@@ -206,7 +206,7 @@ describe("resolveForeignModel — the thinking level", () => {
 
     expect(answer.resolved).toMatchObject({ thinking: "ultra" });
     expect(answer.notices).toEqual([
-      'The thinking level "ultra" is not one the claude model "anthropic/sonnet" declares (low, high); launching with it anyway.',
+      'Thinking level "ultra" is not declared by claude model "anthropic/sonnet" (supported: low, high); proceeding with "ultra".',
     ]);
   });
 
@@ -217,7 +217,7 @@ describe("resolveForeignModel — the thinking level", () => {
     );
 
     expect(answer.notices).toEqual([
-      'The claude model "anthropic/sonnet" has no thinking levels; launching with "high" anyway.',
+      'Model "anthropic/sonnet" (claude) does not support thinking levels; launching with "high".',
     ]);
   });
 

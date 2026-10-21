@@ -63,7 +63,7 @@ function undeclaredLevelWarning(
 ): string | undefined {
   if (thinking === undefined) return undefined;
   if (ThinkingLevelSchema.safeParse(thinking).success) return undefined;
-  return `The thinking level "${thinking}" is not one pi knows (${ThinkingLevelSchema.options.join(", ")}); launching "${modelKey(model)}" with it anyway.`;
+  return `Thinking level "${thinking}" is not recognized by Pi (valid: ${ThinkingLevelSchema.options.join(", ")}); launching "${modelKey(model)}" with "${thinking}".`;
 }
 
 /** The catalog entry plus the level the layers asked for, carried as written. */

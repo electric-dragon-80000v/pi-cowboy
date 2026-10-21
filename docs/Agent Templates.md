@@ -80,9 +80,9 @@ Because each harness family has its own model catalog, CLI flags, and tool names
 - `[harness.codex]` applies to `codex`.
 - `[harness.claude]` applies to `claude`.
 
-A single template can include sections for multiple families so the agent works seamlessly whichever harness launches it. For backward compatibility, `[harness.pi]` keys — `thinking` among them — may also be written flat under `[harness]`; a flat key means the Pi family's, and no other family reads it. If a key is set in both places, `[harness.pi]` wins.
+A template can include configuration sections for multiple harness families. For backward compatibility, `[harness.pi]` keys (including `thinking`) may also be declared directly under `[harness]`. Top-level `[harness]` keys apply solely to the Pi family. If a key is defined in both locations, `[harness.pi]` takes precedence.
 
-Each family's `thinking` token is carried as written: nothing translates one harness's vocabulary into another's, and a level this section names sits below the per-type config layers in [Thinking levels](Configuration.md#thinking-levels).
+Each family's `thinking` token passes to the target harness without translation. Levels set in template sections take precedence below the per-type configuration layers described in [Thinking levels](Configuration.md#thinking-levels).
 
 #### `[harness.pi]`
 
@@ -98,12 +98,12 @@ Each family's `thinking` token is carried as written: nothing translates one har
 
 #### `[harness.opencode]`
 
-| Field           | Type     | Default                                   | Description                                                                                                                                                                                  |
-| --------------- | -------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`         | string   | unset                                     | Model from opencode's catalog as `"provider/model-id"`. See [Model keys](Configuration.md#model-keys) for precedence.                                                                        |
-| `variant`       | string   | `agent.defaultThinkingByHarness.opencode` | Reasoning effort variant, joined to this agent's model as `"provider/model#variant"`. A variant names a member of one model's catalog, so a variant with no `model` here refuses the launch. |
-| `tools`         | string[] | all tools                                 | Allowlist of opencode permission actions (for example, `["bash", "edit"]`).                                                                                                                  |
-| `exclude_tools` | string[] | none excluded                             | Blocklist of opencode permission actions. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                                                                              |
+| Field           | Type     | Default                                   | Description                                                                                                                                                                                                          |
+| --------------- | -------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`         | string   | unset                                     | Model from opencode's catalog as `"provider/model-id"`. See [Model keys](Configuration.md#model-keys) for precedence.                                                                                                |
+| `variant`       | string   | `agent.defaultThinkingByHarness.opencode` | Reasoning effort variant, appended to the model key as `"provider/model#variant"`. Because variants are catalog members of a specific model, setting `variant` without specifying `model` causes the launch to fail. |
+| `tools`         | string[] | all tools                                 | Allowlist of opencode permission actions (for example, `["bash", "edit"]`).                                                                                                                                          |
+| `exclude_tools` | string[] | none excluded                             | Blocklist of opencode permission actions. Set either `tools` or `exclude_tools`; if both are set, `tools` wins.                                                                                                      |
 
 #### `[harness.codex]`
 

@@ -218,8 +218,8 @@ function buildModelSettingsList(
 
     /**
      * The layer picker → model → level flow for one row, plus the notice each
-     * write leaves. A clear removes both halves, so its picker offers every
-     * layer that carries either.
+     * write leaves. A clear removes the model and the level, so its picker
+     * offers every layer carrying either.
      */
     const pairSubmenu = (args: PairSubmenuOptions): SubmenuFactory => {
       const clearLevels: AvailableLevels = {
@@ -273,7 +273,7 @@ function buildModelSettingsList(
         thinkingTag: thinkingTagOf(piThinkingLevels, piThinking),
       }),
       description:
-        "Model and thinking level used when no session default, per-type override, or agent-template model applies.",
+        "Default model and thinking level applied when no session, per-type, or template override is set.",
       submenu: pairSubmenu({
         label: "Pi Default Model",
         harnessId: "pi",
@@ -310,7 +310,7 @@ function buildModelSettingsList(
           thinking,
           thinkingTag: thinkingTagOf(thinkingLevels, thinking),
         }),
-        description: `Model and thinking level used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
+        description: `Default model and thinking level applied to agents launched under ${harnessId} when no session, per-type, or template override is set.`,
         submenu: pairSubmenu({
           label,
           harnessId,
@@ -373,7 +373,7 @@ function buildModelSettingsList(
       parentModelId,
     });
 
-    /** The pair picker for one agent type: both halves at the picked layer. */
+    /** The pair picker for one agent type: model and level at the picked layer. */
     const typeSubmenu = (
       type: string,
       harnessId: AnyHarnessId,
@@ -412,9 +412,9 @@ function buildModelSettingsList(
       for (const row of group.rows) {
         const harnessId = resolveHarnessType(row.type);
         const thinkingDisplay = `${row.thinking ?? "inherit"}${row.thinkingTag}`;
-        // The level's tag already names the model's layer when both halves were
-        // written there, so the model tag is left off that row. The two tags
-        // carry different leading-space conventions, hence the trim.
+        // The level's tag already names the model's layer when both were written
+        // there, so the model tag is left off that row. The two tags carry
+        // different leading-space conventions, hence the trim.
         const modelTag =
           row.thinking !== null && row.thinkingTag.trim() === row.tag.trim()
             ? ""
@@ -455,7 +455,7 @@ function buildModelSettingsList(
         label: "Override another type...",
         currentValue: "",
         description:
-          "Add a model and thinking level override for an agent type that currently inherits.",
+          "Configure model and thinking level overrides for an agent type currently using inherited defaults.",
         submenu: (_currentValue, subDone) =>
           createSearchableSelect(
             nonOverridden.map((typeName) => ({
@@ -473,8 +473,8 @@ function buildModelSettingsList(
                   config,
                   harnessId,
                 );
-                // The type inherits both halves, so its picker opens on the
-                // values the launch would send and writes only what is picked.
+                // The type inherits both values, so its picker opens on what
+                // the launch would send and writes only what is picked.
                 return typeSubmenu(
                   typeName,
                   harnessId,
@@ -513,7 +513,7 @@ function buildModelSettingsList(
         label: "Clear all model and thinking overrides...",
         currentValue: "",
         description:
-          "Discard model and thinking overrides at the chosen level (session, global, project, or all).",
+          "Remove model and thinking level overrides across a selected configuration layer (session, global, project, or all).",
         submenu: createClearAllSubmenu({
           theme,
           projectOffered,

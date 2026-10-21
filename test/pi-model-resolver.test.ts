@@ -168,7 +168,7 @@ describe("resolvePiModel — thinking levels", () => {
     });
     expect(answer.notices).toHaveLength(1);
     expect(answer.notices[0]).toContain(
-      'The thinking level "turbo" is not one pi knows',
+      'Thinking level "turbo" is not recognized by Pi',
     );
     expect(answer.notices[0]).toContain("override/special-model");
   });

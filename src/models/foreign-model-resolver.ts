@@ -80,8 +80,8 @@ function undeclaredLevelWarning(
   const { levels } = entry.thinkingLevels;
   if (levels.includes(level)) return undefined;
   return levels.length === 0
-    ? `The ${harness} model "${entry.key}" has no thinking levels; launching with "${level}" anyway.`
-    : `The thinking level "${level}" is not one the ${harness} model "${entry.key}" declares (${levels.join(", ")}); launching with it anyway.`;
+    ? `Model "${entry.key}" (${harness}) does not support thinking levels; launching with "${level}".`
+    : `Thinking level "${level}" is not declared by ${harness} model "${entry.key}" (supported: ${levels.join(", ")}); proceeding with "${level}".`;
 }
 
 /**

@@ -41,19 +41,17 @@ export const DEFAULT_AGENT_TYPE = "general-purpose";
 export const DEFAULT_ORCHESTRATOR_NAME = "default";
 
 /**
- * A run's model choice and the thinking level it runs at. pi's member is its
- * catalog entry, whose `model.id` names the run; a foreign harness's member is
- * the key alone plus its display name, because a key from another harness's
- * list has no `Model` in this session to carry; the third member is the choice
- * to run on the parent's model; the fourth is a level with no model of its own,
- * which the harness's default model runs at. Absent means inherit as well — no
- * choice was made at all.
+ * Model specification and associated thinking level for a subagent run.
  *
- * The level rides the choice rather than a field of its own because it is the
- * model's harness that decides what the token means, so the two are chosen
- * together; choosing an effort without choosing a model is a real spawn, and
- * `levelOnly` is that case rather than a level with no model at all. `null` is
- * a set value — no level was asked for, so the harness's own default applies.
+ * Variants:
+ * - Resolved Pi model with catalog entry.
+ * - Foreign harness model key with display label.
+ * - `inherit`: Explicitly inherits the parent session's model while specifying a thinking level.
+ * - `levelOnly`: Specifies a thinking level for the harness's default model without setting a model override.
+ * - Absent (`undefined`): No model or thinking override specified; inherits defaults.
+ *
+ * The thinking level is packaged within `ModelChoice` because thinking tokens are
+ * validated within the context of the selected harness.
  */
 export type ModelChoice =
   | {

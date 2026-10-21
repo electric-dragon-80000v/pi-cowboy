@@ -808,7 +808,7 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
     await session.settle();
     // The row is the whole statement: no submenu opens.
     expect(session.screenCount).toBe(1);
-    expect(session.text()).toContain("takes no thinking level");
+    expect(session.text()).toContain("does not support thinking levels");
 
     await spawnWith(session, { prompt: "Do the thing" });
     expect(spawnCalls[0]!.args.modelChoice).toEqual({

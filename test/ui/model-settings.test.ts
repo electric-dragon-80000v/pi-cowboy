@@ -727,8 +727,8 @@ describe("Model Settings — per-harness default rows", () => {
         { open: "(none)" },
         {
           expect: {
-            // (none) removes both halves at the layer: a level has no model
-            // of its own to run at.
+            // (none) removes the model and the level at the layer: a level has
+            // no model of its own to run at.
             active: "OpenCode Default Model",
             activeValue: "(none) · inherit",
             notified: ["OpenCode Default Model cleared (global)"],
@@ -1215,7 +1215,7 @@ describe("Model Settings — the default rows write the pair", () => {
 });
 
 describe("Model Settings — per-type pairs", () => {
-  it("writes a type's pair at the picked layer and tags both halves", async () => {
+  it("writes a type's pair at the picked layer and tags both values", async () => {
     installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
     const session = await openModelSettings();
 
