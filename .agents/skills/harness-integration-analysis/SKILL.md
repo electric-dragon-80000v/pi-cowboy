@@ -56,10 +56,11 @@ The report then ends at the seam: the members and template keys this family woul
 
 - **No inference, unless authorized (see Before you start).** The default is no prompt-bearing invocation and no started turn. A probe is `--help`, `--version`, a config render, a debug subcommand, or a pane launch that cannot reach a model. A steer is verified only up to the composer unless the human authorized test inference, in which case the named model is the only one used and every real turn is recorded.
 - **Evidence standard.** Mark each finding as proven (the probe ran), read from source (the code shows it), or unverified. The verdict table carries the label; the evidence section carries the proof.
-- **Isolation and hygiene.** Every probe runs in its own scratch directory and its own scratch pane, both removed at the end. State the before and after. Nothing is written to the user's real config, and a credential file is never copied without the human authorizing that exact file.
+- **Isolation and hygiene.** Probes run in their own scratch directory and pane, removed at the end. State the before and after. Nothing is written to the user's real configuration. If a launch shape involves copying or staging files that contain secrets (API keys, tokens, or credential stores), state what is staged and where it lands, without printing the secrets themselves.
 - **Reading the binary and the source.** The binary's surface is the authority on flags; the source is the authority on defaults, hidden paths, and what a flag actually does. Read both.
 - **Disclose every deviation.** A probe that leaves the envelope is authorized by the human first and named in the report's appendix.
 - **Cross-angle checks.** One probe runs the whole CLI, so no angle is settled alone. A sandbox that forbids writes outside the worktree also forbids the result file (`<tmpdir>/pi-cowboy/<id>/result.md`); the report says so, and shows the allowance that fixes it, rather than marking sandbox and result file green in isolation.
+- **Ambient environment and side effects.** An agent typically relies on ambient environment setup: authentication (keychains, credential files, environment variables), custom inference endpoints (third-party providers, base URLs), and tools (MCP servers, local scripts). Whatever mechanism is used to isolate or configure the spawn (CLI flags, environment variables, staged files, agent profiles, or shims), evaluate its side effects: does it preserve, override, or inadvertently disconnect any of these ambient capabilities?
 
 ## The contract angles
 
@@ -80,6 +81,10 @@ The closing domain, **Pi-Native / Extended Capabilities**, is pi-family only. It
 
 Angle 1 is the CLI's interactive agent (its TUI), brought up without a human at the keyboard — not a one-shot batch mode. `codex exec` and `opencode run` reach no composer, so they settle no herdr pane and accept no steer; angle 9 is where that cost shows.
 
+Unattended launch means the agent reaches ready state and can complete turns without human intervention. The evaluation must identify any first-turn blockers: authentication prompts, terms-of-service dialogs, default model selections, or onboarding flows.
+
+Check where and how authentication resolves, and note any platform-specific differences (such as headless Linux environments vs. desktop OS keychains, or system token stores vs. local files). State what was verified and what remains unverified across target platforms.
+
 ### Prompting & Delivery
 
 | #   | Angle                                          | Contract source                   |
@@ -92,6 +97,8 @@ Angle 1 is the CLI's interactive agent (its TUI), brought up without a human at 
 
 Angle 5 is replacement. The seam compiles one `system.md` (`buildSubagentSystemPrompt`) and the CLI must use it in place of its own base prompt; append is a fallback only for a CLI with no replace path. The append the pi family uses (`--append-system-prompt`) carries the identity token, which is angle 15's concern, not angle 5's.
 
+The evaluation must determine the scope and side effects of the replacement mechanism. Does setting the prompt leave the rest of the agent's environment untouched, or does it require overriding broader configuration layers (such as custom configuration directories, environment variables, or agent profiles)? If the mechanism requires staging or transforming configuration, document what needs to be filtered out (like personal prompts or conflicting instructions) and what needs to be retained (like custom provider definitions or credentials).
+
 ### Configuration & Environment
 
 | #   | Angle                               | Contract source                                                                     |
@@ -102,9 +109,9 @@ Angle 5 is replacement. The seam compiles one `system.md` (`buildSubagentSystemP
 | 13  | Thinking / reasoning effort         | `PiLaunchInputs.thinkingLevel`, `OpencodeLaunchInputs.variant`                      |
 | 14  | Tool selection                      | `SubagentLaunchInputs.toolSelection`                                                |
 
-Angle 10's evidence states the catalogue's cold-start cost: whether enumeration spawns a child process, needs the network or a credential, or is instant and offline, and how the family warms it at startup (`prefetchModels` — a real warm-up, or a no-op — and whether the result is memoized). A catalogue that blocks the menu is as much a finding as one that cannot be listed.
+Angle 10's evidence states the catalogue's cold-start cost: whether enumeration spawns a child process, needs the network or a credential, or is instant and offline, and how the family warms it at startup (`prefetchModels` — a real warm-up, or a no-op — and whether the result is memoized). A catalogue that blocks the menu is as much a finding as one that cannot be listed. The evaluation must verify whether the spawn's runtime environment actually has access to the models listed in the catalogue—especially when custom endpoints, third-party providers, or non-default base URLs are defined in the user's environment.
 
-Angle 14 is satisfied natively only by a CLI that can filter tools by name — a whitelist/blacklist flag or its equivalent. A CLI that exposes only a fixed set of on/off switches (`tools.web_search`, a feature flag) is a Workaround however well it spells them: toggles are not a filter, and the verdict says so.
+Angle 14 is satisfied natively only by a CLI that can filter tools by name — a whitelist/blacklist flag or its equivalent. A CLI that exposes only a fixed set of on/off switches (`tools.web_search`, a feature flag) is a Workaround however well it spells them: toggles are not a filter, and the verdict says so. The evaluation must check the tool surface available to the running spawn, including MCP servers, local scripts, and built-in capabilities. If the launch configuration restricts or isolates the agent's environment, verify which tools survive into the spawn.
 
 Angle 12's probe runs synchronously at boot, before the first menu can open, so it must answer locally and within a bounded timeout (the opencode read allows 5 s), with no network. A CLI whose `--version` dials out for an update check holds the whole boot; claude is the precedent, and its harness reads `command -v` for exactly that reason. A version command that reaches the network is itself a finding.
 
@@ -153,7 +160,7 @@ The structure is fixed. The verdict table reproduces The contract angles in the 
 
 ### Shape A — <name> (<native kind | pane shim | ...>)
 
-<The launch, the argv, and the one-line reason it is shaped that way>
+<The launch command, argv, rationale, and environmental interaction: what ambient state this shape relies on (credentials, provider settings, tools), what it suppresses or isolates, and how any missing capabilities are supplied or bridged.>
 
 ### Shape B — <name>   (only when a second shape is real)
 
@@ -179,7 +186,7 @@ The structure is fixed. The verdict table reproduces The contract angles in the 
 
 ## 5. Seam changes this family needs (per the contract's own evolution rule)
 
-<A numbered list derived from the contract as it stands: each item names the change, the member it touches, and its first reader, and says whether it is a decision for a reviewer rather than a mechanical addition. Read the evolution rule in the header of `src/agents/harness.ts` and the surrounding contract before writing this list; do not carry a copy of it here.>
+<A numbered list derived from the contract as it stands: each item names the change, the member it touches, and its first reader, and says whether it is a decision for a reviewer rather than a mechanical addition. Read the evolution rule in the header of `src/agents/harness.ts` and the surrounding contract before writing this list; do not carry a copy of it here. If a launch shape requires transforming or staging configuration, specify the filtering rules (what to preserve vs what to strip) before proposing the staging code.>
 
 ## 6. Open questions, risks, and product decisions
 
@@ -205,6 +212,8 @@ The headline opens with the feasibility squares, states the verdict before the e
 - [ ] The headline opens with the feasibility squares, one line per domain labelled with the domain name, every verdict row opens with its matching square, and each evidence heading opens with that square too.
 - [ ] Every contract angle is present, grouped into the domains and numbered straight through, each carrying its verdict (one per viable shape where the shapes differ); the Pi-Native / Extended Capabilities domain is present only when the harness is `pi`, `pig`, or `pi-bolt`.
 - [ ] Each verdict names its mechanism, and the evidence section backs it or marks it unverified.
+- [ ] Each launch shape describes its environmental interactions: what ambient configuration/credentials it relies on, what it isolates, and how any required capabilities are maintained.
+- [ ] Where a shape isolates configuration or environment, the evidence proves credentials, providers, and tools still resolve there, with a command that reaches no model, on the platform named.
 - [ ] The headline, the launch-shape section, the seam changes, the open questions and product decisions, and the appendix are all present.
 - [ ] Any real turn ran on the authorized model alone and is recorded; absent an authorization, no prompt-bearing invocation happened. The pane and directory hygiene is recorded either way.
 - [ ] The appendix lists the exact commands and the source read.
@@ -215,6 +224,8 @@ The headline opens with the feasibility squares, states the verdict before the e
 The example below is the Codex report. Codex is a foreign harness, so its report carries fourteen angles — the original twelve except the pi-native identity token, plus availability, thinking, and tool selection — with pane preparation folded into launch and the model catalogue into model selection; the Pi-Native domain is absent.
 
 It is the model for structure, ordering, table shape, evidence style, and appendix contents, and it is a snapshot of everything it read: this repo's API, herdr, and the CLI as they stood when it was written, not as they stand now. Two members are the clearest cases: the report squares angle 1 yellow because `AgentHost.start` then took only `{name, piArgs}` and hard-coded `--kind pi`, while the contract now carries `agentMuxKind` end to end, so that angle squares green today; and its angle 10 predates `Harness.prefetchModels`, so it is silent on catalogue warm-up, which a report today must weigh. An angle marked unverified there stays unverified until a probe settles it. Read the example for its form, and check every API and version claim against the current source before repeating it.
+
+The Codex report illustrates one end of the configuration spectrum: because Codex exposes granular command-line overrides (`-c model_instructions_file`, `-c project_doc_max_bytes`), it can replace the base prompt and suppress project context while running directly against the user's ambient configuration. This preserves credentials and provider settings without custom staging, but leaves user settings (such as notification hooks) active unless explicitly neutralized. Other harnesses may use different mechanisms (such as dedicated config directories, profiles, or environment variables), which introduce different trade-offs between prompt isolation and credential/capability retention.
 
 # Codex as a pi-cowboy harness — findings report
 
