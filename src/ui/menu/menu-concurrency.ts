@@ -522,10 +522,10 @@ export async function showConcurrencySettingsMenu(
 
     // ── Clear all ──
     // One level is offered only when it carries entries; the row hides when none do.
+    const concurrencyLevels = store.concurrencySettingsLevels();
     const availableLevels: AvailableLevels = {
-      session: store.hasSessionConcurrencySettings,
-      global: store.hasGlobalConcurrencySettings,
-      project: store.hasProjectConcurrencySettings && projectOffered,
+      ...concurrencyLevels,
+      project: concurrencyLevels.project && projectOffered,
     };
     if (
       availableLevels.session ||

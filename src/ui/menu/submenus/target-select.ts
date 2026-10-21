@@ -10,6 +10,7 @@ import {
   type SettingItem,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../types.js";
+import type { ConfigLayerPresence } from "../../../config/types.js";
 import { asSubmenuComponent, CLOSED_SUBMENU } from "../screen-host.js";
 import { buildSettingsListTheme, withVimKeys } from "../helpers.js";
 import { createConfirmSubmenu } from "./confirm.js";
@@ -21,11 +22,7 @@ export type TargetChoice = "session" | "global" | "project" | "all";
 export type SetTarget = "session" | "global" | "project";
 
 /** Per-level availability of the setting a clear flow removes. */
-export interface AvailableLevels {
-  session: boolean;
-  global: boolean;
-  project: boolean;
-}
+export type AvailableLevels = ConfigLayerPresence;
 
 /** Level entries with set vs clear persistence notes. */
 const LEVEL_ENTRIES: Record<

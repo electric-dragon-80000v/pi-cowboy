@@ -40,7 +40,10 @@ import {
 } from "../spawn/worktree-policy.js";
 import { DEFAULT_AGENT_TYPE, DEFAULT_ORCHESTRATOR_NAME } from "../types.js";
 import type { ConcurrencyConfig } from "../concurrency-pools.js";
-import { CONFIG_AGENT_NON_MODEL_KEYS } from "./types.js";
+import {
+  CONFIG_AGENT_NON_MODEL_KEYS,
+  type ConfigLayerPresence,
+} from "./types.js";
 import { LayeredConfig } from "./layered-config.js";
 import { FILE_FIX, incompatibleWarning } from "./config-validation.js";
 import {
@@ -121,23 +124,6 @@ function rawHarnessDefaults(
   agent: Partial<SubagentsConfig["agent"]>,
 ): Record<string, string | null> {
   return agent.defaultModelByHarness ?? {};
-}
-
-/**
- * The per-harness default thinking tokens of one agent layer: the map validation
- * kept, or an empty one when the layer has none.
- */
-function rawThinkingByHarness(
-  agent: Partial<SubagentsConfig["agent"]>,
-): Record<string, string | null> {
-  return agent.defaultThinkingByHarness ?? {};
-}
-
-/** The per-type thinking tokens of one agent layer, or an empty map. */
-function rawThinkingByType(
-  agent: Partial<SubagentsConfig["agent"]>,
-): Record<string, string | null> {
-  return agent.thinking ?? {};
 }
 
 interface ResolvedAgentSettings {
@@ -341,49 +327,6 @@ export class ConfigStore {
     });
   }
 
-  hasSessionHarnessDefaultThinking(harness: AnyHarnessId): boolean {
-    return nonBlankString(this.sessionThinkingDefaults[harness]) !== undefined;
-  }
-
-  hasGlobalHarnessDefaultThinking(harness: AnyHarnessId): boolean {
-    return this.harnessThinkingAt(this.layers.global, harness);
-  }
-
-  hasProjectHarnessDefaultThinking(harness: AnyHarnessId): boolean {
-    return this.harnessThinkingAt(this.layers.project, harness);
-  }
-
-  /** A layer carries the harness's entry when the key is present, even when null. */
-  private harnessThinkingAt(
-    layer: RawConfig | null,
-    harness: AnyHarnessId,
-  ): boolean {
-    const entries = layer?.agent?.defaultThinkingByHarness;
-    return (
-      entries != null && Object.prototype.hasOwnProperty.call(entries, harness)
-    );
-  }
-
-  hasSessionThinkingOverride(type: string): boolean {
-    return nonBlankString(this.sessionThinking[type]) !== undefined;
-  }
-
-  hasGlobalThinkingOverride(type: string): boolean {
-    return this.thinkingEntryAt(this.layers.global, type);
-  }
-
-  hasProjectThinkingOverride(type: string): boolean {
-    return this.thinkingEntryAt(this.layers.project, type);
-  }
-
-  /** The per-type thinking table in one layer. */
-  private thinkingEntryAt(layer: RawConfig | null, type: string): boolean {
-    const entries = layer?.agent?.thinking;
-    return (
-      entries != null && Object.prototype.hasOwnProperty.call(entries, type)
-    );
-  }
-
   /**
    * Every harness id the config names, wherever it names one: the `harnessType`
    * setting, the `defaultModelByHarness` keys, the `concurrency.harnesses` keys,
@@ -415,16 +358,35 @@ export class ConfigStore {
     return [...ids];
   }
 
-  hasSessionHarnessDefaultModel(harness: AnyHarnessId): boolean {
-    return nonBlankString(this.sessionHarnessDefaults[harness]) !== undefined;
+  /**
+   * Which layers carry a model override for one type. Pi's own default rides
+   * the reserved key `default`, so it is asked through this method too.
+   *
+   * A file layer carries the key when it has one, null included — a null there
+   * masks the layers below. The session carries one only when its in-memory
+   * value is non-null: a session null unpins the session instead of masking.
+   */
+  modelOverrideLevels(type: string): ConfigLayerPresence {
+    return {
+      session: this.sessionModelOverride(type) !== null,
+      global: layerHasAgentKey(this.layers.global, type),
+      project: layerHasAgentKey(this.layers.project, type),
+    };
   }
 
-  hasGlobalHarnessDefaultModel(harness: AnyHarnessId): boolean {
-    return this.harnessDefaultAt(this.layers.global, harness);
-  }
-
-  hasProjectHarnessDefaultModel(harness: AnyHarnessId): boolean {
-    return this.harnessDefaultAt(this.layers.project, harness);
+  /**
+   * Which layers carry a default model for one harness. Non-pi harnesses only:
+   * the pi family's default is `agent.default`, which
+   * `modelOverrideLevels("default")` answers, so asking here always reports no
+   * session entry.
+   */
+  harnessDefaultModelLevels(harness: AnyHarnessId): ConfigLayerPresence {
+    return {
+      session:
+        nonBlankString(this.sessionHarnessDefaults[harness]) !== undefined,
+      global: this.harnessDefaultAt(this.layers.global, harness),
+      project: this.harnessDefaultAt(this.layers.project, harness),
+    };
   }
 
   /** A layer carries the harness's entry when the key is present, even when null. */
@@ -439,29 +401,22 @@ export class ConfigStore {
     );
   }
 
-  hasGlobalModelKey(key: string): boolean {
-    return layerHasAgentKey(this.layers.global, key);
-  }
-
+  /** The project layer's own model key, for the row tags model-groups derives. */
   hasProjectModelKey(key: string): boolean {
     return layerHasAgentKey(this.layers.project, key);
   }
 
-  get hasSessionModelSettings(): boolean {
-    return (
-      sessionOverridesHasModelSettings(this.sessionOverrides) ||
-      Object.keys(this.sessionHarnessDefaults).length > 0 ||
-      Object.values(this.sessionThinking).some((value) => value != null) ||
-      Object.keys(this.sessionThinkingDefaults).length > 0
-    );
-  }
-
-  get hasGlobalModelSettings(): boolean {
-    return agentLayerHasModelSettings(this.layers.global);
-  }
-
-  get hasProjectModelSettings(): boolean {
-    return agentLayerHasModelSettings(this.layers.project);
+  /** Which layers carry any model setting, for the Clear-all row. */
+  modelSettingsLevels(): ConfigLayerPresence {
+    return {
+      session:
+        sessionOverridesHasModelSettings(this.sessionOverrides) ||
+        Object.keys(this.sessionHarnessDefaults).length > 0 ||
+        Object.values(this.sessionThinking).some((value) => value != null) ||
+        Object.keys(this.sessionThinkingDefaults).length > 0,
+      global: agentLayerHasModelSettings(this.layers.global),
+      project: agentLayerHasModelSettings(this.layers.project),
+    };
   }
 
   get projectConcurrency(): RawConcurrency {
@@ -476,16 +431,15 @@ export class ConfigStore {
     return { ...this.sessionConcurrencyLayer };
   }
 
-  get hasSessionConcurrencySettings(): boolean {
-    return concurrencyLayerHasSettings(this.sessionConcurrencyLayer);
-  }
-
-  get hasGlobalConcurrencySettings(): boolean {
-    return concurrencyLayerHasSettings(this.layers.global.concurrency ?? {});
-  }
-
-  get hasProjectConcurrencySettings(): boolean {
-    return concurrencyLayerHasSettings(this.layers.project?.concurrency ?? {});
+  /** Which layers carry any concurrency limit, for the Clear-all row. */
+  concurrencySettingsLevels(): ConfigLayerPresence {
+    return {
+      session: concurrencyLayerHasSettings(this.sessionConcurrencyLayer),
+      global: concurrencyLayerHasSettings(this.layers.global.concurrency ?? {}),
+      project: concurrencyLayerHasSettings(
+        this.layers.project?.concurrency ?? {},
+      ),
+    };
   }
 
   /** Raw agent config incl. dynamic per-type model keys. */
@@ -563,93 +517,6 @@ export class ConfigStore {
             this.sessionThinking = {};
             this.sessionHarnessDefaults = {};
             this.sessionThinkingDefaults = {};
-          },
-        );
-      },
-      /**
-       * This type's thinking token for the harness it launches under. `null` is
-       * a real answer — no level at this layer — and is written as such rather
-       * than deleting the key, exactly as a model override is.
-       */
-      setThinkingOverride: (
-        type: string,
-        value: string | null,
-        target: ConfigTarget = "global",
-      ): void => {
-        if (target === "session") {
-          this.sessionThinking[type] = value;
-          return;
-        }
-        this.layers.mutate(target, (raw) => {
-          raw.agent ??= {};
-          raw.agent.thinking = {
-            ...rawThinkingByType(raw.agent),
-            [type]: value,
-          };
-        });
-      },
-      clearThinkingOverride: (
-        type: string,
-        target: ConfigTarget | "all" = "global",
-      ): void => {
-        this.layers.clear(
-          target,
-          (raw) => {
-            if (!raw.agent) return;
-            const entries = rawThinkingByType(raw.agent);
-            delete entries[type];
-            if (Object.keys(entries).length === 0) {
-              delete raw.agent.thinking;
-            } else {
-              raw.agent.thinking = entries;
-            }
-          },
-          () => {
-            delete this.sessionThinking[type];
-          },
-        );
-      },
-      /**
-       * One harness's default thinking token, written entry-wise: the map is a
-       * whole value in the file, so writing it whole would drop every other
-       * harness's entry. `null` is a real answer — that harness has no default
-       * at this layer — and is written as such rather than deleting the key.
-       */
-      setHarnessDefaultThinking: (
-        harness: AnyHarnessId,
-        value: string | null,
-        target: ConfigTarget = "global",
-      ): void => {
-        if (target === "session") {
-          this.sessionThinkingDefaults[harness] = value;
-          return;
-        }
-        this.layers.mutate(target, (raw) => {
-          raw.agent ??= {};
-          raw.agent.defaultThinkingByHarness = {
-            ...rawThinkingByHarness(raw.agent),
-            [harness]: value,
-          };
-        });
-      },
-      clearHarnessDefaultThinking: (
-        harness: AnyHarnessId,
-        target: ConfigTarget | "all" = "global",
-      ): void => {
-        this.layers.clear(
-          target,
-          (raw) => {
-            if (!raw.agent) return;
-            const entries = rawThinkingByHarness(raw.agent);
-            delete entries[harness];
-            if (Object.keys(entries).length === 0) {
-              delete raw.agent.defaultThinkingByHarness;
-            } else {
-              raw.agent.defaultThinkingByHarness = entries;
-            }
-          },
-          () => {
-            delete this.sessionThinkingDefaults[harness];
           },
         );
       },

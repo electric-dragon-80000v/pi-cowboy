@@ -342,7 +342,7 @@ describe("concurrency keys — store", () => {
     });
     const store = new ConfigStore(io);
 
-    expect(store.hasGlobalConcurrencySettings).toBe(true);
+    expect(store.concurrencySettingsLevels().global).toBe(true);
   });
 
   it("carries the harness level through clearAll for its own layer", () => {

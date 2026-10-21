@@ -460,8 +460,8 @@ describe("Model Settings — clear all overrides", () => {
             store: (store) => {
               expect(store.agentConfigSnapshot().default).toBeNull();
               expect(store.agentConfigSnapshot().auditor).toBeUndefined();
-              expect(store.hasGlobalModelSettings).toBe(false);
-              expect(store.hasProjectModelSettings).toBe(false);
+              expect(store.modelSettingsLevels().global).toBe(false);
+              expect(store.modelSettingsLevels().project).toBe(false);
             },
           },
         },

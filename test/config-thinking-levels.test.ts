@@ -1,7 +1,7 @@
 /**
  * config-thinking-levels.test.ts — thinking levels end to end through the
  * config layer: per-entry validation, the per-entry layer merge, the store's
- * per-type and per-harness setters/clearers, and the chain that picks one.
+ * resolution over those layers, and the chain that picks one.
  *
  * The chain is the same ranked-candidate walk the model chain uses, over a
  * shorter list of layers. It returns the winning level as written: a token is
@@ -202,6 +202,16 @@ describe("resolveThinking — the chain", () => {
       }),
     ).toBe("low");
   });
+
+  it("reads a session null as no session entry, leaving the files to answer", () => {
+    expect(
+      resolveThinking({
+        ...base,
+        config: configWith({ thinking: { auditor: "low" } }),
+        sessionThinking: { auditor: null },
+      }),
+    ).toBe("low");
+  });
 });
 
 describe("harnessDefaultThinking", () => {
@@ -220,40 +230,17 @@ describe("harnessDefaultThinking", () => {
 });
 
 describe("ConfigStore — per-type thinking overrides", () => {
-  it("resolves the session token over the config one, layer by layer", () => {
+  it("resolves the project token over the global one, entry by entry", () => {
     const store = new ConfigStore(
-      memoryIO({ agent: { thinking: { auditor: "low" } } }).io,
+      memoryIO(
+        { agent: { thinking: { auditor: "low", reviewer: "max" } } },
+        { agent: { thinking: { auditor: "high" } } },
+      ).io,
     );
 
-    expect(store.thinkingFor("auditor", undefined, "pi")).toBe("low");
-
-    store.mutate.agent.setThinkingOverride("auditor", "high", "session");
     expect(store.thinkingFor("auditor", undefined, "pi")).toBe("high");
-    expect(store.hasSessionThinkingOverride("auditor")).toBe(true);
-
-    store.mutate.agent.clearThinkingOverride("auditor", "session");
-    expect(store.thinkingFor("auditor", undefined, "pi")).toBe("low");
-    expect(store.hasSessionThinkingOverride("auditor")).toBe(false);
-  });
-
-  it("writes and clears the project layer without touching global's entries", () => {
-    const store = new ConfigStore(memoryIO({ agent: {} }).io);
-
-    store.mutate.agent.setThinkingOverride("auditor", "max", "project");
-    expect(store.hasProjectThinkingOverride("auditor")).toBe(true);
-    expect(store.hasGlobalThinkingOverride("auditor")).toBe(false);
-
-    store.mutate.agent.clearThinkingOverride("auditor", "project");
-    expect(store.hasProjectThinkingOverride("auditor")).toBe(false);
-  });
-
-  it("reads a session null as no session entry, leaving the files to answer", () => {
-    const store = new ConfigStore(
-      memoryIO({ agent: { thinking: { auditor: "low" } } }).io,
-    );
-    store.mutate.agent.setThinkingOverride("auditor", null, "session");
-
-    expect(store.thinkingFor("auditor", undefined, "pi")).toBe("low");
+    expect(store.thinkingFor("reviewer", undefined, "pi")).toBe("max");
+    expect(store.thinkingFor("scribe", undefined, "pi")).toBeUndefined();
   });
 });
 
@@ -271,22 +258,6 @@ describe("ConfigStore — per-harness default thinking", () => {
     expect(store.defaultThinkingForHarness("pi")).toBe("low");
     expect(store.defaultThinkingForHarness("opencode")).toBe("max");
     expect(store.defaultThinkingForHarness("codex")).toBeNull();
-  });
-
-  it("lets a session entry win, and a session null unpin the session", () => {
-    const store = new ConfigStore(
-      memoryIO({
-        agent: { defaultThinkingByHarness: { opencode: "low" } },
-      }).io,
-    );
-
-    store.mutate.agent.setHarnessDefaultThinking("opencode", "high", "session");
-    expect(store.defaultThinkingForHarness("opencode")).toBe("high");
-    expect(store.hasSessionHarnessDefaultThinking("opencode")).toBe(true);
-
-    store.mutate.agent.setHarnessDefaultThinking("opencode", null, "session");
-    expect(store.defaultThinkingForHarness("opencode")).toBe("low");
-    expect(store.hasSessionHarnessDefaultThinking("opencode")).toBe(false);
   });
 
   it("feeds the chain's last step, which the template's own token beats", () => {

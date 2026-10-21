@@ -358,7 +358,7 @@ describe("model resolution — the harness default's position", () => {
     expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
       OPENCODE_DEFAULT,
     );
-    expect(store.hasSessionHarnessDefaultModel("opencode")).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").session).toBe(false);
   });
 
   it("reads a null entry as no default, falling through to the parent", () => {
@@ -429,7 +429,7 @@ describe("defaultModelByHarness — store setters", () => {
       opencode: "openai/gpt-4o",
     });
     expect(store.defaultModelForHarness("opencode")).toBe("openai/gpt-4o");
-    expect(store.hasGlobalHarnessDefaultModel("opencode")).toBe(true);
+    expect(store.harnessDefaultModelLevels("opencode").global).toBe(true);
   });
 
   it("writes entry-wise, so one harness never drops another's entry", () => {
@@ -464,8 +464,8 @@ describe("defaultModelByHarness — store setters", () => {
       opencode: "openai/gpt-4o",
     });
     expect(memory.savedGlobal).toEqual([]);
-    expect(store.hasProjectHarnessDefaultModel("opencode")).toBe(true);
-    expect(store.hasGlobalHarnessDefaultModel("opencode")).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").project).toBe(true);
+    expect(store.harnessDefaultModelLevels("opencode").global).toBe(false);
   });
 
   it("keeps a session write in memory and out of session overrides' type map", () => {
@@ -479,7 +479,7 @@ describe("defaultModelByHarness — store setters", () => {
     );
 
     expect(memory.savedGlobal).toEqual([]);
-    expect(store.hasSessionHarnessDefaultModel("opencode")).toBe(true);
+    expect(store.harnessDefaultModelLevels("opencode").session).toBe(true);
     expect(store.defaultModelForHarness("opencode")).toBe("openai/gpt-4o");
   });
 
@@ -496,7 +496,7 @@ describe("defaultModelByHarness — store setters", () => {
     );
     store.mutate.agent.clearHarnessDefaultModel("opencode", "session");
 
-    expect(store.hasSessionHarnessDefaultModel("opencode")).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").session).toBe(false);
     // The file layer is untouched, so the global entry shows through again.
     expect(store.defaultModelForHarness("opencode")).toBe("openai/gpt-4");
   });
@@ -512,7 +512,7 @@ describe("defaultModelByHarness — store setters", () => {
     expect(memory.savedGlobal.at(-1)?.agent).not.toHaveProperty(
       "defaultModelByHarness",
     );
-    expect(store.hasGlobalHarnessDefaultModel("opencode")).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").global).toBe(false);
     expect(store.defaultModelForHarness("opencode")).toBeNull();
   });
 
@@ -545,8 +545,8 @@ describe("defaultModelByHarness — store setters", () => {
 
     store.mutate.agent.clearAllModelOverrides("session");
 
-    expect(store.hasSessionHarnessDefaultModel("opencode")).toBe(false);
-    expect(store.hasSessionModelSettings).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").session).toBe(false);
+    expect(store.modelSettingsLevels().session).toBe(false);
   });
 
   it("clears the map with all model overrides, like any other model key", () => {
@@ -576,7 +576,7 @@ describe("defaultModelByHarness — store setters", () => {
 
     store.reload();
 
-    expect(store.hasSessionHarnessDefaultModel("opencode")).toBe(false);
+    expect(store.harnessDefaultModelLevels("opencode").session).toBe(false);
     expect(store.defaultModelForHarness("opencode")).toBeNull();
   });
 });

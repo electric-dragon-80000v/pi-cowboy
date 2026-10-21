@@ -17,6 +17,17 @@ export const DEFAULT_THINKING_BY_HARNESS_KEY = "defaultThinkingByHarness";
 /** The per-type thinking override map's key in config.agent. */
 export const THINKING_BY_TYPE_KEY = "thinking";
 
+/**
+ * Which layers carry a setting, the question a clear picker asks before it
+ * offers a row. Each layer answers for itself: the session from its in-memory
+ * value, a file layer from the key the file holds.
+ */
+export interface ConfigLayerPresence {
+  session: boolean;
+  project: boolean;
+  global: boolean;
+}
+
 export const CONFIG_AGENT_NON_MODEL_KEYS = [
   "default",
   "defaultAgentType",

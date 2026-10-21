@@ -179,11 +179,7 @@ function createModelOverridePlumbing(
         onSet,
       });
     },
-    levelsFor: (key) => ({
-      session: store.sessionModelOverride(key) != null,
-      global: store.hasGlobalModelKey(key),
-      project: store.hasProjectModelKey(key),
-    }),
+    levelsFor: (key) => store.modelOverrideLevels(key),
   };
 }
 
@@ -227,19 +223,14 @@ function buildHarnessDefaultRow(
   const { harnessId, modelOptions, ctx, store, theme, refresh } = options;
   const label = `${getHarnessRegistry().displayName(harnessId)} Default Model`;
   const notify: Notify = (message, type) => ctx.ui.notify(message, type);
-  const sessionValue = store.hasSessionHarnessDefaultModel(harnessId);
+  const harnessLevels = store.harnessDefaultModelLevels(harnessId);
   const effective = store.defaultModelForHarness(harnessId);
-  const harnessLevels = {
-    session: sessionValue,
-    global: store.hasGlobalHarnessDefaultModel(harnessId),
-    project: store.hasProjectHarnessDefaultModel(harnessId),
-  };
 
   return {
     id: `harness:${harnessId}`,
     label,
     currentValue: defaultRowValue(
-      sessionValue ? effective : null,
+      harnessLevels.session ? effective : null,
       effective,
       harnessLevels.project,
     ),
@@ -479,10 +470,10 @@ function buildModelSettingsList(
 
     items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
     // Each level is offered only when it has model settings.
+    const modelLevels = store.modelSettingsLevels();
     const availableLevels: AvailableLevels = {
-      session: store.hasSessionModelSettings,
-      global: store.hasGlobalModelSettings,
-      project: store.hasProjectModelSettings && projectOffered,
+      ...modelLevels,
+      project: modelLevels.project && projectOffered,
     };
     if (
       availableLevels.session ||
