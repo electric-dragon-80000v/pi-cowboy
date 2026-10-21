@@ -83,7 +83,13 @@ beforeEach(() => {
   setSession({
     cwd: "/repo",
     model: undefined,
-    modelRegistry: registryOver([reasoningModel("anthropic", "claude-3")]),
+    // Every listed fixture model reasons, so a picked model's level list is
+    // pi's own rather than the open list an unknown key gets.
+    modelRegistry: registryOver([
+      reasoningModel("anthropic", "claude-3"),
+      reasoningModel("openai", "gpt-4"),
+      reasoningModel("openai", "gpt-4o"),
+    ]),
     scopedModels: [],
   } as never);
   piSettings.thinking = undefined;
@@ -182,7 +188,6 @@ describe("Agents menu — the Model overrides row", () => {
     expect(session.text()).toContain("Override another type...");
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Pi Default Model",
-      "Pi Default Thinking",
       "Override another type...",
     ]);
   });
@@ -216,13 +221,18 @@ describe("Agents menu — the Model overrides row", () => {
           },
         },
         { open: "gpt-4 [openai]" },
+        // A model and its level are one setting: the level list follows.
+        { expect: { shows: ["Off", "Minimal", "Low", "Medium", "High"] } },
+        { open: "High" },
         {
           expect: {
             active: "Pi Default Model",
-            activeValue: "openai/gpt-4",
-            notified: ["default model set to openai/gpt-4 (global)"],
-            store: (store) =>
-              expect(store.agentConfigSnapshot().default).toBe("openai/gpt-4"),
+            activeValue: "openai/gpt-4 · high",
+            notified: ["Pi Default Model set to openai/gpt-4 · high (global)"],
+            store: (store) => {
+              expect(store.agentConfigSnapshot().default).toBe("openai/gpt-4");
+              expect(store.agent.defaultThinking).toBe("high");
+            },
           },
         },
         { escape: true },
@@ -230,7 +240,7 @@ describe("Agents menu — the Model overrides row", () => {
           expect: {
             // Leaving the screen repaints the topmost row from the store.
             active: "Model overrides",
-            activeValue: "openai/gpt-4",
+            activeValue: "openai/gpt-4 · high",
           },
         },
       ],
@@ -252,13 +262,18 @@ describe("Agents menu — the Model overrides row", () => {
         { expect: { shows: ["Not saved"], active: "Session" } },
         { enter: true },
         { open: "gpt-4o [openai]" },
+        { open: "Medium" },
         {
           expect: {
             active: "Pi Default Model",
-            activeValue: "gpt-4o [session]",
-            notified: ["default model set to openai/gpt-4o (session)"],
-            store: (store) =>
-              expect(store.sessionDefaultModel).toBe("openai/gpt-4o"),
+            activeValue: "openai/gpt-4o · medium [session]",
+            notified: [
+              "Pi Default Model set to openai/gpt-4o · medium (session)",
+            ],
+            store: (store) => {
+              expect(store.sessionDefaultModel).toBe("openai/gpt-4o");
+              expect(store.defaultThinkingForHarness("pi")).toBe("medium");
+            },
           },
         },
       ],
@@ -278,7 +293,7 @@ describe("Agents menu — the Model overrides row", () => {
 
     expect((await openMain()).activeRow()).toEqual({
       label: "Model overrides",
-      value: "anthropic/claude-3 [project]",
+      value: "anthropic/claude-3 [project] · inherit",
     });
   });
 
@@ -305,16 +320,16 @@ describe("Agents menu — the Model overrides row", () => {
     await session.settle();
 
     expect(session.notifications.map((n) => n.message)).toContain(
-      "default cleared (global) — the configured chain decides",
+      "Pi Default Model cleared (global)",
     );
     expect(memory.store.agentConfigSnapshot().default).toBeNull();
     expect(memory.lastLayer()).toBe("global");
 
-    // Inherit unwinds the chain: the library forwards only a DEFINED value,
-    // so the level picker completes itself and rebuilds the row behind it.
+    // (none) unwinds the pair: the library forwards only a DEFINED value, so
+    // the flow completes itself and rebuilds the row behind it.
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "(none)",
+      value: "(none) · inherit",
     });
 
     session.press(KEY.escape);
@@ -322,7 +337,7 @@ describe("Agents menu — the Model overrides row", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Model overrides",
-      value: "(none)",
+      value: "(none) · inherit",
     });
   });
 });

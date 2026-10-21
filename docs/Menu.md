@@ -26,35 +26,32 @@ Run `/cowboy enable` or flip `Enabled` back to `ON` to restore the tools and men
 
 ## `/cowboy` > `Model overrides`
 
-Opens the `Model Settings` screen. Each override can be saved at the `session`, `global`, or `project` level, and values from non-global layers display a `[session]` or `[project]` tag.
+Opens the `Model Settings` screen. A model and its thinking level are one setting: every row shows the pair as `model · level`, and picking a model asks for its level right after, so both halves are written at the same layer. Each override can be saved at the `session`, `global`, or `project` level. A value from a non-global layer carries a `[session]` or `[project]` tag beside the half it names — or once at the end when both halves came from that layer.
 
-| Row                                         | What it does                                                                                                                                                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Pi Default Model`                          | Default model for Pi-family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution).                                                                             |
-| `Pi Default Thinking`                       | Default thinking level for Pi-family launches, from pi's own level list. One setting serves the whole family. See [`agent.defaultThinking`](Configuration.md#agentdefaultthinking).                   |
-| `OpenCode Default Model`                    | Default model for agents launched under `opencode`.                                                                                                                                                   |
-| `OpenCode Default Thinking`                 | Default thinking level for `opencode` launches, from the levels that harness's models advertise. See [`agent.defaultThinkingByHarness`](Configuration.md#agentdefaultthinkingbyharness).              |
-| `Claude Default Model`                      | Default model for agents launched under `claude` (`anthropic/<alias>`). See [Model resolution](../README.md#model-resolution).                                                                        |
-| `Claude Default Thinking`                   | Default thinking level for `claude` launches, from the levels that harness's models advertise.                                                                                                        |
-| `Codex Default Model`                       | Default model for agents launched under `codex`.                                                                                                                                                      |
-| `Codex Default Thinking`                    | Default thinking level for `codex` launches, from the levels that harness's models advertise.                                                                                                         |
-| Per-type override rows                      | Grouped by resolved model ID. Each row shows the thinking level the spawn would use (with the layer that named it), then the layer its model key comes from. Selecting a type opens its action sheet. |
-| `Override another type...`                  | Adds a model or thinking override for an agent type that currently inherits both.                                                                                                                     |
-| `Clear all model and thinking overrides...` | Clears model and thinking overrides at the `session`, `global`, `project`, or `all` level. Shown only when at least one override is set.                                                              |
+| Row                                         | What it does                                                                                                                                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Pi Default Model`                          | Default model and thinking level for Pi-family launches (`pi`, `pig`, and `pi-bolt`). See [Model resolution](../README.md#model-resolution) and [`agent.defaultThinking`](Configuration.md#agentdefaultthinking). |
+| `OpenCode Default Model`                    | Default model and thinking level for agents launched under `opencode`. See [`agent.defaultThinkingByHarness`](Configuration.md#agentdefaultthinkingbyharness).                                                    |
+| `Claude Default Model`                      | Default model and thinking level for agents launched under `claude` (`anthropic/<alias>`). See [Model resolution](../README.md#model-resolution).                                                                 |
+| `Codex Default Model`                       | Default model and thinking level for agents launched under `codex`.                                                                                                                                               |
+| Per-type override rows                      | Grouped by resolved model ID. Each row shows the thinking level the spawn would use (with the layer that named it), then the layer its model key comes from. Selecting a type picks a new pair, as below.         |
+| `Override another type...`                  | Adds a model and thinking level override for an agent type that currently inherits both.                                                                                                                          |
+| `Clear all model and thinking overrides...` | Clears model and thinking overrides at the `session`, `global`, `project`, or `all` level. Shown only when at least one override is set.                                                                          |
 
-Default model and thinking rows for OpenCode, Claude, and Codex appear only when that harness's binary is installed on `PATH` in a supported version (`opencode` requires 2.x; older versions trigger a one-time notice at session start).
+Default rows for OpenCode, Claude, and Codex appear only when that harness's binary is installed on `PATH` in a supported version (`opencode` requires 2.x; older versions trigger a one-time notice at session start).
 
-### Per-type action sheet
+### Picking a pair
 
-Selecting a type row (or a type under `Override another type...`) opens a sheet with one row per dimension:
+Selecting a default row, a type row, or a type under `Override another type...` asks for the layer first, then the model, then the level that model offers:
 
-| Row              | What it does                                                                                                |
-| ---------------- | ----------------------------------------------------------------------------------------------------------- |
-| `Model`          | Picks the model from the type's resolved harness, at `session`, `global`, or `project`.                     |
-| `Thinking level` | Picks the reasoning effort from the levels the type's effective model advertises, or `Inherit` to clear it. |
-| `Clear...`       | Removes both the model and thinking overrides at one layer. Shown only when a layer carries either one.     |
+| Step                             | What it does                                                                                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Session` / `Global` / `Project` | The layer both halves are written to.                                                                                                                                     |
+| Model search                     | The row's harness catalogue; on pi's rows, also the models the config already names. `(none)` removes both halves at the layer.                                           |
+| Level list                       | The levels the picked model advertises, plus `Inherit` to leave no level at that layer. A model with no thinking control skips this step and drops the layer's old token. |
+| `Clear...`                       | Removes both halves at one layer. Shown only when a layer carries either one.                                                                                             |
 
-A type stays listed while it carries a model or a thinking override at any layer, so a thinking-only override is always reachable here. `Inherit` removes the token from the picked layer rather than writing a null that would mask the layers below.
+A type stays listed while it carries a model or a thinking override at any layer, so a hand-written thinking-only override is always reachable here.
 
 ## `/cowboy` > `Settings`
 

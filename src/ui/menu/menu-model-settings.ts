@@ -1,6 +1,8 @@
 /**
  * Model settings screen: pi's default row, one row per other harness's default,
- * per-type override rows, and clear entries.
+ * per-type override rows, and clear entries. A model and the thinking level it
+ * runs at are one setting: each row shows the pair, and picking a model asks for
+ * the level right after it and writes both at the same layer.
  *
  * buildModelSettingsScreen: the screen as a Component (a submenu returns a Component, so it runs inside the caller's screen).
  * buildModelOverridesRow: the topmost menu's "Model overrides" row hosting that screen in place.
@@ -15,8 +17,7 @@ import {
   type Component,
   type SettingItem,
 } from "@earendil-works/pi-tui";
-import type { ThinkingLevel } from "../../types.js";
-import type { ThinkingOffering } from "../../models/thinking-offering.js";
+import { ThinkingLevelSchema, type ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
 import {
@@ -25,6 +26,8 @@ import {
   type HarnessModelOptions,
 } from "../../agents/harness/harness-registry.js";
 import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
+import type { ConfigLayerPresence } from "../../config/types.js";
+import type { ConfigStore } from "../../config/config-store.js";
 import type { Theme } from "../types.js";
 import { agentBulletPrefix } from "../format.js";
 import {
@@ -48,18 +51,12 @@ import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { asSubmenuComponent } from "./screen-host.js";
 import {
   createClearAllSubmenu,
-  createClearPickerSubmenu,
-  createLevelPickerSubmenu,
   type AvailableLevels,
+  type SetTarget,
   type TargetChoice,
 } from "./submenus/target-select.js";
-import { createModelSelectSubmenu } from "./submenus/model-select.js";
-import { createThinkingSelectSubmenu } from "./submenus/thinking-select.js";
-import {
-  buildHarnessDefaultThinkingRow,
-  buildPiDefaultThinkingRow,
-  thinkingOfferingForType,
-} from "./model-thinking-rows.js";
+import { createModelThinkingSubmenu } from "./submenus/model-select.js";
+import { pairedRow, thinkingOfferingForModel } from "./model-pairing.js";
 import {
   SEPARATOR_ID,
   buildSettingsListTheme,
@@ -71,204 +68,73 @@ import {
   type SubmenuFactory,
 } from "./helpers.js";
 
-/** Global-default display value. Tags mark the winning non-global layer (session > project); untagged means global won. */
-function defaultRowValue(
-  sessionDefault: string | null,
-  effectiveDefault: string | null,
-  hasProjectDefault: boolean,
+/**
+ * The layer a resolved default carries: session wins over project, and a global
+ * value is untagged.
+ */
+function layerTag(session: boolean, project: boolean): string {
+  if (session) return " [session]";
+  return project ? " [project]" : "";
+}
+
+/** A level's tag; a level no layer names belongs to no layer. */
+function thinkingTagOf(
+  levels: ConfigLayerPresence,
+  thinking: string | null,
 ): string {
-  if (sessionDefault != null) return `${sessionDefault} [session]`;
-  if (effectiveDefault == null) return "(none)";
-  return hasProjectDefault ? `${effectiveDefault} [project]` : effectiveDefault;
-}
-
-/** Per-render plumbing shared by every row: the target+model submenu factory plus per-key layer availability. */
-interface ModelOverridePlumbing {
-  /**
-   * Target + model picker submenu for one config key. `harnessId` names the
-   * harness the row's spawn launches under, so the picker offers that harness's
-   * list and, on pi's own rows, pi's configured models.
-   */
-  modelSubmenuFor: (
-    typeName: string,
-    harnessId: AnyHarnessId,
-    effectiveModel: string | null,
-    showClear: boolean,
-    availableLevels?: AvailableLevels,
-  ) => SubmenuFactory;
-  /** Which layers carry a config key (drives the nested clear picker). */
-  levelsFor: (key: string) => AvailableLevels;
-}
-
-/** What a model-override row needs from the screen hosting it. */
-interface ModelOverrideRowOptions {
-  store: ReturnType<typeof getStore>;
-  theme: Theme;
-  /** Each harness's own list, read once when the menu tree opened. */
-  harnessModelOptions: HarnessModelOptions;
-  notify: Notify;
-  /**
-   * Repaint the hosting list. Needed for (none) picks, which complete with no value
-   * (SettingsList only rebuilds on a DEFINED value).
-   */
-  refresh: () => void;
-}
-
-function createModelOverridePlumbing(
-  options: ModelOverrideRowOptions,
-): ModelOverridePlumbing {
-  const { store, theme, harnessModelOptions, notify, refresh } = options;
-  const projectOffered = store.isProjectWritable;
-  const configuredModels = extractConfiguredModels(store.agentConfigSnapshot());
-
-  // A null pick clears the key at the picked layer (ADR-0008 delete semantics).
-  const modelOverrideOnSelect =
-    (
-      key: string,
-      label: string,
-    ): ((
-      target: "session" | "global" | "project",
-      model: string | null,
-    ) => void) =>
-    (target, model) => {
-      const cleared = model === null;
-      if (cleared) store.mutate.agent.clearModelOverride(key, target);
-      else store.mutate.agent.setModelOverride(key, model, target);
-      notify(
-        cleared
-          ? `${label} cleared (${target}) — the configured chain decides`
-          : `${label} model set to ${model} (${target})`,
-        "info",
-      );
-      if (cleared) refresh();
-    };
-
-  const clearOverrideOnSelect =
-    (key: string, label: string): ((target: TargetChoice) => void) =>
-    (target) => {
-      store.mutate.agent.clearModelOverride(key, target);
-      notify(`${label} override cleared (${target})`, "info");
-    };
-
-  return {
-    // availableLevels filters the nested clear picker (the default and per-type
-    // rows pass the levels where the key exists); set entries are never filtered.
-    modelSubmenuFor: (
-      typeName,
-      harnessId,
-      effectiveModel,
-      showClear,
-      availableLevels,
-    ) => {
-      const modelOptions = modelKeysOf(harnessModelOptions, harnessId);
-      const mergedModels = mergedModelsForHarness(harnessId, configuredModels);
-      const onSet = modelOverrideOnSelect(typeName, typeName);
-      if (showClear) {
-        return createModelSelectSubmenu({
-          modelOptions,
-          mergedModels,
-          showClear: true,
-          projectOffered,
-          theme,
-          currentModel: effectiveModel,
-          availableLevels,
-          onSet,
-          onClear: clearOverrideOnSelect(typeName, typeName),
-        });
-      }
-      return createModelSelectSubmenu({
-        modelOptions,
-        mergedModels,
-        showClear: false,
-        projectOffered,
-        theme,
-        currentModel: effectiveModel,
-        availableLevels,
-        onSet,
-      });
-    },
-    levelsFor: (key) => store.modelOverrideLevels(key),
-  };
+  if (thinking === null) return "";
+  return layerTag(levels.session, levels.project);
 }
 
 /**
- * The harnesses that get a default-model row: every runnable harness outside the
- * pi family, which already has one row — pi runs the family's binary, so pig and
- * pi-bolt share pi's catalog and pi's default.
+ * Write one harness's default level. A pi-family file layer holds the scalar
+ * `agent.defaultThinking`, whose type is pi's own level union, so a token
+ * outside that union cannot be stored there; the session slot takes any token
+ * the model advertised.
  */
-function harnessDefaultRowIds(
-  availability: Availability<AnyHarnessId>,
-): AnyHarnessId[] {
-  return getHarnessRegistry()
-    .runnable(availability)
-    .filter((id) => !isPiFamilyHarness(id));
+function writeHarnessDefaultThinking(
+  store: ConfigStore,
+  harnessId: AnyHarnessId,
+  token: string | null,
+  target: SetTarget,
+): void {
+  if (token === null) {
+    store.mutate.agent.clearHarnessDefaultThinking(harnessId, target);
+    return;
+  }
+  if (
+    target !== "session" &&
+    isPiFamilyHarness(harnessId) &&
+    !ThinkingLevelSchema.safeParse(token).success
+  ) {
+    return;
+  }
+  store.mutate.agent.setHarnessDefaultThinking(harnessId, token, target);
 }
 
-/** What one harness's default-model row needs from the screen hosting it. */
-interface HarnessDefaultRowOptions {
+/** Write one type's level at a layer; null leaves no entry there. */
+function writeTypeThinking(
+  store: ConfigStore,
+  type: string,
+  token: string | null,
+  target: SetTarget,
+): void {
+  if (token === null) store.mutate.agent.clearThinkingOverride(type, target);
+  else store.mutate.agent.setThinkingOverride(type, token, target);
+}
+
+/** What one row's pair picker is handed: the list it offers plus where writes land. */
+interface PairSubmenuOptions {
+  label: string;
   harnessId: AnyHarnessId;
-  /** Model keys that harness's `listModels` answered. */
   modelOptions: readonly string[];
-  ctx: ExtensionCommandContext;
-  store: ReturnType<typeof getStore>;
-  theme: Theme;
-  /**
-   * Repaint the hosting list. Needed for inherit picks, which complete with no
-   * value (SettingsList only rebuilds on a DEFINED value, and the picked value
-   * is what the row shows).
-   */
-  refresh: () => void;
-}
-
-/**
- * One harness's default model, below the pi row. The value and its layer tags
- * read exactly like the pi row's, so the two rows differ only in which harness
- * they configure and which list their picker offers.
- */
-function buildHarnessDefaultRow(
-  options: HarnessDefaultRowOptions,
-): SettingItem {
-  const { harnessId, modelOptions, ctx, store, theme, refresh } = options;
-  const label = `${getHarnessRegistry().displayName(harnessId)} Default Model`;
-  const notify: Notify = (message, type) => ctx.ui.notify(message, type);
-  const harnessLevels = store.harnessDefaultModelLevels(harnessId);
-  const effective = store.defaultModelForHarness(harnessId);
-
-  return {
-    id: `harness:${harnessId}`,
-    label,
-    currentValue: defaultRowValue(
-      harnessLevels.session ? effective : null,
-      effective,
-      harnessLevels.project,
-    ),
-    description: `Model used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
-    submenu: createModelSelectSubmenu({
-      modelOptions,
-      // A row exists only for a harness outside the pi family, so its own list
-      // is the whole offering and nothing is merged ahead of it.
-      mergedModels: [],
-      showClear: true,
-      projectOffered: store.isProjectWritable,
-      theme,
-      currentModel: effective,
-      availableLevels: harnessLevels,
-      onSet: (target, model) => {
-        store.mutate.agent.setHarnessDefaultModel(harnessId, model, target);
-        notify(
-          model === null
-            ? `${label} cleared (${target}) — the configured chain decides`
-            : `${label} set to ${model} (${target})`,
-          "info",
-        );
-        if (model === null) refresh();
-      },
-      onClear: (target) => {
-        store.mutate.agent.clearHarnessDefaultModel(harnessId, target);
-        notify(`${label} cleared (${target})`, "info");
-      },
-    }),
-  };
+  mergedModels: readonly string[];
+  model: string | null;
+  thinking: string | null;
+  modelLevels: ConfigLayerPresence;
+  thinkingLevels: ConfigLayerPresence;
+  write: (target: SetTarget, model: string, token: string | null) => void;
+  clear: (target: TargetChoice) => void;
 }
 
 /** What the "Model Settings" screen reads from the row hosting it. */
@@ -283,6 +149,19 @@ interface ModelSettingsScreenOptions {
   piDefaultThinking: ThinkingLevel | undefined;
   /** Close back to the hosting menu (the host row's submenu `done`). */
   close: () => void;
+}
+
+/**
+ * The harnesses that get a default row: every runnable harness outside the
+ * pi family, which already has one row — pi runs the family's binary, so pig and
+ * pi-bolt share pi's catalog and pi's default.
+ */
+function harnessDefaultRowIds(
+  availability: Availability<AnyHarnessId>,
+): AnyHarnessId[] {
+  return getHarnessRegistry()
+    .runnable(availability)
+    .filter((id) => !isPiFamilyHarness(id));
 }
 
 /**
@@ -311,83 +190,147 @@ function buildModelSettingsList(
   const buildItems = (theme: Theme): SettingItem[] => {
     const items: SettingItem[] = [];
     const projectOffered = store.isProjectWritable;
-    const { levelsFor, modelSubmenuFor } = createModelOverridePlumbing({
-      store,
-      theme,
-      harnessModelOptions,
-      notify: (message, type) => ctx.ui.notify(message, type),
-      // A (none) pick completes with no value, so refresh the row here.
-      refresh: () => rebuild?.(buildItems(theme)),
-    });
-
     const notify: Notify = (message, type) => ctx.ui.notify(message, type);
     const session = getSessionCtx();
     const parentModel = session.model ?? ctx.model;
     const parentModelId = parentModel
       ? `${parentModel.provider}/${parentModel.id}`
       : null;
-    /** The thinking control a type's model offers, in its harness's vocabulary. */
-    const offeringFor = (
-      harnessId: AnyHarnessId,
-      modelKey: string | null,
-    ): ThinkingOffering =>
-      thinkingOfferingForType({
-        harnessId,
-        modelKey,
-        entries: harnessModelOptions,
-        registry: session.modelRegistry,
-        // The model the chain would inherit, which ctx.model answers when the
-        // session names none.
-        parentModel,
-      });
-
     const agentConfigSnapshot = store.agentConfigSnapshot();
-    const sessionDefault = store.sessionDefaultModel;
-    const effectiveDefault = agentConfigSnapshot.default;
-    const globalDisplayValue = defaultRowValue(
-      sessionDefault,
-      effectiveDefault,
-      store.hasProjectModelKey("default"),
-    );
-    const defaultLevels = levelsFor("default");
+    const configuredModels = extractConfiguredModels(agentConfigSnapshot);
+
+    const refresh = (): void => {
+      rebuild?.(buildItems(theme));
+    };
+
+    /** The thinking control a model of `harnessId` offers, in its vocabulary. */
+    const offeringFor =
+      (harnessId: AnyHarnessId) => (modelKey: string | null) =>
+        thinkingOfferingForModel({
+          harnessId,
+          modelKey,
+          entries: harnessModelOptions,
+          registry: session.modelRegistry,
+          // The model the chain would inherit, which ctx.model answers when the
+          // session names none.
+          parentModel,
+        });
+
+    /**
+     * The layer picker → model → level flow for one row, plus the notice each
+     * write leaves. A clear removes both halves, so its picker offers every
+     * layer that carries either.
+     */
+    const pairSubmenu = (args: PairSubmenuOptions): SubmenuFactory => {
+      const clearLevels: AvailableLevels = {
+        session: args.modelLevels.session || args.thinkingLevels.session,
+        global: args.modelLevels.global || args.thinkingLevels.global,
+        project: args.modelLevels.project || args.thinkingLevels.project,
+      };
+      return createModelThinkingSubmenu({
+        modelOptions: args.modelOptions,
+        mergedModels: args.mergedModels,
+        projectOffered,
+        theme,
+        ctx,
+        currentModel: args.model,
+        currentThinking: args.thinking,
+        showClear:
+          clearLevels.session || clearLevels.global || clearLevels.project,
+        availableLevels: clearLevels,
+        offeringFor: offeringFor(args.harnessId),
+        onSet: (target, model, token) => {
+          args.write(target, model, token);
+          notify(
+            `${args.label} set to ${model} · ${token ?? "inherit"} (${target})`,
+            "info",
+          );
+        },
+        onClear: (target) => {
+          args.clear(target);
+          notify(`${args.label} cleared (${target})`, "info");
+          refresh();
+        },
+      });
+    };
+
+    const agentConfigSnapshotModel = agentConfigSnapshot.default;
+    const defaultLevels = store.modelOverrideLevels("default");
+    const piThinkingLevels = store.harnessDefaultThinkingLevels("pi");
+    const piThinking = store.defaultThinkingForHarness("pi");
+    const piModel = store.sessionDefaultModel ?? agentConfigSnapshotModel;
 
     items.push({
       id: "defaultModel",
       label: "Pi Default Model",
-      currentValue: globalDisplayValue,
+      currentValue: pairedRow({
+        model: piModel,
+        modelTag: layerTag(
+          defaultLevels.session,
+          store.hasProjectModelKey("default"),
+        ),
+        thinking: piThinking,
+        thinkingTag: thinkingTagOf(piThinkingLevels, piThinking),
+      }),
       description:
-        "Model used when no session default, per-type override, or agent-template model applies.",
-      submenu: modelSubmenuFor(
-        "default",
-        "pi",
-        effectiveDefault,
-        defaultLevels.session || defaultLevels.global || defaultLevels.project,
-        defaultLevels,
-      ),
+        "Model and thinking level used when no session default, per-type override, or agent-template model applies.",
+      submenu: pairSubmenu({
+        label: "Pi Default Model",
+        harnessId: "pi",
+        modelOptions: modelKeysOf(harnessModelOptions, "pi"),
+        // pi's rows also offer the models the config already names, so a key a
+        // session wrote stays pickable when the catalogue no longer lists it.
+        mergedModels: mergedModelsForHarness("pi", configuredModels),
+        model: piModel,
+        thinking: piThinking,
+        modelLevels: defaultLevels,
+        thinkingLevels: piThinkingLevels,
+        write: (target, model, token) => {
+          store.mutate.agent.setModelOverride("default", model, target);
+          writeHarnessDefaultThinking(store, "pi", token, target);
+        },
+        clear: (target) => {
+          store.mutate.agent.clearModelOverride("default", target);
+          store.mutate.agent.clearHarnessDefaultThinking("pi", target);
+        },
+      }),
     });
 
-    items.push(buildPiDefaultThinkingRow({ ctx, store, theme }));
-
     for (const harnessId of harnessIds) {
-      items.push(
-        buildHarnessDefaultRow({
+      const label = `${getHarnessRegistry().displayName(harnessId)} Default Model`;
+      const modelLevels = store.harnessDefaultModelLevels(harnessId);
+      const thinkingLevels = store.harnessDefaultThinkingLevels(harnessId);
+      const thinking = store.defaultThinkingForHarness(harnessId);
+      items.push({
+        id: `harness:${harnessId}`,
+        label,
+        currentValue: pairedRow({
+          model: store.defaultModelForHarness(harnessId),
+          modelTag: layerTag(modelLevels.session, modelLevels.project),
+          thinking,
+          thinkingTag: thinkingTagOf(thinkingLevels, thinking),
+        }),
+        description: `Model and thinking level used when an agent launches under ${harnessId} and no session default, per-type override, or agent-template model applies.`,
+        submenu: pairSubmenu({
+          label,
           harnessId,
           modelOptions: modelKeysOf(harnessModelOptions, harnessId),
-          ctx,
-          store,
-          theme,
-          refresh: () => rebuild?.(buildItems(theme)),
+          // A row outside the pi family offers its own list alone.
+          mergedModels: [],
+          model: store.defaultModelForHarness(harnessId),
+          thinking,
+          modelLevels,
+          thinkingLevels,
+          write: (target, model, token) => {
+            store.mutate.agent.setHarnessDefaultModel(harnessId, model, target);
+            writeHarnessDefaultThinking(store, harnessId, token, target);
+          },
+          clear: (target) => {
+            store.mutate.agent.clearHarnessDefaultModel(harnessId, target);
+            store.mutate.agent.clearHarnessDefaultThinking(harnessId, target);
+          },
         }),
-      );
-      items.push(
-        buildHarnessDefaultThinkingRow({
-          harnessId,
-          entries: harnessModelOptions.get(harnessId) ?? [],
-          ctx,
-          store,
-          theme,
-        }),
-      );
+      });
     }
 
     // One group per resolved model with a listed row, alphabetical by model id.
@@ -430,111 +373,31 @@ function buildModelSettingsList(
       parentModelId,
     });
 
-    /**
-     * The per-type action sheet: either dimension, or both at one layer. A pick
-     * that writes unwinds the sheet, so setting both takes two visits.
-     */
-    const typeSheetFor = (
+    /** The pair picker for one agent type: both halves at the picked layer. */
+    const typeSubmenu = (
       type: string,
       harnessId: AnyHarnessId,
-      effectiveModel: string | null,
-      effectiveThinking: string | null,
-    ): SubmenuFactory => {
-      const modelLevels = store.modelOverrideLevels(type);
-      const thinkingLevels = store.thinkingOverrideLevels(type);
-      const offering = offeringFor(harnessId, effectiveModel);
-      const sheet: SettingItem[] = [
-        {
-          id: "model",
-          label: "Model",
-          currentValue: effectiveModel ?? "(none)",
-          description: `Model for the ${type} agent type.`,
+      model: string | null,
+      thinking: string | null,
+    ): SubmenuFactory =>
+      pairSubmenu({
+        label: type,
+        harnessId,
+        modelOptions: modelKeysOf(harnessModelOptions, harnessId),
+        mergedModels: mergedModelsForHarness(harnessId, configuredModels),
+        model,
+        thinking,
+        modelLevels: store.modelOverrideLevels(type),
+        thinkingLevels: store.thinkingOverrideLevels(type),
+        write: (target, picked, token) => {
+          store.mutate.agent.setModelOverride(type, picked, target);
+          writeTypeThinking(store, type, token, target);
         },
-        {
-          id: "thinking",
-          label: "Thinking level",
-          currentValue: effectiveThinking ?? "inherit",
-          description:
-            offering.kind === "none"
-              ? `${type} runs a model with no thinking control.`
-              : `Reasoning effort for ${type}, from its harness's own list.`,
-        },
-      ];
-      // "Clear the override" means both halves, so a layer carrying either is
-      // a target the picker must offer.
-      const clearLevels: AvailableLevels = {
-        session: modelLevels.session || thinkingLevels.session,
-        global: modelLevels.global || thinkingLevels.global,
-        project: modelLevels.project || thinkingLevels.project,
-      };
-      if (clearLevels.session || clearLevels.global || clearLevels.project) {
-        sheet.push({
-          id: "clear",
-          label: "Clear...",
-          currentValue: "",
-          description: `Remove ${type}'s model and thinking overrides at one layer.`,
-        });
-      }
-
-      return createLevelPickerSubmenu({
-        theme,
-        items: sheet,
-        onPick: (id, subDone) => {
-          if (id === "model") {
-            const anyModelLevel =
-              modelLevels.session || modelLevels.global || modelLevels.project;
-            return modelSubmenuFor(
-              type,
-              harnessId,
-              effectiveModel,
-              anyModelLevel,
-              modelLevels,
-            )(effectiveModel ?? "", subDone);
-          }
-          if (id === "thinking") {
-            return createThinkingSelectSubmenu({
-              theme,
-              ctx,
-              offering,
-              current: effectiveThinking,
-              projectOffered,
-              showClear:
-                thinkingLevels.session ||
-                thinkingLevels.global ||
-                thinkingLevels.project,
-              availableLevels: thinkingLevels,
-              onSet: (target, token) => {
-                if (token === null) {
-                  store.mutate.agent.clearThinkingOverride(type, target);
-                } else {
-                  store.mutate.agent.setThinkingOverride(type, token, target);
-                }
-                notify(
-                  token === null
-                    ? `${type} thinking level cleared (${target})`
-                    : `${type} thinking level set to ${token} (${target})`,
-                  "info",
-                );
-              },
-              onClear: (target) => {
-                store.mutate.agent.clearThinkingOverride(type, target);
-                notify(`${type} thinking level cleared (${target})`, "info");
-              },
-            })("", subDone);
-          }
-          return createClearPickerSubmenu({
-            theme,
-            projectOffered,
-            availableLevels: clearLevels,
-            onClear: (target) => {
-              store.mutate.agent.clearModelOverride(type, target);
-              store.mutate.agent.clearThinkingOverride(type, target);
-              notify(`${type} overrides cleared (${target})`, "info");
-            },
-          })("", subDone);
+        clear: (target) => {
+          store.mutate.agent.clearModelOverride(type, target);
+          store.mutate.agent.clearThinkingOverride(type, target);
         },
       });
-    };
 
     for (const group of groups) {
       items.push({ id: SEPARATOR_ID, label: " ", currentValue: "" });
@@ -547,15 +410,24 @@ function buildModelSettingsList(
         ),
       );
       for (const row of group.rows) {
+        const harnessId = resolveHarnessType(row.type);
         const thinkingDisplay = `${row.thinking ?? "inherit"}${row.thinkingTag}`;
+        // The level's tag already names the model's layer when both halves were
+        // written there, so the model tag is left off that row. The two tags
+        // carry different leading-space conventions, hence the trim.
+        const modelTag =
+          row.thinking !== null && row.thinkingTag.trim() === row.tag.trim()
+            ? ""
+            : row.tag;
         items.push({
           id: `type:${row.type}`,
           label: `${agentBulletPrefix(theme)}${row.type}`,
-          currentValue: `${thinkingDisplay.padEnd(thinkingWidth)} ${row.tag}`,
-          description: `Model and thinking level for the ${row.type} agent type. Select to set or clear either.`,
-          submenu: typeSheetFor(
+          currentValue:
+            `${thinkingDisplay.padEnd(thinkingWidth)} ${modelTag}`.trimEnd(),
+          description: `Model and thinking level for the ${row.type} agent type.`,
+          submenu: typeSubmenu(
             row.type,
-            resolveHarnessType(row.type),
+            harnessId,
             group.modelId,
             row.thinking,
           ),
@@ -583,7 +455,7 @@ function buildModelSettingsList(
         label: "Override another type...",
         currentValue: "",
         description:
-          "Add a model or thinking override for an agent type that currently inherits.",
+          "Add a model and thinking level override for an agent type that currently inherits.",
         submenu: (_currentValue, subDone) =>
           createSearchableSelect(
             nonOverridden.map((typeName) => ({
@@ -601,9 +473,9 @@ function buildModelSettingsList(
                   config,
                   harnessId,
                 );
-                // Nothing is written yet, so the sheet offers only sets: its
-                // Clear row appears once a layer carries one of the two keys.
-                return typeSheetFor(
+                // The type inherits both halves, so its picker opens on the
+                // values the launch would send and writes only what is picked.
+                return typeSubmenu(
                   typeName,
                   harnessId,
                   effectiveModel,
@@ -689,17 +561,21 @@ interface ModelOverridesRowOptions {
   piDefaultThinking: ThinkingLevel | undefined;
 }
 
-/** The topmost menu's "Model overrides" row, owning the whole model screen; its value summarizes the global default. */
+/** The topmost menu's "Model overrides" row, owning the whole model screen; its value summarizes pi's default pair. */
 export function buildModelOverridesRow(
   options: ModelOverridesRowOptions,
 ): SettingItem {
   const { ctx, store, theme, harnessModelOptions, piDefaultThinking } = options;
-  const defaultDisplay = () => {
-    return defaultRowValue(
-      store.sessionDefaultModel,
-      store.agentConfigSnapshot().default,
-      store.hasProjectModelKey("default"),
-    );
+  const defaultDisplay = (): string => {
+    const levels = store.modelOverrideLevels("default");
+    const thinkingLevels = store.harnessDefaultThinkingLevels("pi");
+    const thinking = store.defaultThinkingForHarness("pi");
+    return pairedRow({
+      model: store.sessionDefaultModel ?? store.agentConfigSnapshot().default,
+      modelTag: layerTag(levels.session, store.hasProjectModelKey("default")),
+      thinking,
+      thinkingTag: thinkingTagOf(thinkingLevels, thinking),
+    });
   };
 
   return {
@@ -707,7 +583,7 @@ export function buildModelOverridesRow(
     label: "Model overrides",
     currentValue: defaultDisplay(),
     description:
-      "Pi's default model plus per-harness and per-type model overrides; opens the model settings screen.",
+      "Pi's default model and thinking level, plus per-harness and per-type overrides; opens the model settings screen.",
     submenu: (_currentValue, done) =>
       buildModelSettingsScreen({
         ctx,

@@ -1,14 +1,18 @@
 /**
- * thinking-select.ts — the layered thinking picker: a target first, then the
- * token to write there, and the nested "Clear…" flow (ADR-0008).
+ * thinking-select.ts — the level list for one model, in that model's own
+ * vocabulary.
  *
- * The value list is the model's own offering, so a closed vocabulary offers its
- * levels and an advisory one adds a free-form token; Inherit is always offered
- * because a layer may already hold a token to remove. Every pick completes with
- * a defined value — the token itself, or "inherit" for a clear — so the host
- * list repaints without a separate refresh callback.
+ * The list is the model's offering, so a closed vocabulary offers its levels
+ * and an advisory one adds a free-form token; Inherit is always offered because
+ * a layer may already hold a token to remove. Every pick completes with a
+ * defined value — the token itself, or "inherit" for a clear — so the host list
+ * repaints without a separate refresh callback.
  *
- * Exports: createThinkingSelectSubmenu.
+ * The caller has already picked the layer: the Model Settings screen asks for
+ * the level right after the model, at the layer the model is about to be
+ * written to.
+ *
+ * Exports: createThinkingValuePicker.
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -16,35 +20,21 @@ import type { Component, SettingItem } from "@earendil-works/pi-tui";
 import type { ThinkingOffering } from "../../../models/thinking-offering.js";
 import type { Theme } from "../../types.js";
 import { createInputSubmenu } from "./numeric-input.js";
-import {
-  buildLevelItems,
-  createClearPickerSubmenu,
-  createLevelPickerSubmenu,
-  type AvailableLevels,
-  type SetTarget,
-  type TargetChoice,
-} from "./target-select.js";
+import { createLevelPickerSubmenu } from "./target-select.js";
 
 /** The custom-token row's id; no level can take it, so it cannot collide. */
 const CUSTOM_TOKEN_ID = "__custom__";
 
-export interface ThinkingSelectOptions {
+export interface ThinkingValuePickerOptions {
   theme: Theme;
   /** The custom-token input's notification sink. */
   ctx: ExtensionCommandContext;
-  /** The levels this setting may be written from, in the model's vocabulary. */
+  /** The levels the model that will run the token offers. */
   offering: ThinkingOffering;
   /** The value in force, for the "(current)" marker; null = no level named. */
   current: string | null;
-  /** Show the project target (trusted project with a writable config file). */
-  projectOffered: boolean;
-  /** Offer the nested "Clear…" flow; false when no layer carries the setting. */
-  showClear: boolean;
-  /** Filters the nested clear picker to the layers that carry the setting. */
-  availableLevels: AvailableLevels;
-  /** Write the token at the picked layer; null clears it there. */
-  onSet: (target: SetTarget, token: string | null) => void;
-  onClear: (target: TargetChoice) => void;
+  /** Write the picked token; null is Inherit, a clear at the caller's layer. */
+  onPick: (token: string | null) => void;
 }
 
 /** The rows a value picker offers: the model's levels, a free token, then Inherit. */
@@ -83,62 +73,33 @@ function valueItems(
   return items;
 }
 
-export function createThinkingSelectSubmenu(
-  options: ThinkingSelectOptions,
-): (currentValue: string, done: (value?: string) => void) => Component {
-  const {
-    theme,
-    ctx,
-    offering,
-    current,
-    projectOffered,
-    showClear,
-    availableLevels,
-  } = options;
-
-  /**
-   * The value list for one target. A row completes with its own id: a level id
-   * is the token, and "inherit" is the defined value that repaints the host
-   * list after the clear it performs.
-   */
-  const valuePicker = (
-    target: SetTarget,
-    subDone: (value?: string) => void,
-  ): Component =>
-    createLevelPickerSubmenu({
-      theme,
-      items: valueItems(offering, current),
-      onPick: (id, pickDone) => {
-        if (id === CUSTOM_TOKEN_ID) {
-          return createInputSubmenu(ctx)(current ?? "", (token) => {
+/**
+ * The level list alone: no target step, because the caller already picked the
+ * layer. A row completes with its own id — a level id is the token, and
+ * "inherit" is the defined value that repaints the host list after the clear it
+ * performs.
+ */
+export function createThinkingValuePicker(
+  options: ThinkingValuePickerOptions,
+): (currentValue: string, done: (selectedValue?: string) => void) => Component {
+  return createLevelPickerSubmenu({
+    theme: options.theme,
+    items: valueItems(options.offering, options.current),
+    onPick: (id, pickDone) => {
+      if (id === CUSTOM_TOKEN_ID) {
+        return createInputSubmenu(options.ctx)(
+          options.current ?? "",
+          (token) => {
             if (token === undefined) {
               pickDone();
               return;
             }
-            options.onSet(target, token);
+            options.onPick(token);
             pickDone(token);
-          });
-        }
-        options.onSet(target, id === "inherit" ? null : id);
-      },
-    })("", subDone);
-
-  return createLevelPickerSubmenu({
-    theme,
-    items: buildLevelItems({
-      offered: { session: true, global: true, project: projectOffered },
-      includeClear: showClear,
-    }),
-    onPick: (id, subDone) => {
-      if (id === "clear") {
-        return createClearPickerSubmenu({
-          theme,
-          projectOffered,
-          availableLevels,
-          onClear: (target) => options.onClear(target),
-        })("", subDone);
+          },
+        );
       }
-      return valuePicker(id as SetTarget, subDone);
+      options.onPick(id === "inherit" ? null : id);
     },
   });
 }
