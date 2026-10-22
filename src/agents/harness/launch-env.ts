@@ -11,6 +11,7 @@
 
 import { writeResultFile } from "../result-file-permissions.js";
 import { singleQuoteShellWord } from "./pane-launcher.js";
+import type { EnvOverrides } from "./env-overrides.js";
 
 /**
  * Stage one launch's variables as shell assignments in `file`, or return `null`
@@ -23,9 +24,9 @@ import { singleQuoteShellWord } from "./pane-launcher.js";
  */
 export function stageLaunchEnv(
   file: string,
-  env: Readonly<Record<string, string>>,
+  env: EnvOverrides | undefined,
 ): string | null {
-  const entries = Object.entries(env);
+  const entries = Object.entries(env ?? {});
   if (entries.length === 0) return null;
   writeResultFile(
     file,

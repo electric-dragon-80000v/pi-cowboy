@@ -30,9 +30,6 @@ import {
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
 import {
-  hasControlCharacter,
-  isEnvVarName,
-  isUniversalReservedEnvVar,
   reservedEnvVarsOf,
   RESERVED_ENV_VARS_BY_FAMILY,
   type AnyHarnessId,
@@ -48,6 +45,11 @@ import {
 } from "./harness.js";
 import { harnessFamilyOf } from "./harness/harness-registry.js";
 import { stageLaunchEnv } from "./harness/launch-env.js";
+import {
+  mergeEnv,
+  trustedEnv,
+  type EnvOverrides,
+} from "./harness/env-overrides.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -295,47 +297,32 @@ function buildHarnessArgs(
 }
 
 /**
- * Resolves the environment variables for a launch: starts with the global
- * harness configuration, overlays the agent's family table, and drops reserved
- * names and values containing control characters with a warning. A
- * machine-configured variable can be overridden; a launcher-reserved name cannot.
+ * The variables one launch carries: the machine's table for this harness, the
+ * agent's own family table over it, and then the names the resolved family or a
+ * plugin harness reserves dropped with a warning. Both inputs are already
+ * carriable (see env-overrides.ts), so the only question left here is one this
+ * layer alone can answer: which names the launch actually resolved to own.
  */
 function resolveLaunchEnv(
-  configured: Readonly<Record<string, string>>,
-  overrides: Record<string, string> | undefined,
+  configured: EnvOverrides | undefined,
+  overrides: EnvOverrides | undefined,
   reserved: readonly string[],
   warn: (message: string) => void,
   harness: AnyHarnessId,
-): Record<string, string> {
+): EnvOverrides | undefined {
+  const merged = mergeEnv(configured, overrides);
+  if (merged === undefined) return undefined;
   const kept: Record<string, string> = {};
-  for (const [name, value] of Object.entries({ ...configured, ...overrides })) {
-    if (!isEnvVarName(name)) {
-      warn(
-        `Ignoring environment variable "${name}" for ${harness}: not a valid variable name`,
-      );
+  for (const [name, value] of Object.entries(merged)) {
+    if (!reserved.includes(name)) {
+      kept[name] = value;
       continue;
     }
-    if (isUniversalReservedEnvVar(name)) {
-      warn(
-        `Ignoring environment variable ${name} for ${harness}: it is reserved and cannot be overridden`,
-      );
-      continue;
-    }
-    if (reserved.includes(name)) {
-      warn(
-        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
-      );
-      continue;
-    }
-    if (hasControlCharacter(value)) {
-      warn(
-        `Ignoring environment variable ${name} for ${harness}: its value contains a control character`,
-      );
-      continue;
-    }
-    kept[name] = value;
+    warn(
+      `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
+    );
   }
-  return kept;
+  return trustedEnv(kept);
 }
 
 /**

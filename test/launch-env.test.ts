@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchEnvBody } from "../src/agents/harness/pane-launcher.js";
 import { stageLaunchEnv } from "../src/agents/harness/launch-env.js";
+import { trustedEnv } from "../src/agents/harness/env-overrides.js";
 
 /** A shell that runs one script and answers with its stdout and stderr. */
 function runShell(script: string): {
@@ -59,14 +60,16 @@ describe("stageLaunchEnv", () => {
   it("stages nothing for a launch that carries no variables", () => {
     const file = inRoot("env.sh");
 
-    expect(stageLaunchEnv(file, {})).toBeNull();
+    expect(stageLaunchEnv(file, undefined)).toBeNull();
     expect(existsSync(file)).toBe(false);
   });
 
   it("writes one exported assignment per variable, owner-only", () => {
     const file = inRoot("env.sh");
 
-    expect(stageLaunchEnv(file, { REVIEW_MODE: "fast" })).toBe(file);
+    expect(stageLaunchEnv(file, trustedEnv({ REVIEW_MODE: "fast" }))).toBe(
+      file,
+    );
     expect(readFileSync(file, "utf-8")).toBe("export REVIEW_MODE='fast'\n");
     expect(statSync(file).mode & 0o777).toBe(0o600);
   });
@@ -74,7 +77,7 @@ describe("stageLaunchEnv", () => {
   it("quotes a value so the shell reads it as bytes", () => {
     const file = inRoot("env.sh");
 
-    stageLaunchEnv(file, { SPACED: "a b'c $(touch nope) `id`" });
+    stageLaunchEnv(file, trustedEnv({ SPACED: "a b'c $(touch nope) `id`" }));
 
     const sourced = runShell(`. '${file}' && printf '%s' "$SPACED"`);
     expect(sourced.out).toBe("a b'c $(touch nope) `id`");
@@ -90,7 +93,7 @@ describe("launchEnvBody", () => {
 
   it("runs the body with the staged variables and leaves the pane's shell as it was", () => {
     const file = inRoot("env.sh");
-    stageLaunchEnv(file, { LAUNCH_ENV_PROBE: "reached" });
+    stageLaunchEnv(file, trustedEnv({ LAUNCH_ENV_PROBE: "reached" }));
 
     const result = runShell(
       `${launchEnvBody(file, 'printf "%s" "$LAUNCH_ENV_PROBE"')}; printf "|"; printenv LAUNCH_ENV_PROBE || printf "absent"`,

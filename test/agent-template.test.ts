@@ -661,4 +661,12 @@ describe("AgentTemplateSchema — env overrides", () => {
       ),
     ).toBe("harness.pi.env.MESSAGE: contains a control character");
   });
+
+  it("rejects a value that is not a string", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi.env]\nCOUNT = 2'),
+      ),
+    ).toBe("harness.pi.env.COUNT: must be a string");
+  });
 });

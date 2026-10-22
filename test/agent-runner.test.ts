@@ -18,6 +18,7 @@ import type {
   PluginHarness,
 } from "../src/agents/harness.js";
 import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
+import { trustedEnv } from "../src/agents/harness/env-overrides.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import type { ModelChoice } from "../src/types.js";
 import {
@@ -1169,7 +1170,9 @@ describe("buildLaunchPlan — env overrides", () => {
     const { cwd, notify } = setup(
       makeAgent({
         harnessType: "codex",
-        envByFamily: { codex: { SHARED: "template", TEMPLATE_ONLY: "yes" } },
+        envByFamily: {
+          codex: trustedEnv({ SHARED: "template", TEMPLATE_ONLY: "yes" }),
+        },
       }),
     );
     storeRef.current = new ConfigStore(

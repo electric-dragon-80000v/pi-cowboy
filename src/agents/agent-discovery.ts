@@ -16,6 +16,7 @@ import {
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
 import type { HarnessFamily } from "./harness.js";
+import { mergeEnv } from "./harness/env-overrides.js";
 import type {
   AgentConfig,
   EnvByFamily,
@@ -176,7 +177,7 @@ function mergeEnvByFamily(
   const merged: EnvByFamily = { ...existing };
   for (const [family, env] of Object.entries(incoming ?? {})) {
     const key = family as HarnessFamily;
-    merged[key] = { ...merged[key], ...env };
+    merged[key] = mergeEnv(merged[key], env);
   }
   return Object.keys(merged).length > 0 ? merged : undefined;
 }

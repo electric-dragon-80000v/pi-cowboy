@@ -7,13 +7,12 @@
  * reader below this boundary handles `unknown`.
  */
 import { z } from "zod";
+import { HARNESS_IDS, type AnyHarnessId } from "../agents/harness.js";
 import {
-  HARNESS_IDS,
-  hasControlCharacter,
-  isEnvVarName,
-  isUniversalReservedEnvVar,
-  type AnyHarnessId,
-} from "../agents/harness.js";
+  sanitizeEnv,
+  type EnvOverrides,
+  type EnvProblem,
+} from "../agents/harness/env-overrides.js";
 import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
@@ -258,54 +257,40 @@ function cleanHarnessSlice(
   return env === undefined ? rest : { ...rest, env };
 }
 
+/** What a warning names as expected, per reason an entry was refused. */
+const ENV_PROBLEM_EXPECTED: Record<EnvProblem, string> = {
+  name: "a valid environment variable name",
+  reserved: "a variable that is not reserved",
+  "not-string": "string",
+  control: "a value without control characters",
+};
+
 /** A harness's env overrides: a map from a variable name to the value a launch carries. */
 function cleanHarnessEnv(
   value: unknown,
   id: string,
   filePath: string,
-): Record<string, string> | undefined {
+): EnvOverrides | undefined {
   if (!isRecord(value)) {
     warnIncompatible(filePath, `harness.${id}.env`, value, EXPECTED_OBJECT);
     return undefined;
   }
-  const kept: Record<string, string> = {};
-  for (const [name, candidate] of Object.entries(value)) {
-    if (candidate === undefined) continue;
-    const keyPath = `harness.${id}.env.${name}`;
-    if (!isEnvVarName(name)) {
+  const env = sanitizeEnv(value, {
+    // The family is not resolved at this layer, so only the universal names
+    // apply here; the launch refuses a family's own names once it knows them.
+    reserved: [],
+    report: (name, problem, candidate) => {
+      // A refused name is reported as the name; a refused value as the value.
+      const aboutName = problem === "name" || problem === "reserved";
       warnIncompatible(
         filePath,
-        keyPath,
-        name,
-        "a valid environment variable name",
+        `harness.${id}.env.${name}`,
+        aboutName ? name : candidate,
+        ENV_PROBLEM_EXPECTED[problem],
       );
-      continue;
-    }
-    if (isUniversalReservedEnvVar(name)) {
-      warnIncompatible(
-        filePath,
-        keyPath,
-        name,
-        "a variable that is not reserved",
-      );
-      continue;
-    }
-    if (typeof candidate !== "string") {
-      warnIncompatible(filePath, keyPath, candidate, "string");
-      continue;
-    }
-    if (hasControlCharacter(candidate)) {
-      warnIncompatible(
-        filePath,
-        keyPath,
-        candidate,
-        "a value without control characters",
-      );
-      continue;
-    }
-    kept[name] = candidate;
-  }
-  return Object.keys(kept).length > 0 ? kept : undefined;
+    },
+  });
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 /** An agent key outside the table is a per-type model key. */

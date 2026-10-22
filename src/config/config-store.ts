@@ -27,6 +27,7 @@ import {
   type HarnessConfigIssue,
 } from "../agents/harness.js";
 import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
+import type { EnvOverrides } from "../agents/harness/env-overrides.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import type {
@@ -296,14 +297,11 @@ export class ConfigStore {
    * read. A section that specifies none, or a harness with no section at all,
    * reads as empty.
    */
-  harnessEnv(harnessId: AnyHarnessId): Readonly<Record<string, string>> {
+  harnessEnv(harnessId: AnyHarnessId): EnvOverrides | undefined {
     const env = this.layers.global.harness?.[harnessId]?.env;
-    if (!isRecord(env)) return {};
-    const kept: Record<string, string> = {};
-    for (const [name, value] of Object.entries(env)) {
-      if (typeof value === "string") kept[name] = value;
-    }
-    return kept;
+    // The config layer sanitized this table (see cleanHarnessEnv); the guard
+    // covers a layer built by hand rather than loaded.
+    return isRecord(env) ? (env as EnvOverrides) : undefined;
   }
 
   /** Warns in the config layer's wording for a harness value its codec rejected. */

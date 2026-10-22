@@ -1,6 +1,7 @@
 import type { SpawnThinkingLevel } from "../types.js";
 import type { WorktreeCheckoutType } from "../spawn/worktree-policy.js";
 import type { AnyHarnessId, HarnessFamily } from "./harness.js";
+import type { EnvOverrides } from "./harness/env-overrides.js";
 
 /**
  * A template's model keys, each under the harness family whose catalogue
@@ -23,9 +24,7 @@ export type ThinkingByFamily = Partial<Record<HarnessFamily, string>>;
  * it. A variable written for one family is invisible to every other, so a
  * variable only one binary understands can never reach another.
  */
-export type EnvByFamily = Partial<
-  Record<HarnessFamily, Record<string, string>>
->;
+export type EnvByFamily = Partial<Record<HarnessFamily, EnvOverrides>>;
 
 export type SubagentType = string;
 

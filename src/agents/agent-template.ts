@@ -10,13 +10,13 @@ import { z } from "zod";
 import { ThinkingLevelSchema } from "../types.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
 import { compactDefined } from "../templates/template-files.js";
+import { RESERVED_ENV_VARS_BY_FAMILY, type HarnessFamily } from "./harness.js";
 import {
-  hasControlCharacter,
-  isEnvVarName,
-  isReservedEnvVar,
-  RESERVED_ENV_VARS_BY_FAMILY,
-  type HarnessFamily,
-} from "./harness.js";
+  mergeEnv,
+  sanitizeEnv,
+  type EnvOverrides,
+  type EnvProblem,
+} from "./harness/env-overrides.js";
 import type {
   EnvByFamily,
   ThinkingByFamily,
@@ -26,38 +26,35 @@ import type {
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
 
-/**
- * Why an env entry cannot be carried, or `undefined` when it is valid. The name
- * must be a valid shell identifier, must not be reserved, and the value must not
- * contain control characters that would break the sourced shell statement.
- */
-function envProblem(
-  name: string,
-  value: string,
-  reserved: readonly string[],
-): string | undefined {
-  if (!isEnvVarName(name)) return "is not a valid environment variable name";
-  if (isReservedEnvVar(name, reserved)) {
-    return "is a reserved environment variable and cannot be overridden";
-  }
-  if (hasControlCharacter(value)) return "contains a control character";
-  return undefined;
-}
+/** Why an entry was refused, in the words the template's errors use. */
+const ENV_PROBLEM_MESSAGE: Record<EnvProblem, string> = {
+  name: "is not a valid environment variable name",
+  reserved: "is a reserved environment variable and cannot be overridden",
+  "not-string": "must be a string",
+  control: "contains a control character",
+};
 
 /**
- * One family's `env` table. Names are checked per entry so a rejection names the
- * variable itself (`harness.pi.env.PATH`), the way a rejected key does.
+ * One family's `env` table. Every entry is checked here, so a rejection names
+ * the variable itself (`harness.pi.env.PATH`), the way a rejected key does, and
+ * the table that survives is the one the launch reads without looking again.
+ *
+ * A value is `unknown` to the schema on purpose: the rule that judges an entry
+ * also judges its type, and rejecting it there keeps the message in the same
+ * vocabulary as the rest of the table instead of zod's own for one key.
  */
 function envTable(family: HarnessFamily) {
-  const reserved = RESERVED_ENV_VARS_BY_FAMILY[family];
-  return z.record(z.string(), z.string()).superRefine((env, ctx) => {
-    for (const [name, value] of Object.entries(env)) {
-      const problem = envProblem(name, value, reserved);
-      if (problem !== undefined) {
-        ctx.addIssue({ code: "custom", path: [name], message: problem });
-      }
-    }
-  });
+  return z.record(z.string(), z.unknown()).transform((env, ctx) =>
+    sanitizeEnv(env, {
+      reserved: RESERVED_ENV_VARS_BY_FAMILY[family],
+      report: (name, problem) =>
+        ctx.addIssue({
+          code: "custom",
+          path: [name],
+          message: ENV_PROBLEM_MESSAGE[problem],
+        }),
+    }),
+  );
 }
 
 /**
@@ -147,24 +144,8 @@ function toToolFilter(
   return undefined;
 }
 
-/**
- * The flat pi env table under the family's own table: a variable both spellings
- * set is the one `[harness.pi]` wrote, the rule the flat model and tool keys
- * follow too.
- */
-function mergeEnv(
-  family: Record<string, string> | undefined,
-  flat: Record<string, string> | undefined,
-): Record<string, string> | undefined {
-  if (flat === undefined) return family;
-  if (family === undefined) return flat;
-  return { ...flat, ...family };
-}
-
 /** One family's env table as parsed; an empty table declares nothing, so it reads as absent. */
-function nonEmptyEnv(
-  env: Record<string, string> | undefined,
-): Record<string, string> | undefined {
+function nonEmptyEnv(env: EnvOverrides | undefined): EnvOverrides | undefined {
   return env !== undefined && Object.keys(env).length > 0 ? env : undefined;
 }
 
@@ -255,7 +236,8 @@ const HarnessSchema = z
       claude: claudeThinking,
     });
     const envByFamily: EnvByFamily = compactDefined({
-      pi: nonEmptyEnv(mergeEnv(piEnv, flatEnv)),
+      // The family's own spelling wins per variable over the flat twin.
+      pi: nonEmptyEnv(mergeEnv(flatEnv, piEnv)),
       opencode: nonEmptyEnv(opencodeEnv),
       codex: nonEmptyEnv(codexEnv),
       claude: nonEmptyEnv(claudeEnv),
