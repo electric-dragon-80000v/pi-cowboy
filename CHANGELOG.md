@@ -1,3 +1,10 @@
+## [0.22.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.0...v0.22.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **docs:** update relative links to absolute github urls in readme ([94aaa5b](https://github.com/electric-dragon-80000v/pi-cowboy/commit/94aaa5b149ab4dc9845b375107cf2da17d48e5a1))
+
 # [0.22.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.21.0...v0.22.0) (2026-10-22)
 
 
