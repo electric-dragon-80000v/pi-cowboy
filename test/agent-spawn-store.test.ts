@@ -150,6 +150,7 @@ function storeSpawn(id: string, lifecycle: AgentLifecycleState): AgentSpawn {
     execution: {
       promise: Promise.resolve(""),
       abortController: new AbortController(),
+      history: [],
     },
   } as unknown as AgentSpawn;
 }
@@ -543,7 +544,7 @@ describe("spawn retention through the manager", () => {
       agentId: id,
       source: "tracked",
       settlement: { kind: "recorded", phase: "settled" },
-      pane: { kind: "closed", paneId: "w1:p1" },
+      panes: [{ kind: "closed", paneId: "w1:p1" }],
       worktree: { kind: "removed", path: WT_PATH },
       branch: { kind: "deleted" },
     });

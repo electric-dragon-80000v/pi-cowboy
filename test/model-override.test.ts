@@ -188,6 +188,7 @@ function settledSpawn(options: { modelName?: string }): AgentSpawn {
     },
     execution: {
       promise: Promise.resolve(""),
+      history: [],
     },
   } as unknown as AgentSpawn;
 }

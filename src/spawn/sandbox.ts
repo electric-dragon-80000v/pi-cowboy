@@ -31,7 +31,7 @@ import {
   type CleanupDeps,
   type WorktreeTeardownOutcome,
 } from "../agents/agent-cleanup.js";
-import type { CleanupOptions, PaneTarget } from "../agents/cleanup-policy.js";
+import type { CleanupOptions } from "../agents/cleanup-policy.js";
 import { errorMessage } from "../utils.js";
 import { getRepoLock } from "../shell.js";
 import {
@@ -272,19 +272,16 @@ export class AgentSandbox {
       cleanupDeps(pi, this.host),
     ).removeWorktree(
       {
-        kind: "adopted",
         worktree: {
           workspaceId: placement.ref.workspaceId,
           worktreePath: placement.checkout.path,
           repoCwd: placement.checkout.repoCwd,
           branchName: placement.checkout.branch,
         },
-        pane: {
-          paneId: placement.ref.paneId,
-          origin:
-            placement.ref.paneCreated === true ? "self-created" : "adopted",
-        } satisfies PaneTarget,
-        ref: placement.ref,
+        address: placement.ref,
+        // A create that failed engaged no run, so its placement is the only
+        // pane the environment has.
+        panes: [placement.ref],
       },
       opts,
     );
@@ -423,7 +420,7 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
     },
     // No launch ever prepared a pane in a checkout that failed its create,
     // so there is no harness state to undo here.
-    harnessTeardown: async () => {},
+    teardownEnvironment: async () => {},
   };
 }
 

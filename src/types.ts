@@ -354,23 +354,46 @@ export interface AgentLaunchState {
 }
 
 /**
- * The run's execution: the objects a session needs to steer, stop, or notify
- * for it. Placement rides here rather than in the phase — a pane may be absent
- * or present in any of them, and a caller that provisioned the checkout itself
- * (the spawn wizard) passes its ref in. The shell-owned store owns this so a
- * spawn outlives the session that created it: a replaced session still lists,
- * steers, and revives it.
+ * One run's engagement of the environment: the harness that prepared a pane,
+ * and the tree it prepared there. A handover ends the active run and engages
+ * the next, so an ended run keeps its own address rather than inheriting the
+ * pane its successor occupies.
+ */
+export interface EngagedRun {
+  readonly harness: AnyHarnessId;
+  readonly host: AgentHostRef;
+  readonly cwd: string | null;
+}
+
+/** A run the environment no longer hosts, with the span it held it for. */
+export interface EndedRun extends EngagedRun {
+  readonly startedAt: number;
+  readonly endedAt: number;
+}
+
+/**
+ * One spawn's execution: the environment its runs occupy, and the objects a
+ * session needs to steer, stop, or notify for it. The environment is the
+ * stable thing — a handover replaces the run inside it, not the environment —
+ * so placement and the active run ride here rather than in the phase: a pane
+ * may be absent or present in any of them, and a caller that provisioned the
+ * checkout itself (the spawn wizard) passes its ref in. The shell-owned store
+ * owns this so a spawn outlives the session that created it: a replaced
+ * session still lists, steers, and revives it. Read it through
+ * `environmentOf` rather than field by field.
  */
 export interface AgentExecutionState {
-  /** An owned worktree run's pane address, once launch adopts or creates one. A run that fails first never gets one. */
+  /** The pane the environment occupies now: what a launch adopts or creates, and what status addresses. A run that fails first never gets one. */
   host?: AgentHostRef;
   /**
-   * The harness that owns this run's pane state, recorded before prepare runs.
-   * Absent means the run never reached its launch plan, so there is no harness
-   * state to tear down. Cleanup reads it so the harness that prepared a pane
-   * is the one that tears it down, regardless of later config changes.
+   * The harness occupying that pane, recorded before prepare runs. Absent
+   * means no run has engaged the pane yet, so there is no harness state to
+   * tear down. Cleanup reads it so the harness that prepared a pane is the one
+   * that tears it down, regardless of later config changes.
    */
   harness?: AnyHarnessId;
+  /** Every run this environment hosted before the active one, oldest first. */
+  history: EndedRun[];
   /** Opened exactly once at the terminal transition; never the run's own promise. */
   promise: Promise<string>;
   /** Kept for the spawn's lifetime so the UI-notify fallback can reach a live context on any later nudge. */

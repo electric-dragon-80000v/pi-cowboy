@@ -39,6 +39,7 @@ function hint(overrides: Partial<AgentSpawn> = {}): AgentSpawn {
     },
     lifecycle: { phase: "spawned", startedAt: 1 },
     execution: {
+      history: [],
       host: {
         multiplexer: "herdr",
         name: BRANCH,
@@ -98,7 +99,7 @@ function buildDeps(overrides: Partial<AgentAssetsDeps> = {}): AgentAssetsDeps {
     removeGitWorktree: async () => true,
     deleteBranch: async () => ({ kind: "deleted" as const }),
     closePane: async () => {},
-    harnessTeardown: async () => {},
+    teardownEnvironment: async () => {},
     ...overrides,
   };
 }
@@ -558,7 +559,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
     expect(host.release).toHaveBeenNthCalledWith(2, ref, "placement");
   });
 
-  it("tears a recorded harness down through the registry, and skips one nothing registers", async () => {
+  it("tears every run's recorded harness down through the registry, and skips one nothing registers", async () => {
     const teardown = vi.fn(async () => {});
     const { harnesses } = installSessionRegistries();
     harnesses.register({
@@ -578,17 +579,67 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       host as never,
       catalog,
     );
-    const context = { paneId: "w1:p1", cwd: WT_PATH, subagentId: ID };
+    const runs = [
+      { harness: "assets-plugin-harness", paneId: "w1:p1", cwd: WT_PATH },
+      { harness: "assets-plugin-harness", paneId: "w1:p2", cwd: null },
+    ];
 
-    await assets.harnessTeardown("assets-plugin-harness", context);
-    expect(teardown).toHaveBeenCalledWith({ pi: {}, ...context });
+    await assets.teardownEnvironment({ subagentId: ID, runs });
+    // Every run is undone at its own address, the same harness included.
+    expect(teardown).toHaveBeenNthCalledWith(1, {
+      pi: {},
+      paneId: "w1:p1",
+      cwd: WT_PATH,
+      subagentId: ID,
+    });
+    expect(teardown).toHaveBeenNthCalledWith(2, {
+      pi: {},
+      paneId: "w1:p2",
+      cwd: null,
+      subagentId: ID,
+    });
 
     // A recorded id is data, not a resolution: its plugin's load can be gone by
     // the time cleanup runs, and then there is no teardown left to call.
     harnesses.unregister("assets-plugin-harness");
     await expect(
-      assets.harnessTeardown("assets-plugin-harness", context),
+      assets.teardownEnvironment({ subagentId: ID, runs }),
     ).resolves.toBeUndefined();
-    expect(teardown).toHaveBeenCalledTimes(1);
+    expect(teardown).toHaveBeenCalledTimes(2);
+  });
+
+  it("logs a run's failed teardown and still tears the rest down", async () => {
+    const { harnesses } = installSessionRegistries();
+    const teardown = vi.fn(async (request: { paneId: string | null }) => {
+      if (request.paneId === "w1:p1") throw new Error("teardown exploded");
+    });
+    harnesses.register({
+      id: "assets-plugin-harness",
+      displayName: "Assets plugin harness",
+      agentMultiplexerKind: "assets-plugin-harness",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown,
+      listModels: async () => ({ kind: "listed", entries: [] }),
+      prefetchModels: () => {},
+    });
+    const { host, catalog } = engineProbes();
+    const assets = createMultiplexerAgentAssets(
+      {} as never,
+      host as never,
+      catalog,
+    );
+
+    await expect(
+      assets.teardownEnvironment({
+        subagentId: ID,
+        runs: [
+          { harness: "assets-plugin-harness", paneId: "w1:p1", cwd: WT_PATH },
+          { harness: "assets-plugin-harness", paneId: "w1:p2", cwd: null },
+        ],
+      }),
+    ).resolves.toBeUndefined();
+    expect(teardown).toHaveBeenCalledTimes(2);
   });
 });

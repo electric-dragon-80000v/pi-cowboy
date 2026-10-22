@@ -396,9 +396,9 @@ What a codex launch needs on disk: only the files pi-cowboy already stages for e
 Consequently `harness.teardown` for codex is a no-op like the pi family's, and the existing ordering already covers any future staging:
 
 ```ts
-// src/agents/agent-cleanup.ts:430
+// src/agents/agent-cleanup.ts
 // Ordered before the dirty probe — see Harness.teardown.
-const harness = hint?.execution.harness; … await assets.harnessTeardown(harness, {paneId, cwd, subagentId});
+const runs = teardownRuns(hint, located); … await assets.teardownEnvironment({subagentId, runs});
 ```
 
 Two small Shape A wrinkles to keep out of the worktree: the shim's redirect path is under `$TMPDIR/pi-cowboy/<id>/` (never inside the worktree), and `-o` writes there too, so nothing codex does adds worktree dirt that would confuse the retention probe beyond what the child itself does.

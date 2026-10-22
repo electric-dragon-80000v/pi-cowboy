@@ -19,7 +19,6 @@ import { ConcurrencyPools } from "../src/concurrency-pools.js";
 import {
   createCleanup,
   createWorktreeTeardown,
-  type AdoptedWorktreeTarget,
   type AgentCleanupRegistry,
 } from "../src/agents/agent-cleanup.js";
 import {
@@ -39,13 +38,15 @@ import {
   type RecoveryGate,
   type RecoveredDeliverable,
   type SettlementVerdict,
+  type WorktreeTarget,
 } from "../src/agents/cleanup-policy.js";
 import type {
+  EnvironmentTeardown,
   Located,
   LocateResult,
   PaneRef,
 } from "../src/agents/agent-assets.js";
-import type { HarnessTeardownContext } from "../src/agents/harness.js";
+import type { EndedRun } from "../src/types.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
 import type {
@@ -174,6 +175,7 @@ function spawn(overrides: Partial<AgentSpawn> = {}): AgentSpawn {
       launch: { resultFile: "/tmp/x/result.md" },
     },
     execution: {
+      history: [],
       host: {
         multiplexer: "herdr",
         name: BRANCH,
@@ -278,14 +280,11 @@ interface MockedDeps {
   closePane: Mock<ClosePane>;
   worktreeExists: Mock<(path: string) => Promise<boolean>>;
   removeGitWorktree: Mock<(path: string, repoCwd: string) => Promise<boolean>>;
-  harnessTeardown: Mock<HarnessTeardown>;
+  teardownEnvironment: Mock<TeardownEnvironment>;
   probes: Mock<DirtyProbe>;
 }
 
-type HarnessTeardown = (
-  harness: string,
-  context: HarnessTeardownContext,
-) => Promise<void>;
+type TeardownEnvironment = (request: EnvironmentTeardown) => Promise<void>;
 
 function buildDeps(tree: TreeState): MockedDeps {
   const isWorktreeDirty = vi.fn<DirtyProbe>();
@@ -301,7 +300,9 @@ function buildDeps(tree: TreeState): MockedDeps {
     closePane: vi.fn<ClosePane>().mockResolvedValue(undefined),
     worktreeExists: vi.fn().mockResolvedValue(true),
     removeGitWorktree: vi.fn().mockResolvedValue(true),
-    harnessTeardown: vi.fn<HarnessTeardown>().mockResolvedValue(undefined),
+    teardownEnvironment: vi
+      .fn<TeardownEnvironment>()
+      .mockResolvedValue(undefined),
     probes: isWorktreeDirty,
   };
 }
@@ -385,8 +386,8 @@ function artifacts(
 }
 
 describe("planRecovered", () => {
-  it("plans a full worktree with a self-created pane", () => {
-    expect(planRecovered(artifacts())).toEqual({
+  it("plans a full worktree with the panes it was given", () => {
+    expect(planRecovered(artifacts(), [REF])).toEqual({
       kind: "worktree",
       worktree: {
         workspaceId: "w1",
@@ -394,37 +395,29 @@ describe("planRecovered", () => {
         repoCwd: "/work/repo",
         branchName: BRANCH,
       },
-      pane: { paneId: "w1:p1", origin: "self-created" },
+      panes: [REF],
     } satisfies CleanupPlan);
   });
 
-  it("plans an adopted pane (not created by the extension)", () => {
-    const plan = planRecovered(artifacts({ paneCreated: false }));
-    expect(plan.kind).toBe("worktree");
-    if (plan.kind === "worktree") {
-      expect(plan.pane).toEqual({ paneId: "w1:p1", origin: "adopted" });
-    }
-  });
-
   it("plans a worktree even without a herdr pane handle", () => {
-    expect(planRecovered(artifacts({ pane: null }))).toMatchObject({
+    expect(planRecovered(artifacts({ pane: null }), [])).toMatchObject({
       kind: "worktree",
-      pane: null,
+      panes: [],
     });
   });
 
-  it("plans a no-worktree run with its pane", () => {
+  it("plans a no-worktree run with its panes", () => {
     expect(
       planRecovered(
         artifacts({ worktreeManaged: false, worktree: null, pane: null }),
+        [],
       ),
-    ).toEqual({ kind: "no-worktree", pane: null });
+    ).toEqual({ kind: "no-worktree", panes: [] });
     expect(
-      planRecovered(artifacts({ worktreeManaged: false, worktree: null })),
-    ).toEqual({
-      kind: "no-worktree",
-      pane: { paneId: "w1:p1", origin: "self-created" },
-    });
+      planRecovered(artifacts({ worktreeManaged: false, worktree: null }), [
+        REF,
+      ]),
+    ).toEqual({ kind: "no-worktree", panes: [REF] });
   });
 
   it("plans a managed but unresolvable tree as unlocatable, never absent", () => {
@@ -433,17 +426,18 @@ describe("planRecovered", () => {
         artifacts({
           worktree: { path: WT_PATH, workspaceId: "w1" },
         }),
+        [REF],
       ),
     ).toEqual({
       kind: "worktree-unlocatable",
       branchName: BRANCH,
       worktreePath: WT_PATH,
-      pane: { paneId: "w1:p1", origin: "self-created" },
+      panes: [REF],
     });
   });
 
   it("plans an unlocatable worktree with an unknown path when none is known", () => {
-    expect(planRecovered(artifacts({ worktree: null }))).toMatchObject({
+    expect(planRecovered(artifacts({ worktree: null }), [])).toMatchObject({
       kind: "worktree-unlocatable",
       worktreePath: null,
     });
@@ -452,6 +446,7 @@ describe("planRecovered", () => {
   it("keeps a git-only worktree removable (no herdr workspace)", () => {
     const plan = planRecovered(
       artifacts({ worktree: { path: WT_PATH, repoCwd: "/work/repo" } }),
+      [REF],
     );
     expect(plan).toMatchObject({
       kind: "worktree",
@@ -465,13 +460,6 @@ describe("planRecovered", () => {
 
 /* ── assessRemovability: the gate ──────────────────────────────────────── */
 
-const TARGET: AdoptedWorktreeTarget = {
-  workspaceId: "w1",
-  worktreePath: WT_PATH,
-  repoCwd: "/work/repo",
-  branchName: BRANCH,
-};
-
 const REF: AgentHostRef = {
   multiplexer: "herdr",
   name: BRANCH,
@@ -481,20 +469,34 @@ const REF: AgentHostRef = {
   paneCreated: true,
 };
 
+const ADOPTED_REF: AgentHostRef = { ...REF, paneCreated: false };
+
+const TARGET: WorktreeTarget = {
+  workspaceId: "w1",
+  worktreePath: WT_PATH,
+  repoCwd: "/work/repo",
+  branchName: BRANCH,
+};
+
 describe("paneDispositionFor", () => {
   it.each([
-    [null, null, true, { kind: "none" }],
-    [
-      { paneId: "p1", origin: "self-created" },
-      "multiplexer",
-      true,
-      { kind: "closed-with-workspace" },
-    ],
-    [{ paneId: "p1", origin: "self-created" }, "git", true, { kind: "close" }],
-    [{ paneId: "p1", origin: "adopted" }, null, true, { kind: "leave-open" }],
-  ] as const)("returns %#", (pane, mechanism, removed, expected) => {
-    expect(paneDispositionFor(pane, mechanism, removed)).toEqual(expected);
-  });
+    [REF, "multiplexer", true, "w1", { kind: "closed-with-workspace" }],
+    // A pane in another workspace outlives the tree removal: only a pane the
+    // extension created is cleanup's to close.
+    [REF, "multiplexer", true, "w2", { kind: "close" }],
+    [ADOPTED_REF, "multiplexer", true, "w2", { kind: "leave-open" }],
+    [REF, "multiplexer", true, undefined, { kind: "closed-with-workspace" }],
+    [REF, "git", true, "w1", { kind: "close" }],
+    [ADOPTED_REF, null, true, "w1", { kind: "leave-open" }],
+    [REF, "multiplexer", false, "w1", { kind: "leave-open" }],
+  ] as const)(
+    "returns %#",
+    (pane, mechanism, removed, workspaceId, expected) => {
+      expect(paneDispositionFor(pane, mechanism, removed, workspaceId)).toEqual(
+        expected,
+      );
+    },
+  );
 });
 
 describe("removalMechanismOf", () => {
@@ -585,8 +587,7 @@ describe("removeWorktree", () => {
       worktreePath: path,
       branchName: BRANCH,
       repoCwd: "/work/repo",
-    },
-    pane: { paneId: "w1:p1", origin: "self-created" as const },
+    } satisfies WorktreeTarget,
   });
   const gitOnly = (path: string) => ({
     worktree: { worktreePath: path, branchName: BRANCH, repoCwd: "/work/repo" },
@@ -595,10 +596,9 @@ describe("removeWorktree", () => {
   it("removes a herdr-adopted worktree without stopping anything, then deletes its branch", async () => {
     const deps = buildDeps("clean");
     const outcome = await createWorktreeTeardown(deps).removeWorktree({
-      kind: "adopted",
       worktree: adopted(WT_PATH).worktree,
-      pane: adopted(WT_PATH).pane,
-      ref: REF,
+      address: REF,
+      panes: [REF],
     });
     expect(outcome).toEqual({
       kind: "removed",
@@ -617,9 +617,9 @@ describe("removeWorktree", () => {
   it("removes a git-only worktree through git", async () => {
     const deps = buildDeps("clean");
     const outcome = await createWorktreeTeardown(deps).removeWorktree({
-      kind: "detached",
       worktree: gitOnly(WT_PATH).worktree,
-      pane: null,
+      address: undefined,
+      panes: [],
     });
     expect(outcome).toMatchObject({
       kind: "removed",
@@ -641,10 +641,9 @@ describe("removeWorktree", () => {
     const deps = buildDeps(tree);
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "adopted",
         worktree: adopted(WT_PATH).worktree,
-        pane: adopted(WT_PATH).pane,
-        ref: REF,
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({ kind: "kept", path: WT_PATH, reason });
     expect(deps.removeWorktree).not.toHaveBeenCalled();
@@ -655,10 +654,9 @@ describe("removeWorktree", () => {
     const deps = buildDeps("clean");
     deps.removeWorktree.mockResolvedValue(false);
     const outcome = await createWorktreeTeardown(deps).removeWorktree({
-      kind: "adopted",
       worktree: adopted(WT_PATH).worktree,
-      pane: adopted(WT_PATH).pane,
-      ref: REF,
+      address: REF,
+      panes: [REF],
     });
     expect(outcome).toEqual({
       kind: "removal-failed",
@@ -672,9 +670,9 @@ describe("removeWorktree", () => {
     deps.deleteBranch.mockRejectedValue(new Error("branch probe failed"));
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "detached",
         worktree: gitOnly(WT_PATH).worktree,
-        pane: null,
+        address: undefined,
+        panes: [],
       }),
     ).resolves.toEqual({
       kind: "removal-failed",
@@ -688,9 +686,9 @@ describe("removeWorktree", () => {
     deps.worktreeExists.mockResolvedValue(false);
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "detached",
         worktree: gitOnly(WT_PATH).worktree,
-        pane: null,
+        address: undefined,
+        panes: [],
       }),
     ).resolves.toEqual({ kind: "absent", path: WT_PATH });
     expect(deps.probes).not.toHaveBeenCalled();
@@ -704,10 +702,9 @@ describe("removeWorktree", () => {
     const deps = buildDeps("clean");
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "adopted",
         worktree: TARGET,
-        pane: null,
-        ref: REF,
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({
       kind: "removed",
@@ -724,10 +721,9 @@ describe("removeWorktree", () => {
     const deps = buildDeps("dirty-pre");
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "adopted",
         worktree: TARGET,
-        pane: null,
-        ref: REF,
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({
       kind: "kept",
@@ -742,10 +738,9 @@ describe("removeWorktree", () => {
     deps.deleteBranch.mockResolvedValue({ kind: "kept", reason: "unmerged" });
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "adopted",
         worktree: TARGET,
-        pane: null,
-        ref: REF,
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({
       kind: "removed",
@@ -759,20 +754,18 @@ describe("removeWorktree", () => {
   it("closes a self-created pane only for a git-owned checkout, and never stops", async () => {
     const deps = buildDeps("clean");
     await createWorktreeTeardown(deps).removeWorktree({
-      kind: "adopted",
       worktree: TARGET,
-      pane: { paneId: "w1:p1", origin: "self-created" },
-      ref: REF,
+      address: REF,
+      panes: [REF],
     });
     expect(deps.closePane).not.toHaveBeenCalled();
     expect(deps.probes).toHaveBeenCalledTimes(1);
 
     const gitOwned = buildDeps("clean");
     await createWorktreeTeardown(gitOwned).removeWorktree({
-      kind: "closing-pane",
       worktree: { ...TARGET, workspaceId: undefined },
-      pane: { paneId: "w1:p1", origin: "self-created" },
-      ref: REF,
+      address: REF,
+      panes: [REF],
     });
     expect(gitOwned.closePane).toHaveBeenCalledTimes(1);
     expect(gitOwned.probes).toHaveBeenCalledTimes(1);
@@ -783,10 +776,9 @@ describe("removeWorktree", () => {
     await expect(
       createWorktreeTeardown(deps).removeWorktree(
         {
-          kind: "adopted",
           worktree: TARGET,
-          pane: { paneId: "w1:p1", origin: "self-created" },
-          ref: REF,
+          address: REF,
+          panes: [REF],
         },
         { force: {} },
       ),
@@ -805,10 +797,9 @@ describe("removeWorktree", () => {
     deps.removeWorktree.mockResolvedValue(false);
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "adopted",
         worktree: TARGET,
-        pane: null,
-        ref: REF,
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({
       kind: "removal-failed",
@@ -823,9 +814,9 @@ describe("removeWorktree", () => {
     deps.worktreeExists.mockResolvedValue(false);
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
-        kind: "detached",
         worktree: TARGET,
-        pane: { paneId: "w1:p1", origin: "self-created" },
+        address: REF,
+        panes: [REF],
       }),
     ).resolves.toEqual({ kind: "absent", path: WT_PATH });
     expect(deps.probes).not.toHaveBeenCalled();
@@ -858,7 +849,7 @@ describe("cleanup — the recorded settlement gate", () => {
       },
       settlement: { kind: "recorded", phase },
       branchName: BRANCH,
-      pane: { kind: "open", paneId: "w1:p1" },
+      panes: [{ kind: "open", paneId: "w1:p1" }],
       worktree: { kind: "kept", path: WT_PATH },
       branch: { kind: "not-applicable" },
     });
@@ -888,7 +879,7 @@ describe("cleanup — the recorded settlement gate", () => {
         forceable: false,
       },
       settlement: { kind: "recorded", phase: "spawned" },
-      pane: { kind: "open", paneId: "w1:p1" },
+      panes: [{ kind: "open", paneId: "w1:p1" }],
       worktree: { kind: "none" },
       branch: { kind: "not-applicable" },
     });
@@ -997,7 +988,7 @@ describe("cleanup — a recovered run", () => {
         deliverable: { path: DELIVERABLE_PATH, present: false },
       },
       branchName: BRANCH,
-      pane: { kind: "closed", paneId: "w1:p1" },
+      panes: [{ kind: "closed", paneId: "w1:p1" }],
       worktree: { kind: "removed", path: WT_PATH },
       branch: { kind: "deleted" },
     });
@@ -1029,7 +1020,7 @@ describe("cleanup — a recovered run", () => {
           basis: { kind: "pane-working" },
         },
       },
-      pane: { kind: "open", paneId: "w1:p1" },
+      panes: [{ kind: "open", paneId: "w1:p1" }],
       worktree: { kind: "kept", path: WT_PATH },
       branch: { kind: "not-applicable" },
     });
@@ -1132,7 +1123,7 @@ describe("cleanup — a recovered run", () => {
         basis: { kind: "artifacts-ambiguous" },
         deliverable: { path: DELIVERABLE_PATH, present: true },
       },
-      pane: { kind: "none" },
+      panes: [],
       worktree: { kind: "kept", path: null },
       branch: { kind: "not-applicable" },
     });
@@ -1236,7 +1227,7 @@ describe("cleanup — a recovered run", () => {
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
     expect(report.worktree).toEqual({ kind: "removed", path: WT_PATH });
-    expect(report.pane).toEqual({ kind: "open", paneId: "w1:p1" });
+    expect(report.panes).toEqual([{ kind: "open", paneId: "w1:p1" }]);
     expect(assets.removeGitWorktree).toHaveBeenCalledWith(
       WT_PATH,
       "/work/repo",
@@ -1289,52 +1280,160 @@ describe("cleanup — a recovered run", () => {
   });
 });
 
-/* ── Harness state teardown ──────────────────────────────────────────── */
+/* ── Environment teardown ───────────────────────────────────────────── */
 
-describe("cleanup — harness state teardown", () => {
-  /** A settled tracked spawn whose run recorded the harness it launched under. */
+describe("cleanup — environment teardown", () => {
+  /** A settled tracked spawn whose active run recorded the harness it launched under. */
   function harnessed(): AgentSpawn {
     const spawn = completed();
     spawn.execution.harness = "pig";
     return spawn;
   }
 
-  it("tears the recorded harness state down before the dirty probe reads the tree", async () => {
+  /** A run the environment hosted before the active one. */
+  function endedRun(
+    harness: EndedRun["harness"],
+    paneId: string,
+    workspaceId = "w1",
+  ): EndedRun {
+    return {
+      harness,
+      host: { ...REF, paneId, workspaceId },
+      cwd: WT_PATH,
+      startedAt: 1,
+      endedAt: 2,
+    };
+  }
+
+  it("tears every run's harness state down before the dirty probe reads the tree", async () => {
     const order: string[] = [];
     const assets = buildAssets("clean");
-    assets.harnessTeardown.mockImplementation(async () => {
+    assets.teardownEnvironment.mockImplementation(async () => {
       order.push("teardown");
     });
     assets.isWorktreeDirty.mockImplementation(async () => {
       order.push("probe");
       return false;
     });
-    const { registry } = buildRegistry(new Map([[ID, harnessed()]]));
+    const spawn = harnessed();
+    spawn.execution.history = [
+      endedRun("claude", "w1:p1"),
+      endedRun("opencode", "w1:p2"),
+    ];
+    const { registry } = buildRegistry(new Map([[ID, spawn]]));
 
     await createCleanup(assets).cleanupAgent(ID, registry);
 
     // A harness that embeds launch state in the checkout must remove it before
     // the probe: unresolved state would hold a clean tree hostage to retention.
     expect(order).toEqual(["teardown", "probe"]);
-    expect(assets.harnessTeardown).toHaveBeenCalledWith("pig", {
-      paneId: "w1:p1",
-      cwd: WT_PATH,
+    expect(assets.teardownEnvironment).toHaveBeenCalledWith({
       subagentId: ID,
+      runs: [
+        // Each ended run at the address it prepared, oldest first.
+        { harness: "claude", paneId: "w1:p1", cwd: WT_PATH },
+        { harness: "opencode", paneId: "w1:p2", cwd: WT_PATH },
+        // The active run last, at the address cleanup located.
+        { harness: "pig", paneId: "w1:p1", cwd: WT_PATH },
+      ],
     });
   });
 
-  it("tears no harness state down for a run that recorded none", async () => {
+  it("hands every run to the seam, the same harness twice included", async () => {
+    const assets = buildAssets("clean");
+    const spawn = harnessed();
+    spawn.execution.history = [endedRun("pig", "w1:p2")];
+    const { registry } = buildRegistry(new Map([[ID, spawn]]));
+
+    await createCleanup(assets).cleanupAgent(ID, registry);
+
+    // Two runs engaged `pig` on two panes: both are undone, not one per harness.
+    expect(assets.teardownEnvironment.mock.calls[0]![0].runs).toEqual([
+      { harness: "pig", paneId: "w1:p2", cwd: WT_PATH },
+      { harness: "pig", paneId: "w1:p1", cwd: WT_PATH },
+    ]);
+  });
+
+  it("tears no harness state down for an environment nothing engaged", async () => {
     const assets = buildAssets("clean");
     const { registry } = buildRegistry(new Map([[ID, completed()]]));
 
     await createCleanup(assets).cleanupAgent(ID, registry);
 
-    expect(assets.harnessTeardown).not.toHaveBeenCalled();
+    expect(assets.teardownEnvironment).not.toHaveBeenCalled();
   });
 
-  it("swallows a failed teardown and removes the worktree anyway", async () => {
+  it("closes and reports every pane the environment knows", async () => {
     const assets = buildAssets("clean");
-    assets.harnessTeardown.mockRejectedValue(new Error("teardown exploded"));
+    const spawn = noWorktree(completed());
+    spawn.execution.history = [endedRun("claude", "w1:p2")];
+    const { registry } = buildRegistry(new Map([[ID, spawn]]));
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(assets.closePane).toHaveBeenCalledTimes(2);
+    expect(report.panes).toEqual([
+      { kind: "closed", paneId: "w1:p1" },
+      { kind: "closed", paneId: "w1:p2" },
+    ]);
+  });
+
+  it("closes a leftover pane from another workspace after the tree removal", async () => {
+    const assets = buildAssets("clean");
+    const spawn = completed();
+    spawn.execution.history = [endedRun("claude", "w2:p9", "w2")];
+    const { registry } = buildRegistry(new Map([[ID, spawn]]));
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    // The tree goes through the current placement; the leftover pane does not
+    // die with that workspace, so it is closed on its own address.
+    expect(assets.removeWorktree).toHaveBeenCalledWith(REF);
+    expect(assets.closePane).toHaveBeenCalledTimes(1);
+    expect(assets.closePane).toHaveBeenCalledWith({
+      ...REF,
+      paneId: "w2:p9",
+      workspaceId: "w2",
+    });
+    expect(report.panes).toEqual([
+      { kind: "closed", paneId: "w1:p1" },
+      { kind: "closed", paneId: "w2:p9" },
+    ]);
+  });
+
+  it("removes through git when no current pane addresses the tree", async () => {
+    const assets = buildAssets("clean", {
+      // The user closed the run's pane: memory still holds the worktree, and a
+      // handover left a pane behind in another workspace.
+      locate: locateReturning(
+        recoveredArtifacts({ source: "tracked", pane: null }),
+      ),
+    });
+    const spawn = completed();
+    spawn.execution.history = [endedRun("claude", "w2:p9", "w2")];
+    const { registry } = buildRegistry(new Map([[ID, spawn]]));
+
+    await createCleanup(assets).cleanupAgent(ID, registry);
+
+    // A leftover run's workspace is never the address the tree is released
+    // through; with no current placement, git removes it.
+    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeGitWorktree).toHaveBeenCalledWith(
+      WT_PATH,
+      "/work/repo",
+    );
+    expect(assets.closePane).toHaveBeenCalledWith({
+      ...REF,
+      paneId: "w2:p9",
+      workspaceId: "w2",
+    });
+  });
+
+  it("still removes the worktree when the teardown seam throws", async () => {
+    const assets = buildAssets("clean");
+    assets.teardownEnvironment.mockRejectedValue(
+      new Error("teardown exploded"),
+    );
     const { registry } = buildRegistry(new Map([[ID, harnessed()]]));
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
@@ -1353,7 +1452,7 @@ describe("cleanup — harness state teardown", () => {
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
     expect(report.outcome.kind).toBe("refused");
-    expect(assets.harnessTeardown).not.toHaveBeenCalled();
+    expect(assets.teardownEnvironment).not.toHaveBeenCalled();
   });
 
   it("reads the dirty probe on worktrees whose harness state never existed", async () => {
@@ -1377,7 +1476,7 @@ describe("shouldDropSpawn", () => {
     source: "tracked",
     outcome: { kind: "torn-down" },
     settlement: { kind: "recorded", phase: "settled" },
-    pane: { kind: "none" },
+    panes: [],
     worktree: { kind: "none" },
     branch: { kind: "not-applicable" },
   };
@@ -1389,7 +1488,7 @@ describe("shouldDropSpawn", () => {
     ],
     [
       "no worktree + closed pane → drop",
-      { ...base, pane: { kind: "closed", paneId: "w1:p1" } },
+      { ...base, panes: [{ kind: "closed", paneId: "w1:p1" }] },
       true,
     ],
     ["no worktree + no pane → drop", base, true],
@@ -1413,7 +1512,7 @@ describe("shouldDropSpawn", () => {
     ],
     [
       "no worktree + open pane → keep",
-      { ...base, pane: { kind: "open", paneId: "w1:p1" } },
+      { ...base, panes: [{ kind: "open", paneId: "w1:p1" }] },
       false,
     ],
     [
@@ -1461,7 +1560,7 @@ interface Row {
   expected: {
     outcome: CleanupReport["outcome"];
     settlement: SettlementVerdict;
-    pane: CleanupReport["pane"];
+    panes: CleanupReport["panes"];
     worktree: CleanupReport["worktree"];
     branch: CleanupReport["branch"];
     branchName?: string;
@@ -1484,7 +1583,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "closed", paneId: "w1:p1" },
+        panes: [{ kind: "closed", paneId: "w1:p1" }],
         worktree: { kind: "removed", path: WT_PATH },
         branch: { kind: "deleted" },
         branchName: BRANCH,
@@ -1503,7 +1602,7 @@ describe("cleanup — the settled-teardown matrix", () => {
           forceable: true,
         },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: { kind: "kept", path: WT_PATH },
         branch: { kind: "not-applicable" },
       },
@@ -1521,7 +1620,7 @@ describe("cleanup — the settled-teardown matrix", () => {
           forceable: true,
         },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: { kind: "kept", path: WT_PATH },
         branch: { kind: "not-applicable" },
       },
@@ -1536,7 +1635,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "closed", paneId: "w1:p1" },
+        panes: [{ kind: "closed", paneId: "w1:p1" }],
         worktree: { kind: "removed", path: WT_PATH },
         branch: { kind: "deleted" },
       },
@@ -1562,7 +1661,7 @@ describe("cleanup — the settled-teardown matrix", () => {
           forceable: false,
         },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: { kind: "kept", path: WT_PATH },
         branch: { kind: "not-applicable" },
       },
@@ -1576,7 +1675,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "closed", paneId: "w1:p1" },
+        panes: [{ kind: "closed", paneId: "w1:p1" }],
         worktree: { kind: "none" },
         branch: { kind: "not-applicable" },
       },
@@ -1595,7 +1694,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: { kind: "none" },
         branch: { kind: "not-applicable" },
       },
@@ -1609,7 +1708,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: {
           kind: "removal-failed",
           path: WT_PATH,
@@ -1691,7 +1790,7 @@ describe("cleanup — the proven-absent checkout", () => {
       branchName: BRANCH,
       settlement: { kind: "recorded", phase: "settled" },
       // No pane answers: reported gone, never closed (the extension closed nothing).
-      pane: { kind: "gone", paneId: "w1:p1" },
+      panes: [{ kind: "gone", paneId: "w1:p1" }],
       worktree: { kind: "absent", path: WT_PATH },
       branch: { kind: "not-applicable" },
     });
@@ -1721,7 +1820,7 @@ describe("cleanup — the proven-absent checkout", () => {
       },
       forceable: false,
     });
-    expect(report.pane).toEqual({ kind: "open", paneId: "w1:p1" });
+    expect(report.panes).toEqual([{ kind: "open", paneId: "w1:p1" }]);
     expect(report.branch).toEqual({ kind: "not-applicable" });
     expect(dropped).toEqual([]);
     expect(spawns.has(ID)).toBe(true);
@@ -1752,7 +1851,7 @@ describe("cleanup — the proven-absent checkout", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    expect(report.pane).toEqual({ kind: "open", paneId: "w1:p1" });
+    expect(report.panes).toEqual([{ kind: "open", paneId: "w1:p1" }]);
     expect(assets.observe).toHaveBeenCalledTimes(1);
     expect(report.worktree).toEqual({ kind: "absent", path: WT_PATH });
     expect(spawns.has(ID)).toBe(false);
@@ -1766,7 +1865,7 @@ describe("cleanup — the proven-absent checkout", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    expect(report.pane).toEqual({ kind: "unknown", paneId: "w1:p1" });
+    expect(report.panes).toEqual([{ kind: "unknown", paneId: "w1:p1" }]);
     expect(report.worktree).toEqual({ kind: "absent", path: WT_PATH });
     expect(dropped).toEqual([ID]);
   });
@@ -1781,7 +1880,7 @@ describe("cleanup — the proven-absent checkout", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    expect(report.pane).toEqual({ kind: "none" });
+    expect(report.panes).toEqual([]);
     expect(assets.observe).not.toHaveBeenCalled();
     expect(report.worktree).toEqual({ kind: "absent", path: WT_PATH });
     expect(dropped).toEqual([ID]);

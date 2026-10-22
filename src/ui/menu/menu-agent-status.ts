@@ -26,6 +26,7 @@ import {
 } from "../../types.js";
 
 import { errorMessage } from "../../utils.js";
+import { environmentOf } from "../../agents/agent-environment.js";
 import {
   getDisplayName,
   agentBulletPrefix,
@@ -51,7 +52,7 @@ async function focusHerdrPane(
   ctx: ExtensionCommandContext,
   spawn: AgentSpawn,
 ): Promise<void> {
-  const host = spawn.execution.host;
+  const host = environmentOf(spawn.execution).host;
   if (!host) {
     ctx.ui.notify("Agent has no herdr pane yet (still queued)", "info");
     return;
@@ -254,7 +255,7 @@ export function buildAgentActionsList(
   // Spawn id is the full handle — printed whole, never sliced.
   const id = spawn.id;
   const activeSpawn = isActivePhase(spawn.lifecycle.phase);
-  const hasHerdrPane = !!spawn.execution.host;
+  const hasHerdrPane = environmentOf(spawn.execution).host !== undefined;
   // Result/error exist only on the settled outcome.
   const resultText = lifecycleResult(spawn.lifecycle);
   const errorText =

@@ -17,7 +17,7 @@ export function fullTeardown(id: string): CleanupReport {
     source: "tracked",
     outcome: { kind: "torn-down" },
     settlement: { kind: "recorded", phase: "settled" },
-    pane: { kind: "closed", paneId: "pane-1" },
+    panes: [{ kind: "closed", paneId: "pane-1" }],
     worktree: { kind: "removed", path: WT_PATH },
     branch: { kind: "deleted" },
     branchName: BRANCH,
