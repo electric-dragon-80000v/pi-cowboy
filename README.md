@@ -32,9 +32,9 @@ The numbers below come from a Git repository on macOS with 153,607 files in tota
 
 | Method                                         | Including untracked | Size on disk |
 | ---------------------------------------------- | ------------------- | ------------ |
-| Pi-cowboy's copy-on-write                      | yes                 | 75 MiB       |
-| Classic `git worktree add`                     | no                  | 479 MiB      |
-| Classic `git worktree add` + copy of untracked | yes                 | 27 GiB       |
+| Pi-cowboy's copy-on-write                      | yes ✅              | 75 MiB       |
+| Classic `git worktree add`                     | no ❌               | 479 MiB      |
+| Classic `git worktree add` + copy of untracked | yes ✅              | 27 GiB       |
 
 ### Live visibility in Herdr
 
