@@ -555,6 +555,8 @@ describe("listModels", () => {
         { key: "anthropic/haiku", label: "haiku", thinkingLevels },
         { key: "anthropic/sonnet", label: "sonnet", thinkingLevels },
         { key: "anthropic/opus", label: "opus", thinkingLevels },
+        { key: "anthropic/fable", label: "fable", thinkingLevels },
+        { key: "anthropic/mythos", label: "mythos", thinkingLevels },
       ],
     });
   });

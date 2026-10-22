@@ -114,8 +114,9 @@ export interface EnvInfo {
 /** The resolved run params both the manager and coordinator agree on. */
 export interface SpawnConfig extends RunTunables {
   /**
-   * The caller's explicit `harness_type`, validated at parse. Absent means the
-   * agent template's `harness_type` and then the config setting resolve it.
+   * The caller's explicit harness: the tool call's `harness_type` or the spawn
+   * wizard's Harness row. Absent means the agent template's `harness_type` and
+   * then the config setting resolve it.
    */
   requestedHarness?: AnyHarnessId;
   /**

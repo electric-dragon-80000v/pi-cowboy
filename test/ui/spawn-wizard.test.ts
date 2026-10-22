@@ -247,6 +247,7 @@ describe("Spawn wizard — options screen", () => {
     expect(session.walkRows()).toEqual([
       { label: "Spawn", value: "" },
       { label: "Type", value: "general-purpose" },
+      { label: "Harness", value: "pi" },
       { label: "Model", value: "(no model)" },
       { label: "Background", value: "ON" },
       { label: "Fork session", value: "No" },
@@ -1011,6 +1012,153 @@ describe("Spawn wizard — the Model row follows the selected type's harness", (
 
     expect(session.text()).toContain("claude-3 [anthropic]");
     expect(session.text()).not.toContain("claude-opus-4");
+  });
+});
+
+describe("Spawn wizard — harness row", () => {
+  const CODEX_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultra"];
+
+  /** pi and codex launchable, each with its own catalogue, and both defaults set. */
+  function installBothHarnesses(): void {
+    setup({
+      global: {
+        agent: {
+          default: "openai/gpt-4",
+          defaultThinking: "high",
+          defaultModelByHarness: { codex: "openai/gpt-6-astra" },
+          defaultThinkingByHarness: { codex: "low" },
+        },
+      },
+    });
+    setHarnessAvailability(probed(["pi", "codex"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      [
+        "codex",
+        [
+          listedModel("openai/gpt-6-astra", {
+            kind: "closed",
+            levels: CODEX_LEVELS,
+          }),
+        ],
+      ],
+    ]);
+  }
+
+  it("offers the launchable harnesses on the row", async () => {
+    installBothHarnesses();
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    expect(session.rows()).toContainEqual({ label: "Harness", value: "pi" });
+
+    session.open("Harness");
+    await session.settle();
+    expect(session.text()).toContain("• codex");
+    // Availability narrows the row: a registered but unlaunchable harness stays out.
+    expect(session.text()).not.toContain("opencode");
+  });
+
+  it("re-seeds the model and level from the harness it switches to", async () => {
+    installBothHarnesses();
+    const session = openWizard();
+    await toSpawnOptions(session);
+    expect(session.rows()).toContainEqual({
+      label: "Model",
+      value: "openai/gpt-4",
+    });
+
+    session.open("Harness");
+    await session.settle();
+    session.open("• codex");
+    await session.settle();
+
+    // A pi key is not a codex key, so the row re-seeds from codex's own default
+    // rather than carrying the model the pi chain resolved.
+    expect(session.rows()).toContainEqual({ label: "Harness", value: "codex" });
+    expect(session.rows()).toContainEqual({
+      label: "Model",
+      value: "openai/gpt-6-astra",
+    });
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "low",
+    });
+  });
+
+  it("offers the switched harness's own model keys", async () => {
+    installBothHarnesses();
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    session.open("Harness");
+    await session.settle();
+    session.open("• codex");
+    await session.settle();
+
+    session.open("Model");
+    await session.settle();
+    session.open("Session");
+    await session.settle();
+
+    expect(session.text()).toContain("gpt-6-astra");
+    expect(session.text()).not.toContain("claude-3 [anthropic]");
+  });
+
+  it("carries the picked harness into the spawn", async () => {
+    installBothHarnesses();
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    session.open("Harness");
+    await session.settle();
+    session.open("• codex");
+    await session.settle();
+
+    await spawnWith(session, { prompt: "Do the thing" });
+
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]!.args.requestedHarness).toBe("codex");
+    expect(spawnCalls[0]!.args.modelChoice).toEqual({
+      harness: "codex",
+      key: "openai/gpt-6-astra",
+      name: "openai/gpt-6-astra",
+      thinking: "low",
+    });
+  });
+
+  it("returns to the type's own harness when the type changes", async () => {
+    setup();
+    registerAgents(
+      new Map([
+        [
+          "auditor",
+          {
+            name: "auditor",
+            displayName: "Auditor",
+            description: "Audits a change",
+            systemPrompt: "",
+            harnessType: "codex",
+          },
+        ],
+      ]),
+    );
+    setHarnessAvailability(probed(["pi", "codex"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["codex", [listedModel("openai/gpt-6-astra")]],
+    ]);
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    await pickType(session, "auditor");
+    expect(session.rows()).toContainEqual({
+      label: "Harness",
+      value: "codex",
+    });
+
+    await pickType(session, "general-purpose");
+    expect(session.rows()).toContainEqual({ label: "Harness", value: "pi" });
   });
 });
 

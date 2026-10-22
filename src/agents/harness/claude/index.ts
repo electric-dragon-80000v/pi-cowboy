@@ -241,15 +241,20 @@ const CLAUDE_THINKING: ThinkingLevels = {
 };
 
 /**
- * Every model this harness offers, as `anthropic/<alias>` keys. claude's CLI
- * has no list command, so this list is curated, not discovered: each alias was
- * seen to answer on the real CLI, and an alias that was seen refused stays
- * off. A menu therefore offers only models a launch can actually run.
+ * Every model this harness offers, as `anthropic/<alias>` keys, in ascending
+ * capability. claude's CLI has no list command, so this list is curated, not
+ * discovered: each alias was seen to answer on the real CLI, and an alias that
+ * was seen refused stays off. A menu therefore offers only models a launch can
+ * actually run. `fable` is additionally gated behind a one-time usage-credits
+ * consent that only an interactive `/model fable` grants, so a spawn naming it
+ * can still be refused or substituted by the CLI rather than by this harness.
  */
 const CLAUDE_MODELS: readonly ModelEntry[] = [
   { key: "anthropic/haiku", label: "haiku", thinkingLevels: CLAUDE_THINKING },
   { key: "anthropic/sonnet", label: "sonnet", thinkingLevels: CLAUDE_THINKING },
   { key: "anthropic/opus", label: "opus", thinkingLevels: CLAUDE_THINKING },
+  { key: "anthropic/fable", label: "fable", thinkingLevels: CLAUDE_THINKING },
+  { key: "anthropic/mythos", label: "mythos", thinkingLevels: CLAUDE_THINKING },
 ];
 
 export const claudeHarness: Harness<ClaudeLaunchRequest> = {
