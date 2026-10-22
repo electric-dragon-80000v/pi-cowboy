@@ -1,3 +1,10 @@
+# [0.22.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.21.0...v0.22.0) (2026-10-22)
+
+
+### Features
+
+* **harness:** support environment variable overrides and staging for subagent spawns ([b474a13](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b474a13455af11702edf0f13a95f1cb103d64b93))
+
 # [0.21.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.20.0...v0.21.0) (2026-10-22)
 
 
