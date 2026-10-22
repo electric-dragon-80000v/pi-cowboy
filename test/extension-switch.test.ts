@@ -599,6 +599,58 @@ describe("/cowboy dispatch", () => {
     );
   });
 
+  it.each([
+    ["sp", "spawn"],
+    ["st", "status"],
+  ] as const)(
+    "maps the `%s` shorthand onto the `%s` screen",
+    async (shorthand, subcommand) => {
+      install({});
+      const notify = vi.fn();
+      const ctx = {
+        ...commandContext(notify),
+        modelRegistry: {
+          getAvailable: () => [{ provider: "openai", id: "gpt" }],
+        },
+      };
+
+      await captureCommand().handler(shorthand, ctx);
+
+      expect(menus.showAgentsActionMenu).toHaveBeenCalledTimes(1);
+      expect(menus.showAgentsActionMenu.mock.calls[0]![1]).toBe(subcommand);
+      expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    },
+  );
+
+  it("maps the `wt` shorthand onto the worktree command, inline name and all", async () => {
+    install({ agent: { extensionEnabled: false } });
+    const ctx = commandContext(vi.fn());
+
+    await captureCommand().handler("wt my-branch", ctx);
+
+    expect(worktreeCommand.showWorktreeCommandMenu).toHaveBeenCalledWith(
+      ctx,
+      "my-branch",
+    );
+  });
+
+  it.each(["sp", "st"] as const)(
+    "refuses `/cowboy %s` while the extension is off",
+    async (shorthand) => {
+      install({ agent: { extensionEnabled: false } });
+      const notify = vi.fn();
+
+      await captureCommand().handler(shorthand, commandContext(notify));
+
+      expect(notify).toHaveBeenCalledWith(
+        "pi-cowboy is disabled. Run /cowboy enable first.",
+        "warning",
+      );
+      expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
+    },
+  );
+
   it("names only the first word of an unrecognized argument", async () => {
     install({});
     const notify = vi.fn();

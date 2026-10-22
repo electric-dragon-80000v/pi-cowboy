@@ -217,6 +217,8 @@ Run `/cowboy` to open the interactive menu, or pass a subcommand directly. See [
 /cowboy disable                 # Disable pi-cowboy
 ```
 
+`/cowboy wt`, `/cowboy sp` and `/cowboy st` are shorthands for `/cowboy worktree`, `/cowboy spawn` and `/cowboy status`.
+
 ## Tools
 
 ### `cowboy_agent`

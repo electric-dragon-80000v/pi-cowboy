@@ -246,6 +246,13 @@ async function harnessModelOptions(
 /** The one place the command name is spelled. */
 const COWBOY_COMMAND = "cowboy";
 
+/** The shorthand words `/cowboy` accepts for its subcommands. */
+const COWBOY_SHORTHANDS: Readonly<Record<string, string>> = {
+  wt: "worktree",
+  sp: "spawn",
+  st: "status",
+};
+
 /**
  * The `/cowboy` command in its unavailable mode: a prerequisite the entry point
  * could not meet means every invocation reports the reason instead of opening a
@@ -269,7 +276,7 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
   // Named cowboy so it never clashes with other subagent extensions' /agents.
   pi.registerCommand(COWBOY_COMMAND, {
     description:
-      "Manage agents: status, spawn, settings. `status` lists spawned, queued and settled agents; `spawn` opens the spawn wizard; `worktree` creates one git worktree with no agent attached to it. `enable`/`disable` load or unload the cowboy tools. Pass `model` (optionally a provider/model-id) to set the model agents use for this session — opens pi's model picker.",
+      "Manage agents: status, spawn, settings. `status` lists spawned, queued and settled agents; `spawn` opens the spawn wizard; `worktree` creates one git worktree with no agent attached to it. `status`, `spawn` and `worktree` also answer to `st`, `sp` and `wt`. `enable`/`disable` load or unload the cowboy tools. Pass `model` (optionally a provider/model-id) to set the model agents use for this session — opens pi's model picker.",
     getArgumentCompletions: async (prefix: string) =>
       (await import("./ui/menu/model-picker.js")).cowboyCompletions(prefix),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
@@ -277,10 +284,13 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
       // probe still running when the user opens another screen) must not mount
       // over the screen that newer command opened.
       beginUiFlow(ctx);
-      const subcommand = args.trim();
       // The first word names the subcommand and the rest is its inline argument,
       // so a tab or a run of spaces separates them exactly as one space does.
-      const [word, ...inline] = subcommand.split(/\s+/);
+      const [rawWord, ...inline] = args.trim().split(/\s+/);
+      // A shorthand resolves to the subcommand it abbreviates, so everything
+      // below reads one name per subcommand.
+      const word = COWBOY_SHORTHANDS[rawWord] ?? rawWord;
+      const subcommand = [word, ...inline].join(" ");
       if (subcommand === "enable" || subcommand === "disable") {
         const enable = subcommand === "enable";
         // Enabling is what puts the tools in the active set; with no multiplexer
@@ -344,7 +354,7 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
       }
       if (subcommand !== "") {
         ctx.ui.notify(
-          `Unknown option "${word}". Usage: /cowboy [status | spawn | worktree [<name>] | model [<provider/model-id>|clear] | enable | disable]`,
+          `Unknown option "${rawWord}". Usage: /cowboy [status | spawn | worktree [<name>] | model [<provider/model-id>|clear] | enable | disable]`,
           "warning",
         );
         return;
