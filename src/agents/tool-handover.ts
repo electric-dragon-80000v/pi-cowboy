@@ -173,9 +173,9 @@ function handoverReport(outcome: HandoverOutcome): string {
     case "stop-failed":
       return `was not handed over: its run could not be stopped (${outcome.fault.detail}). Nothing was changed.`;
     case "session-empty":
-      return `was not handed over: harness "${outcome.fault.harness}" returned an empty session. The previous run was stopped; the agent stays settled and cleanable.`;
+      return `was not handed over: harness "${outcome.fault.harness}" returned an empty session. Nothing was changed: the run was not stopped.`;
     case "session-export-failed":
-      return `was not handed over: harness "${outcome.fault.harness}" could not export its session (${outcome.fault.detail}). The previous run was stopped; the agent stays settled and cleanable.`;
+      return `was not handed over: harness "${outcome.fault.harness}" could not export its session (${outcome.fault.detail}). Nothing was changed: the run was not stopped.`;
     case "request-refused":
       return `was not handed over: ${outcome.fault.detail}`;
     case "launch-failed":
