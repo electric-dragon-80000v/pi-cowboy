@@ -1,13 +1,15 @@
 /**
- * menu-worktree-command.ts — the `/cowboy worktree` command: name → checkout → create → report.
+ * menu-worktree-command.ts — the `/cowboy worktree` command: name → checkout
+ * (only when the parent is dirty) → create → report.
  *
  * Creates one git worktree under the configured worktree root and adopts it in
  * herdr with nothing running in it. The name is the branch and the directory at
  * once, the parent is the repository the session sits in, and the base is HEAD;
- * nothing else is asked. Only git knows about the result — there is no spawn
- * record, no entry in `/cowboy status`, and nothing cleans it up. Any failure
- * after the git create, a failed herdr adoption included, removes the worktree
- * and its branch.
+ * nothing else is asked. The checkout policy is a question only when the parent
+ * carries uncommitted work: a clean parent starts at HEAD either way. Only git
+ * knows about the result — there is no spawn record, no entry in
+ * `/cowboy status`, and nothing cleans it up. Any failure after the git create,
+ * a failed herdr adoption included, removes the worktree and its branch.
  */
 
 import * as fs from "node:fs";
@@ -147,8 +149,30 @@ export async function showWorktreeCommandMenu(
   if (name === undefined) return;
 
   const store = getStore();
-  const dirtyCheckout = await host.open<WorktreeCheckoutType>(
-    ({ theme, close }) => {
+  const pi = getPiInstance();
+  if (!(await isGitRepo(pi, ctx.cwd))) {
+    notify(
+      "Cannot create a worktree: this session is not inside a git repository.",
+      "error",
+    );
+    return;
+  }
+  let repoRoot: string;
+  try {
+    repoRoot = await resolveMainCheckout(pi, ctx.cwd);
+  } catch (err) {
+    notify(`Cannot create a worktree: ${errorMessage(err)}`, "error");
+    return;
+  }
+
+  // The policy only matters when the parent carries uncommitted work. A clean
+  // parent starts at HEAD under either value, so the question is skipped. An
+  // unreadable status is not clean: the dialog stays, so the user still chooses.
+  const parentStatus = await gitProbe(pi, ["status", "--porcelain"], repoRoot);
+  const parentIsClean = parentStatus === "";
+  let dirtyCheckout: WorktreeCheckoutType = store.agent.worktreeCheckoutType;
+  if (!parentIsClean) {
+    const picked = await host.open<WorktreeCheckoutType>(({ theme, close }) => {
       const list = new SelectList(
         VALID_WORKTREE_CHECKOUT_TYPES.map((value) => ({
           value,
@@ -169,24 +193,9 @@ export async function showWorktreeCommandMenu(
         theme,
         onCancel: () => close(),
       });
-    },
-  );
-  if (dirtyCheckout === undefined) return;
-
-  const pi = getPiInstance();
-  if (!(await isGitRepo(pi, ctx.cwd))) {
-    notify(
-      "Cannot create a worktree: this session is not inside a git repository.",
-      "error",
-    );
-    return;
-  }
-  let repoRoot: string;
-  try {
-    repoRoot = await resolveMainCheckout(pi, ctx.cwd);
-  } catch (err) {
-    notify(`Cannot create a worktree: ${errorMessage(err)}`, "error");
-    return;
+    });
+    if (picked === undefined) return;
+    dirtyCheckout = picked;
   }
 
   const targetPath = path.join(

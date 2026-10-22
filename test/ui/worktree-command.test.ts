@@ -1,5 +1,6 @@
 /**
- * worktree-command.test.ts — the `/cowboy worktree` flow: name → checkout → create → report.
+ * worktree-command.test.ts — the `/cowboy worktree` flow: name → checkout
+ * (when the parent is dirty) → create → report.
  *
  * Faked boundaries: src/shell.js (store, pi, runtime host) and the outer half of
  * the git layer (`createWorktreeCheckout`, `isGitRepo`, `resolveMainCheckout`,
@@ -219,6 +220,31 @@ describe("worktree command — the flow", () => {
     expect(memory.writes).toEqual([]);
   });
 
+  it("skips the checkout step when the parent checkout is clean", async () => {
+    setup({ global: { agent: { worktreeCheckoutType: "dirty" } } });
+    // `status --porcelain` is empty: the parent has no uncommitted work.
+    git.gitProbe.mockImplementation(async (_pi, args) =>
+      args[0] === "status" ? "" : undefined,
+    );
+
+    const session = openFlow();
+    await submitName(session, "render-page");
+    await session.finished;
+
+    // No second screen: the name step went straight to the create.
+    expect(session.screenCount).toBe(1);
+    expect(launcher.createWorktreeCheckout).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        branch: "render-page",
+        // The configured policy rides along; with a clean parent either value
+        // produces the same tree.
+        dirtyCheckout: "dirty",
+      }),
+    );
+    expect(notifications(session)).toContain("Worktree ready");
+  });
+
   it("prefills the name given on the command line", async () => {
     const session = openFlow("render-page");
     await session.whenScreens(1);
@@ -392,15 +418,18 @@ describe("worktree command — collisions", () => {
 });
 
 describe("worktree command — failures", () => {
-  it("refuses outside a git repository", async () => {
+  it("refuses outside a git repository before asking for a checkout", async () => {
     git.isGitRepo.mockResolvedValue(false);
 
     const session = openFlow();
-    await createWorktree(session);
+    await submitName(session, "render-page");
+    await session.finished;
 
     expect(notifications(session)).toContain(
       "Cannot create a worktree: this session is not inside a git repository.",
     );
+    // The refusal lands before the (now conditional) checkout screen.
+    expect(session.screenCount).toBe(1);
     expect(launcher.createWorktreeCheckout).not.toHaveBeenCalled();
   });
 
