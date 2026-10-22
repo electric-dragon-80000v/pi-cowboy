@@ -40,9 +40,13 @@ import {
 } from "../src/concurrency-pools.js";
 import type {
   AnyHarnessId,
+  HarnessExportForHandover,
   HarnessPrepareRequest,
 } from "../src/agents/harness.js";
-import type { HarnessRegistry } from "../src/agents/harness/harness-registry.js";
+import type {
+  HarnessRegistry,
+  RegisteredHarness,
+} from "../src/agents/harness/harness-registry.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 
@@ -69,7 +73,11 @@ const {
   buildLaunchPlanMock: vi.fn(),
   harnessForMock: vi.fn(),
   // The registry's own `require`, for a suite that stands a stub harness in.
-  registry: { real: undefined as HarnessRegistry["require"] | undefined },
+  registry: {
+    real: undefined as HarnessRegistry["require"] | undefined,
+    /** Entries a suite stands in for an id; `get` reads them, `require` stays real. */
+    overrides: new Map<AnyHarnessId, RegisteredHarness>(),
+  },
 }));
 
 /** The revive's result-dir reset, made to fail on demand. */
@@ -111,6 +119,7 @@ vi.mock("../src/shell.js", async (importOriginal) => {
     ...actual,
     getHarnessRegistry: (): HarnessRegistry => ({
       ...harnesses,
+      get: (id) => registry.overrides.get(id) ?? harnesses.get(id),
       require: (id) => harnessForMock(id),
     }),
     getPiInstance: getPiInstanceMock,
@@ -178,6 +187,8 @@ function makeRef(paneCreated = true): AgentHostRef {
 interface FakeHostOptions {
   paneCreated?: boolean;
   observeState?: "done" | "working";
+  /** Whether the host confirms a stop; false models a process that survived. */
+  stopResult?: boolean;
   /** Registry answer override; undefined models "no herdr agent registered". */
   observeAgent?: () => { state: "done" | "working" } | undefined;
 }
@@ -222,7 +233,7 @@ function makeFakeHost(options: FakeHostOptions = {}) {
     },
     stop: async (stoppedRef: AgentHostRef, stopOptions?: StopOptions) => {
       stopCalls.push({ ref: stoppedRef, options: stopOptions });
-      return true;
+      return options.stopResult ?? true;
     },
     release: async (releasedRef: AgentHostRef, scope: ReleaseScope) => {
       releaseCalls.push({ ref: releasedRef, scope });
@@ -304,7 +315,7 @@ function makeSession(options: HarnessOptions = {}) {
     id: options.id ?? "session-1",
     args: {
       pi: {} as never,
-      ctx: {} as never,
+      ctx: { cwd: "/repo" } as never,
       type: "general-purpose",
       prompt: "test run",
       options: {
@@ -1813,5 +1824,340 @@ describe("SubagentSession steer inside the settle pass", () => {
     expect(settledRuns).toEqual([run.session.spawn, run.session.spawn]);
     expect(run.session.isSettled()).toBe(true);
     await expect(run.session.promise).resolves.toBe("the final answer");
+  });
+});
+
+describe("handover", () => {
+  /** A registry entry that only has to answer what a handover asks of a harness. */
+  function exportingPi(
+    exportForHandover: HarnessExportForHandover,
+  ): RegisteredHarness {
+    return {
+      id: "pi",
+      displayName: "Pi",
+      agentMultiplexerKind: "pi",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => ({ kind: "unavailable", notice: "test" }),
+      prefetchModels: () => {},
+      exportForHandover,
+    };
+  }
+
+  /** A completed run, settled and ready to hand over. */
+  async function settledRun() {
+    const run = completedRun();
+    run.session.start(makeReservation());
+    await driveRun(DRIVE_COMPLETED_MS);
+    return run;
+  }
+
+  it("refuses a run that has not settled, without touching its pane", async () => {
+    const fake = makeFakeHost({ observeState: "working" });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable(),
+      hostRef: fake.ref,
+    });
+    run.session.start(makeReservation());
+    await driveRun(0);
+
+    await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+      kind: "faulted",
+      fault: { kind: "agent-not-settled", status: "spawned" },
+    });
+    expect(fake.stopCalls).toEqual([]);
+    expect(fake.startCalls).toHaveLength(1);
+  });
+
+  it("reports a run stopped before it started as never started", async () => {
+    const fake = makeFakeHost();
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable(),
+    });
+    // Queued, then stopped: settled, but nothing ever engaged a pane or a harness.
+    await run.session.abort("agent");
+    await run.session.promise;
+
+    await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+      kind: "faulted",
+      fault: { kind: "never-started" },
+    });
+    expect(fake.stopCalls).toEqual([]);
+    expect(fake.startCalls).toEqual([]);
+  });
+
+  it("reports a run whose queued start failed as never started", async () => {
+    const run = makeSession({
+      host: makeFakeHost().host,
+      deliverable: new ScriptedDeliverable(),
+    });
+    // The launch a queued slot admitted failed: settled, started nowhere.
+    run.session.settleStartFailure(new Error("harness unavailable"));
+
+    await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+      kind: "faulted",
+      fault: { kind: "never-started" },
+    });
+  });
+
+  it("reports a source harness that cannot export its session, changing nothing", async () => {
+    const run = await settledRun();
+    const outcome = await run.session.handover({ harness: "pi" });
+
+    expect(outcome).toEqual({
+      kind: "faulted",
+      fault: { kind: "harness-cannot-export-session", harness: "pi" },
+    });
+    // Nothing failed and nothing was stopped: the run is left exactly as it was.
+    expect(run.stopCalls).toEqual([]);
+    expect(run.startCalls).toHaveLength(1);
+    expect(run.session.spawn.execution.history).toEqual([]);
+  });
+
+  it("stops the ended run, exports its session, and launches the next run", async () => {
+    const run = await settledRun();
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        session: "user: fix it\nassistant: fixed",
+      })),
+    );
+    const staleReport = stubPlan.launch.resultFile;
+    fs.writeFileSync(staleReport, "FIRST REPORT");
+
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "handed-over",
+        from: "pi",
+        to: "pi",
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    // The ended run keeps its own address and span; the next run engages the
+    // environment after it.
+    expect(run.session.spawn.execution.history).toEqual([
+      {
+        harness: "pi",
+        host: run.ref,
+        cwd: "/repo",
+        startedAt: expect.any(Number),
+        endedAt: expect.any(Number),
+      },
+    ]);
+    expect(run.session.spawn.execution.host).toEqual(run.ref);
+    expect(run.session.spawn.execution.harness).toBe("pi");
+
+    // The old process is stopped at the run's own pane before the next starts.
+    expect(run.stopCalls).toEqual([
+      {
+        ref: run.ref,
+        options: { interruptGraceMs: 2_000, confirmMs: 10_000 },
+      },
+    ]);
+
+    // The next run is an ordinary launch whose task quotes the session.
+    expect(buildLaunchPlanMock).toHaveBeenCalledTimes(2);
+    const continuation = buildLaunchPlanMock.mock.calls[1]![3] as string;
+    expect(continuation).toContain(
+      "This task was previously handled by another agent harness (Pi).",
+    );
+    expect(continuation).toContain(
+      'The previous run\'s session id is "ses_1".',
+    );
+    expect(continuation).toContain("user: fix it\nassistant: fixed");
+    expect(run.startCalls).toHaveLength(2);
+
+    // A settle released the ended run's slots; the next run takes them again.
+    expect(run.reacquired).toEqual([
+      { id: "session-1", identity: { harness: "pi", modelKey: undefined } },
+    ]);
+    // The ended run's report cannot settle the next one.
+    expect(fs.existsSync(staleReport)).toBe(false);
+  });
+
+  it("gives the next run its own pane instead of the placement it ends", async () => {
+    const fake = makeFakeHost({ observeState: "done" });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable({ deliverable: "done" }),
+      // The spawn wizard's placement: the first launch adopts it, and no
+      // later run may adopt it again.
+      hostRef: fake.ref,
+      worktree: { kind: "owned", path: "/repo/wt", branch: "cow-fix-x" },
+    });
+    run.session.start(makeReservation());
+    await driveRun(DRIVE_COMPLETED_MS);
+    expect(fake.hostAtCalls).toEqual([]);
+
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        session: "user: go on",
+      })),
+    );
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "handed-over",
+        from: "pi",
+        to: "pi",
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    // The next run's pane is requested under the same worktree name; the
+    // launch plan (stubbed here) decides the cwd the pane opens in.
+    expect(fake.hostAtCalls).toHaveLength(1);
+    expect(fake.hostAtCalls[0]).toMatchObject({
+      cwd: "/repo",
+      name: "cow-fix-x",
+    });
+    // The ended run is archived at the checkout it actually ran in.
+    expect(run.session.spawn.execution.history[0]).toMatchObject({
+      cwd: "/repo/wt",
+    });
+  });
+
+  it("re-binds the parent signal so the next run is stoppable", async () => {
+    const controller = new AbortController();
+    const fake = makeFakeHost({ observeState: "done" });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable({ deliverable: "done" }),
+      hostRef: fake.ref,
+      options: { signal: controller.signal },
+    });
+    run.session.start(makeReservation());
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        session: "user: go on",
+      })),
+    );
+    try {
+      await expect(
+        run.session.handover({ harness: "pi" }),
+      ).resolves.toMatchObject({ kind: "handed-over" });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+    expect(run.session.isActive()).toBe(true);
+
+    controller.abort();
+    await driveRun(DRIVE_COMPLETED_MS);
+
+    expect(run.session.spawn.lifecycle).toMatchObject({
+      phase: "settled",
+      status: "stopped",
+    });
+  });
+
+  it("refuses to hand over a checkout whose process did not confirm it was gone", async () => {
+    const fake = makeFakeHost({ observeState: "done", stopResult: false });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable({ deliverable: "done" }),
+      hostRef: fake.ref,
+    });
+    run.session.start(makeReservation());
+    await driveRun(DRIVE_COMPLETED_MS);
+    expect(run.session.isSettled()).toBe(true);
+
+    const exportForHandover = vi.fn(async () => ({
+      sessionId: "ses_1",
+      session: "user: go on",
+    }));
+    registry.overrides.set("pi", exportingPi(exportForHandover));
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "faulted",
+        fault: {
+          kind: "stop-failed",
+          detail: "the source process did not confirm it was gone",
+        },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    // Two agents must never share one checkout: nothing was archived or
+    // launched, and the run stays exactly as it was.
+    expect(run.session.spawn.execution.history).toEqual([]);
+    expect(fake.startCalls).toHaveLength(1);
+    expect(buildLaunchPlanMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("faults an export that throws, archiving nothing", async () => {
+    const run = await settledRun();
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => {
+        throw new Error("no session file");
+      }),
+    );
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "faulted",
+        fault: {
+          kind: "session-export-failed",
+          harness: "pi",
+          detail: "no session file",
+        },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+    expect(run.session.spawn.execution.history).toEqual([]);
+    expect(run.startCalls).toHaveLength(1);
+  });
+
+  it("faults an empty session rather than launch a run with nothing to hand over", async () => {
+    const run = await settledRun();
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({ sessionId: "ses_1", session: "   \n" })),
+    );
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "faulted",
+        fault: { kind: "session-empty", harness: "pi" },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+    expect(run.session.spawn.execution.history).toEqual([]);
+    expect(run.startCalls).toHaveLength(1);
+  });
+
+  it("faults the next run when its launch fails, with the ended run archived", async () => {
+    const run = await settledRun();
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        session: "user: keep going",
+      })),
+    );
+    buildLaunchPlanMock.mockRejectedValueOnce(new Error("boom"));
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "faulted",
+        fault: { kind: "launch-failed", detail: "boom" },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+    expect(run.session.spawn.execution.history).toHaveLength(1);
   });
 });

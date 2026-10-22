@@ -9,7 +9,12 @@
  * per-item work, and the rule for a halted batch.
  */
 
-import { successResult, type ToolResult } from "./tool-result.js";
+import {
+  foldSeverity,
+  resultWithSeverity,
+  type ToolResult,
+  type ToolSeverity,
+} from "./tool-result.js";
 
 /** Between the per-item blocks of a batch result: one batch reads as one document of item blocks. */
 export const BATCH_ITEM_SEPARATOR = "\n\n---\n\n";
@@ -68,6 +73,8 @@ export type BatchSpec<TOutcome, TKey extends string> = ItemHandler<TOutcome> & {
   detailsKey: TKey;
   /** The tool's whole-call guards beyond the duplicate check; runs before the first item, so a refusal mutates nothing. */
   prepare?: () => void | Promise<void>;
+  /** How one item's outcome reads: the call's severity is the worst of them. */
+  severity: (outcome: TOutcome) => ToolSeverity;
 };
 
 /** A tool's handler in the single shape the batch loop works with. */
@@ -114,9 +121,11 @@ export async function runBatch<TOutcome, TKey extends string>(
     if (halt !== undefined && halt.halts(handled.outcome)) haltedBy = item;
   }
 
-  return successResult(blocks.join(BATCH_ITEM_SEPARATOR), {
-    [spec.detailsKey]: outcomes,
-  } as Record<TKey, TOutcome[]>);
+  return resultWithSeverity(
+    foldSeverity(outcomes.map(spec.severity)),
+    blocks.join(BATCH_ITEM_SEPARATOR),
+    { [spec.detailsKey]: outcomes } as Record<TKey, TOutcome[]>,
+  );
 }
 
 /** Flattens a tool's handler into the pair form the loop reads, rendering from the outcome where the tool asked for that. */

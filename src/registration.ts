@@ -3,27 +3,24 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionUIContext,
-  Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import {
   CowboyAgentsSchema,
   type CowboyAgentParams,
 } from "./agents/schemas/cowboy-agents.schema.js";
-import { StopBatchSchema } from "./agents/schemas/stop-batch.schema.js";
-import { CleanupBatchSchema } from "./agents/schemas/cleanup-batch.schema.js";
-import { MergeBatchSchema } from "./agents/schemas/merge-batch.schema.js";
-import { SteerBatchSchema } from "./agents/schemas/steer-batch.schema.js";
 import { getAvailableTypes } from "./agents/agent-types.js";
+import { executeAgentTool, stopAgentTool } from "./agents/tool-execution.js";
+import { cleanupAgentTool } from "./agents/tool-cleanup.js";
+import { mergeBranchTool } from "./agents/tool-merge.js";
+import { steerAgentTool } from "./agents/tool-steer.js";
+import { handoverAgentTool } from "./agents/tool-handover.js";
+import { withCowboyRenderer } from "./agents/tool-renderer.js";
 import {
-  executeAgentTool,
-  executeStopAgentTool,
-} from "./agents/tool-execution.js";
-import { executeCleanupAgentTool } from "./agents/tool-cleanup.js";
-import { executeMergeBranchTool } from "./agents/tool-merge.js";
-import { executeSteerAgentTool } from "./agents/tool-steer.js";
-import { type ToolResult } from "./agents/tool-result.js";
-import type { StopItemOutcome } from "./agents/tool-execution.js";
+  COWBOY_TOOL_NAMES,
+  COWBOY_TOOLS,
+  CONSTRAINED_SAMPLING,
+} from "./cowboy-tools.js";
 import {
   isExtensionEnabled,
   syncExtensionIndicator,
@@ -40,24 +37,9 @@ import {
 import { NO_HOST_REASON } from "./host-multiplexer.js";
 import type { HarnessModelOptions } from "./agents/harness/harness-registry.js";
 
-/** The one place a tool name is spelled; the tools below are named from these. */
-export const COWBOY_TOOLS = {
-  agent: "cowboy_agent",
-  stopAgent: "stop_cowboy_agent",
-  mergeBranch: "merge_cowboy_branch",
-  steerAgent: "steer_cowboy_agent",
-  cleanupAgent: "cleanup_cowboy_agent",
-} as const;
-
-export const COWBOY_TOOL_NAMES: readonly string[] = Object.values(COWBOY_TOOLS);
+export { COWBOY_TOOLS, COWBOY_TOOL_NAMES };
 
 // The /cowboy UI is imported lazily so none of it runs at boot.
-
-// "prefer" falls back gracefully on providers without strict mode.
-const CONSTRAINED_SAMPLING = {
-  type: "json_schema",
-  strict: "prefer",
-} as const;
 
 /**
  * Rebuild the per-item `agent_type` description so it lists the agent types
@@ -107,7 +89,7 @@ export function registerAgentTool(pi: ExtensionAPI): void {
     execute: executeAgentTool,
     constrainedSampling: CONSTRAINED_SAMPLING,
   };
-  pi.registerTool(tool);
+  pi.registerTool(withCowboyRenderer(tool));
 }
 
 export type { CowboyAgentParams };
@@ -157,62 +139,11 @@ export function deactivateExtension(ui: ExtensionUIContext): void {
 export function registerTools(pi: ExtensionAPI): void {
   registerAgentTool(pi);
 
-  const stopAgentTool = {
-    name: COWBOY_TOOLS.stopAgent,
-    label: COWBOY_TOOLS.stopAgent,
-    description:
-      "Stop one or more active agents in one call: pass every id in `agent_ids`. Each id is handled independently in input order — stopped, reported as already settled, or reported unknown — and one id's outcome never blocks the rest. A repeated id in `agent_ids` is rejected before anything is stopped — pass each id once. Stopping interrupts the pi process (its pane is left in place) and settles the agent as stopped. Nothing is removed — the worktree and branch are preserved.",
-    parameters: StopBatchSchema,
-    execute: executeStopAgentTool,
-    constrainedSampling: CONSTRAINED_SAMPLING,
-    renderResult: (
-      result: ToolResult<{ agents: StopItemOutcome[] }>,
-      _options: { expanded?: boolean },
-      theme: Theme,
-      context: { isError?: boolean },
-    ) => {
-      const isError = context.isError ?? false;
-      const content = result.content.at(0);
-      const text = content?.type === "text" ? content.text : "";
-      const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
-      return new Text(`${icon} ${text}`, 0, 0);
-    },
-  };
-  // @ts-expect-error — matching pi's exact generic would force an import this repo avoids.
-  pi.registerTool(stopAgentTool);
-
-  const mergeBranchTool = {
-    name: COWBOY_TOOLS.mergeBranch,
-    label: COWBOY_TOOLS.mergeBranch,
-    description:
-      "Merge one or more settled agent branches in one call: pass every branch in `branches` (the `cow-<task>-<id>` branches from the cowboy_agent result notes). `target` and `repo` apply to the whole call. A repeated branch in `branches` is rejected before anything merges — pass each branch once. The repo's main checkout must be on the target branch and clean: the merge refuses when it is not on the target (a merge anywhere else would land on the wrong branch) and refuses when the checkout is dirty. Already-merged branches are reported without running a merge (the checkout is left untouched), and conflicts are never auto-resolved. Branches merge sequentially in input order; a conflict halts the batch — the conflicted merge is left in progress with the file list so you can resolve it, and the remaining branches are reported as not attempted.",
-    parameters: MergeBatchSchema,
-    execute: executeMergeBranchTool,
-    constrainedSampling: CONSTRAINED_SAMPLING,
-  };
-  pi.registerTool(mergeBranchTool);
-
-  const steerAgentTool = {
-    name: COWBOY_TOOLS.steerAgent,
-    label: COWBOY_TOOLS.steerAgent,
-    description:
-      "Send one message to one or more agents in one call: pass every id in `agent_ids` and the single `message` delivered to each. Each id is handled independently in input order — delivered, or refused with its reason — and one id's refusal never blocks the rest. A repeated id in `agent_ids` is rejected before anything is delivered — pass each id once. A spawned agent receives the message before its next model call; a SETTLED one is REVIVED — spawned again, given the message, and it sends you another completion message when it settles again. That second result arrives only as that completion message: the spawn's result promise closed with the first turn and never opens again. Delivery is fire-and-forget: nothing here waits for an agent to act on it, so do not poll for a reply. The message is entered into the agent's pi session, so it can also be a bash command: `!command` runs the command and sends its output to the agent's context; `!!command` runs it without adding the output to the agent's context. A QUEUED agent cannot be steered — it has no pane yet; wait for a concurrency slot first. An agent whose pane is gone (cleaned up) cannot be steered either, and neither can an agent being TORN DOWN — wait for its report. Every refusal states its reason and what to do about it.",
-    parameters: SteerBatchSchema,
-    execute: executeSteerAgentTool,
-    constrainedSampling: CONSTRAINED_SAMPLING,
-  };
-  pi.registerTool(steerAgentTool);
-
-  const cleanupAgentTool = {
-    name: COWBOY_TOOLS.cleanupAgent,
-    label: COWBOY_TOOLS.cleanupAgent,
-    description:
-      "Remove one or more SETTLED agents' artifacts in one call: pass every id in `agent_ids`. Each id is handled independently in input order — located, cleaned up, and reported with its own agent status / pane / worktree / branch block — and one id's outcome never blocks the rest. A repeated id in `agent_ids` is rejected before anything is removed — pass each id once. Removes the herdr pane/tab, the worktree, and the cow- branch when it is merged into the parent HEAD. Gated on a reported result — an agent that is still active is REFUSED for its item only: nothing is stopped, removed, or released, and the report says why (stop it with stop_cowboy_agent, then clean up once it has settled). Best effort — each item's result is a structured report of what was done. A worktree with uncommitted changes, or whose state cannot be verified, is KEPT with the reason rather than destroyed (clean it, then retry). An unmerged branch does NOT block removal — the branch and its commits live in the repo, so the worktree is removed and the branch is kept for you to merge later. A torn-down run also loses its staging directory (<tmpdir>/pi-cowboy/<id>/) — those files may carry secrets, so they go with the run; a cleanup that keeps the worktree, and a refusal, removes nothing. An agent whose spawning session was replaced (/new, /resume, /fork) is still tracked, so pass the original full agent id from its spawn or completion result — and an id whose record did not survive a /reload is not rejected outright either: the artifacts themselves are located (herdr's worktree/pane registries, then the worktree root on disk by id) and cleaned up when the run is established as over. That recovered report marks the agent status `unrecorded` and states the evidence its verdict rests on: it refuses, keeping everything, while herdr still reports the pane `working` or when the pane cannot be read at all, and it refuses when two artifacts answer to the id (listing them). The recovered path is the one exception to the staging-directory removal: it has no record of the run, so it reports the agent's deliverable (<tmpdir>/pi-cowboy/<id>/result.md) instead of deleting it, and nothing the agent wrote is lost silently.",
-    parameters: CleanupBatchSchema,
-    execute: executeCleanupAgentTool,
-    constrainedSampling: CONSTRAINED_SAMPLING,
-  };
-  pi.registerTool(cleanupAgentTool);
+  pi.registerTool(withCowboyRenderer(stopAgentTool));
+  pi.registerTool(withCowboyRenderer(mergeBranchTool));
+  pi.registerTool(withCowboyRenderer(steerAgentTool));
+  pi.registerTool(withCowboyRenderer(handoverAgentTool));
+  pi.registerTool(withCowboyRenderer(cleanupAgentTool));
 
   pi.registerMessageRenderer("subagent-result", (message, _options, theme) => {
     const content =

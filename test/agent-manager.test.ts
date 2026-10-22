@@ -1005,4 +1005,21 @@ describe("AgentManager fleet routing", () => {
     expect(manager.listAgents()).toHaveLength(2);
     expect(manager.listAgents(ACTIVE_AGENT_PHASES)).toEqual([spawnedSpawn]);
   });
+
+  it("refuses a handover for an id no session tracks", async () => {
+    const manager = new AgentManager(
+      recordingPools(() => ({ kind: "queue" as const }))
+        .pools as unknown as ConcurrencyPools,
+      noMultiplexer(),
+    );
+
+    // A settled spawn whose session a session replacement dropped is still in
+    // the store, but nothing can export or relaunch it.
+    await expect(
+      manager.handover("missing", { harness: "claude" }),
+    ).resolves.toEqual({
+      kind: "faulted",
+      fault: { kind: "agent-unknown" },
+    });
+  });
 });

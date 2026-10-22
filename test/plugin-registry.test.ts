@@ -7,11 +7,12 @@
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
-import type {
-  HarnessConfigCodec,
-  HarnessListModelsRequest,
-  ModelEntry,
-  PluginHarness,
+import {
+  canExportForHandover,
+  type HarnessConfigCodec,
+  type HarnessListModelsRequest,
+  type ModelEntry,
+  type PluginHarness,
 } from "../src/agents/harness.js";
 import {
   createHarnessRegistry,
@@ -75,6 +76,30 @@ describe("the open harness registry", () => {
     expect(harnesses.require(PROVABLE_ID).agentMultiplexerKind).toBe(
       PROVABLE_ID,
     );
+  });
+
+  it("keeps a plugin's session export on the registry entry, and no export means no capability", async () => {
+    const exportForHandover = vi.fn(async () => ({
+      sessionId: "ses_1",
+      session: "user: hi",
+    }));
+    harnesses.register({
+      ...pluginHarness("reg-export", { status: "available" }),
+      exportForHandover,
+    });
+
+    const entry = harnesses.require("reg-export");
+    expect(canExportForHandover(entry)).toBe(true);
+    expect(canExportForHandover(harnesses.require("pi"))).toBe(false);
+    await expect(
+      entry.exportForHandover?.({
+        pi: {} as never,
+        subagentId: "s",
+        paneId: "w1:p1",
+        cwd: "/repo",
+      }),
+    ).resolves.toEqual({ sessionId: "ses_1", session: "user: hi" });
+    expect(exportForHandover).toHaveBeenCalledOnce();
   });
 
   it("validates each harness's config with its own codec, built-in or plugin", () => {

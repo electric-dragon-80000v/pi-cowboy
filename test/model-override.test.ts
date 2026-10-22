@@ -745,10 +745,12 @@ describe("cowboy_agent per-call model override", () => {
     input.run_in_background = false;
     const result = await executeAgentTool("", input, undefined, undefined, ctx);
     // Single-item foreground preserves the unified `{ agents: [...] }` shape.
-    const details = result.details as {
+    const details = result.details as unknown as {
       agents: Array<Record<string, unknown>>;
     };
     expect(details.agents[0].modelName).toBe("special-model");
     expect(details.agents[0].modelId).toBe("special-model");
+    // A foreground run that completed reads as a success.
+    expect(result.details.severity).toBe("success");
   });
 });
