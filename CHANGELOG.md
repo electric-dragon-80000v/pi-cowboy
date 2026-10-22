@@ -1,3 +1,10 @@
+# [0.21.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.20.0...v0.21.0) (2026-10-22)
+
+
+### Features
+
+* add shorthands for worktree, status and spawn commands ([298d74f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/298d74fe6e47c4e06a7c48e7ecb30c010d546eb2))
+
 # [0.20.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.19.0...v0.20.0) (2026-10-22)
 
 
