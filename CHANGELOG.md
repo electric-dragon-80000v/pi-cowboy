@@ -1,3 +1,10 @@
+# [0.19.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.18.0...v0.19.0) (2026-10-22)
+
+
+### Features
+
+* **agent:** inherit parent session thinking level for pi-family spawns ([114dfc5](https://github.com/electric-dragon-80000v/pi-cowboy/commit/114dfc5b07703c8fee4d7d1f2836ecd47e54b57f))
+
 # [0.18.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.2...v0.18.0) (2026-10-22)
 
 
