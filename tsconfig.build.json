@@ -5,8 +5,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": true,
-    "incremental": true,
-    "tsBuildInfoFile": "dist/tsconfig.build.tsbuildinfo"
+    "emitDeclarationOnly": true,
+    "removeComments": true
   },
   "include": ["src"]
 }
