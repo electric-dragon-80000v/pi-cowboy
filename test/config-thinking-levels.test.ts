@@ -4,8 +4,9 @@
  * resolution over those layers, and the chain that picks one.
  *
  * The chain is the same ranked-candidate walk the model chain uses, over a
- * shorter list of layers. It returns the winning level as written: a token is
- * one harness's vocabulary, so no layer here rewrites it to suit a model.
+ * shorter list of layers: the parent session's level is the last step, and only
+ * a pi-family launch reads it. It returns the winning level as written: a token
+ * is one harness's vocabulary, so no layer here rewrites it to suit a model.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import type {
 import {
   harnessDefaultThinking,
   resolveThinking,
+  resolveThinkingSource,
   type SubagentsConfig,
 } from "../src/models/model-precedence.js";
 
@@ -191,6 +193,54 @@ describe("resolveThinking — the chain", () => {
   it("falls through to the harness default, and to nothing when it has none", () => {
     expect(resolveThinking({ ...base, harnessDefault: "high" })).toBe("high");
     expect(resolveThinking(base)).toBeUndefined();
+  });
+
+  it("falls through to the parent's level for the pi family only", () => {
+    expect(
+      resolveThinking({
+        ...base,
+        harnessFamily: "pi",
+        parentThinking: "high",
+      }),
+    ).toBe("high");
+    // The parent's level is pi's, so a foreign launch never reads it.
+    expect(
+      resolveThinking({
+        ...base,
+        harnessFamily: "opencode",
+        parentThinking: "high",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("keeps every configured layer above the parent's level", () => {
+    expect(
+      resolveThinking({
+        ...base,
+        harnessFamily: "pi",
+        config: configWith({ thinking: { auditor: "low" } }),
+        harnessDefault: "medium",
+        parentThinking: "high",
+      }),
+    ).toBe("low");
+    expect(
+      resolveThinking({
+        ...base,
+        harnessFamily: "pi",
+        harnessDefault: "medium",
+        parentThinking: "high",
+      }),
+    ).toBe("medium");
+  });
+
+  it("reports the parent as the winning chain position", () => {
+    expect(
+      resolveThinkingSource({
+        ...base,
+        harnessFamily: "pi",
+        parentThinking: "high",
+      }),
+    ).toEqual({ value: "high", source: "parent" });
   });
 
   it("reports which layer won", () => {

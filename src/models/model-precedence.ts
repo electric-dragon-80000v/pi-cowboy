@@ -24,18 +24,26 @@
  * A key written for pi contributes nothing to an opencode launch, which falls
  * through to its own default.
  *
- * Thinking resolves through the same layers, shorter by the two pi-only steps:
- * a thinking token names a level in one harness's vocabulary, so it never
- * inherits from the parent (a parent session runs pi), and the per-type
- * session override is a thinking map of its own rather than the model map:
+ * Thinking resolves through the same ranked walk, shorter by the pi-only
+ * session default (the per-type session override is a thinking map of its own
+ * rather than the model map):
  *   1. sessionThinking[subagentType]        (session per-type override)
  *   2. config.agent.thinking[subagentType]  (config per-type override)
  *   3. agentConfig?.thinkingByFamily[family] (the agent template, read only for
  *      the launching harness's family)
  *   4. the launching harness's default (pi's family: agent.defaultThinking at
  *      any layer; any other harness: agent.defaultThinkingByHarness[harness])
- *   5. no layer names a level — the run asks for none, and the harness's own
+ *   5. parentThinking                       (inherit from the parent; the pi
+ *      family only, because the parent session runs pi and its level is
+ *      therefore pi's vocabulary)
+ *   6. no layer names a level — the run asks for none, and the harness's own
  *      default applies.
+ *
+ * The parent's level is the last step, not the first: a configured default
+ * still wins, exactly as the parent's model loses to every configured model
+ * key. A pinned child model may not support the parent's level; the token is
+ * still carried as written, because a level is what the layers named and the
+ * harness that runs it decides what the token means.
  *
  * The precedence chain forwards the resolved token unchanged. Harnesses with
  * a closed vocabulary emit a warning if the token is not recognized, but do
@@ -289,9 +297,10 @@ export function harnessDefaultThinking(
 }
 
 /**
- * pi's own default thinking level. A level no layer names reads as this one on
- * a model that supports it: pi's child would have used it anyway, so a menu
- * that showed "inherit" would be describing a level the run never runs at.
+ * pi's own default thinking level. A level no layer names — the parent
+ * included — reads as this one on a model that supports it: pi's child would
+ * have used it anyway, so a menu that showed no level would be describing a
+ * run that never runs at none.
  */
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
@@ -312,12 +321,21 @@ interface ResolveThinkingOptions {
    * because which harness launches is resolved the way the launch resolves it.
    */
   harnessDefault: string | null;
+  /**
+   * The parent session's level — pi's vocabulary, since a parent session runs
+   * pi. Read by the pi family alone; undefined when the session reports none.
+   */
+  parentThinking?: string;
   sessionThinking?: SessionThinkingOverrides;
 }
 
 /** The chain position that named a thinking token. */
 export type ThinkingSource =
-  "session-per-type" | "config-per-type" | "agent-template" | "harness-default";
+  | "session-per-type"
+  | "config-per-type"
+  | "agent-template"
+  | "harness-default"
+  | "parent";
 
 /**
  * The winning token and the position that named it. Undefined when no layer
@@ -333,6 +351,7 @@ export function resolveThinkingSource(
     harnessFamily,
     config,
     harnessDefault,
+    parentThinking,
     sessionThinking,
   } = options;
 
@@ -348,6 +367,8 @@ export function resolveThinkingSource(
     ["config-per-type", config.agent.thinking?.[subagentType]],
     ["agent-template", templateThinking],
     ["harness-default", harnessDefault],
+    // The parent's level is pi's, so only a pi-family launch may inherit it.
+    ["parent", harnessFamily === "pi" ? parentThinking : undefined],
   ]);
 }
 

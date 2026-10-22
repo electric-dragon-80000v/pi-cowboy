@@ -178,9 +178,10 @@ When spawning an agent, `pi-cowboy` resolves the thinking level in this order (h
 2. Config per-type override (`agent.thinking.<agent-type>` in project or global `config.json`).
 3. The agent template's `thinking` for the launching harness family (tokens for other harness families are ignored).
 4. The launching harness's configured default: `agent.defaultThinking` for the Pi family, or `agent.defaultThinkingByHarness.<harness>` for foreign harnesses.
-5. No level resolves: the launch asks for no level, and the harness's own default applies.
+5. The parent session's current level, for a Pi-family launch only. The parent session runs Pi, so its level is already in the vocabulary the child reads; a foreign harness never inherits it.
+6. No level resolves: the launch asks for no level, and the harness's own default applies.
 
-The resolved thinking level passes to the launch process without alteration. Because thinking levels resolve independently of models, an agent spawning without an explicit model override still applies the configured thinking level.
+The parent's level is the last step, exactly as the parent's model key is the last step of [model resolution](#model-keys): a configured default still wins. The resolved thinking level passes to the launch process without alteration, and `pi-cowboy` never rewrites a token to suit the child's model. Because thinking levels resolve independently of models, an agent spawning without an explicit model override still applies the configured thinking level.
 
 ## `multiplexer`
 

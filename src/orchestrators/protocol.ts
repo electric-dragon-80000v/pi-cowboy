@@ -105,7 +105,7 @@ interface DelegationIntent {
   orchestrator: OrchestratorConfig;
   /** Fork the parent session into the child; false means a fresh session. */
   fork: boolean;
-  /** Absent means inherit the parent. The thinking level rides it. */
+  /** Absent means the spawn names neither a model nor a level of its own. */
   modelChoice?: ModelChoice;
   /** The caller's validated `harness_type`; absent means the agent template's `harness_type` and the config setting resolve it. */
   requestedHarness?: AnyHarnessId;

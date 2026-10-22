@@ -17,7 +17,7 @@ import { DynamicBorder } from "@earendil-works/pi-coding-agent";
 import type { Theme } from "./types.js";
 
 export interface SelectOption {
-  /** Value returned on selection; null is the inherit/clear sentinel. */
+  /** Value returned on selection; null is the (none)/clear sentinel. */
   value: string | null;
   label: string;
   /** Provider badge; omitted when the label already conveys it. */

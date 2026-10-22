@@ -42,6 +42,8 @@ interface ModelGroupsInput {
   hasProjectModelKey: (key: string) => boolean;
   /** Null when the parent session has no model: nothing further to inherit. */
   parentModelId: string | null;
+  /** The parent session's level, read by a pi-family type when no layer names one. */
+  parentThinking: string | null;
   /** The session's per-type thinking tokens, in each type's own harness vocabulary. */
   sessionThinking: SessionThinkingOverrides;
   /** The launching harness's default thinking token for one type, flattened across its layers. */
@@ -52,13 +54,13 @@ interface ModelGroupsInput {
 
 interface ModelGroupRow {
   type: string;
-  /** The level as the chain resolved it; null = no level, rendered as "inherit". */
+  /** The level as the chain resolved it; null = no level, rendered as "(none)". */
   thinking: string | null;
   /**
-   * The layer that named the level: " [session]", " [project]", or "" when the
-   * global file or nothing at all named it. A level a template, a harness
-   * default, or pi's own fallback supplied has no layer to name, exactly as the
-   * model column treats one.
+   * The layer that named the level: " [session]", " [project]", " [parent]",
+   * or "" when the global file or nothing at all named it. A level a template,
+   * a harness default, or pi's own fallback supplied has no layer to name,
+   * exactly as the model column treats one.
    */
   thinkingTag: string;
   /** Winning layer of the model key: " [session]", " [project]", or "" for global. */
@@ -124,6 +126,7 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
       harnessFamily: harnessFamilyFor(type),
       config,
       harnessDefault: input.harnessDefaultThinkingFor(type),
+      parentThinking: input.parentThinking ?? undefined,
       sessionThinking: input.sessionThinking,
     });
     // The tag names the layer the level itself came from, so a null mask at a
@@ -132,10 +135,12 @@ export function buildModelGroups(input: ModelGroupsInput): ModelGroups {
     const thinkingTag =
       thinkingSource === "session-per-type"
         ? " [session]"
-        : thinkingSource === "config-per-type" &&
-            input.hasProjectThinkingKey(type)
-          ? " [project]"
-          : "";
+        : thinkingSource === "parent"
+          ? " [parent]"
+          : thinkingSource === "config-per-type" &&
+              input.hasProjectThinkingKey(type)
+            ? " [project]"
+            : "";
 
     const rows = byModel.get(resolved) ?? [];
     rows.push({ type, thinking, thinkingTag, tag });
@@ -189,15 +194,19 @@ export interface ThinkingDisplayInput {
   config: SubagentsConfig["agent"];
   /** The launching harness's default, flattened across its layers. */
   harnessDefault: string | null;
+  /** The parent session's level, read by the pi family alone. */
+  parentThinking?: string;
   sessionThinking: SessionThinkingOverrides;
 }
 
 /**
- * The level a launch sends and the chain position that named it. When no layer
- * names one, only a pi-family launch has a level to send — pi runs its own
- * default, which no layer named. Another harness has none here: its binary
- * picks one, or applies none, so the row shows no level rather than a token the
- * launch never sends.
+ * The level a launch sends and the chain position that named it. The parent
+ * session's level is the chain's last step for a pi-family launch, so it wins
+ * over pi's own default when the session reports one. When neither a layer nor
+ * the parent names one, only a pi-family launch has a level to send — pi runs
+ * its own default, which nothing named. Another harness has none here: its
+ * binary picks one, or applies none, so the row shows no level rather than a
+ * token the launch never sends.
  */
 export function displayedThinking(input: ThinkingDisplayInput): {
   level: string | null;
@@ -210,6 +219,7 @@ export function displayedThinking(input: ThinkingDisplayInput): {
     agentConfig: input.agentConfig,
     config: { agent: input.config },
     harnessDefault: input.harnessDefault,
+    parentThinking: input.parentThinking,
     sessionThinking: input.sessionThinking,
   });
   if (resolved !== undefined) {

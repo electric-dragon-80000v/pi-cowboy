@@ -38,6 +38,7 @@ import {
 } from "./helpers.js";
 import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
 import { createModelSelectSubmenu } from "./submenus/model-select.js";
+import { NO_LEVEL_ID } from "./submenus/thinking-select.js";
 import { spawnChoices, THINKING_LEVEL_ROW_ID } from "./spawn-choice.js";
 import {
   buildWorktreeRow,
@@ -102,16 +103,22 @@ export async function askSpawnConfiguration(
   });
 
   /**
-   * The type's configured token, carried as the chain resolved it. A token the
-   * model's own list does not contain still rides the spawn — the resolved
-   * level is what the other spawn paths send, and a harness that knows its
-   * vocabulary warns rather than refusing.
+   * The type's configured token, carried as the chain resolved it, with the
+   * session's current level as the pi family's last step. A token the model's
+   * own list does not contain still rides the spawn — the resolved level is
+   * what the other spawn paths send, and a harness that knows its vocabulary
+   * warns rather than refusing.
    */
   const seedThinking = (
     type: string,
     harness: AnyHarnessId,
   ): string | undefined =>
-    store.thinkingFor(type, getAgentConfig(type), harness);
+    store.thinkingFor(
+      type,
+      getAgentConfig(type),
+      harness,
+      session.thinkingLevel,
+    );
 
   let selectedHarness = resolveHarnessType(selectedType);
   let currentModelStr = modelFor(selectedType, selectedHarness);
@@ -329,7 +336,12 @@ export async function askSpawnConfiguration(
             break;
           }
           case THINKING_LEVEL_ROW_ID:
-            currentThinking = newValue === "inherit" ? undefined : newValue;
+            // None is not an override: it re-seeds the level the spawn would
+            // send anyway, so the row keeps showing what the launch carries.
+            currentThinking =
+              newValue === NO_LEVEL_ID
+                ? seedThinking(selectedType, selectedHarness)
+                : newValue;
             break;
           case "background":
             currentBackground = newValue === "ON";

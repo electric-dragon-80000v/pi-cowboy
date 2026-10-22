@@ -293,7 +293,7 @@ describe("Agents menu — the Model overrides row", () => {
 
     expect((await openMain()).activeRow()).toEqual({
       label: "Model overrides",
-      value: "anthropic/claude-3 [project] · inherit",
+      value: "anthropic/claude-3 [project] · (none)",
     });
   });
 
@@ -329,7 +329,7 @@ describe("Agents menu — the Model overrides row", () => {
     // the flow completes itself and rebuilds the row behind it.
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "(none) · inherit",
+      value: "(none) · (none)",
     });
 
     session.press(KEY.escape);
@@ -337,7 +337,7 @@ describe("Agents menu — the Model overrides row", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Model overrides",
-      value: "(none) · inherit",
+      value: "(none) · (none)",
     });
   });
 });

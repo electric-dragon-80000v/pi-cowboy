@@ -123,7 +123,7 @@ describe("Model Settings — structure on a fresh config", () => {
   });
 
   const rowTable = [
-    ["Pi Default Model", "(none) · inherit"],
+    ["Pi Default Model", "(none) · (none)"],
     ["Override another type...", ""],
   ] as const;
 
@@ -148,7 +148,7 @@ describe("Model Settings — structure on a fresh config", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "(none) · inherit",
+      value: "(none) · (none)",
     });
   });
 });
@@ -164,7 +164,7 @@ describe("Model Settings — the listing rule", () => {
 
     expect(session.activeRow()).toEqual({
       label: "Pi Default Model",
-      value: "openai/gpt-4 · inherit",
+      value: "openai/gpt-4 · (none)",
     });
     expect(session.text()).toContain("anthropic/claude-3");
     expect(session.text()).toContain("• auditor");
@@ -258,7 +258,7 @@ describe("Model Settings — provenance tags", () => {
 
     expect((await openModelSettings()).rows()).toContainEqual({
       label: "Pi Default Model",
-      value: "anthropic/claude-3 [project] · inherit",
+      value: "anthropic/claude-3 [project] · (none)",
     });
   });
 
@@ -272,7 +272,38 @@ describe("Model Settings — provenance tags", () => {
 
     expect((await openModelSettings()).rows()).toContainEqual({
       label: "Pi Default Model",
-      value: "openai/gpt-4o [session] · inherit",
+      value: "openai/gpt-4o [session] · (none)",
+    });
+  });
+
+  it("keeps the parent's level above pi's own settings default", async () => {
+    piSettings.thinking = "high";
+    installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
+    setSession({
+      cwd: "/repo",
+      model: reasoningModel("anthropic", "claude-3"),
+      modelRegistry: REGISTRY,
+      thinkingLevel: "low",
+    } as unknown as Parameters<typeof setSession>[0]);
+
+    expect((await openModelSettings()).rows()).toContainEqual({
+      label: "• auditor",
+      value: "low [parent]",
+    });
+  });
+
+  it("tags the parent's level when no layer names one", async () => {
+    installStore({ global: { agent: { auditor: "anthropic/claude-3" } } });
+    setSession({
+      cwd: "/repo",
+      model: reasoningModel("anthropic", "claude-3"),
+      modelRegistry: REGISTRY,
+      thinkingLevel: "high",
+    } as unknown as Parameters<typeof setSession>[0]);
+
+    expect((await openModelSettings()).rows()).toContainEqual({
+      label: "• auditor",
+      value: "high [parent]",
     });
   });
 
@@ -377,7 +408,7 @@ describe("Model Settings — per-type rows", () => {
               ["Off", ""],
               ["Low", ""],
               ["High", ""],
-              ["Inherit", ""],
+              ["None", ""],
             ],
           },
         },
@@ -488,7 +519,7 @@ describe("Model Settings — override another type", () => {
     await session.settle();
 
     // A pi launch applies pi's own default, so the list opens on it rather
-    // than on an "inherit" its row never shows.
+    // than on a "(none)" its row never shows.
     expect(session.rows()).toContainEqual({
       label: "Medium",
       value: "(current)",
@@ -663,9 +694,9 @@ describe("Model Settings — per-harness default rows", () => {
             // This model advertises no thinking control, so its pair is the
             // model alone and the pick needs no level step.
             active: "OpenCode Default Model",
-            activeValue: "openai/gpt-4o · inherit",
+            activeValue: "openai/gpt-4o · (none)",
             notified: [
-              "OpenCode Default Model set to openai/gpt-4o · inherit (global)",
+              "OpenCode Default Model set to openai/gpt-4o · (none) (global)",
             ],
             store: (store) =>
               expect(store.defaultModelForHarness("opencode")).toBe(
@@ -700,7 +731,7 @@ describe("Model Settings — per-harness default rows", () => {
 
     expect((await openModelSettings()).rows()).toContainEqual({
       label: "OpenCode Default Model",
-      value: "anthropic/claude-opus-4 [project] · inherit",
+      value: "anthropic/claude-opus-4 [project] · (none)",
     });
   });
 
@@ -730,7 +761,7 @@ describe("Model Settings — per-harness default rows", () => {
             // (none) removes the model and the level at the layer: a level has
             // no model of its own to run at.
             active: "OpenCode Default Model",
-            activeValue: "(none) · inherit",
+            activeValue: "(none) · (none)",
             notified: ["OpenCode Default Model cleared (global)"],
             store: (store) =>
               expect(store.defaultModelForHarness("opencode")).toBeNull(),
@@ -931,6 +962,28 @@ describe("Model Settings — a per-type row follows its resolved harness", () =>
     );
   });
 
+  it("never reads the parent's level for a foreign harness", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    harnessModelOptions = new Map([
+      ["pi", PI_MODELS],
+      ["opencode", OPENCODE_MODELS],
+    ]);
+    installStore({ global: { agent: { auditor: "openai/gpt-4o" } } });
+    setSession({
+      cwd: "/repo",
+      model: reasoningModel("anthropic", "claude-3"),
+      modelRegistry: REGISTRY,
+      thinkingLevel: "high",
+    } as unknown as Parameters<typeof setSession>[0]);
+
+    const session = await openModelSettings();
+    expect(session.rows()).toContainEqual({
+      label: "• auditor",
+      value: "(none)",
+    });
+  });
+
   it("shows no level when the harness has no default this screen knows", async () => {
     registerOpencodeType();
     setHarnessAvailability(probed(["pi", "opencode"]));
@@ -945,7 +998,7 @@ describe("Model Settings — a per-type row follows its resolved harness", () =>
 
     expect(session.rows()).toContainEqual({
       label: "• auditor",
-      value: "inherit",
+      value: "(none)",
     });
   });
 
@@ -1094,16 +1147,16 @@ describe("Model Settings — the default rows write the pair", () => {
               expect(store.defaultThinkingForHarness("pi-bolt")).toBe("low"),
           },
         },
-        // Inherit unpins the session level and leaves the model in place.
+        // None unpins the session level and leaves the model in place.
         { open: "Pi Default Model" },
         { open: "Session" },
         { open: /gpt-4o \[openai\]/ },
-        { open: "Inherit" },
+        { open: "None" },
         {
           expect: {
             rows: [["Pi Default Model", "openai/gpt-4o [session] · high"]],
             notified: [
-              "Pi Default Model set to openai/gpt-4o · inherit (session)",
+              "Pi Default Model set to openai/gpt-4o · (none) (session)",
             ],
             store: (store) => {
               expect(store.defaultThinkingForHarness("pig")).toBe("high");
@@ -1199,9 +1252,9 @@ describe("Model Settings — the default rows write the pair", () => {
         { open: "gpt-4o [openai]" },
         {
           expect: {
-            rows: [["OpenCode Default Model", "openai/gpt-4o · inherit"]],
+            rows: [["OpenCode Default Model", "openai/gpt-4o · (none)"]],
             notified: [
-              "OpenCode Default Model set to openai/gpt-4o · inherit (global)",
+              "OpenCode Default Model set to openai/gpt-4o · (none) (global)",
             ],
             store: (store) =>
               expect(store.defaultThinkingForHarness("opencode")).toBeNull(),
@@ -1271,12 +1324,12 @@ describe("Model Settings — per-type pairs", () => {
         // The current model carries the picker's check mark, so it is matched
         // by its label rather than by the exact rendered row.
         { open: /claude-3 \[anthropic\]/ },
-        { open: "Inherit" },
+        { open: "None" },
         {
           expect: {
             // Back to the level a launch would send with nothing configured.
             rows: [["• auditor", "medium"]],
-            notified: ["auditor set to anthropic/claude-3 · inherit (global)"],
+            notified: ["auditor set to anthropic/claude-3 · (none) (global)"],
             store: (store) => {
               expect(
                 store.agentConfigSnapshot().thinking?.auditor,

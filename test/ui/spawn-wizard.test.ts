@@ -116,6 +116,8 @@ interface SetupOptions {
   /** Scripted `git` behaviour for the worktree picker. */
   gitRepo?: boolean;
   global?: Record<string, unknown>;
+  /** The parent session's current level, which the thinking row falls back to. */
+  thinkingLevel?: string;
 }
 
 function scriptGitGitRepo(): void {
@@ -161,6 +163,7 @@ function setup(options: SetupOptions = {}): void {
     cwd: "/repo",
     model: undefined,
     modelRegistry: registryOver(AVAILABLE_MODELS),
+    thinkingLevel: options.thinkingLevel,
   } as unknown as Parameters<typeof setSession>[0]);
   setCoordinator({
     spawn: async (session: unknown, args: Record<string, unknown>) => {
@@ -252,7 +255,7 @@ describe("Spawn wizard — options screen", () => {
       { label: "Model", value: "(no model)" },
       { label: "Background", value: "ON" },
       { label: "Fork session", value: "No" },
-      { label: "Thinking level", value: "inherit" },
+      { label: "Thinking level", value: "(none)" },
       { label: "Description", value: "" },
     ]);
     expect(session.text()).not.toContain("Worktree");
@@ -567,7 +570,7 @@ describe("Spawn wizard — spawn", () => {
 });
 
 describe("Spawn wizard — model and thinking level", () => {
-  it("offers the supported levels of a reasoning model plus inherit", async () => {
+  it("offers the supported levels of a reasoning model plus None", async () => {
     setup({ global: { agent: { default: "openai/gpt-4" } } });
     const session = openWizard();
     await toSpawnOptions(session);
@@ -581,7 +584,7 @@ describe("Spawn wizard — model and thinking level", () => {
       "Low",
       "Medium",
       "High",
-      "Inherit",
+      "None",
     ]);
   });
 
@@ -609,7 +612,25 @@ describe("Spawn wizard — model and thinking level", () => {
     expect(spawnCalls[0]!.invocation.thinkingLevel).toBe("high");
   });
 
-  it("maps inherit back to an unset level", async () => {
+  it("seeds the parent session's level when nothing else names one", async () => {
+    setup({ thinkingLevel: "high" });
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    expect(session.rows()).toContainEqual({
+      label: "Thinking level",
+      value: "high",
+    });
+
+    await spawnWith(session, { prompt: "Do the thing" });
+
+    expect(spawnCalls[0]!.args.modelChoice).toMatchObject({
+      thinking: "high",
+    });
+    expect(spawnCalls[0]!.invocation.thinkingLevel).toBe("high");
+  });
+
+  it("re-seeds the configured default when None is picked", async () => {
     setup({
       global: { agent: { default: "openai/gpt-4", defaultThinking: "high" } },
     });
@@ -622,23 +643,23 @@ describe("Spawn wizard — model and thinking level", () => {
 
     session.open("Thinking level");
     await session.settle();
-    session.open("Inherit");
+    session.open("None");
     await session.settle();
 
+    // None drops the override, so the row keeps showing the level the spawn
+    // would send anyway rather than claiming no level.
     expect(session.rows()).toContainEqual({
       label: "Thinking level",
-      value: "inherit",
+      value: "high",
     });
 
     await spawnWith(session, { prompt: "Do the thing" });
 
-    // The level rides the choice, so an unset level is a null on the choice
-    // that still names the model.
     expect(spawnCalls[0]!.args.modelChoice).toMatchObject({
       key: "openai/gpt-4",
-      thinking: null,
+      thinking: "high",
     });
-    expect(spawnCalls[0]!.invocation.thinkingLevel).toBeUndefined();
+    expect(spawnCalls[0]!.invocation.thinkingLevel).toBe("high");
   });
 
   it("drops a seeded level when the picked model has no control", async () => {
@@ -661,7 +682,7 @@ describe("Spawn wizard — model and thinking level", () => {
             // dropped rather than sent to a model that cannot take it.
             rows: [
               ["Model", "openai/gpt-3"],
-              ["Thinking level", "inherit"],
+              ["Thinking level", "(none)"],
             ],
           },
         },
@@ -684,7 +705,7 @@ describe("Spawn wizard — model and thinking level", () => {
   it("keeps a configured level the model's own list does not map", async () => {
     // "max" is opt-in on this model, so its supported list excludes it; the
     // configured level still rides the spawn rather than silently becoming
-    // "inherit" — the same token the tool path sends.
+    // "(none)" — the same token the tool path sends.
     setup({
       global: { agent: { default: "openai/gpt-4", defaultThinking: "max" } },
     });
@@ -775,7 +796,7 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
       "Xhigh",
       "Max",
       "Ultra",
-      "Inherit",
+      "None",
     ]);
 
     session.open("Ultra");
@@ -803,7 +824,7 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
     await pickType(session, "auditor");
     expect(session.rows()).toContainEqual({
       label: "Thinking level",
-      value: "inherit",
+      value: "(none)",
     });
 
     session.open("Thinking level");
@@ -842,7 +863,7 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
       "Minimal",
       "Low",
       "Custom token...",
-      "Inherit",
+      "None",
     ]);
 
     session.open("Custom token...");
@@ -921,7 +942,8 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
     });
 
     await spawnWith(session, { prompt: "Do the thing" });
-    // "inherit" would name the parent's pi model, which codex cannot run.
+    // The level alone: a codex child runs its own default model at it, and
+    // the pi family's no-key shape would name a model codex cannot run.
     expect(spawnCalls[0]!.args.modelChoice).toEqual({
       levelOnly: true,
       thinking: "high",
@@ -954,7 +976,7 @@ describe("Spawn wizard — a foreign harness's thinking vocabulary", () => {
       "Xhigh",
       "Max",
       "Ultra",
-      "Inherit",
+      "None",
     ]);
   });
 });

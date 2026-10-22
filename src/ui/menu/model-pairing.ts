@@ -51,7 +51,7 @@ export interface PairCell {
   readonly model: string | null;
   /** Winning layer of the model key: " [session]", " [project]", or "". */
   readonly modelTag: string;
-  /** Null when no layer names a level; rendered as "inherit". */
+  /** Null when no layer names a level; rendered as "(none)". */
   readonly thinking: string | null;
   /** Winning layer of the level: " [session]", " [project]", or "". */
   readonly thinkingTag: string;
@@ -65,7 +65,7 @@ export interface PairCell {
  */
 export function pairedRow(cell: PairCell): string {
   const model = cell.model ?? "(none)";
-  const thinking = cell.thinking ?? "inherit";
+  const thinking = cell.thinking ?? "(none)";
   const modelTag = cell.model ? cell.modelTag : "";
   const thinkingTag = cell.thinking ? cell.thinkingTag : "";
   if (modelTag !== "" && modelTag === thinkingTag) {

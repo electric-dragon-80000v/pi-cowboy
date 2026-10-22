@@ -195,12 +195,14 @@ export async function toolCallListener(
 
     // The configured level travels in its own key for the same reason the model
     // does: it is a default this extension chose, and the resolution that reads
-    // it must be able to tell it apart from the caller's own `thinking`.
+    // it must be able to tell it apart from the caller's own `thinking`. The
+    // session's current level is the pi family's last chain step.
     if (item.thinking === undefined) {
       const thinking = getStore().thinkingFor(
         subagentType,
         agentConfig,
         harnessType,
+        ctx.thinkingLevel,
       );
       if (thinking !== undefined) item[CONFIGURED_THINKING_KEY] = thinking;
     }

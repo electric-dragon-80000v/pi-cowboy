@@ -46,7 +46,7 @@ export const DEFAULT_ORCHESTRATOR_NAME = "default";
  * Variants:
  * - Resolved Pi model with catalog entry.
  * - Foreign harness model key with display label.
- * - `inherit`: Explicitly inherits the parent session's model while specifying a thinking level.
+ * - `inherit`: Names no model of the spawn's own — the launch passes no `--model` — while specifying a thinking level.
  * - `levelOnly`: Specifies a thinking level for the harness's default model without setting a model override.
  * - Absent (`undefined`): No model or thinking override specified; inherits defaults.
  *
@@ -72,10 +72,10 @@ export type ModelChoice =
     }
   | {
       /**
-       * The child inherits the parent's own model rather than naming one. The
-       * level still rides here: choosing an effort without choosing a model is
-       * a real spawn, and a level outside this shape would be a level with no
-       * model at all.
+       * The launcher names no model key, so the launch passes no `--model` and
+       * the child's own configured model applies. The level still rides here:
+       * choosing an effort without choosing a model is a real spawn, and a
+       * level outside this shape would be a level with no model at all.
        */
       inherit: true;
       thinking: string | null;

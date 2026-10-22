@@ -367,12 +367,14 @@ export class ConfigStore {
    * in the order model-precedence.ts documents. Undefined when no layer names
    * one: the run asks for no level, and the harness's own default applies.
    * `harnessId` must be the harness the launch resolves, because it names both
-   * the template family and the default the chain reads.
+   * the template family and the default the chain reads. `parentThinking` is
+   * the session's current level; it is the pi family's last step.
    */
   thinkingFor(
     type: string,
     agentConfig: { thinkingByFamily?: ThinkingByFamily } | undefined,
     harnessId: AnyHarnessId,
+    parentThinking?: string,
   ): string | undefined {
     return resolveThinking({
       subagentType: type,
@@ -380,6 +382,7 @@ export class ConfigStore {
       harnessFamily: harnessFamilyOf(harnessId),
       config: this.layers.effective,
       harnessDefault: this.defaultThinkingForHarness(harnessId),
+      parentThinking,
       sessionThinking: this.sessionThinking,
     });
   }
@@ -668,8 +671,8 @@ export class ConfigStore {
       /**
        * One harness's default, written entry-wise: the map is a whole value in
        * the file, so writing it whole would drop every other harness's entry.
-       * `null` is a real answer — that harness inherits the parent — and is
-       * written as such rather than deleting the key.
+       * `null` is a real answer — that harness has no default — and is written
+       * as such rather than deleting the key.
        */
       setHarnessDefaultModel: (
         harness: AnyHarnessId,

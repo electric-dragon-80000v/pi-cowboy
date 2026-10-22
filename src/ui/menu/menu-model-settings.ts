@@ -196,6 +196,9 @@ function buildModelSettingsList(
     const parentModelId = parentModel
       ? `${parentModel.provider}/${parentModel.id}`
       : null;
+    // The session's live level is the pi family's last chain step, and this
+    // screen shows the level a launch would send.
+    const parentThinking = session.thinkingLevel ?? null;
     const agentConfigSnapshot = store.agentConfigSnapshot();
     const configuredModels = extractConfiguredModels(agentConfigSnapshot);
 
@@ -242,7 +245,7 @@ function buildModelSettingsList(
         onSet: (target, model, token) => {
           args.write(target, model, token);
           notify(
-            `${args.label} set to ${model} · ${token ?? "inherit"} (${target})`,
+            `${args.label} set to ${model} · ${token ?? "(none)"} (${target})`,
             "info",
           );
         },
@@ -360,17 +363,20 @@ function buildModelSettingsList(
         store.defaultModelForHarness(resolveHarnessType(type)),
       harnessDefaultThinkingFor: (type) => {
         const harnessId = resolveHarnessType(type);
-        return (
-          store.defaultThinkingForHarness(harnessId) ??
-          // pi's own settings file sits below the config layers; a pi-family
-          // launch reads it as its default when config names none.
-          (isPiFamilyHarness(harnessId) ? (piDefaultThinking ?? null) : null)
-        );
+        const configured = store.defaultThinkingForHarness(harnessId);
+        if (configured !== null) return configured;
+        // pi's own settings default is what the binary applies when no level
+        // is sent, so it sits below the parent's level: a parent level, when
+        // there is one, is sent explicitly and wins.
+        return isPiFamilyHarness(harnessId) && parentThinking === null
+          ? (piDefaultThinking ?? null)
+          : null;
       },
       harnessFamilyFor: (type) => harnessFamilyOf(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
       hasProjectThinkingKey: (type) => store.hasProjectThinkingKey(type),
       parentModelId,
+      parentThinking,
     });
 
     /** The pair picker for one agent type: model and level at the picked layer. */
@@ -406,12 +412,12 @@ function buildModelSettingsList(
       // Widest thinking cell in this group, so the model tags line up under it.
       const thinkingWidth = Math.max(
         ...group.rows.map(
-          (row) => `${row.thinking ?? "inherit"}${row.thinkingTag}`.length,
+          (row) => `${row.thinking ?? "(none)"}${row.thinkingTag}`.length,
         ),
       );
       for (const row of group.rows) {
         const harnessId = resolveHarnessType(row.type);
-        const thinkingDisplay = `${row.thinking ?? "inherit"}${row.thinkingTag}`;
+        const thinkingDisplay = `${row.thinking ?? "(none)"}${row.thinkingTag}`;
         // The level's tag already names the model's layer when both were written
         // there, so the model tag is left off that row. The two tags carry
         // different leading-space conventions, hence the trim.
@@ -485,6 +491,7 @@ function buildModelSettingsList(
                     harnessFamily: harnessFamilyOf(harnessId),
                     config: agentConfigSnapshot,
                     harnessDefault: store.defaultThinkingForHarness(harnessId),
+                    parentThinking: parentThinking ?? undefined,
                     sessionThinking,
                   }).level,
                 )("", subDone);

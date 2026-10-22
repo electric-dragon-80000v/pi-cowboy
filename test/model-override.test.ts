@@ -515,6 +515,41 @@ describe("cowboy_agent — the harness default at the global default's position"
       invocation: { modelName: OPENCODE_DEFAULT },
     });
   });
+
+  it("hands the parent session's level to a pi launch", async () => {
+    getStoreMock.mockReturnValue(realStore({}));
+    const input = {
+      ...PARAMS(),
+      agents: [structuredClone(PARAMS().agents[0])],
+    } as CowboyAgents & Record<string, unknown>;
+
+    await toolCallListener(
+      { toolName: "cowboy_agent", input } as unknown as ToolCallEvent,
+      { ...ctx, thinkingLevel: "high" } as unknown as ExtensionContext,
+    );
+
+    expect(
+      (input.agents[0] as Record<string, unknown>)._configuredThinking,
+    ).toBe("high");
+  });
+
+  it("never hands the parent's level to a foreign launch", async () => {
+    getAgentConfigMock.mockReturnValue({ harnessType: "opencode" });
+    getStoreMock.mockReturnValue(realStore({}));
+    const input = {
+      ...PARAMS(),
+      agents: [structuredClone(PARAMS().agents[0])],
+    } as CowboyAgents & Record<string, unknown>;
+
+    await toolCallListener(
+      { toolName: "cowboy_agent", input } as unknown as ToolCallEvent,
+      { ...ctx, thinkingLevel: "high" } as unknown as ExtensionContext,
+    );
+
+    expect(
+      (input.agents[0] as Record<string, unknown>)._configuredThinking,
+    ).toBeUndefined();
+  });
 });
 
 describe("cowboy_agent per-call model override", () => {

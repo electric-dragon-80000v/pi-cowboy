@@ -20,6 +20,7 @@ import { findModelInRegistry, modelChoiceName } from "../../utils.js";
 import type { Theme } from "../types.js";
 import { createInputSubmenu } from "./submenus/numeric-input.js";
 import { createLevelPickerSubmenu } from "./submenus/target-select.js";
+import { NO_LEVEL_ID } from "./submenus/thinking-select.js";
 
 /** The id the wizard's row carries, so its onChange and this row agree. */
 export const THINKING_LEVEL_ROW_ID = "thinkingLevel";
@@ -98,7 +99,7 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
       piModel: findModelInRegistry(modelKey, registry, parentModel),
     });
 
-  /** The lines the row offers: the model's levels, a free token, then Inherit. */
+  /** The lines the row offers: the model's levels, a free token, then None. */
   const levelRow = (
     offering: ReturnType<typeof offeringOf>,
     current: string | undefined,
@@ -123,10 +124,11 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
       });
     }
     items.push({
-      id: "inherit",
-      label: "Inherit",
+      id: NO_LEVEL_ID,
+      label: "None",
       currentValue: current === undefined ? "(current)" : "",
-      description: "Leave the level to the template and configured defaults.",
+      description:
+        "Use the template, configured default, or parent session's level.",
     });
     return createLevelPickerSubmenu({
       theme: view.theme,
@@ -137,7 +139,7 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
           return createInputSubmenu(view.ctx)(current ?? "", subDone);
         }
         // A row completes with its own id, so the wizard's onChange takes it as
-        // the token — and "inherit" as the answer that clears one.
+        // the token — and the None id as the answer that drops the override.
       },
     });
   };
@@ -156,7 +158,7 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
       return {
         id: THINKING_LEVEL_ROW_ID,
         label: "Thinking level",
-        currentValue: current ?? "inherit",
+        currentValue: current ?? "(none)",
         description:
           offering.kind === "none"
             ? "The selected model does not support thinking levels."
@@ -167,9 +169,9 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
     choice(harnessId, modelKey, thinking) {
       if (modelKey === "") {
         if (thinking === undefined) return { kind: "none" };
-        // A level without a model: a pi child runs the parent's model at it, a
-        // foreign child its own default — "inherit" would name the parent's pi
-        // model, which that harness cannot run.
+        // A level without a model: the launch passes no --model, so the child
+        // runs its own default model at the level. A foreign harness cannot
+        // take the pi family's inherit shape, so its level alone rides.
         return {
           kind: "chosen",
           modelChoice: isPiFamilyHarness(harnessId)

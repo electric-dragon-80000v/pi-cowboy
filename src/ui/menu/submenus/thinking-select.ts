@@ -3,9 +3,9 @@
  * vocabulary.
  *
  * The list is the model's offering, so a closed vocabulary offers its levels
- * and an advisory one adds a free-form token; Inherit is always offered because
- * a layer may already hold a token to remove. Every pick completes with a
- * defined value — the token itself, or "inherit" for a clear — so the host list
+ * and an advisory one adds a free-form token; None is always offered because a
+ * layer may already hold a token to remove. Every pick completes with a defined
+ * value — the token itself, or the None id for a clear — so the host list
  * repaints without a separate refresh callback.
  *
  * The caller has already picked the layer: the Model Settings screen asks for
@@ -25,6 +25,12 @@ import { createLevelPickerSubmenu } from "./target-select.js";
 /** The custom-token row's id; no level can take it, so it cannot collide. */
 const CUSTOM_TOKEN_ID = "__custom__";
 
+/**
+ * The None row's id. The label names a level a harness might advertise, so the
+ * id is a token no level can take.
+ */
+export const NO_LEVEL_ID = "__none__";
+
 export interface ThinkingValuePickerOptions {
   theme: Theme;
   /** The custom-token input's notification sink. */
@@ -33,11 +39,11 @@ export interface ThinkingValuePickerOptions {
   offering: ThinkingOffering;
   /** The value in force, for the "(current)" marker; null = no level named. */
   current: string | null;
-  /** Write the picked token; null is Inherit, a clear at the caller's layer. */
+  /** Write the picked token; null is None, a clear at the caller's layer. */
   onPick: (token: string | null) => void;
 }
 
-/** The rows a value picker offers: the model's levels, a free token, then Inherit. */
+/** The rows a value picker offers: the model's levels, a free token, then None. */
 function valueItems(
   offering: ThinkingOffering,
   current: string | null,
@@ -65,18 +71,19 @@ function valueItems(
     }
   }
   items.push({
-    id: "inherit",
-    label: "Inherit",
+    id: NO_LEVEL_ID,
+    label: "None",
     currentValue: current === null ? "(current)" : "",
-    description: "Leave the level to the next layer that names one.",
+    description:
+      "Use the template, configured default, or parent session's level.",
   });
   return items;
 }
 
 /**
  * The level list alone: no target step, because the caller already picked the
- * layer. A row completes with its own id — a level id is the token, and
- * "inherit" is the defined value that repaints the host list after the clear it
+ * layer. A row completes with its own id — a level id is the token, and the
+ * None id is the defined value that repaints the host list after the clear it
  * performs.
  */
 export function createThinkingValuePicker(
@@ -99,7 +106,7 @@ export function createThinkingValuePicker(
           },
         );
       }
-      options.onPick(id === "inherit" ? null : id);
+      options.onPick(id === NO_LEVEL_ID ? null : id);
     },
   });
 }
