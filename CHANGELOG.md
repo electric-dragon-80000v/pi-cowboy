@@ -1,3 +1,10 @@
+# [0.20.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.19.0...v0.20.0) (2026-10-22)
+
+
+### Features
+
+* **ui:** skip worktree checkout prompt when parent is clean ([34dfb5c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/34dfb5c0a6fe3860f220598d4d9de63dad389adb))
+
 # [0.19.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.18.0...v0.19.0) (2026-10-22)
 
 
