@@ -48,7 +48,11 @@ import type {
   HarnessPrepareRequest,
   ModelEntry,
 } from "../harness.js";
-import { installPaneLauncher, singleQuoteShellWord } from "./pane-launcher.js";
+import {
+  installPaneLauncher,
+  launchEnvBody,
+  singleQuoteShellWord,
+} from "./pane-launcher.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
 const LIST_MODELS_TIMEOUT_MS = 10_000;
@@ -78,9 +82,15 @@ const CODEX_KEY_PREFIX = `${CODEX_PROVIDER}/`;
  * holds, and it is never re-expanded: the shell expands `$(cat …)` once, and
  * the task's own `$`, backticks and quotes ride literally. The task content
  * never crosses herdr's single-line argv encoder — only the file path does.
+ *
+ * The launch's own variables arrive the same way: a staged file the body
+ * sources, so the values never reach the typed command line.
  */
-function launcherBody(taskFile: string): string {
-  return `command codex "$@" "$(cat ${singleQuoteShellWord(taskFile)})"`;
+function launcherBody(taskFile: string, envFile: string | null): string {
+  return launchEnvBody(
+    envFile,
+    `command codex "$@" "$(cat ${singleQuoteShellWord(taskFile)})"`,
+  );
 }
 
 /**
@@ -337,7 +347,7 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   }: HarnessPrepareRequest<CodexLaunchRequest>): Promise<void> {
     await installPaneLauncher(pane, paneId, {
       commandName: CODEX_COMMAND,
-      body: launcherBody(launch.taskFile),
+      body: launcherBody(launch.taskFile, launch.envFile),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,
     });

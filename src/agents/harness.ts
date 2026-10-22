@@ -146,6 +146,104 @@ export type ExtensionLaunchMode =
 export type SkillLaunchMode = { kind: "default" } | { kind: "none" };
 
 /**
+ * Environment variable names that no spawn may override, regardless of source:
+ * the shell's own state, the runtime's startup hooks, and the multiplexer's
+ * vocabulary. A launcher that rewrote any of these would alter how the pane shell
+ * runs or hide the process from the multiplexer that started it.
+ */
+const UNIVERSAL_RESERVED_ENV_VAR_NAMES: readonly string[] = [
+  "PATH",
+  "HOME",
+  "SHELL",
+  "PWD",
+  "OLDPWD",
+  "IFS",
+  "CDPATH",
+  "GLOBIGNORE",
+  "PS1",
+  "PS2",
+  "PS3",
+  "PS4",
+  "BASH_ENV",
+  "ENV",
+  "NODE_OPTIONS",
+  "LD_PRELOAD",
+  "LD_AUDIT",
+];
+
+/**
+ * Env namespaces no spawn may override, matched by prefix: a platform's dynamic
+ * loader family and the multiplexer's own vocabulary grow members this list
+ * does not track, and every member of each is off limits.
+ */
+const UNIVERSAL_RESERVED_ENV_VAR_PREFIXES: readonly string[] = [
+  "DYLD_",
+  "HERDR_",
+  "COWBOY_",
+];
+
+/** The empty answer, shared so a caller cannot mutate one harness's "none". */
+const NO_RESERVED_ENV_NAMES: readonly string[] = Object.freeze([]);
+
+/** What an env var's name must be: a POSIX identifier, so the shell reads it as one. */
+const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Whether a name can be carried as an overridable variable at all. */
+export function isEnvVarName(name: string): boolean {
+  return ENV_VAR_NAME.test(name);
+}
+
+/**
+ * Whether a value contains a control character. Values are staged in shell
+ * assignment statements (`export NAME='value'`), so a newline would prematurely
+ * end the assignment and execute the remainder as a separate command when sourced.
+ */
+export function hasControlCharacter(value: string): boolean {
+  return /\p{Cc}/u.test(value);
+}
+
+/** Whether no spawn may override this name, whatever harness it names. */
+export function isUniversalReservedEnvVar(name: string): boolean {
+  return (
+    UNIVERSAL_RESERVED_ENV_VAR_NAMES.includes(name) ||
+    UNIVERSAL_RESERVED_ENV_VAR_PREFIXES.some((prefix) =>
+      name.startsWith(prefix),
+    )
+  );
+}
+
+/**
+ * Whether a name is reserved for a harness, given that harness's own names.
+ * `reserved` is the answer `reservedEnvVarsOf` gives, so an absent declaration
+ * never reaches this check as `undefined`.
+ */
+export function isReservedEnvVar(
+  name: string,
+  reserved: readonly string[] = NO_RESERVED_ENV_NAMES,
+): boolean {
+  return isUniversalReservedEnvVar(name) || reserved.includes(name);
+}
+
+/**
+ * The part of a harness that declares its own reserved env names. Structural, so
+ * a plugin harness declares them without importing this as a type.
+ */
+export interface HarnessEnvReservations {
+  /**
+   * Names this harness reserves besides the universal set. Absent when it
+   * reserves none of its own; read through `reservedEnvVarsOf`, never directly.
+   */
+  readonly reservedEnvVars?: () => readonly string[];
+}
+
+/** The names one harness reserves besides the universal set; empty when it declares none. */
+export function reservedEnvVarsOf(
+  harness: HarnessEnvReservations,
+): readonly string[] {
+  return harness.reservedEnvVars?.() ?? NO_RESERVED_ENV_NAMES;
+}
+
+/**
  * Launch inputs every harness family shares. All fields are required;
  * a value the run does not carry is a real state (`null` or a union member),
  * never an absent field. The subagent token is not among them: it is a pure
@@ -171,6 +269,14 @@ export interface SubagentLaunchInputs {
    */
   readonly thinking: string | null;
   readonly toolSelection: ToolSelection;
+  /**
+   * Absolute path of the staged file holding the variables this launch carries
+   * beyond the pane's environment, filtered to exclude reserved names and
+   * control characters; `null` when the spawn overrides nothing. A launcher
+   * sources this file so values are never interpolated into the command typed
+   * into the pane.
+   */
+  readonly envFile: string | null;
 }
 
 /** pi CLI specifics; no other harness family reads these. */
@@ -205,6 +311,34 @@ export type HarnessFamily = Extract<
   AgentMultiplexerKind,
   "pi" | "opencode" | "codex" | "claude"
 >;
+
+/**
+ * The env names each built-in family's launch owns, keyed by family: a template
+ * table names a family rather than an id, and every id in a family launches
+ * through the same pane state, so the family is the widest scope that can answer
+ * for all of them. A name here is refused before it reaches a launcher.
+ */
+export const RESERVED_ENV_VARS_BY_FAMILY: Record<
+  HarnessFamily,
+  readonly string[]
+> = {
+  pi: ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "HERDR_AGENT"],
+  opencode: [
+    "OPENCODE_CONFIG_DIR",
+    "OPENCODE_CONFIG",
+    "OPENCODE_CONFIG_CONTENT",
+    "OPENCODE_DISABLE_PROJECT_CONFIG",
+    "OPENCODE_DISABLE_AUTOUPDATE",
+  ],
+  codex: ["CODEX_HOME"],
+  claude: [
+    "CLAUDE_CONFIG_DIR",
+    "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+    "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
+    "ANTHROPIC_API_KEY",
+    "COWBOY_API_KEY",
+  ],
+};
 
 /** The family tag one launch request carries; the tag alone selects the member. */
 interface HarnessFamilyTag<F extends HarnessFamily> {
@@ -473,6 +607,12 @@ export interface Harness<
    * parsed value is passed to `prepare` as `request.config`.
    */
   readonly config?: HarnessConfigCodec<C>;
+  /**
+   * Env names this harness reserves besides the universal set, for a launch the
+   * universal set alone does not protect. Optional because a plugin compiled
+   * against the surface before this member existed declares none.
+   */
+  readonly reservedEnvVars?: () => readonly string[];
   /**
    * The agent kind this harness launches as, in the multiplexer's vocabulary; the only
    * place a kind appears as a literal. A harness whose binary is not pi's can

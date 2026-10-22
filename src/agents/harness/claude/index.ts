@@ -36,7 +36,11 @@ import type {
   ModelEntry,
   ThinkingLevels,
 } from "../../harness.js";
-import { installPaneLauncher, type PaneProof } from "../pane-launcher.js";
+import {
+  installPaneLauncher,
+  launchEnvBody,
+  type PaneProof,
+} from "../pane-launcher.js";
 import {
   claudeSettingsFile,
   removeClaudeStaging,
@@ -141,6 +145,7 @@ function launcherBody(
   configDir: string,
   taskFile: string,
   credentialStore: string,
+  envFile: string | null,
 ): string {
   const settings = singleQuote(claudeSettingsFile(configDir));
   const trimmed = singleQuote(`${claudeSettingsFile(configDir)}.tmp`);
@@ -149,7 +154,10 @@ function launcherBody(
     `export CLAUDE_SECURESTORAGE_CONFIG_DIR=${singleQuote(credentialStore)}`,
     `export CLAUDE_CONFIG_DIR=${singleQuote(configDir)}`,
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
-    `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
+    launchEnvBody(
+      envFile,
+      `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
+    ),
   ].join("; ");
 }
 
@@ -285,6 +293,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
         configDir,
         launch.taskFile,
         spawnCredentialStore(process.platform),
+        launch.envFile,
       ),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,

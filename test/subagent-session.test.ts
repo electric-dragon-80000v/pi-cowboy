@@ -355,6 +355,7 @@ beforeEach(() => {
       modelKey: null,
       toolSelection: { kind: "default" },
       thinking: null,
+      envFile: null,
       forkSessionFile: null,
       skills: { kind: "default" },
       extensions: { kind: "default" },

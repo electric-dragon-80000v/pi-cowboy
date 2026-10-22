@@ -10,10 +10,55 @@ import { z } from "zod";
 import { ThinkingLevelSchema } from "../types.js";
 import { VALID_WORKTREE_CHECKOUT_TYPES } from "../spawn/worktree-policy.js";
 import { compactDefined } from "../templates/template-files.js";
-import type { HarnessFamily } from "./harness.js";
-import type { ThinkingByFamily, ToolFilter, ToolsByFamily } from "./types.js";
+import {
+  hasControlCharacter,
+  isEnvVarName,
+  isReservedEnvVar,
+  RESERVED_ENV_VARS_BY_FAMILY,
+  type HarnessFamily,
+} from "./harness.js";
+import type {
+  EnvByFamily,
+  ThinkingByFamily,
+  ToolFilter,
+  ToolsByFamily,
+} from "./types.js";
 
 const filterList = z.union([z.boolean(), z.array(z.string())]);
+
+/**
+ * Why an env entry cannot be carried, or `undefined` when it is valid. The name
+ * must be a valid shell identifier, must not be reserved, and the value must not
+ * contain control characters that would break the sourced shell statement.
+ */
+function envProblem(
+  name: string,
+  value: string,
+  reserved: readonly string[],
+): string | undefined {
+  if (!isEnvVarName(name)) return "is not a valid environment variable name";
+  if (isReservedEnvVar(name, reserved)) {
+    return "is a reserved environment variable and cannot be overridden";
+  }
+  if (hasControlCharacter(value)) return "contains a control character";
+  return undefined;
+}
+
+/**
+ * One family's `env` table. Names are checked per entry so a rejection names the
+ * variable itself (`harness.pi.env.PATH`), the way a rejected key does.
+ */
+function envTable(family: HarnessFamily) {
+  const reserved = RESERVED_ENV_VARS_BY_FAMILY[family];
+  return z.record(z.string(), z.string()).superRefine((env, ctx) => {
+    for (const [name, value] of Object.entries(env)) {
+      const problem = envProblem(name, value, reserved);
+      if (problem !== undefined) {
+        ctx.addIssue({ code: "custom", path: [name], message: problem });
+      }
+    }
+  });
+}
 
 /**
  * The pi family's own `[harness]` keys, shared by their `[harness.pi]` table
@@ -44,6 +89,8 @@ const PI_HARNESS_SHAPE = {
   tools: z.array(z.string()).optional(),
   /** Tools withheld from a pi-family launch, in pi's own vocabulary. */
   exclude_tools: z.array(z.string()).optional(),
+  /** Variables a pi-family launch carries, in pi's own vocabulary. */
+  env: envTable("pi").optional(),
 };
 
 const PiHarnessSchema = z.strictObject(PI_HARNESS_SHAPE);
@@ -58,6 +105,8 @@ const OpencodeHarnessSchema = z.strictObject({
   tools: z.array(z.string()).optional(),
   /** Tools withheld from an opencode launch, as opencode's permission actions. */
   exclude_tools: z.array(z.string()).optional(),
+  /** Variables an opencode launch carries. */
+  env: envTable("opencode").optional(),
 });
 
 /**
@@ -70,6 +119,8 @@ const CodexHarnessSchema = z.strictObject({
   model: z.string().optional(),
   /** codex's `model_reasoning_effort`, in codex's own vocabulary. */
   thinking: z.string().optional(),
+  /** Variables a codex launch carries. */
+  env: envTable("codex").optional(),
 });
 
 /** claude's own `[harness.claude]` keys; no other family reads them. */
@@ -82,6 +133,8 @@ const ClaudeHarnessSchema = z.strictObject({
   tools: z.array(z.string()).optional(),
   /** Tools withheld from a claude launch, as claude's own tool names, carried onto `--disallowedTools` exactly as written. */
   exclude_tools: z.array(z.string()).optional(),
+  /** Variables a claude launch carries. */
+  env: envTable("claude").optional(),
 });
 
 /** One family's tool arms as parsed, arbitrated to the single filter a launch reads: whitelist wins when both arms are set. */
@@ -92,6 +145,27 @@ function toToolFilter(
   if (tools !== undefined) return { tools };
   if (excludeTools !== undefined) return { excludeTools };
   return undefined;
+}
+
+/**
+ * The flat pi env table under the family's own table: a variable both spellings
+ * set is the one `[harness.pi]` wrote, the rule the flat model and tool keys
+ * follow too.
+ */
+function mergeEnv(
+  family: Record<string, string> | undefined,
+  flat: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (flat === undefined) return family;
+  if (family === undefined) return flat;
+  return { ...flat, ...family };
+}
+
+/** One family's env table as parsed; an empty table declares nothing, so it reads as absent. */
+function nonEmptyEnv(
+  env: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  return env !== undefined && Object.keys(env).length > 0 ? env : undefined;
 }
 
 /**
@@ -125,6 +199,7 @@ const HarnessSchema = z
       thinking: flatThinking,
       tools: flatTools,
       exclude_tools: flatExcludeTools,
+      env: flatEnv,
       ...sharedFlat
     } = flat;
     const {
@@ -132,6 +207,7 @@ const HarnessSchema = z
       thinking: piThinking,
       tools: piTools,
       exclude_tools: piExcludeTools,
+      env: piEnv,
       ...piSlice
     } = compactDefined(pi ?? {});
     const {
@@ -139,11 +215,13 @@ const HarnessSchema = z
       variant: opencodeThinking,
       tools: opencodeTools,
       exclude_tools: opencodeExcludeTools,
+      env: opencodeEnv,
       ...opencodeSlice
     } = compactDefined(opencode ?? {});
     const {
       model: codexModel,
       thinking: codexThinking,
+      env: codexEnv,
       ...codexSlice
     } = compactDefined(codex ?? {});
     const {
@@ -151,6 +229,7 @@ const HarnessSchema = z
       thinking: claudeThinking,
       tools: claudeTools,
       exclude_tools: claudeExcludeTools,
+      env: claudeEnv,
     } = compactDefined(claude ?? {});
     const modelsByFamily: Partial<Record<HarnessFamily, string>> =
       compactDefined({
@@ -175,6 +254,12 @@ const HarnessSchema = z
       codex: codexThinking,
       claude: claudeThinking,
     });
+    const envByFamily: EnvByFamily = compactDefined({
+      pi: nonEmptyEnv(mergeEnv(piEnv, flatEnv)),
+      opencode: nonEmptyEnv(opencodeEnv),
+      codex: nonEmptyEnv(codexEnv),
+      claude: nonEmptyEnv(claudeEnv),
+    });
     return {
       ...sharedFlat,
       ...piSlice,
@@ -183,6 +268,7 @@ const HarnessSchema = z
       ...(Object.keys(modelsByFamily).length > 0 ? { modelsByFamily } : {}),
       ...(Object.keys(toolsByFamily).length > 0 ? { toolsByFamily } : {}),
       ...(Object.keys(thinkingByFamily).length > 0 ? { thinkingByFamily } : {}),
+      ...(Object.keys(envByFamily).length > 0 ? { envByFamily } : {}),
     };
   });
 

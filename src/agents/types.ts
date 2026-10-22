@@ -18,6 +18,15 @@ export type ModelsByFamily = Partial<Record<HarnessFamily, string>>;
  */
 export type ThinkingByFamily = Partial<Record<HarnessFamily, string>>;
 
+/**
+ * A template's env overrides, each under the harness family whose launch reads
+ * it. A variable written for one family is invisible to every other, so a
+ * variable only one binary understands can never reach another.
+ */
+export type EnvByFamily = Partial<
+  Record<HarnessFamily, Record<string, string>>
+>;
+
 export type SubagentType = string;
 
 /** How the subagent system prompt is constructed. */
@@ -74,6 +83,8 @@ interface BaseAgentConfig {
   toolsByFamily?: ToolsByFamily;
   /** This agent's thinking token, one per harness family; a launch reads only its own family's. */
   thinkingByFamily?: ThinkingByFamily;
+  /** This agent's env overrides, one map per harness family; a launch reads only its own family's. */
+  envByFamily?: EnvByFamily;
   systemPrompt: string;
   /** Include pi's context files in this agent's system prompt. Undefined = use global config. */
   includeContextFiles?: boolean;

@@ -105,6 +105,9 @@ function stagedPrompt(text = "You review one diff.\n"): string {
   return file;
 }
 
+/** The staged environment file named by a launch that carries variables; prepare never reads it. */
+const ENV_FILE = "/spawn/esp02hpw/env.sh";
+
 /** The launch inputs every family's request shares. */
 function sharedInputs(): SubagentLaunchInputs {
   return {
@@ -115,6 +118,7 @@ function sharedInputs(): SubagentLaunchInputs {
     modelKey: null,
     thinking: null,
     toolSelection: { kind: "default" },
+    envFile: null,
   };
 }
 
@@ -512,6 +516,23 @@ describe("prepare: opencode", () => {
     expect(definition).toContain("You review one diff.");
   });
 
+  it("sources the launch's staged env on the command that runs opencode", async () => {
+    await harnessFor("opencode").prepare({
+      pi: PI,
+      pane: PANE,
+      paneId: "w1:p9",
+      cwd: "/repo",
+      launch: { ...opencodeLaunch(), envFile: ENV_FILE },
+      config: { configInclude: [] },
+    });
+
+    // The values stay in the file; only its path is typed into the pane.
+    expect(runInPaneMock.mock.calls[0]![2]).toContain(
+      `( . '${ENV_FILE}' && { command opencode "$@" < '${taskFile}'; } )`,
+    );
+    expect(runInPaneMock.mock.calls[0]![2]).not.toContain("REVIEW_MODE");
+  });
+
   it("points the launcher at the staged copy of an explicit config file", async () => {
     const explicitFile = inTmpRoot("dotfiles.json");
     writeFileSync(
@@ -691,11 +712,66 @@ describe("prepare: codex", () => {
     );
   });
 
+  it("sources the launch's staged env on the command that runs codex", async () => {
+    await harnessFor("codex").prepare({
+      pi: PI,
+      pane: PANE,
+      paneId: "w1:p9",
+      cwd: "/repo",
+      launch: { ...codexLaunch(), envFile: ENV_FILE },
+      config: undefined,
+    });
+
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `codex() { : "CODEX_LAUNCHER_3f8a1c"; ( . '${ENV_FILE}' && { command codex "$@" "$(cat '${taskFile}')"; } ); }`,
+    );
+  });
+
   it("proves nothing past the launcher: the function is the whole of the pane state", async () => {
     await prepareCodex();
 
     // One define plus one verify; codex stages nothing to read back.
     expect(runInPaneMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("env overrides", () => {
+  it("sources a launch's staged env on the pi-compatible command it runs", async () => {
+    await harnessFor("pig").prepare({
+      ...prepareRequest("pig", "w1:p9"),
+      launch: { ...PI_FAMILY_LAUNCH, envFile: ENV_FILE },
+    });
+
+    // A subshell: the variables reach the binary and not the pane's shell.
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `pi() { : "PIG_LAUNCHER_8f9a2b"; export HERDR_AGENT=pi; ( . '${ENV_FILE}' && { pig "$@"; } ); }`,
+    );
+  });
+
+  it("installs a launcher for pi only when the launch carries env", async () => {
+    await harnessFor("pi").prepare({
+      ...prepareRequest("pi", "w1:p9"),
+      launch: { ...PI_FAMILY_LAUNCH, envFile: ENV_FILE },
+    });
+
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `pi() { : "PI_ENV_LAUNCHER_4c7d19"; ( . '${ENV_FILE}' && { command pi "$@"; } ); }`,
+    );
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      2,
+      PI,
+      "w1:p9",
+      'typeset -f pi 2>/dev/null | grep -q "PI_ENV_LAUNCHER_4c7d19" && echo PI_""ENV_VERIFIED',
+    );
   });
 });
 

@@ -27,6 +27,7 @@ import {
   type HarnessConfigIssue,
 } from "../agents/harness.js";
 import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
+import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import type {
   ModelsByFamily,
@@ -287,6 +288,22 @@ export class ConfigStore {
       global: this.layers.global.harness ?? {},
       project: this.layers.project?.harness ?? {},
     };
+  }
+
+  /**
+   * The validated environment overrides defined under `harness.<id>.env` in the
+   * global configuration file — the only layer from which a harness section is
+   * read. A section that specifies none, or a harness with no section at all,
+   * reads as empty.
+   */
+  harnessEnv(harnessId: AnyHarnessId): Readonly<Record<string, string>> {
+    const env = this.layers.global.harness?.[harnessId]?.env;
+    if (!isRecord(env)) return {};
+    const kept: Record<string, string> = {};
+    for (const [name, value] of Object.entries(env)) {
+      if (typeof value === "string") kept[name] = value;
+    }
+    return kept;
   }
 
   /** Warns in the config layer's wording for a harness value its codec rejected. */

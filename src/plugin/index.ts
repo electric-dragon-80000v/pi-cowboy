@@ -46,6 +46,23 @@ export type {
 // without reaching into its arms.
 export { modelListEntries, modelListNotice } from "../agents/harness.js";
 
+// The pane-side launcher's env: a plugin's body sources the staged file the
+// launch carries rather than interpolating values into the typed command, and
+// any other path it types is quoted the same way.
+export {
+  launchEnvBody,
+  singleQuoteShellWord,
+} from "../agents/harness/pane-launcher.js";
+
+// Reserved environment variable rules enforced for launchers and agent templates.
+export {
+  isReservedEnvVar,
+  isUniversalReservedEnvVar,
+  reservedEnvVarsOf,
+  RESERVED_ENV_VARS_BY_FAMILY,
+} from "../agents/harness.js";
+export type { HarnessEnvReservations } from "../agents/harness.js";
+
 // The execution multiplexer a plugin multiplexer builds, and the surfaces it returns.
 export type {
   AgentMultiplexer,

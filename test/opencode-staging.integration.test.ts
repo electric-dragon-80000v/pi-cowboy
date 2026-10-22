@@ -429,6 +429,7 @@ describe.skipIf(opencodeMissing)(
         modelKey: PROBE_MODEL,
         toolSelection: { kind: "default" },
         thinking: VARIANT,
+        envFile: null,
       });
 
       // The private server is what makes the staged definition the one this

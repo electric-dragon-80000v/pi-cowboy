@@ -15,8 +15,10 @@ import {
   type TemplateScanWarning,
 } from "../templates/template-files.js";
 import { AgentTemplateSchema, type AgentTemplate } from "./agent-template.js";
+import type { HarnessFamily } from "./harness.js";
 import type {
   AgentConfig,
+  EnvByFamily,
   ModelsByFamily,
   ThinkingByFamily,
   ToolsByFamily,
@@ -102,12 +104,17 @@ function mergeAgentOverrides(
         existing.thinkingByFamily,
         incoming.thinkingByFamily,
       );
+      const envByFamily = mergeEnvByFamily(
+        existing.envByFamily,
+        incoming.envByFamily,
+      );
       result.set(template.name, {
         ...existing,
         ...incoming,
         ...(modelsByFamily ? { modelsByFamily } : {}),
         ...(toolsByFamily ? { toolsByFamily } : {}),
         ...(thinkingByFamily ? { thinkingByFamily } : {}),
+        ...(envByFamily ? { envByFamily } : {}),
         ...identity,
       });
     } else {
@@ -158,6 +165,23 @@ function mergeThinkingByFamily(
 }
 
 /**
+ * Per-family, per-variable merge of the layers' env tables: a variable in a later
+ * layer replaces that variable while leaving other variables in the family intact,
+ * allowing an override to add to a family's environment without restating the rest.
+ */
+function mergeEnvByFamily(
+  existing: EnvByFamily | undefined,
+  incoming: EnvByFamily | undefined,
+): EnvByFamily | undefined {
+  const merged: EnvByFamily = { ...existing };
+  for (const [family, env] of Object.entries(incoming ?? {})) {
+    const key = family as HarnessFamily;
+    merged[key] = { ...merged[key], ...env };
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
  * Only explicitly-set fields (undefined falls through). An empty `inlined_skills` list is a set value,
  * so a higher layer clears inlining with it.
  */
@@ -174,6 +198,7 @@ function fromTemplate(template: AgentTemplateFile): Partial<AgentConfig> {
     inlinedSkills: harness?.inlined_skills,
     modelsByFamily: harness?.modelsByFamily,
     thinkingByFamily: harness?.thinkingByFamily,
+    envByFamily: harness?.envByFamily,
     hidden: template.hidden,
     fork: harness?.fork,
     includeContextFiles: harness?.include_context_files,

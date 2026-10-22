@@ -108,6 +108,7 @@ function launchInputs(
     modelKey: null,
     thinking: null,
     toolSelection: { kind: "default" },
+    envFile: null,
   };
   return { ...shared, family: "claude", ...overrides };
 }
@@ -337,6 +338,26 @@ describe("prepare", () => {
       config: undefined,
     });
   }
+
+  it("sources the launch's staged env on the command that runs claude", async () => {
+    const envFile = inTmpRoot("env.sh");
+    writeFileSync(envFile, "export REVIEW_MODE='fast'\n");
+    await harnessFor("claude").prepare({
+      pi: PI,
+      pane: PANE,
+      paneId: "w1:p9",
+      cwd: tmpRoot,
+      launch: launchInputs({ taskFile, envFile }),
+      config: undefined,
+    });
+
+    const body = runInPaneMock.mock.calls[0]![2] as string;
+    expect(body).toContain(
+      `( . '${envFile}' && { command claude "$@" -- "$(cat '${taskFile}')"; } )`,
+    );
+    // The value stays in the file: the typed command names only the path.
+    expect(body).not.toContain("fast");
+  });
 
   it("stages the config directory and plants the launcher that points claude at it", async () => {
     await prepareClaude();

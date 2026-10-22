@@ -567,3 +567,98 @@ describe("the shipped Explore agent template", () => {
     expect(prompt?.endsWith("\n")).toBe(false);
   });
 });
+
+describe("AgentTemplateSchema — env overrides", () => {
+  it("files each family's env table under that family", () => {
+    const template = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness.pi.env]",
+        'REVIEW_MODE = "fast"',
+        "[harness.claude.env]",
+        'SHELL_PROMPT = "terse"',
+      ].join("\n"),
+    );
+
+    expect(template.harness?.envByFamily).toEqual({
+      pi: { REVIEW_MODE: "fast" },
+      claude: { SHELL_PROMPT: "terse" },
+    });
+  });
+
+  it("reads the pi env table flat under [harness], with [harness.pi] winning per variable", () => {
+    const flat = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'env = { FLAT_ONLY = "flat", SHARED = "flat" }',
+      ].join("\n"),
+    );
+    expect(flat.harness?.envByFamily).toEqual({
+      pi: { FLAT_ONLY: "flat", SHARED: "flat" },
+    });
+
+    const both = parseAgentFile(
+      [
+        'name = "x"',
+        "[harness]",
+        'env = { FLAT_ONLY = "flat", SHARED = "flat" }',
+        "[harness.pi.env]",
+        'SHARED = "family"',
+      ].join("\n"),
+    );
+    expect(both.harness?.envByFamily).toEqual({
+      pi: { FLAT_ONLY: "flat", SHARED: "family" },
+    });
+  });
+
+  it("rejects a reserved variable in the flat pi spelling too", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness]\nenv = { PATH = "/evil" }'),
+      ),
+    ).toBe(
+      "harness.env.PATH: is a reserved environment variable and cannot be overridden",
+    );
+  });
+
+  it("rejects a variable every launch reserves, naming it", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi.env]\nPATH = "/evil"'),
+      ),
+    ).toBe(
+      "harness.pi.env.PATH: is a reserved environment variable and cannot be overridden",
+    );
+  });
+
+  it("rejects the variable a harness's own launcher sets", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile(
+          'name = "x"\n[harness.codex.env]\nCODEX_HOME = "/tmp/x"',
+        ),
+      ),
+    ).toBe(
+      "harness.codex.env.CODEX_HOME: is a reserved environment variable and cannot be overridden",
+    );
+  });
+
+  it("rejects a name the shell cannot read as a variable", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi.env]\n"not-a-name" = "v"'),
+      ),
+    ).toBe(
+      "harness.pi.env.not-a-name: is not a valid environment variable name",
+    );
+  });
+
+  it("rejects a value carrying a control character, which would split the sourced shell statement", () => {
+    expect(
+      parseError(() =>
+        parseAgentFile('name = "x"\n[harness.pi.env]\nMESSAGE = "a\\nb"'),
+      ),
+    ).toBe("harness.pi.env.MESSAGE: contains a control character");
+  });
+});

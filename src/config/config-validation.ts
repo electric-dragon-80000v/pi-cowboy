@@ -7,7 +7,13 @@
  * reader below this boundary handles `unknown`.
  */
 import { z } from "zod";
-import { HARNESS_IDS, type AnyHarnessId } from "../agents/harness.js";
+import {
+  HARNESS_IDS,
+  hasControlCharacter,
+  isEnvVarName,
+  isUniversalReservedEnvVar,
+  type AnyHarnessId,
+} from "../agents/harness.js";
 import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
@@ -229,7 +235,75 @@ function cleanHarnessSections(
       );
       continue;
     }
-    kept[id] = slice;
+    kept[id] = cleanHarnessSlice(slice, id, filePath);
+  }
+  return Object.keys(kept).length > 0 ? kept : undefined;
+}
+
+/**
+ * One harness section with its `env` table cleaned. Each variable is dropped on
+ * its own, so one bad entry costs only itself. The names a harness owns are not
+ * checked here: they are keyed by family, which this layer does not resolve, so
+ * the launch drops them with a warning once the harness is known.
+ */
+function cleanHarnessSlice(
+  slice: Record<string, unknown>,
+  id: string,
+  filePath: string,
+): Record<string, unknown> {
+  if (slice.env === undefined) return slice;
+  const env = cleanHarnessEnv(slice.env, id, filePath);
+  const rest: Record<string, unknown> = { ...slice };
+  delete rest.env;
+  return env === undefined ? rest : { ...rest, env };
+}
+
+/** A harness's env overrides: a map from a variable name to the value a launch carries. */
+function cleanHarnessEnv(
+  value: unknown,
+  id: string,
+  filePath: string,
+): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    warnIncompatible(filePath, `harness.${id}.env`, value, EXPECTED_OBJECT);
+    return undefined;
+  }
+  const kept: Record<string, string> = {};
+  for (const [name, candidate] of Object.entries(value)) {
+    if (candidate === undefined) continue;
+    const keyPath = `harness.${id}.env.${name}`;
+    if (!isEnvVarName(name)) {
+      warnIncompatible(
+        filePath,
+        keyPath,
+        name,
+        "a valid environment variable name",
+      );
+      continue;
+    }
+    if (isUniversalReservedEnvVar(name)) {
+      warnIncompatible(
+        filePath,
+        keyPath,
+        name,
+        "a variable that is not reserved",
+      );
+      continue;
+    }
+    if (typeof candidate !== "string") {
+      warnIncompatible(filePath, keyPath, candidate, "string");
+      continue;
+    }
+    if (hasControlCharacter(candidate)) {
+      warnIncompatible(
+        filePath,
+        keyPath,
+        candidate,
+        "a value without control characters",
+      );
+      continue;
+    }
+    kept[name] = candidate;
   }
   return Object.keys(kept).length > 0 ? kept : undefined;
 }

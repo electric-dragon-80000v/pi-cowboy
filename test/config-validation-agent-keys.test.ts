@@ -65,3 +65,45 @@ describe("validateRawLayer — spawn default keys", () => {
     expect(cleaned.agent?.includeContextFiles).toBe(true);
   });
 });
+
+describe("validateRawLayer — harness env overrides", () => {
+  it("keeps a valid entry and drops the reserved, unreadable and unquotable ones", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      {
+        harness: {
+          codex: {
+            env: {
+              MY_FLAG: "1",
+              PATH: "/evil",
+              "not-a-name": "x",
+              MESSAGE: "a\nb",
+              COUNT: 2,
+            },
+          },
+        },
+      },
+      "config.json",
+    );
+
+    expect(cleaned.harness?.codex.env).toEqual({ MY_FLAG: "1" });
+    expect(warn).toHaveBeenCalledTimes(4);
+    expect(warn.mock.calls[0]![0]).toContain("harness.codex.env.PATH");
+    expect(warn.mock.calls[1]![0]).toContain("harness.codex.env.not-a-name");
+    expect(warn.mock.calls[2]![0]).toContain("harness.codex.env.MESSAGE");
+    expect(warn.mock.calls[3]![0]).toContain("harness.codex.env.COUNT");
+  });
+
+  it("drops an env table that is not an object and keeps the rest of the section", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cleaned = validateRawLayer(
+      { harness: { codex: { env: "MY_FLAG=1" } } },
+      "config.json",
+    );
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(cleaned.harness?.codex).not.toHaveProperty("env");
+  });
+});

@@ -149,6 +149,7 @@ function launchRequest(): CodexLaunchRequest {
     modelKey: null,
     thinking: null,
     toolSelection: { kind: "default" },
+    envFile: null,
     projectTrusted: true,
   };
 }

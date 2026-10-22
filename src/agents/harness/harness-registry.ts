@@ -49,6 +49,7 @@ import {
   type PluginHarness,
   type ThinkingLevels,
 } from "../harness.js";
+import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
@@ -56,16 +57,32 @@ import { opencodeHarness } from "./opencode/index.js";
 import { codexHarness } from "./codex.js";
 import { claudeHarness } from "./claude/index.js";
 
+/** Signature the env launcher carries, so verification proves which launcher landed. */
+const PI_ENV_LAUNCHER_SIGNATURE = "PI_ENV_LAUNCHER_4c7d19";
+
+/** Token the verify command echoes once the env launcher body is confirmed. */
+const PI_ENV_READY_MARKER = "PI_ENV_VERIFIED";
+
 /**
- * Real pi is already the pane shell's `pi`: it is always launchable, and there
- * is nothing to prepare or tear down. Its argv is the family's shared
- * assembly — pi is the family's namesake — and its model list is the family's
- * shared catalog.
+ * Real pi is already the pane shell's `pi`: it is always launchable, and it
+ * needs no launcher unless the spawn carries env overrides — a real binary
+ * cannot be handed a per-launch environment any other way. Its argv is the
+ * family's shared assembly — pi is the family's namesake — and its model list
+ * is the family's shared catalog.
  */
 const piHarness: Harness<PiFamilyLaunchRequest> = {
   agentMultiplexerKind: "pi",
   availability: () => ({ status: "available" }),
-  prepare: async () => {},
+  async prepare({ pane, paneId, launch }): Promise<void> {
+    // No overrides, no launcher: the pane's own `pi` is already the binary.
+    if (launch.envFile === null) return;
+    await installPaneLauncher(pane, paneId, {
+      commandName: "pi",
+      body: launchEnvBody(launch.envFile, 'command pi "$@"'),
+      signature: PI_ENV_LAUNCHER_SIGNATURE,
+      readyMarker: PI_ENV_READY_MARKER,
+    });
+  },
   buildArgs: buildPiLaunchArgs,
   listModels: piFamilyListModels,
   // The catalog is local: nothing to warm.

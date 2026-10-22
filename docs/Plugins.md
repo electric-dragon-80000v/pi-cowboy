@@ -77,8 +77,8 @@ export default function (api: CowboyPluginApi) {
       `cowboy-subagent-${launch.subagentId}`,
       `@${launch.taskFile}`,
     ],
-    prepare: async (paneId, pane) => {},
-    teardown: async (paneId, pane) => {},
+    prepare: async ({ pane, paneId }) => {},
+    teardown: async ({ paneId }) => {},
     listModels: async () => ({
       kind: "listed",
       entries: [
@@ -96,18 +96,19 @@ export default function (api: CowboyPluginApi) {
 
 ### Harness Fields
 
-| Field                  | Type                                                   | Description                                                                                                                                                                                                                                                                                                                       |
-| ---------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                   | string (required)                                      | Unique harness identifier referenced by `agent.harnessType`, template `harness_type`, and `cowboy_agent` tool calls.                                                                                                                                                                                                              |
-| `displayName`          | string (required)                                      | Human-readable label displayed in `/cowboy` menus and settings.                                                                                                                                                                                                                                                                   |
-| `agentMultiplexerKind` | string (required)                                      | The process type recognized by the multiplexer (for example, `"pi"`).                                                                                                                                                                                                                                                             |
-| `availability`         | `() => HarnessAvailability`                            | Probes whether the harness binary and environment are ready to launch. Return `{ status: "available" }` or `{ status: "unavailable", notice?: string }`.                                                                                                                                                                          |
-| `buildArgs`            | `(launch: SubagentLaunchInputs) => string[]`           | Builds the argument list executed inside the pane.                                                                                                                                                                                                                                                                                |
-| `prepare`              | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to prepare terminal state before launching the subagent process.                                                                                                                                                                                                                                                    |
-| `teardown`             | `(paneId: string, pane: PaneControl) => Promise<void>` | Optional hook to clean up files or pane state after the process finishes.                                                                                                                                                                                                                                                         |
-| `listModels`           | `(request) => Promise<ModelList>`                      | Returns available models for settings menus and model resolution. `thinkingLevels` defines the model's supported thinking levels in the harness's vocabulary and specifies whether the level list is strict (`closed`) or informative (`advisory`). An empty list indicates no thinking support. See [Model lists](#model-lists). |
-| `prefetchModels`       | `() => void \| Promise<void>`                          | Optional hook to pre-warm slow model catalogs in the background at session boot.                                                                                                                                                                                                                                                  |
-| `config`               | `HarnessConfigCodec`                                   | Optional codec that validates the `harness.<id>` configuration section after plugins load.                                                                                                                                                                                                                                        |
+| Field                  | Type                                                 | Description                                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | string (required)                                    | Unique harness identifier referenced by `agent.harnessType`, template `harness_type`, and `cowboy_agent` tool calls.                                                                                                                                                                                                              |
+| `displayName`          | string (required)                                    | Human-readable label displayed in `/cowboy` menus and settings.                                                                                                                                                                                                                                                                   |
+| `agentMultiplexerKind` | string (required)                                    | The process type recognized by the multiplexer (for example, `"pi"`).                                                                                                                                                                                                                                                             |
+| `availability`         | `() => HarnessAvailability`                          | Probes whether the harness binary and environment are ready to launch. Return `{ status: "available" }` or `{ status: "unavailable", notice?: string }`.                                                                                                                                                                          |
+| `buildArgs`            | `(launch: SubagentLaunchInputs) => string[]`         | Builds the argument list executed inside the pane.                                                                                                                                                                                                                                                                                |
+| `prepare`              | `(request: HarnessPrepareRequest) => Promise<void>`  | Optional hook to prepare terminal state before launching the subagent process. The request carries `pi`, `config`, `pane`, `paneId`, `cwd`, and `launch`.                                                                                                                                                                         |
+| `teardown`             | `(request: HarnessTeardownRequest) => Promise<void>` | Optional hook to clean up files or pane state after the process finishes.                                                                                                                                                                                                                                                         |
+| `reservedEnvVars`      | `() => readonly string[]`                            | Names this harness reserves besides the universal set, so an environment variable entry for one is dropped with a warning. See [Launch environment](#launch-environment).                                                                                                                                                         |
+| `listModels`           | `(request) => Promise<ModelList>`                    | Returns available models for settings menus and model resolution. `thinkingLevels` defines the model's supported thinking levels in the harness's vocabulary and specifies whether the level list is strict (`closed`) or informative (`advisory`). An empty list indicates no thinking support. See [Model lists](#model-lists). |
+| `prefetchModels`       | `() => void \| Promise<void>`                        | Optional hook to pre-warm slow model catalogs in the background at session boot.                                                                                                                                                                                                                                                  |
+| `config`               | `HarnessConfigCodec`                                 | Optional codec that validates the `harness.<id>` configuration section after plugins load.                                                                                                                                                                                                                                        |
 
 ### Model lists
 
@@ -150,10 +151,39 @@ The `buildArgs` function receives a `SubagentLaunchInputs` object containing:
 - `resultFile`: Path where the subagent writes its final output report.
 - `modelKey`: Resolved model ID string (`"provider/model"`), or `undefined` if unset.
 - `toolSelection`: Allowed and excluded tool lists resolved for this run.
+- `envFile`: Path of the staged file holding this launch's environment variables, or `null` when it carries none. See [Launch environment](#launch-environment).
+
+### Launch environment
+
+`harness.<id>.env` in the global `config.json` and a template's `[harness.<family>.env]` table give a spawn variables beyond the pane's own environment. `pi-cowboy` merges them, drops reserved names and values containing control characters with a warning, and stages what remains in an owner-only file at `launch.envFile`. The values stay in that file: they never appear on the command line typed into the pane, so credentials are not exposed in the pane's scrollback or the shell's history file.
+
+A harness that launches through a shell function in the pane therefore sources the file rather than rebuilding the variables itself. `pi-cowboy/plugin` exports `launchEnvBody` to source the file, and `singleQuoteShellWord` to quote command arguments safely:
+
+```ts
+import { launchEnvBody, singleQuoteShellWord } from "pi-cowboy/plugin";
+
+async prepare({ launch }: HarnessPrepareRequest) {
+  const body = launchEnvBody(
+    launch.envFile,
+    `command my-cli --task ${singleQuoteShellWord(launch.taskFile)} "$@"`,
+  );
+  // Type the launcher that runs `body` into the pane.
+}
+```
+
+`launchEnvBody` returns the body unchanged when the launch carries no variables, and otherwise wraps it in a subshell that sources the file: the variables reach the launched process, and the pane's shell keeps its own environment after the agent exits. A launcher that ignores `envFile` silently drops every entry configured for its harness.
+
+A harness can also reserve names its own launcher maintains, so a configured entry for one is refused instead of overwriting what the launcher set:
+
+```ts
+reservedEnvVars: () => ["MY_CLI_HOME", "MY_CLI_PROFILE"],
+```
+
+The universal reserved names and the built-in families' own names always apply ([Configuration](Configuration.md#harnessidenv)).
 
 ### Pane Preparation and Custom Binaries
 
-The `prepare` and `teardown` hooks receive the pane ID and a `PaneControl` handle:
+The `prepare` hook receives a request whose `pane` member is a `PaneControl` handle alongside `paneId`, while `teardown` receives `paneId` without a `pane` handle:
 
 - `pane.run(paneId: string, command: string)`: Sends a command string to the pane.
 - `pane.waitForOutput(paneId: string, pattern: string \| RegExp, timeoutMs: number)`: Waits for matching terminal output.
@@ -164,7 +194,7 @@ The built-in `herdr` multiplexer directly launches only the CLI kinds it recogni
 2. In `prepare`, create a launcher script inside the pane that forwards `pi` invocations to your target CLI.
 3. In `buildArgs`, return flags formatted for your target CLI.
 
-See `src/agents/harness/pane-launcher.ts` in the `pi-cowboy` repository for a complete implementation.
+For reference, see `src/agents/harness/pane-launcher.ts` in the `pi-cowboy` repository for the complete install-and-verify sequence (defining the function, reading it back, and retrying until the verification marker appears).
 
 ### Child Session Marker
 

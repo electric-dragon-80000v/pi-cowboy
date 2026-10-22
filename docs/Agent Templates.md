@@ -84,6 +84,19 @@ A template can include configuration sections for multiple harness families. For
 
 Each family's `thinking` token passes to the target harness without translation. Levels set in template sections take precedence below the per-type configuration layers described in [Thinking levels](Configuration.md#thinking-levels).
 
+#### Env overrides
+
+Every family table also accepts an `env` sub-table of variables the spawn carries in addition to the pane's environment:
+
+```toml
+[harness.codex.env]
+MY_FLAG = "1"
+```
+
+Pi's table is also loadable flat as `[harness].env`, like every other Pi key; when both spellings set a variable, `[harness.pi.env]` wins.
+
+Variables merge per key across template layers, and the template's value wins over the same variable in the machine's `harness.<id>.env` (see [Configuration](Configuration.md#harnessidenv)). If a variable name is reserved (`PATH`, `NODE_OPTIONS`, any `HERDR_*` prefix, or a name set by the family's launcher) or if a value contains a control character, `pi-cowboy` rejects the template with an error naming the variable. The values themselves reach the child through a staged file, never through the command line typed into the pane.
+
 #### `[harness.pi]`
 
 | Field            | Type                | Default                          | Description                                                                                                                          |

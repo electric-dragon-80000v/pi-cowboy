@@ -349,6 +349,7 @@ describe("buildLaunchPlan CLI flags", () => {
     // Exactly the shared inputs plus codex's own: no pi input rides this
     // request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "envFile",
       "family",
       "modelKey",
       "projectTrusted",
@@ -475,6 +476,7 @@ describe("buildLaunchPlan CLI flags", () => {
       modelKey: null,
       thinking: null,
       toolSelection: { kind: "default" },
+      envFile: null,
       projectTrusted: true,
     } satisfies CodexLaunchRequest);
   });
@@ -546,6 +548,7 @@ describe("buildLaunchPlan CLI flags", () => {
       modelKey: "anthropic/claude-opus-4",
       thinking: "high",
       toolSelection: { kind: "default" },
+      envFile: null,
     });
     // One object: the argv and the plan were built from the same request.
     expect(requests[0]).toBe(plan.launch);
@@ -562,6 +565,7 @@ describe("buildLaunchPlan CLI flags", () => {
     // Exactly the shared inputs plus the family tag: no pi input and no
     // opencode-only field rides this request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "envFile",
       "family",
       "modelKey",
       "resultFile",
@@ -1096,6 +1100,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
     });
     // No built-in family's option rides a plugin request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "envFile",
       "family",
       "modelKey",
       "resultFile",
@@ -1140,5 +1145,95 @@ describe("buildLaunchPlan — a plugin harness", () => {
     expect(store.modelFor("test-agent", null, undefined, "pi")).toBe(
       "anthropic/claude-sonnet-4",
     );
+  });
+});
+
+/**
+ * The variables a plan stages, read back from the file the pane's launcher
+ * sources. The names and values every test here uses are plain shell words.
+ */
+function stagedEnv(launch: HarnessLaunch): Record<string, string> {
+  if (launch.envFile === null) return {};
+  const lines = fs.readFileSync(launch.envFile, "utf-8").trim().split("\n");
+  return Object.fromEntries(
+    lines.map((line) => {
+      const match = /^export ([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/.exec(line);
+      if (match === null) throw new Error(`unexpected env line: ${line}`);
+      return [match[1]!, match[2]!];
+    }),
+  );
+}
+
+describe("buildLaunchPlan — env overrides", () => {
+  it("layers the template's family table over the machine's harness env, then drops a name the harness owns", async () => {
+    const { cwd, notify } = setup(
+      makeAgent({
+        harnessType: "codex",
+        envByFamily: { codex: { SHARED: "template", TEMPLATE_ONLY: "yes" } },
+      }),
+    );
+    storeRef.current = new ConfigStore(
+      memoryIO({
+        harness: {
+          codex: {
+            env: {
+              SHARED: "config",
+              CONFIG_ONLY: "yes",
+              CODEX_HOME: "/elsewhere",
+            },
+          },
+        },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(stagedEnv(plan.launch)).toEqual({
+      SHARED: "template",
+      TEMPLATE_ONLY: "yes",
+      CONFIG_ONLY: "yes",
+    });
+    // Owner-only: the variables are usually credentials.
+    const envFile = plan.launch.envFile;
+    if (envFile === null) throw new Error("no env file was staged");
+    expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
+    const warnings = notify.mock.calls.map(([message]) => String(message));
+    expect(warnings.some((warning) => warning.includes("CODEX_HOME"))).toBe(
+      true,
+    );
+  });
+
+  it("reads the machine's env for a plugin harness too, which has no template family", async () => {
+    harnesses.register({
+      id: "env-plugin",
+      displayName: "Env Plugin",
+      agentMultiplexerKind: "pi",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => ({ kind: "listed", entries: [] }),
+      prefetchModels: () => {},
+      reservedEnvVars: () => ["PLUGIN_OWNED"],
+    } as PluginHarness);
+    const { cwd, notify } = setup(makeAgent({ harnessType: "env-plugin" }));
+    storeRef.current = new ConfigStore(
+      memoryIO({
+        harness: {
+          "env-plugin": {
+            env: { PLUGIN_FLAG: "1", PLUGIN_OWNED: "no" },
+          },
+        },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(stagedEnv(plan.launch)).toEqual({ PLUGIN_FLAG: "1" });
+    expect(
+      notify.mock.calls.some(([message]) =>
+        String(message).includes("PLUGIN_OWNED"),
+      ),
+    ).toBe(true);
   });
 });

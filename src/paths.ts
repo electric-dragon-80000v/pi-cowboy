@@ -95,7 +95,19 @@ export function subagentSystemFileFor(agentId: string): string {
   return path.join(subagentResultDirFor(agentId), SUBAGENT_SYSTEM_FILE_NAME);
 }
 
-/** Canonical task file for a subagent id — the `@<file>` initial message. */
+/**
+ * Staged environment variables for a launch, formatted for the pane shell to
+ * source. A file is used rather than command-line arguments because values often
+ * carry credentials that should not be preserved in pane scrollback or shell history.
+ */
+const SUBAGENT_ENV_FILE_NAME = "env.sh";
+
+/** Canonical env file for a subagent ID. */
+export function subagentEnvFileFor(agentId: string): string {
+  return path.join(subagentResultDirFor(agentId), SUBAGENT_ENV_FILE_NAME);
+}
+
+/** Canonical task file for a subagent ID — the `@<file>` initial message. */
 export function subagentTaskFileFor(agentId: string): string {
   return path.join(subagentResultDirFor(agentId), SUBAGENT_TASK_FILE_NAME);
 }

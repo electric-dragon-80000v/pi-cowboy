@@ -6,7 +6,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { modelListEntries, modelListNotice } from "../src/plugin/index.js";
+import {
+  launchEnvBody,
+  modelListEntries,
+  modelListNotice,
+  singleQuoteShellWord,
+} from "../src/plugin/index.js";
 import type { ModelEntry, ModelList } from "../src/plugin/index.js";
 
 /** Compiles only while the subpath exports `ModelList` as a type. */
@@ -35,5 +40,16 @@ describe("the plugin subpath", () => {
     const answer: ModelList = { kind: "unavailable", notice: "no catalog" };
     expect(entries(answer)).toEqual([]);
     expect(notice(answer)).toBe("no catalog");
+  });
+
+  it("quotes a path the way the pane's launchers do", () => {
+    expect(singleQuoteShellWord("/a b/it's.sh")).toBe("'/a b/it'\\''s.sh'");
+  });
+
+  it("wraps a body so it sources the launch's staged env", () => {
+    expect(launchEnvBody("/spawn/a/env.sh", 'command x "$@"')).toBe(
+      `( . '/spawn/a/env.sh' && { command x "$@"; } )`,
+    );
+    expect(launchEnvBody(null, 'command x "$@"')).toBe('command x "$@"');
   });
 });

@@ -20,7 +20,7 @@ import type {
   ModelEntry,
   PiFamilyLaunchRequest,
 } from "../harness.js";
-import { installPaneLauncher } from "./pane-launcher.js";
+import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
@@ -127,10 +127,11 @@ export function createPiCompatibleHarness(
     async prepare({
       pane,
       paneId,
+      launch,
     }: HarnessPrepareRequest<PiFamilyLaunchRequest>): Promise<void> {
       await installPaneLauncher(pane, paneId, {
         commandName: "pi",
-        body: `export HERDR_AGENT=pi; ${spec.binary} "$@"`,
+        body: `export HERDR_AGENT=pi; ${launchEnvBody(launch.envFile, `${spec.binary} "$@"`)}`,
         signature: spec.signature,
         readyMarker: spec.readyMarker,
       });

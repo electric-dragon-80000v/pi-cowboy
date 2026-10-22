@@ -33,6 +33,23 @@ export function singleQuoteShellWord(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/**
+ * A launcher body that runs with the launch's staged variables, or the body
+ * unchanged for a launch that carries none.
+ *
+ * The values stay in the file (see launch-env.ts): interpolating them here
+ * would put them on the command line kept in the pane's scrollback. The body
+ * runs in a subshell, because sourcing modifies the environment of the shell that
+ * reads the file and the pane's interactive shell must preserve its own environment
+ * after the agent exits. `&&` keeps a launch from starting without the variables
+ * it was configured with — an unreadable file stops the command instead of quietly
+ * launching an unconfigured agent.
+ */
+export function launchEnvBody(envFile: string | null, body: string): string {
+  if (envFile === null) return body;
+  return `( . ${singleQuoteShellWord(envFile)} && { ${body}; } )`;
+}
+
 /** Bounded install attempts: a `run` before the shell is at its prompt is silently lost. */
 const INSTALL_MAX_ATTEMPTS = 5;
 const INSTALL_OUTPUT_TIMEOUT_MS = 2_000;

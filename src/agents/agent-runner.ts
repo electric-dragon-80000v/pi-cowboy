@@ -17,6 +17,7 @@ import {
 import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
   agentDir,
+  subagentEnvFileFor,
   subagentResultDirFor,
   subagentResultFileFor,
   subagentSystemFileFor,
@@ -29,9 +30,16 @@ import {
   buildWorktreeBranchSection,
 } from "../prompt/subagent-system-prompt.js";
 import {
+  hasControlCharacter,
+  isEnvVarName,
+  isUniversalReservedEnvVar,
+  reservedEnvVarsOf,
+  RESERVED_ENV_VARS_BY_FAMILY,
   type AnyHarnessId,
   type CodexLaunchInputs,
   type ExtensionLaunchMode,
+  type HarnessEnvReservations,
+  type HarnessFamily,
   type HarnessLaunch,
   type PiLaunchInputs,
   type SkillLaunchMode,
@@ -39,6 +47,7 @@ import {
   type ToolSelection,
 } from "./harness.js";
 import { harnessFamilyOf } from "./harness/harness-registry.js";
+import { stageLaunchEnv } from "./harness/launch-env.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
   getAgentConfig,
@@ -285,6 +294,65 @@ function buildHarnessArgs(
   return getHarnessRegistry().require(harnessId).buildArgs(launch);
 }
 
+/**
+ * Resolves the environment variables for a launch: starts with the global
+ * harness configuration, overlays the agent's family table, and drops reserved
+ * names and values containing control characters with a warning. A
+ * machine-configured variable can be overridden; a launcher-reserved name cannot.
+ */
+function resolveLaunchEnv(
+  configured: Readonly<Record<string, string>>,
+  overrides: Record<string, string> | undefined,
+  reserved: readonly string[],
+  warn: (message: string) => void,
+  harness: AnyHarnessId,
+): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [name, value] of Object.entries({ ...configured, ...overrides })) {
+    if (!isEnvVarName(name)) {
+      warn(
+        `Ignoring environment variable "${name}" for ${harness}: not a valid variable name`,
+      );
+      continue;
+    }
+    if (isUniversalReservedEnvVar(name)) {
+      warn(
+        `Ignoring environment variable ${name} for ${harness}: it is reserved and cannot be overridden`,
+      );
+      continue;
+    }
+    if (reserved.includes(name)) {
+      warn(
+        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
+      );
+      continue;
+    }
+    if (hasControlCharacter(value)) {
+      warn(
+        `Ignoring environment variable ${name} for ${harness}: its value contains a control character`,
+      );
+      continue;
+    }
+    kept[name] = value;
+  }
+  return kept;
+}
+
+/**
+ * The environment variable names this launch may not override: the resolved
+ * family's own table plus any names declared by a plugin harness. A plugin ID
+ * has no family, so its declaration constitutes its entire list.
+ */
+function familyReservations(
+  family: HarnessFamily | undefined,
+  registered: HarnessEnvReservations | undefined,
+): readonly string[] {
+  return [
+    ...(family === undefined ? [] : RESERVED_ENV_VARS_BY_FAMILY[family]),
+    ...(registered === undefined ? [] : reservedEnvVarsOf(registered)),
+  ];
+}
+
 /** The child pi owns extension discovery and tool validation; this only forwards configuration. */
 export async function buildLaunchPlan(
   pi: ExtensionAPI,
@@ -340,13 +408,13 @@ export async function buildLaunchPlan(
       }
     }
   }
+  const family = harnessFamilyOf(harnessType);
   let toolSelection: ToolSelection = { kind: "default" };
   try {
     // Exactly one harness launches a spawn, so exactly one family's slice
     // decides: its names are already in that family's vocabulary. A family the
     // template does not name — a plugin's own family especially — launches
     // unfiltered, never with another family's list, and never translated.
-    const family = harnessFamilyOf(harnessType);
     const filter =
       family === undefined ? undefined : agentConfig?.toolsByFamily?.[family];
     if (filter?.tools === false) {
@@ -367,6 +435,15 @@ export async function buildLaunchPlan(
     notifyLaunchConfigurationError(ctx, message);
   }
 
+  const registered = getHarnessRegistry().get(harnessType);
+  const env = resolveLaunchEnv(
+    store.harnessEnv(harnessType),
+    family === undefined ? undefined : agentConfig?.envByFamily?.[family],
+    familyReservations(family, registered),
+    bufferNotify,
+    harnessType,
+  );
+
   // Neither payload crosses argv as content: herdr's `agent start` encodes
   // argv into the pane shell command and rejects control characters, so the
   // prompt rides as `--system-prompt <system.md>` and the task as `@<prompt.md>`.
@@ -377,6 +454,8 @@ export async function buildLaunchPlan(
   const resultFile = subagentResultFileFor(agentId);
   const systemFile = subagentSystemFileFor(agentId);
   const taskFile = subagentTaskFileFor(agentId);
+  // Owner-only, like the files above: variables staged here are often credentials.
+  const envFile = stageLaunchEnv(subagentEnvFileFor(agentId), env);
 
   const systemPrompt = await buildSubagentSystemPrompt({
     pi,
@@ -434,6 +513,7 @@ export async function buildLaunchPlan(
     modelKey: modelChoiceKey(options.modelChoice) ?? null,
     thinking: options.modelChoice?.thinking ?? null,
     toolSelection,
+    envFile,
   };
   const piInputs: PiLaunchInputs = {
     forkSessionFile: forkSessionFile ?? null,

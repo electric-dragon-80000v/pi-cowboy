@@ -101,6 +101,7 @@ function stubLaunchPlan() {
       resultFile: "/tmp/result.md",
       modelKey: null,
       toolSelection: { kind: "default" },
+      envFile: null,
       thinkingLevel: null,
       forkSessionFile: null,
       skills: { kind: "default" },

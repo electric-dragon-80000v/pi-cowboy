@@ -694,3 +694,40 @@ describe("mergeAgents harness family split", () => {
     ).toEqual({ opencode: "max" });
   });
 });
+
+describe("mergeAgents — env overrides", () => {
+  it("merges one family's variables key by key across layers", () => {
+    const user = [
+      parseAgentFile(
+        ['name = "env"', "[harness.pi.env]", 'A = "user"', 'B = "user"'].join(
+          "\n",
+        ),
+      ),
+    ];
+    const project = [
+      parseAgentFile(
+        [
+          'name = "env"',
+          "[harness.pi.env]",
+          'B = "project"',
+          'C = "project"',
+        ].join("\n"),
+      ),
+    ];
+
+    expect(
+      mergeAgents(new Map(), user, [], project).get("env")?.envByFamily,
+    ).toEqual({ pi: { A: "user", B: "project", C: "project" } });
+  });
+
+  it("keeps each family's variables apart", () => {
+    const user = [parseAgentFile('name = "env"\n[harness.pi.env]\nA = "pi"')];
+    const project = [
+      parseAgentFile('name = "env"\n[harness.codex.env]\nA = "codex"'),
+    ];
+
+    expect(
+      mergeAgents(new Map(), user, [], project).get("env")?.envByFamily,
+    ).toEqual({ pi: { A: "pi" }, codex: { A: "codex" } });
+  });
+});

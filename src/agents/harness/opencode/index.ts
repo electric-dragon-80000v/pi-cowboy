@@ -49,6 +49,7 @@ import {
 } from "../../harness.js";
 import {
   installPaneLauncher,
+  launchEnvBody,
   singleQuoteShellWord,
   splitMarker,
   type PaneProof,
@@ -113,6 +114,7 @@ function launcherBody(
   configDir: string,
   taskFile: string,
   explicitConfigFile: string | undefined,
+  envFile: string | null,
 ): string {
   return [
     explicitConfigFile === undefined
@@ -122,7 +124,10 @@ function launcherBody(
     `export OPENCODE_CONFIG_DIR=${singleQuoteShellWord(configDir)}`,
     "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
     "export OPENCODE_DISABLE_AUTOUPDATE=1",
-    `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
+    launchEnvBody(
+      envFile,
+      `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
+    ),
   ].join("; ");
 }
 
@@ -354,7 +359,12 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
     });
     await installPaneLauncher(pane, paneId, {
       commandName: OPENCODE_COMMAND,
-      body: launcherBody(configDir, launch.taskFile, explicitConfigFile),
+      body: launcherBody(
+        configDir,
+        launch.taskFile,
+        explicitConfigFile,
+        launch.envFile,
+      ),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,
       proof: definitionProof(launch.subagentId),

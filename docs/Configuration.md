@@ -196,6 +196,24 @@ Sets the terminal multiplexer used to host subagent panes, specified by ID. This
 
 The `harness` object configures individual harnesses, keyed by harness ID. Each harness defines the schema, validation rules, and defaults for its configuration section. Unrecognized IDs retain their raw configuration until a matching plugin registers. Harnesses without custom configuration require no entry.
 
+### `harness.<id>.env`
+
+Defines environment variables that every spawn of a harness carries, in addition to the pane's own environment:
+
+```json
+{
+  "harness": {
+    "codex": { "env": { "MY_FLAG": "1" } }
+  }
+}
+```
+
+The section is keyed by harness ID, so `harness.pi.env` applies to `pi` alone; `pig` and `pi-bolt` read their own sections. An agent template's `[harness.<family>.env]` table (see [Agent Templates](Agent%20Templates.md#env-overrides)) is layered over this map per variable, so a template can replace what the machine set without restating the rest.
+
+Each spawn receives its variables in an owner-only file (`env.sh`) inside its staging directory. The launcher sources this file for the launched process only, preserving the pane shell's environment afterward. The values never appear on the command line typed into the pane, so they do not land in that pane's scrollback or in the shell's history file. A variable is dropped with a warning when its name is not a valid identifier, when it is reserved, or when its value contains a control character (which would end the shell statement that carries it). Reserved names are `PATH`, `HOME`, `SHELL`, `PWD`, `OLDPWD`, `IFS`, `CDPATH`, `GLOBIGNORE`, the `PS` prompts, `BASH_ENV`, `ENV`, `NODE_OPTIONS`, `LD_PRELOAD`, `LD_AUDIT`, every `DYLD_*`, `HERDR_*`, and `COWBOY_*` name, and the names set by each harness's launcher (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `OPENCODE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, and others). A harness registered by a plugin contributes its own reserved names through `reservedEnvVars` ([Plugins](Plugins.md#launch-environment)).
+
+This is a machine-level setting configured only in the global `config.json`; project configuration files cannot set it.
+
 ### `harness.opencode`
 
 Configures the settings an `opencode` subagent inherits from the user's OpenCode configuration (`opencode.json` or `opencode.jsonc`). A file named by `OPENCODE_CONFIG` is filtered and staged alongside them. Because each subagent runs with an isolated `OPENCODE_CONFIG_DIR`, staging this configuration supplies the parent session's providers and models.
