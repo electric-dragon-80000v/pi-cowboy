@@ -29,6 +29,12 @@ export interface AgentEnvironment {
   place(host: AgentHostRef): void;
   /** Record the harness engaging the placed pane. */
   engage(harness: AnyHarnessId): void;
+  /**
+   * Archive the active run into the history and give up the placement and the
+   * harness: a handover ends one run before the next engages an address of its
+   * own. The environment addresses nothing until that run places one.
+   */
+  end(run: EndedRun): void;
 }
 
 /** Read a spawn's execution state as an environment. */
@@ -44,6 +50,11 @@ export function environmentOf(
     },
     engage: (harness) => {
       execution.harness = harness;
+    },
+    end: (run) => {
+      execution.history.push(run);
+      execution.host = undefined;
+      execution.harness = undefined;
     },
   };
 }

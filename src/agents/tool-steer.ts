@@ -9,14 +9,44 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { COWBOY_TOOLS, CONSTRAINED_SAMPLING } from "../cowboy-tools.js";
 import { formatActiveAgents } from "../orchestrators/protocol.js";
 import { getManager } from "../shell.js";
 import { lifecycleStatus } from "../types.js";
 import { errorMessage } from "../utils.js";
 import type { SteerOutcome } from "./subagent-session.js";
-import type { SteerBatchParams } from "./schemas/steer-batch.schema.js";
+import {
+  SteerBatchSchema,
+  type SteerBatchParams,
+} from "./schemas/steer-batch.schema.js";
 import { runBatch, type BatchItem } from "./batch.js";
-import type { ToolResult } from "./tool-result.js";
+import type { ToolResult, ToolSeverity } from "./tool-result.js";
+
+/** The steer tool: one message, every id in input order. */
+export const steerAgentTool = {
+  name: COWBOY_TOOLS.steerAgent,
+  label: COWBOY_TOOLS.steerAgent,
+  description:
+    "Send one message to one or more agents in one call: pass every id in `agent_ids` and the single `message` delivered to each. Each id is handled independently in input order — delivered, or refused with its reason — and one id's refusal never blocks the rest. A repeated id in `agent_ids` is rejected before anything is delivered — pass each id once. A spawned agent receives the message before its next model call; a SETTLED one is REVIVED — spawned again, given the message, and it sends you another completion message when it settles again. That second result arrives only as that completion message: the spawn's result promise closed with the first turn and never opens again. Delivery is fire-and-forget: nothing here waits for an agent to act on it, so do not poll for a reply. The message is entered into the agent's pi session, so it can also be a bash command: `!command` runs the command and sends its output to the agent's context; `!!command` runs it without adding the output to the agent's context. A QUEUED agent cannot be steered — it has no pane yet; wait for a concurrency slot first. An agent whose pane is gone (cleaned up) cannot be steered either, and neither can an agent being TORN DOWN or handed over — wait for its report. Every refusal states its reason and what to do about it.",
+  parameters: SteerBatchSchema,
+  execute: executeSteerAgentTool,
+  constrainedSampling: CONSTRAINED_SAMPLING,
+};
+
+/**
+ * How one steer outcome reads: only a delivered message is a success. A
+ * message that reached a pane the agent cannot act on, and a refusal, both
+ * leave the requested work undone.
+ */
+export function steerSeverity(outcome: SteerItemOutcome): ToolSeverity {
+  switch (outcome.kind) {
+    case "delivered":
+      return "success";
+    case "delivered-not-revived":
+    case "refused":
+      return "warning";
+  }
+}
 
 /** One id's outcome in a steer batch: delivery and refusal are data, never throws, so a batch can partially succeed. */
 export type SteerItemOutcome =
@@ -48,6 +78,7 @@ export async function executeSteerAgentTool(
     param: "agent_ids",
     detailsKey: "agents",
     items: params.agent_ids,
+    severity: steerSeverity,
     prepare: () => {
       if (message === "") {
         throw new Error("message is required");

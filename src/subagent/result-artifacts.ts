@@ -24,3 +24,16 @@ export function removeResultArtifacts(resultFile: string): void {
     // Best effort: the agent's files are ephemeral temp-dir artifacts.
   }
 }
+
+/**
+ * Remove one run's report, keeping the rest of its staging directory. A
+ * handover uses this: the next run writes into the same directory but must
+ * settle on its own report, not the ended run's.
+ */
+export function removeResultFile(resultFile: string): void {
+  try {
+    fs.rmSync(resultFile, { force: true });
+  } catch {
+    // Best effort: the agent's files are ephemeral temp-dir artifacts.
+  }
+}

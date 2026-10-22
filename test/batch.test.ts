@@ -23,6 +23,7 @@ function renderingSpec(items: readonly string[]) {
     items,
     render: (outcome: string) => `text:${outcome}`,
     handleItem: async (item: string) => `outcome:${item}`,
+    severity: () => "success" as const,
   };
 }
 
@@ -37,6 +38,7 @@ function pairingSpec(items: readonly string[]) {
       outcome: `outcome:${item}`,
       text: `paired:${item}`,
     }),
+    severity: () => "success" as const,
   };
 }
 
@@ -56,7 +58,7 @@ describe("runBatch — the handling loop", () => {
     expect(result.content).toEqual([
       { type: "text", text: "text:outcome:a\n\n---\n\ntext:outcome:b" },
     ]);
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       agents: ["outcome:a", "outcome:b"],
     });
     expect(BATCH_ITEM_SEPARATOR).toBe("\n\n---\n\n");
@@ -83,7 +85,7 @@ describe("runBatch — the handling loop", () => {
     const result = await runBatch(pairingSpec(["a", "b"]));
 
     expect(result.content[0].text).toBe("paired:a\n\n---\n\npaired:b");
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       branches: ["outcome:a", "outcome:b"],
     });
   });
@@ -94,7 +96,21 @@ describe("runBatch — the handling loop", () => {
       detailsKey: "stops" as const,
     });
 
-    expect(result.details).toEqual({ stops: ["outcome:a"] });
+    expect(result.details).toMatchObject({ stops: ["outcome:a"] });
+  });
+
+  it("marks the result with the worst severity its items reported", async () => {
+    const result = await runBatch({
+      ...renderingSpec(["ok", "meh", "boom"]),
+      severity: (outcome) =>
+        outcome === "outcome:boom"
+          ? "error"
+          : outcome === "outcome:meh"
+            ? "warning"
+            : "success",
+    });
+
+    expect(result.details.severity).toBe("error");
   });
 });
 
@@ -221,7 +237,7 @@ describe("runBatch — the tool's own guards", () => {
     });
 
     expect(order).toEqual(["prepare", "handle"]);
-    expect(result.details).toEqual({ agents: ["outcome:a"] });
+    expect(result.details).toMatchObject({ agents: ["outcome:a"] });
   });
 });
 
@@ -244,7 +260,7 @@ describe("runBatch — the halt rule", () => {
     });
 
     expect(handled).toEqual(["a", "boom"]);
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       agents: ["outcome:a", "outcome:boom", "skipped:c:boom", "skipped:d:boom"],
     });
     expect(result.content[0].text).toBe(
@@ -309,13 +325,15 @@ describe("runBatch — the halt rule", () => {
     });
 
     expect(handled).toEqual(["a", "b"]);
-    expect(result.details).toEqual({ agents: ["outcome:a", "outcome:b"] });
+    expect(result.details).toMatchObject({
+      agents: ["outcome:a", "outcome:b"],
+    });
   });
 
   it("handles every item when the tool supplied no halt rule", async () => {
     const result = await runBatch(renderingSpec(["boom", "b"]));
 
-    expect(result.details).toEqual({
+    expect(result.details).toMatchObject({
       agents: ["outcome:boom", "outcome:b"],
     });
   });

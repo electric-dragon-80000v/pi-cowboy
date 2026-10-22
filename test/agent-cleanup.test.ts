@@ -46,7 +46,6 @@ import type {
   LocateResult,
   PaneRef,
 } from "../src/agents/agent-assets.js";
-import type { EndedRun } from "../src/types.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
 import type {
@@ -60,6 +59,7 @@ import type {
 import {
   hasOutcome,
   type AgentSpawn,
+  type EndedRun,
   type WorktreeRetentionReason,
 } from "../src/types.js";
 import {

@@ -14,6 +14,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { COWBOY_TOOLS, CONSTRAINED_SAMPLING } from "../cowboy-tools.js";
 import { getPiInstance, getSessionCtx } from "../shell.js";
 import {
   mergeBranchIntoTarget,
@@ -24,9 +25,12 @@ import {
   GitCommandRunner,
   locateMainCheckout,
 } from "../infrastructure/git/git-runner.js";
-import type { MergeBatchParams } from "./schemas/merge-batch.schema.js";
+import {
+  MergeBatchSchema,
+  type MergeBatchParams,
+} from "./schemas/merge-batch.schema.js";
 import { runBatch, type BatchItem } from "./batch.js";
-import type { ToolResult } from "./tool-result.js";
+import type { ToolResult, ToolSeverity } from "./tool-result.js";
 
 /** Case is preserved: both roots come from `git rev-parse`, which spells one repo one way. */
 export function normalizeRepoRoot(root: string): string {
@@ -85,6 +89,17 @@ async function resolveSessionMainRoot(
   return mainRoot;
 }
 
+/** The merge tool: one call, one target, every branch in input order. */
+export const mergeBranchTool = {
+  name: COWBOY_TOOLS.mergeBranch,
+  label: COWBOY_TOOLS.mergeBranch,
+  description:
+    "Merge one or more settled agent branches in one call: pass every branch in `branches` (the `cow-<task>-<id>` branches from the cowboy_agent result notes). `target` and `repo` apply to the whole call. A repeated branch in `branches` is rejected before anything merges — pass each branch once. The repo's main checkout must be on the target branch and clean: the merge refuses when it is not on the target (a merge anywhere else would land on the wrong branch) and refuses when the checkout is dirty. Already-merged branches are reported without running a merge (the checkout is left untouched), and conflicts are never auto-resolved. Branches merge sequentially in input order; a conflict halts the batch — the conflicted merge is left in progress with the file list so you can resolve it, and the remaining branches are reported as not attempted.",
+  parameters: MergeBatchSchema,
+  execute: executeMergeBranchTool,
+  constrainedSampling: CONSTRAINED_SAMPLING,
+};
+
 /**
  * One branch's outcome in a merge batch. A conflicted merge stays in
  * progress (never auto-resolved), so a conflict halts the batch and every
@@ -98,6 +113,25 @@ export type MergeItemOutcome =
   | { kind: "failed"; branch: string; error: string }
   | { kind: "unknown"; branch: string }
   | { kind: "not-attempted"; branch: string; reason: string };
+
+/**
+ * How one merge outcome reads: only a completed merge is the success. A branch
+ * already in the target is nothing left to do, an unattempted or unknown
+ * branch is reported, and a conflict or failure leaves the merge broken.
+ */
+export function mergeSeverity(outcome: MergeItemOutcome): ToolSeverity {
+  switch (outcome.kind) {
+    case "merged":
+      return "success";
+    case "already-merged":
+    case "unknown":
+    case "not-attempted":
+      return "warning";
+    case "conflict":
+    case "failed":
+      return "error";
+  }
+}
 
 /** A conflict throw carries its file list between these markers (see git-merger.ts). */
 const CONFLICT_MARKER = "has conflicts in:";
@@ -181,6 +215,7 @@ export async function executeMergeBranchTool(
     param: "branches",
     detailsKey: "branches",
     items: params.branches,
+    severity: mergeSeverity,
     prepare: async () => {
       // Once for the whole call: a ref that is not a branch name would otherwise be
       // refused once per branch, after the earlier branches had already merged.

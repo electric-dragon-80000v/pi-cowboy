@@ -227,6 +227,25 @@ export function finishSettling(state: RunState): RunState {
 }
 
 /**
+ * A settled run hands over to the next run, launched under its replacement
+ * harness in the same environment. The queue time is not re-earned; the
+ * terminal does not survive, because the next run settles on its own report.
+ * Any other state is already underway or over, and is left untouched.
+ */
+export function handoverRun(state: RunState, startedAt: number): RunState {
+  if (state.shell !== "held" || state.process.kind !== "settled")
+    return unchanged(state);
+  return {
+    process: {
+      kind: "launching",
+      queuedAt: state.process.queuedAt,
+      startedAt,
+    },
+    shell: state.shell,
+  };
+}
+
+/**
  * A delivered steer returns a settling or settled run to active with a fresh
  * start time. The terminal — decided or carried — does not survive: the
  * revived run settles again on its own report. Settling revives too, since a

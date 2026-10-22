@@ -16,6 +16,7 @@ import type {
   ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 
+import { COWBOY_TOOLS, CONSTRAINED_SAMPLING } from "../cowboy-tools.js";
 import { isActivePhase, lifecycleStatus, type AgentStatus } from "../types.js";
 import {
   CONFIGURED_MODEL_KEY,
@@ -28,7 +29,10 @@ import {
   runDelegationBatch,
 } from "../orchestrators/protocol.js";
 import type { CowboyAgents } from "./schemas/cowboy-agents.schema.js";
-import type { StopBatchParams } from "./schemas/stop-batch.schema.js";
+import {
+  StopBatchSchema,
+  type StopBatchParams,
+} from "./schemas/stop-batch.schema.js";
 import { getAgentConfig } from "./agent-types.js";
 import {
   requestedHarnessId,
@@ -36,7 +40,33 @@ import {
   resolveHarnessType,
 } from "./spawn-defaults.js";
 import { runBatch } from "./batch.js";
-import { successResult, type ToolResult } from "./tool-result.js";
+import {
+  foldSeverity,
+  resultWithSeverity,
+  type ToolResult,
+  type ToolSeverity,
+} from "./tool-result.js";
+
+/**
+ * How a delegation call reads. A spawn acknowledgement — background or queued
+ * — is a success, and so is a foreground run that completed; a foreground run
+ * that ended stopped is a refusal. A foreground run that failed throws before
+ * it produces a result.
+ */
+export function delegationSeverity(
+  details: Record<string, unknown>,
+): ToolSeverity {
+  const agents = Array.isArray(details.agents) ? details.agents : [];
+  return foldSeverity(
+    agents.map((agent) =>
+      typeof agent === "object" &&
+      agent !== null &&
+      (agent as { status?: unknown }).status === "stopped"
+        ? "warning"
+        : "success",
+    ),
+  );
+}
 
 /**
  * cowboy_agent handler. Validates the call shape and dispatches one spawn per
@@ -57,8 +87,19 @@ export async function executeAgentTool(
     _toolCallId,
     signal,
   );
-  return successResult(message, details);
+  return resultWithSeverity(delegationSeverity(details), message, details);
 }
+
+/** The stop tool: one batch line per call, rendered as a single icon line. */
+export const stopAgentTool = {
+  name: COWBOY_TOOLS.stopAgent,
+  label: COWBOY_TOOLS.stopAgent,
+  description:
+    "Stop one or more active agents in one call: pass every id in `agent_ids`. Each id is handled independently in input order — stopped, reported as already settled, or reported unknown — and one id's outcome never blocks the rest. A repeated id in `agent_ids` is rejected before anything is stopped — pass each id once. Stopping interrupts the pi process (its pane is left in place) and settles the agent as stopped. Nothing is removed — the worktree and branch are preserved.",
+  parameters: StopBatchSchema,
+  execute: executeStopAgentTool,
+  constrainedSampling: CONSTRAINED_SAMPLING,
+};
 
 /** One id's outcome in a stop batch: stopped and refused states are data, never throws, so a batch can partially succeed. */
 export type StopItemOutcome =
@@ -70,7 +111,27 @@ export type StopItemOutcome =
       activeAgents: string;
     }
   | { kind: "unknown"; agentId: string; activeAgents: string }
+  /** The call was not attempted: another operation owns the agent right now. */
+  | { kind: "refused"; agentId: string; reason: string }
   | { kind: "failed"; agentId: string; error: string };
+
+/**
+ * How one stop outcome reads: a run that was not stopped — because it had
+ * already settled, was unknown, or another operation owns it — is a refusal to
+ * report, not a failure.
+ */
+export function stopSeverity(outcome: StopItemOutcome): ToolSeverity {
+  switch (outcome.kind) {
+    case "stopped":
+      return "success";
+    case "failed":
+      return "error";
+    case "already-settled":
+    case "unknown":
+    case "refused":
+      return "warning";
+  }
+}
 
 /** Per-item result line the model reads back, in input order. */
 export function renderStopOutcome(outcome: StopItemOutcome): string {
@@ -81,6 +142,8 @@ export function renderStopOutcome(outcome: StopItemOutcome): string {
       return `Agent ${outcome.agentId} is already ${outcome.status}. Active agents: ${outcome.activeAgents}`;
     case "unknown":
       return `Agent ${outcome.agentId} not found. Active agents: ${outcome.activeAgents}`;
+    case "refused":
+      return `Agent ${outcome.agentId} was not stopped: ${outcome.reason}`;
     case "failed":
       return `Failed to stop agent ${outcome.agentId}: ${outcome.error}`;
   }
@@ -109,6 +172,7 @@ export async function executeStopAgentTool(
     detailsKey: "agents",
     items: agentIds,
     render: renderStopOutcome,
+    severity: stopSeverity,
     handleItem: async (agentId): Promise<StopItemOutcome> => {
       const spawn = getManager().getSpawn(agentId);
 
@@ -117,6 +181,17 @@ export async function executeStopAgentTool(
           kind: "unknown",
           agentId,
           activeAgents: formatActiveAgents(),
+        };
+      }
+
+      // The spawn is between runs: there is no process to stop, and the next
+      // run's launch is already in flight.
+      if (getManager().isHandingOver(agentId)) {
+        return {
+          kind: "refused",
+          agentId,
+          reason:
+            "it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped",
         };
       }
 

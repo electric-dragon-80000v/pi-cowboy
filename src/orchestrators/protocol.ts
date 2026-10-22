@@ -421,7 +421,12 @@ export class DelegationProtocol {
     }
 
     if (!isBackground) {
-      const details = buildAgentDetails(spawn, { includeRunInfo: true });
+      // Status rides the details like the background cues' own: the tool layer
+      // reads it to tell a completed run from one that was stopped.
+      const details = buildAgentDetails(spawn, {
+        includeRunInfo: true,
+        includeStatus: true,
+      });
       // Foreground results share the `{ agents: [...] }` shape with the batch
       // path so callers can read a single access pattern.
       details.agentId = agentId;
@@ -454,7 +459,10 @@ export class DelegationProtocol {
       const details = buildAgentDetails(spawn);
       details.agentId = agentId;
       details.status = "queued";
-      return { message: `[Agent queued] ${body}`, details };
+      return {
+        message: `[Agent queued] ${body}`,
+        details,
+      };
     }
     const body = renderCue(
       this.intent.orchestrator.cues,

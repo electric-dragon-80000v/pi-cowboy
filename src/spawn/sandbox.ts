@@ -2,6 +2,7 @@
  * sandbox.ts — all-or-nothing execution-environment transaction.
  * createAdoptedWorktree: git worktree create, then host adoption; either returns an adopted checkout or throws unwound.
  * allocate: that unit plus the spawn's own naming, repo fallback, and sandbox state around it.
+ * provisionOwnedCheckout: the checkout a first launch creates, or the parent-cwd fallback.
  * teardown: binds agent-cleanup.ts over cleanupDeps; retention rules live in cleanup-policy.ts / git-client.ts.
  * Never shells out directly — see herdr-launcher.ts and git-client.ts.
  */
@@ -11,6 +12,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import type { WorktreeRetentionReason } from "../types.js";
+import { resolveWorktreeCheckoutType } from "../agents/spawn-defaults.js";
 import {
   deleteCreatedBranch,
   deleteWorktreeBranch,
@@ -139,6 +141,64 @@ function canonicalRepoKey(repoRoot: string): string {
   } catch {
     return path.resolve(repoRoot);
   }
+}
+
+// --- Owned checkout ---
+
+/** Everything a first launch's owned checkout needs; the caller passes the shell values in. */
+export interface OwnedCheckoutRequest {
+  readonly pi: ExtensionAPI;
+  readonly host: AgentHost;
+  readonly parentCwd: string;
+  readonly spawnId: string;
+  /** The agent type whose checkout policy applies. */
+  readonly agentType: string;
+  readonly taskSlug: string | undefined;
+  readonly worktreeRoot: string | undefined;
+  readonly materialization: WorktreeMaterialization;
+  /** UI sink for the allocation's warnings. */
+  readonly notify: (message: string, kind: "warning") => void;
+}
+
+/**
+ * What a first launch provisioned: the checkout and the address it was adopted
+ * at, or the parent-cwd fallback the sandbox took when the parent left the
+ * repository (a fallback has neither).
+ */
+export type OwnedCheckout =
+  | {
+      readonly kind: "owned";
+      readonly hostRef: AgentHostRef;
+      readonly worktree: { readonly path: string; readonly branch: string };
+    }
+  | { readonly kind: "parent-cwd" };
+
+/**
+ * Provision the owned checkout a spawn was named for, under the agent type's
+ * checkout policy. Throws unwound when the checkout could not be created — the
+ * allocation removes what it made — so a caller never holds half a sandbox.
+ */
+export async function provisionOwnedCheckout(
+  request: OwnedCheckoutRequest,
+): Promise<OwnedCheckout> {
+  const sandbox = await AgentSandbox.allocate(request.pi, {
+    naming: {
+      kind: "generated",
+      taskSlug: request.taskSlug ?? request.agentType,
+      id: request.spawnId,
+    },
+    parentCwd: request.parentCwd,
+    worktreeRoot: request.worktreeRoot,
+    materialization: request.materialization,
+    dirtyCheckout: resolveWorktreeCheckoutType(request.agentType),
+    notify: request.notify,
+    host: request.host,
+  });
+  const worktree = sandbox.worktree;
+  const hostRef = sandbox.hostRef;
+  return worktree === undefined || hostRef === undefined
+    ? { kind: "parent-cwd" }
+    : { kind: "owned", hostRef, worktree };
 }
 
 // --- Sandbox ---
