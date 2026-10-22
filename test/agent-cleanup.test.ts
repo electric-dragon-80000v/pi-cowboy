@@ -1300,6 +1300,7 @@ describe("cleanup — environment teardown", () => {
       harness,
       host: { ...REF, paneId, workspaceId },
       cwd: WT_PATH,
+      sessionId: `${harness}-ses`,
       startedAt: 1,
       endedAt: 2,
     };

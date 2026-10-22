@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import {
   exportRunSession,
   handoverSeverity,
+  parseHandoverMarker,
+  renderHandoverMarker,
   renderHandoverTask,
   type HandoverFault,
   type HandoverOutcome,
@@ -23,7 +25,8 @@ describe("renderHandoverTask", () => {
     const task = renderHandoverTask({
       taskSlug: "fix-login-flow",
       sourceName: "OpenCode",
-      sessionId: "ses_abc",
+      previous: [],
+      current: { harness: "opencode", sessionId: "ses_abc" },
       session: "user: fix the login\nassistant: done",
     });
 
@@ -42,12 +45,84 @@ describe("renderHandoverTask", () => {
     const task = renderHandoverTask({
       taskSlug: undefined,
       sourceName: "Pi",
-      sessionId: "ses_1",
+      previous: [],
+      current: { harness: "pi", sessionId: "ses_1" },
       session: "user: hello",
     });
 
     expect(task).toContain("You are continuing this task in this workspace.");
     expect(task).not.toContain('task ""');
+  });
+
+  it("marks the boundary with the whole chain, oldest first", () => {
+    const task = renderHandoverTask({
+      taskSlug: "fix-login-flow",
+      sourceName: "Codex",
+      previous: [
+        { harness: "claude", sessionId: "ses_first" },
+        { harness: "opencode", sessionId: "ses_second" },
+      ],
+      current: { harness: "codex", sessionId: "ses_third" },
+      session: "user: continue",
+    });
+
+    expect(parseHandoverMarker(task)).toEqual([
+      { harness: "claude", sessionId: "ses_first" },
+      { harness: "opencode", sessionId: "ses_second" },
+      { harness: "codex", sessionId: "ses_third" },
+    ]);
+    // One marker, and it opens the quote: a later export stops reading there.
+    const lines = task.split("\n");
+    const markers = lines.filter((line) =>
+      line.startsWith("<<pi-cowboy-handover "),
+    );
+    expect(markers).toEqual([renderHandoverMarker(parseHandoverMarker(task)!)]);
+    expect(lines.slice(lines.indexOf(markers[0]!) + 1).join("\n")).toContain(
+      "user: continue",
+    );
+  });
+});
+
+describe("parseHandoverMarker", () => {
+  it("reads back what the renderer wrote, ids and all", () => {
+    const chain = [
+      { harness: "claude", sessionId: "ses_a" },
+      { harness: "codex", sessionId: "ses_b" },
+    ] as const;
+
+    expect(parseHandoverMarker(renderHandoverMarker(chain))).toEqual(
+      chain.map((ref) => ({ ...ref })),
+    );
+  });
+
+  it("reads the outermost marker when an older one sits inside the quote", () => {
+    const inner = renderHandoverMarker([
+      { harness: "claude", sessionId: "ses_old" },
+    ]);
+    const text = [
+      renderHandoverMarker([{ harness: "codex", sessionId: "ses_new" }]),
+      "quoted earlier task:",
+      inner,
+      "rest of the quote",
+    ].join("\n");
+
+    expect(parseHandoverMarker(text)).toEqual([
+      { harness: "codex", sessionId: "ses_new" },
+    ]);
+  });
+
+  it("answers nothing for text without a readable marker", () => {
+    const broken = [
+      "no marker here",
+      "<<pi-cowboy-handover not json>>",
+      '<<pi-cowboy-handover [{"harness":"pi"}]>>',
+      "<<pi-cowboy-handover []>>",
+      '<<pi-cowboy-handover [{"harness":"pi","sessionId":"s"}',
+    ];
+
+    expect(broken.map((text) => parseHandoverMarker(text))).toEqual(
+      broken.map(() => undefined),
+    );
   });
 });
 

@@ -365,8 +365,15 @@ export interface EngagedRun {
   readonly cwd: string | null;
 }
 
-/** A run the environment no longer hosts, along with the time span for which it ran. */
+/**
+ * A run the environment no longer hosts, along with the time span for which it
+ * ran and the session its harness exported. A run is archived only after that
+ * export succeeded, so the history is also the handover chain: oldest first,
+ * each entry naming the session the next run continues.
+ */
 export interface EndedRun extends EngagedRun {
+  /** The id the harness gave the session it exported — the id it resumes that session by. */
+  readonly sessionId: string;
   readonly startedAt: number;
   readonly endedAt: number;
 }

@@ -16,6 +16,7 @@ import {
   type SpawnOptions,
 } from "../src/agents/subagent-session.js";
 import type { SubagentLaunchPlan } from "../src/agents/agent-runner.js";
+import { parseHandoverMarker } from "../src/agents/handover.js";
 import { formatResultContent } from "../src/orchestrators/protocol.js";
 import type {
   AgentHost,
@@ -1947,6 +1948,7 @@ describe("handover", () => {
         harness: "pi",
         host: run.ref,
         cwd: "/repo",
+        sessionId: "ses_1",
         startedAt: expect.any(Number),
         endedAt: expect.any(Number),
       },
@@ -1980,6 +1982,43 @@ describe("handover", () => {
     ]);
     // The ended run's report cannot settle the next one.
     expect(fs.existsSync(staleReport)).toBe(false);
+  });
+
+  it("hands the whole chain on, not just the run it replaced", async () => {
+    const run = await settledRun();
+    // The state one earlier handover leaves: the run it ended is archived, and
+    // the run in hand was launched from that run's exported session.
+    run.session.spawn.execution.history.push({
+      harness: "claude",
+      host: run.ref,
+      cwd: "/repo",
+      sessionId: "ses_claude",
+      startedAt: 1,
+      endedAt: 2,
+    });
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_2",
+        session: "user: still going",
+      })),
+    );
+    try {
+      await expect(
+        run.session.handover({ harness: "pi" }),
+      ).resolves.toMatchObject({ kind: "handed-over" });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    const task = buildLaunchPlanMock.mock.calls[1]![3] as string;
+    expect(parseHandoverMarker(task)).toEqual([
+      { harness: "claude", sessionId: "ses_claude" },
+      { harness: "pi", sessionId: "ses_2" },
+    ]);
+    expect(
+      run.session.spawn.execution.history.map(({ sessionId }) => sessionId),
+    ).toEqual(["ses_claude", "ses_2"]);
   });
 
   it("gives the next run its own pane instead of the placement it ends", async () => {

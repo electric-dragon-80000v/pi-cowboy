@@ -145,13 +145,82 @@ export async function exportRunSession(
   };
 }
 
+/** One run of a handover chain: the harness that ran it, and the id it gave its session. */
+export interface HandoverSessionRef {
+  readonly harness: AnyHarnessId;
+  /** Harness's own id for the session — what it resumes that session by. */
+  readonly sessionId: string;
+}
+
+const MARKER_OPEN = "<<pi-cowboy-handover";
+const MARKER_CLOSE = ">>";
+
+/**
+ * The line that says where an inherited session starts, carrying the chain
+ * that led to it, oldest first. A handover task embeds the previous run's
+ * session verbatim, so a later export of that run contains both its own work
+ * and a transcript that is not its own; the marker is how that boundary and
+ * the session ids are found without reading the transcript for anything else.
+ * JSON keeps every id on one line and needs no escaping of its own.
+ */
+export function renderHandoverMarker(
+  chain: readonly HandoverSessionRef[],
+): string {
+  // Only the two fields travel: a caller holding a fuller run record cannot
+  // make the marker any heavier than the ref it stands for.
+  const refs = chain.map(({ harness, sessionId }) => ({ harness, sessionId }));
+  return `${MARKER_OPEN} ${JSON.stringify(refs)}${MARKER_CLOSE}`;
+}
+
+/**
+ * The chain a handover task named, or undefined when the text carries no
+ * readable marker. The first marker line is the outermost one: a chain's older
+ * marker sits inside the quoted session, after this one.
+ */
+export function parseHandoverMarker(
+  text: string,
+): readonly HandoverSessionRef[] | undefined {
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(`${MARKER_OPEN} `)) continue;
+    if (!trimmed.endsWith(MARKER_CLOSE)) return undefined;
+    const json = trimmed.slice(MARKER_OPEN.length + 1, -MARKER_CLOSE.length);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      return undefined;
+    }
+    if (!isSessionChain(parsed)) return undefined;
+    return parsed.map(({ harness, sessionId }) => ({ harness, sessionId }));
+  }
+  return undefined;
+}
+
+/** A non-empty list of refs, each naming a harness and a session id. */
+function isSessionChain(value: unknown): value is HandoverSessionRef[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null) return false;
+      const ref = entry as { harness?: unknown; sessionId?: unknown };
+      return (
+        typeof ref.harness === "string" && typeof ref.sessionId === "string"
+      );
+    })
+  );
+}
+
 /** What the next run is told about the run it continues. */
 export interface HandoverTaskRequest {
   readonly taskSlug: string | undefined;
-  /** The harness the session came from, as its settings row names it. */
+  /** The harness the quoted session came from, as its settings row names it. */
   readonly sourceName: string;
-  /** The source harness's own id for the run's session. */
-  readonly sessionId: string;
+  /** Sessions this spawn handed over before this one, oldest first. */
+  readonly previous: readonly HandoverSessionRef[];
+  /** The session being handed over: the one quoted below. */
+  readonly current: HandoverSessionRef;
   readonly session: string;
 }
 
@@ -170,7 +239,8 @@ export function renderHandoverTask(request: HandoverTaskRequest): string {
   return [
     task,
     `This task was previously handled by another agent harness (${request.sourceName}).`,
-    `The previous run's session id is "${request.sessionId}".`,
+    `The previous run's session id is "${request.current.sessionId}".`,
+    renderHandoverMarker([...request.previous, request.current]),
     "",
     "The session of the previous run is quoted below. Review it together with the current state of the files in this repository, then proceed with the task.",
     "",
