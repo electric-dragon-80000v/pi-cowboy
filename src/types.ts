@@ -365,7 +365,7 @@ export interface EngagedRun {
   readonly cwd: string | null;
 }
 
-/** A run the environment no longer hosts, with the span it held it for. */
+/** A run the environment no longer hosts, along with the time span for which it ran. */
 export interface EndedRun extends EngagedRun {
   readonly startedAt: number;
   readonly endedAt: number;
@@ -374,7 +374,7 @@ export interface EndedRun extends EngagedRun {
 /**
  * One spawn's execution: the environment its runs occupy, and the objects a
  * session needs to steer, stop, or notify for it. The environment is the
- * stable thing — a handover replaces the run inside it, not the environment —
+ * stable entity — a handover replaces the run inside it, not the environment itself —
  * so placement and the active run ride here rather than in the phase: a pane
  * may be absent or present in any of them, and a caller that provisioned the
  * checkout itself (the spawn wizard) passes its ref in. The shell-owned store

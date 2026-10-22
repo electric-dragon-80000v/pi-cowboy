@@ -1,11 +1,11 @@
 /**
- * agent-environment.ts — the container one spawn's runs execute in.
+ * agent-environment.ts — the container in which one spawn's runs execute.
  * AgentEnvironment: the placement, the run occupying it, the runs that ended
  * before it, and the two writes a launch makes.
  * environmentOf: the only reader of AgentExecutionState's placement fields.
- * The container is what higher layers address: a handover replaces the run
+ * Higher layers address this container: a handover replaces the run
  * inside an environment, so callers ask the environment which harness is
- * active instead of holding one themselves.
+ * active instead of tracking one directly.
  */
 
 import type { AgentExecutionState, EndedRun } from "../types.js";
@@ -13,8 +13,8 @@ import type { AgentHostRef } from "./agent-host.js";
 import type { AnyHarnessId } from "./harness.js";
 
 /**
- * The environment: the pane one spawn's runs occupy in turn, the run occupying
- * it now, and the runs that ended before it. `host` outlives `harness` — a
+ * The environment: the pane that a spawn's runs occupy in turn, the currently
+ * active run, and the runs that ended before it. `host` outlives `harness` — a
  * placement exists from the moment a launch (or the spawn wizard) makes one,
  * while a harness engages it only when a run prepares it.
  */
@@ -31,7 +31,7 @@ export interface AgentEnvironment {
   engage(harness: AnyHarnessId): void;
 }
 
-/** Read one spawn's execution as the environment it is. */
+/** Read a spawn's execution state as an environment. */
 export function environmentOf(
   execution: AgentExecutionState,
 ): AgentEnvironment {
