@@ -1,3 +1,19 @@
+# [0.18.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.2...v0.18.0) (2026-10-22)
+
+
+### Bug Fixes
+
+* **ui:** prevent stale command flows from hijacking screen slot ([5856b4c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/5856b4c476e625873a4fd50fcd60c44262bc73f2))
+
+
+### Features
+
+* **build:** add esbuild bundling step to build process ([87715d0](https://github.com/electric-dragon-80000v/pi-cowboy/commit/87715d02a7d81c72867190f2b3c3deea856b3523))
+* **config:** add thinking level support to model settings and overrides ([c2b9a4a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/c2b9a4a9a5bb0329f4570c7e08407fecc8e43872))
+* **harness:** generalize thinking levels across harness families ([87cce50](https://github.com/electric-dragon-80000v/pi-cowboy/commit/87cce502a79dbc6e07090b8d020a9da0621f07eb))
+* **harness:** support thinking levels in model sources ([a02bfe7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/a02bfe7605d8867805afbd61a66e43aedea8c604))
+* **ui:** add harness selection row to spawn wizard ([35104d3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/35104d330b724f312460eeacd595ef4e115fe0bb))
+
 ## [0.17.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.17.1...v0.17.2) (2026-10-20)
 
 
