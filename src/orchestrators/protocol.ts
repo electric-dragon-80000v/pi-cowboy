@@ -23,6 +23,7 @@ import type {
   AgentSpawn,
   ModelChoice,
 } from "../types.js";
+import { environmentOf } from "../agents/agent-environment.js";
 import {
   ACTIVE_AGENT_PHASES,
   hasOutcome,
@@ -163,7 +164,7 @@ export function buildAgentDetails(
   if (spawn.display.worktree?.kind === "owned") {
     details.worktreeManaged = true;
   }
-  const host = spawn.execution.host;
+  const host = environmentOf(spawn.execution).host;
   if (host) {
     details.herdrAgent = host.name;
     details.herdrPane = host.paneId;

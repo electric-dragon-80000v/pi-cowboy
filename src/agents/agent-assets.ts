@@ -24,6 +24,8 @@ import {
   resolveMainCheckout,
 } from "../infrastructure/git-client.js";
 import { getHarnessRegistry, getSessionCtx, getStore } from "../shell.js";
+import { createLogger } from "../logger.js";
+import { errorMessage } from "../utils.js";
 import { subagentResultFileFor } from "../paths.js";
 import {
   buildWorktreeBranch,
@@ -41,13 +43,16 @@ import type {
   PlacementRecord,
   PlacementWorktree,
 } from "./agent-host.js";
-import type { AnyHarnessId, HarnessTeardownContext } from "./harness.js";
+import type { AnyHarnessId } from "./harness.js";
 import type {
   CleanupSource,
   LocatedArtifacts,
   LocatedPane,
   RecoveredDeliverable,
 } from "./cleanup-policy.js";
+import { environmentOf } from "./agent-environment.js";
+
+const log = createLogger("assets");
 
 /* ── The actuator half ─────────────────────────────────────────────────── */
 
@@ -72,14 +77,28 @@ export interface CleanupDeps {
   /** Close a self-created placement. */
   closePane: (ref: AgentHostRef) => Promise<void>;
   /**
-   * Teardown of the harness state one ended run's pane was prepared with —
-   * ordered before any worktree dirty probe, see Harness.teardown. The bound
-   * actuator resolves the recorded harness and supplies the pi instance.
+   * Undo the harness state every run the environment engaged left behind,
+   * each at the address it prepared — ordered before any worktree dirty probe,
+   * see Harness.teardown. The bound actuator resolves each run's harness and
+   * supplies the pi instance. A run whose teardown fails is logged, never
+   * thrown, and the rest still run: one bad harness cannot keep the worktree.
    */
-  harnessTeardown: (
-    harness: AnyHarnessId,
-    context: HarnessTeardownContext,
-  ) => Promise<void>;
+  teardownEnvironment: (request: EnvironmentTeardown) => Promise<void>;
+}
+
+/** One run whose harness state cleanup must undo, at the address it prepared. */
+export interface RunTeardown {
+  readonly harness: AnyHarnessId;
+  /** The pane the run prepared; null when the pane is already gone. */
+  readonly paneId: string | null;
+  /** The tree the run prepared; null when no directory address is known. */
+  readonly cwd: string | null;
+}
+
+/** Every run an environment engaged, oldest first, and the id they report under. */
+export interface EnvironmentTeardown {
+  readonly subagentId: string;
+  readonly runs: readonly RunTeardown[];
 }
 
 /* ── The locator half ──────────────────────────────────────────────────── */
@@ -285,7 +304,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     entries: readonly PlacementWorktree[] | undefined,
     records: readonly PlacementRecord[] | undefined,
   ): Promise<LocateResult> {
-    const recorded = hint.execution.host;
+    const recorded = environmentOf(hint.execution).host;
     const worktreeCoords = hint.display.worktree;
     // Ownership rides with the coordinates: a picked tree is never owned,
     // so memory's path is read only for owned runs.
@@ -397,7 +416,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     removeGitWorktree: deps.removeGitWorktree,
     deleteBranch: deps.deleteBranch,
     closePane: deps.closePane,
-    harnessTeardown: deps.harnessTeardown,
+    teardownEnvironment: deps.teardownEnvironment,
   };
 }
 
@@ -465,16 +484,30 @@ export function createMultiplexerAgentAssets(
     closePane: async (ref) => {
       await host.release(ref, "placement");
     },
-    harnessTeardown: async (harness, context) => {
-      // The id is read back from a recorded spawn rather than resolved here, so
-      // a plugin load reset between the launch that recorded it and this
+    teardownEnvironment: async ({ subagentId, runs }) => {
+      // The ids are read back from recorded runs rather than resolved here, so
+      // a plugin load reset between the launch that recorded one and this
       // teardown (a reload, a session replacement) can leave it registered by
       // nothing. Such an id has no teardown to run — the plugin's code went with
       // its registration — which is the same success as a harness that never
       // prepared.
-      await getHarnessRegistry()
-        .get(harness)
-        ?.teardown({ pi, ...context });
+      const harnesses = getHarnessRegistry();
+      for (const run of runs) {
+        try {
+          await harnesses.get(run.harness)?.teardown({
+            pi,
+            paneId: run.paneId,
+            cwd: run.cwd,
+            subagentId,
+          });
+        } catch (error: unknown) {
+          log.warn("harness teardown failed during environment teardown", {
+            subagentId,
+            harness: run.harness,
+            error: errorMessage(error),
+          });
+        }
+      }
     },
   });
 }

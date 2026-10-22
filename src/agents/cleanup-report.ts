@@ -65,9 +65,41 @@ function paneText(pane: PaneOutcome): string {
       return "gone (herdr has no such pane)";
     case "unknown":
       return "unknown (the pane was not read)";
-    case "none":
-      return "none";
   }
+}
+
+/** Every pane's outcome on one line; an environment that never had one says so. */
+function panesText(panes: readonly PaneOutcome[]): string {
+  return panes.length === 0
+    ? "none (the agent never had a pane)"
+    : panes.map((pane) => `${pane.paneId} ${paneText(pane)}`).join(", ");
+}
+
+/** One pane phrase, for the notification-sized summary. */
+function paneSummary(pane: PaneOutcome): string {
+  switch (pane.kind) {
+    case "closed":
+      return "pane closed";
+    case "open":
+      return "pane left open";
+    case "gone":
+      return "pane already gone";
+    case "unknown":
+      return "pane state unknown";
+  }
+}
+
+/** One line for every pane: a single pane reads as it always did; several are counted by outcome. */
+function panesSummary(panes: readonly PaneOutcome[]): string {
+  if (panes.length === 0) return "no pane";
+  if (panes.length === 1) return paneSummary(panes[0]!);
+  const counts = new Map<PaneOutcome["kind"], number>();
+  for (const pane of panes)
+    counts.set(pane.kind, (counts.get(pane.kind) ?? 0) + 1);
+  const tally = [...counts]
+    .map(([kind, count]) => `${count} ${kind}`)
+    .join(", ");
+  return `${panes.length} panes (${tally})`;
 }
 
 function worktreeText(worktree: WorktreeOutcome): string {
@@ -115,12 +147,12 @@ function headline(report: CleanupReport): string {
     : `Cleaned up agent ${report.agentId}${forcedClause(report.outcome.forced)}:`;
 }
 
-/** The tool's report: what happened to the run, its pane, worktree and branch. */
+/** The tool's report: what happened to the run, its panes, worktree and branch. */
 export function renderCleanupReport(report: CleanupReport): string {
   const lines = [
     headline(report),
     `  agent status: ${formatSettlement(report.settlement)}`,
-    `  pane: ${paneText(report.pane)}`,
+    `  panes: ${panesText(report.panes)}`,
     `  worktree: ${worktreeText(report.worktree)}`,
     `  branch: ${branchText(report)}`,
   ];
@@ -142,16 +174,7 @@ export function renderCleanupReport(report: CleanupReport): string {
 
 /** The same report as one notification-sized line. */
 export function summarizeCleanupReport(report: CleanupReport): string {
-  const pane =
-    report.pane.kind === "closed"
-      ? "pane closed"
-      : report.pane.kind === "open"
-        ? "pane left open"
-        : report.pane.kind === "gone"
-          ? "pane already gone"
-          : report.pane.kind === "unknown"
-            ? "pane state unknown"
-            : "no pane";
+  const pane = panesSummary(report.panes);
   return report.outcome.kind === "refused"
     ? `${headline(report)} ${pane}`
     : `${headline(report)} ${pane}, worktree ${worktreeText(

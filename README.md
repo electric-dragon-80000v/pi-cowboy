@@ -120,7 +120,7 @@ Once the work is merged, the orchestrator cleans up the agent's resources (or yo
 
 <code>✓ Cleaned up agent b7g2nspx:</code><br>
 <code>agent status: completed</code><br>
-<code>pane: closed</code><br>
+<code>panes: w1:p2 closed</code><br>
 <code>worktree: removed ($HOME/.pi/agent/pi-cowboy/worktrees/cow-audit-perms-b7g2nspx)</code><br>
 <code>branch: deleted (cow-audit-perms-b7g2nspx)</code>
 

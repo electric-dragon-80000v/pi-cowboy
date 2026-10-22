@@ -71,7 +71,7 @@ function spawnedSpawn(id: string, taskSlug: string): AgentSpawn {
       phase: "spawned",
       startedAt: Date.now(),
     },
-    execution: { promise: Promise.resolve("") },
+    execution: { promise: Promise.resolve(""), history: [] },
   } as unknown as AgentSpawn;
 }
 
@@ -90,7 +90,7 @@ function stoppedSpawn(
       startedAt: Date.now(),
       stop: { initiator },
     },
-    execution: { promise: Promise.resolve("") },
+    execution: { promise: Promise.resolve(""), history: [] },
   } as unknown as AgentSpawn;
 }
 
@@ -100,7 +100,7 @@ function queuedSpawn(id: string, taskSlug: string): AgentSpawn {
   return {
     ...spawn,
     lifecycle: { phase: "queued", queuedAt: Date.now() },
-    execution: { promise: Promise.resolve("") },
+    execution: { promise: Promise.resolve(""), history: [] },
   } as unknown as AgentSpawn;
 }
 
@@ -214,7 +214,7 @@ describe("SpawnCoordinator.spawn dedup (verify-only)", () => {
     const spawn = {
       id: "a1",
       lifecycle: { phase: "spawned", startedAt: Date.now() },
-      execution: { promise: Promise.resolve("") },
+      execution: { promise: Promise.resolve(""), history: [] },
     } as unknown as AgentSpawn;
     const { manager, mocks } = makeManager(spawn);
     const coordinator = new SpawnCoordinator(manager);
@@ -603,6 +603,7 @@ describe("SpawnCoordinator spawn announcement", () => {
         promise: new Promise<string>((resolve) => {
           settle = () => resolve("");
         }),
+        history: [],
       },
     } as unknown as AgentSpawn;
     const { ctx, notify } = uiContext();

@@ -48,6 +48,7 @@ import { AgentSandbox } from "../spawn/sandbox.js";
 import { resolveWorktreeCheckoutType } from "./spawn-defaults.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
 import type { AnyHarnessId } from "./harness.js";
+import { environmentOf } from "./agent-environment.js";
 import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
@@ -126,6 +127,7 @@ export function buildAgentSpawn(
       promise,
       abortController: new AbortController(),
       host: options.hostRef,
+      history: [],
     },
   };
 }
@@ -305,7 +307,7 @@ export class SubagentSession {
         reason: `agent ${this.id} is queued — it has no pane yet, so it cannot receive a message. Wait for a concurrency slot (or stop it).`,
       };
     }
-    const ref = this.spawn.execution.host;
+    const ref = environmentOf(this.spawn.execution).host;
     if (!ref) {
       // A missing host ref means different things along a run's life, so name
       // the one this is rather than blaming cleanup every time.
@@ -535,10 +537,11 @@ export class SubagentSession {
         }));
       placement = { kind: "held", host, ref };
       if (!this.isLaunching()) return;
-      this.spawn.execution.host = ref;
+      const environment = environmentOf(this.spawn.execution);
+      environment.place(ref);
       // Recorded before prepare: cleanup and a failed launch read it to tear
       // this harness's pane state down, regardless of later config changes.
-      this.spawn.execution.harness = plan.harness;
+      environment.engage(plan.harness);
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({
         pi,
@@ -582,14 +585,15 @@ export class SubagentSession {
     if (failure.kind === "failed" && this.isLaunching()) {
       // Best-effort: a failed teardown is logged, never allowed to mask the
       // launch error that caused it.
-      const harnessId = this.spawn.execution.harness;
+      const environment = environmentOf(this.spawn.execution);
+      const harnessId = environment.harness;
       if (harnessId !== undefined) {
         try {
           await getHarnessRegistry()
             .require(harnessId)
             .teardown({
               pi: this.args.pi,
-              paneId: this.spawn.execution.host?.paneId ?? null,
+              paneId: environment.host?.paneId ?? null,
               cwd: launchCwd ?? null,
               subagentId: this.spawn.id,
             });
@@ -658,7 +662,7 @@ export class SubagentSession {
       await supervisor.stop(2_000);
       return;
     }
-    const ref = this.spawn.execution.host;
+    const ref = environmentOf(this.spawn.execution).host;
     if (!ref) return;
     await this.deps.transport
       .createHost(getPiInstance())

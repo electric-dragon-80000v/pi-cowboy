@@ -16,7 +16,7 @@ import type {
 } from "../types.js";
 import type { BranchCleanupResult } from "../infrastructure/git-client.js";
 import { assertNever } from "../utils.js";
-import type { HostObservation } from "./agent-host.js";
+import type { AgentHostRef, HostObservation } from "./agent-host.js";
 /** Refusal for a live run: cleanup never stops an agent (a stale registry entry is not evidence work is over; see stop_cowboy_agent). */
 type AgentActiveReason = {
   kind: "agent-active";
@@ -84,18 +84,18 @@ export function recordedSettlement(spawn: AgentSpawn): RecordedSettlement {
 }
 
 /**
- * What cleanup reports for the run's pane. `open` is stated only for a pane
- * the seam observed live; `gone` is stated only for an address the multiplexer no
- * longer answers (never `closed`: the extension did not close it);
- * `unknown` is stated only when the read itself failed (never evidence
- * either way); `none` means the run never had a pane address.
+ * What cleanup reports for one pane the environment knew. `open` is a pane
+ * cleanup left standing — one the seam observed live, or one nothing touched
+ * because the run was refused; `gone` is stated only for an address the
+ * multiplexer no longer answers (never `closed`: the extension did not close
+ * it); `unknown` is stated only when the read itself failed (never evidence
+ * either way).
  */
 export type PaneOutcome =
   | { kind: "closed"; paneId: string }
   | { kind: "open"; paneId: string }
   | { kind: "gone"; paneId: string }
-  | { kind: "unknown"; paneId: string }
-  | { kind: "none" };
+  | { kind: "unknown"; paneId: string };
 
 export type WorktreeOutcome =
   | { kind: "removed"; path: string }
@@ -128,8 +128,8 @@ export interface CleanupReport {
   outcome: CleanupVerdictOutcome;
   /** The run's established end-state; cleanup never changes run state, only tears down ended runs. */
   settlement: SettlementVerdict;
-  /** The subagent's pane after cleanup (none = never had one). */
-  pane: PaneOutcome;
+  /** Every pane the environment knew, after cleanup; empty = it never had one. */
+  panes: readonly PaneOutcome[];
   /** The extension-owned worktree after cleanup (none = never created one; absent = already gone from disk). */
   worktree: WorktreeOutcome;
   /** What happened to the agent's branch. */
@@ -176,13 +176,6 @@ export interface LocatedArtifacts {
 
 /* ── Stage 1: plan (pure) ──────────────────────────────────────────────── */
 
-/** Pane as cleanup sees it; only `self-created` may be closed. */
-export interface PaneTarget {
-  paneId: string;
-  /** Self-created panes are closed by cleanup; adopted panes never are. */
-  origin: "self-created" | "adopted";
-}
-
 export interface WorktreeTarget {
   /** Absent for a git-only checkout or a reconstructed spawn without a placement identity. */
   workspaceId?: string;
@@ -191,26 +184,32 @@ export interface WorktreeTarget {
   branchName: string;
 }
 
-/** What a run owns: no partial worktree state — an unresolved managed tree is `worktree-unlocatable`, never `no-worktree`; `null` is genuine absence. */
+/**
+ * What a run owns: no partial worktree state — an unresolved managed tree is
+ * `worktree-unlocatable`, never `no-worktree`; `null` is genuine absence.
+ * `panes` is every pane the environment knows, the current one first; only a
+ * pane the extension created is ever closed.
+ */
 export type CleanupPlan =
-  | { kind: "worktree"; worktree: WorktreeTarget; pane: PaneTarget | null }
+  | {
+      kind: "worktree";
+      worktree: WorktreeTarget;
+      panes: readonly AgentHostRef[];
+    }
   | {
       kind: "worktree-unlocatable";
       branchName: string;
       /** null = no path was ever recorded or discovered for the worktree. */
       worktreePath: string | null;
-      pane: PaneTarget | null;
+      panes: readonly AgentHostRef[];
     }
-  | { kind: "no-worktree"; pane: PaneTarget | null };
+  | { kind: "no-worktree"; panes: readonly AgentHostRef[] };
 
-/** Narrow located artifacts into a plan (pure): resolved managed tree → worktree (missing workspace still goes via git); unresolved managed tree → worktree-unlocatable (never no-worktree, so nothing leaks); recovered panes are never self-created. */
-export function planRecovered(artifacts: LocatedArtifacts): CleanupPlan {
-  const pane: PaneTarget | null = artifacts.pane
-    ? {
-        paneId: artifacts.pane.paneId,
-        origin: artifacts.paneCreated ? "self-created" : "adopted",
-      }
-    : null;
+/** Narrow located artifacts into a plan (pure): resolved managed tree → worktree (missing workspace still goes via git); unresolved managed tree → worktree-unlocatable (never no-worktree, so nothing leaks). The panes are the caller's environment's, current first. */
+export function planRecovered(
+  artifacts: LocatedArtifacts,
+  panes: readonly AgentHostRef[],
+): CleanupPlan {
   const worktree = artifacts.worktree;
   if (worktree !== null && worktree.repoCwd !== undefined) {
     return {
@@ -221,7 +220,7 @@ export function planRecovered(artifacts: LocatedArtifacts): CleanupPlan {
         repoCwd: worktree.repoCwd,
         branchName: artifacts.branch,
       },
-      pane,
+      panes,
     };
   }
   if (artifacts.worktreeManaged) {
@@ -229,10 +228,10 @@ export function planRecovered(artifacts: LocatedArtifacts): CleanupPlan {
       kind: "worktree-unlocatable",
       branchName: artifacts.branch,
       worktreePath: worktree?.path ?? null,
-      pane,
+      panes,
     };
   }
-  return { kind: "no-worktree", pane };
+  return { kind: "no-worktree", panes };
 }
 
 /* ── Stage 2 + 3 gate: removability (the only way removing can lose work) ─ */
@@ -266,7 +265,7 @@ export async function assessRemovability(
 /* ── Removal ───────────────────────────────────────────────────────────── */
 
 export type RemovalOutcomes = {
-  pane: PaneOutcome;
+  panes: readonly PaneOutcome[];
   worktree: WorktreeOutcome;
   branch: BranchCleanupResult;
 };
@@ -366,9 +365,8 @@ export function keptReport(
           ? plan.branchName
           : undefined,
     settlement,
-    pane: plan.pane
-      ? { kind: "open", paneId: plan.pane.paneId }
-      : { kind: "none" },
+    // A refusal closes nothing, so every pane the environment knew is still open.
+    panes: plan.panes.map((pane) => ({ kind: "open", paneId: pane.paneId })),
     worktree,
     branch: { kind: "not-applicable" },
   };
@@ -390,7 +388,7 @@ export function ambiguousReport(
       forceable: false,
     },
     settlement,
-    pane: { kind: "none" },
+    panes: [],
     worktree: { kind: "kept", path: null },
     branch: { kind: "not-applicable" },
   };
@@ -424,7 +422,7 @@ export function assembleReport(
     outcome: { kind: "torn-down", ...forcedFields(opts) },
     branchName: plan.kind === "worktree" ? plan.worktree.branchName : undefined,
     settlement,
-    pane: removal.pane,
+    panes: removal.panes,
     worktree: removal.worktree,
     branch: removal.branch,
   };
@@ -457,7 +455,7 @@ export function shouldDropSpawn(report: CleanupReport): boolean {
   if (report.worktree.kind === "removed") return true;
   if (report.worktree.kind === "absent") return true;
   if (report.worktree.kind === "none") {
-    return report.pane.kind === "none" || report.pane.kind === "closed";
+    return report.panes.every((pane) => pane.kind === "closed");
   }
   return false;
 }
@@ -465,7 +463,6 @@ export function shouldDropSpawn(report: CleanupReport): boolean {
 export type WorktreeRemovalMechanism = "multiplexer" | "git";
 
 type PaneDisposition =
-  | { kind: "none" }
   | { kind: "closed-with-workspace" }
   | { kind: "close" }
   | { kind: "leave-open" };
@@ -476,27 +473,33 @@ export function removalMechanismOf(
   return worktree.workspaceId !== undefined ? "multiplexer" : "git";
 }
 
+/**
+ * Whether removing the tree also takes this pane with it. A multiplexer
+ * removal destroys the placements of the workspace it releases, so a pane in
+ * that workspace goes with it — but a pane in another workspace (an earlier
+ * run's, left behind by a handover) survives it and is handled by ownership
+ * instead. An unrecorded workspace cannot be told apart from the removed one,
+ * so it keeps the answer the removal implies. A pane the extension did not
+ * create is never closed by cleanup, however its workspace fared.
+ */
 export function paneDispositionFor(
-  pane: PaneTarget | null,
+  pane: AgentHostRef,
   mechanism: WorktreeRemovalMechanism | null,
   removed: boolean,
+  treeWorkspaceId: string | undefined,
 ): PaneDisposition {
-  if (pane === null) return { kind: "none" };
   if (!removed) return { kind: "leave-open" };
+  const inRemovedWorkspace =
+    treeWorkspaceId === undefined || pane.workspaceId === treeWorkspaceId;
+  if (mechanism === "multiplexer" && inRemovedWorkspace) {
+    return { kind: "closed-with-workspace" };
+  }
+  // A git-side removal, or a plan with no tree at all, leaves the pane standing: only a pane the extension created may be closed.
   switch (mechanism) {
     case "multiplexer":
-      return { kind: "closed-with-workspace" };
-    // A git-side removal, or a plan with no tree at all, leaves the pane standing: only a pane the extension created may be closed.
     case "git":
     case null:
-      switch (pane.origin) {
-        case "self-created":
-          return { kind: "close" };
-        case "adopted":
-          return { kind: "leave-open" };
-        default:
-          return assertNever(pane.origin);
-      }
+      return pane.paneCreated ? { kind: "close" } : { kind: "leave-open" };
     default:
       return assertNever(mechanism);
   }

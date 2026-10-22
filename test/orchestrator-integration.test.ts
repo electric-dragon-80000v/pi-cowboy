@@ -143,6 +143,7 @@ function baseSpawn(): AgentSpawn {
     },
     execution: {
       promise: Promise.resolve(""),
+      history: [],
     },
   } as unknown as AgentSpawn;
 }
