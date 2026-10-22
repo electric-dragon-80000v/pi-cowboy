@@ -503,8 +503,8 @@ export interface HarnessExportRequest {
  * the conversation as plain text: a harness returns what it wrote, already
  * reduced to what another harness can read, because only it knows where it
  * kept thinking and tool traffic. `sessionId` is the source harness's own id
- * for that run, quoted alongside the session so the continuation can name the
- * session it continues.
+ * for that run — the id it resumes that session by, not a display id — and it
+ * travels with the session so a later handover back names what it continues.
  */
 export interface HarnessExport {
   readonly sessionId: string;

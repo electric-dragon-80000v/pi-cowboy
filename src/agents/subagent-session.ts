@@ -520,7 +520,11 @@ export class SubagentSession {
     const task = renderHandoverTask({
       taskSlug: this.spawn.display.taskSlug,
       sourceName: getHarnessRegistry().displayName(from),
-      sessionId: exported.sessionId,
+      previous: environment.ended.map(({ harness, sessionId }) => ({
+        harness,
+        sessionId,
+      })),
+      current: { harness: from, sessionId: exported.sessionId },
       session: exported.session,
     });
 
@@ -528,6 +532,7 @@ export class SubagentSession {
       harness: from,
       host: ref,
       cwd,
+      sessionId: exported.sessionId,
       startedAt: settled.process.startedAt,
       endedAt: Date.now(),
     });

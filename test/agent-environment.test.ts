@@ -24,7 +24,14 @@ function ref(paneId: string, paneCreated = true): AgentHostRef {
 const ACTIVE = ref("w1:p1");
 
 function endedRun(harness: EndedRun["harness"], host: AgentHostRef): EndedRun {
-  return { harness, host, cwd: "/work/wt", startedAt: 1, endedAt: 2 };
+  return {
+    harness,
+    host,
+    cwd: "/work/wt",
+    sessionId: `${harness}-ses`,
+    startedAt: 1,
+    endedAt: 2,
+  };
 }
 
 function execution(
