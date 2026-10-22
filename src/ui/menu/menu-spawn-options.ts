@@ -104,7 +104,7 @@ export async function askSpawnConfiguration(
 
   /**
    * The type's configured token, carried as the chain resolved it, with the
-   * session's current level as the pi family's last step. A token the model's
+   * session's current level as the Pi family's final fallback. A token the model's
    * own list does not contain still rides the spawn — the resolved level is
    * what the other spawn paths send, and a harness that knows its vocabulary
    * warns rather than refusing.

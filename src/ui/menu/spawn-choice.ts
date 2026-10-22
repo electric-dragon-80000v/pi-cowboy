@@ -171,7 +171,7 @@ export function spawnChoices(context: SpawnChoiceContext): SpawnChoiceMaker {
         if (thinking === undefined) return { kind: "none" };
         // A level without a model: the launch passes no --model, so the child
         // runs its own default model at the level. A foreign harness cannot
-        // take the pi family's inherit shape, so its level alone rides.
+        // take the Pi family's inherit shape, so its level alone rides.
         return {
           kind: "chosen",
           modelChoice: isPiFamilyHarness(harnessId)

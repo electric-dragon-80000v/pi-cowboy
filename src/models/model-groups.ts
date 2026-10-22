@@ -194,23 +194,23 @@ export interface ThinkingDisplayInput {
   config: SubagentsConfig["agent"];
   /** The launching harness's default, flattened across its layers. */
   harnessDefault: string | null;
-  /** The parent session's level, read by the pi family alone. */
+  /** The parent session's level, read by the Pi family alone. */
   parentThinking?: string;
   sessionThinking: SessionThinkingOverrides;
 }
 
 /**
  * The level a launch sends and the chain position that named it. The parent
- * session's level is the chain's last step for a pi-family launch, so it wins
- * over pi's own default when the session reports one. When neither a layer nor
- * the parent names one, only a pi-family launch has a level to send — pi runs
- * its own default, which nothing named. Another harness has none here: its
+ * session's level is the final fallback for a Pi-family launch, so it wins
+ * over Pi's own default when the session reports one. When neither a layer nor
+ * the parent names one, only a Pi-family launch has a level to send — Pi runs
+ * its own default, which no layer named. Another harness has none here: its
  * binary picks one, or applies none, so the row shows no level rather than a
  * token the launch never sends.
  */
 export function displayedThinking(input: ThinkingDisplayInput): {
   level: string | null;
-  /** Undefined when the level is pi's own default rather than a named layer. */
+  /** Undefined when the level is Pi's own default rather than a named layer. */
   source: ThinkingSource | undefined;
 } {
   const resolved = resolveThinkingSource({

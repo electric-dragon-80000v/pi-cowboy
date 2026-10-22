@@ -196,7 +196,7 @@ export async function toolCallListener(
     // The configured level travels in its own key for the same reason the model
     // does: it is a default this extension chose, and the resolution that reads
     // it must be able to tell it apart from the caller's own `thinking`. The
-    // session's current level is the pi family's last chain step.
+    // session's current level serves as the Pi family's final fallback.
     if (item.thinking === undefined) {
       const thinking = getStore().thinkingFor(
         subagentType,

@@ -368,7 +368,7 @@ export class ConfigStore {
    * one: the run asks for no level, and the harness's own default applies.
    * `harnessId` must be the harness the launch resolves, because it names both
    * the template family and the default the chain reads. `parentThinking` is
-   * the session's current level; it is the pi family's last step.
+   * the session's current level, serving as the Pi family's final fallback.
    */
   thinkingFor(
     type: string,

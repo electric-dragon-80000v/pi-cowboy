@@ -196,7 +196,7 @@ function buildModelSettingsList(
     const parentModelId = parentModel
       ? `${parentModel.provider}/${parentModel.id}`
       : null;
-    // The session's live level is the pi family's last chain step, and this
+    // The session's live level is the Pi family's final fallback, and this
     // screen shows the level a launch would send.
     const parentThinking = session.thinkingLevel ?? null;
     const agentConfigSnapshot = store.agentConfigSnapshot();

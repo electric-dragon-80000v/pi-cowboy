@@ -33,14 +33,14 @@
  *      the launching harness's family)
  *   4. the launching harness's default (pi's family: agent.defaultThinking at
  *      any layer; any other harness: agent.defaultThinkingByHarness[harness])
- *   5. parentThinking                       (inherit from the parent; the pi
- *      family only, because the parent session runs pi and its level is
- *      therefore pi's vocabulary)
+ *   5. parentThinking                       (inherit from the parent; the Pi
+ *      family only, because the parent session runs Pi and its level is
+ *      therefore in Pi's vocabulary)
  *   6. no layer names a level — the run asks for none, and the harness's own
  *      default applies.
  *
- * The parent's level is the last step, not the first: a configured default
- * still wins, exactly as the parent's model loses to every configured model
+ * The parent's level is the final fallback, not the first: a configured
+ * default still wins, exactly as the parent's model loses to every configured model
  * key. A pinned child model may not support the parent's level; the token is
  * still carried as written, because a level is what the layers named and the
  * harness that runs it decides what the token means.
@@ -297,10 +297,10 @@ export function harnessDefaultThinking(
 }
 
 /**
- * pi's own default thinking level. A level no layer names — the parent
- * included — reads as this one on a model that supports it: pi's child would
- * have used it anyway, so a menu that showed no level would be describing a
- * run that never runs at none.
+ * Pi's own default thinking level. When no layer names a level—including the
+ * parent session—this default applies to any model that supports it: Pi's
+ * child would have used it anyway, so a menu displaying no level would
+ * misrepresent a run that defaults to medium.
  */
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 
