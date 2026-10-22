@@ -21,6 +21,7 @@ import {
 import { probed } from "../../src/availability.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import {
+  beginUiFlow,
   resetShell,
   setCoordinator,
   setHarnessAvailability,
@@ -1435,6 +1436,31 @@ describe("Spawn wizard — new worktree", () => {
     expect(session.notifications.map((n) => n.message)).toContain(
       "Worktree creation failed: branch exists",
     );
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("never mounts its options screen once another command took the ui", async () => {
+    // The options screen is the wizard's only screen opened after an await (the
+    // worktree probe), so holding that probe is how a user leaves the flow first.
+    let releaseProbe: (() => void) | undefined;
+    setPi({
+      exec: () =>
+        new Promise((resolve) => {
+          releaseProbe = () => resolve({ code: 1, stdout: "", stderr: "" });
+        }),
+    });
+    const session = openWizard();
+    expect(releaseProbe).toBeDefined();
+
+    // The user opened /cowboy status (another command) while this spawn was still
+    // probing; the wizard's screen must not replace the one they are on.
+    beginUiFlow(session.context);
+    beginUiFlow({});
+    releaseProbe?.();
+    await session.settle();
+
+    expect(session.screenCount).toBe(0);
+    expect(await session.finished).toBeUndefined();
     expect(spawnCalls).toHaveLength(0);
   });
 

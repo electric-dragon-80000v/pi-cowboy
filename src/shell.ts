@@ -91,6 +91,9 @@ interface Shell {
   /** Which probe may write `cowAvailability`: the claim number of the newest one started. */
   cowAvailabilityClaim: number;
   harnessAvailability: Availability<AnyHarnessId>;
+  /** The newest ui flow; each command context carries the claim it began under. */
+  uiFlowClaim: number;
+  uiFlows: WeakMap<object, number>;
 }
 
 const shell: Shell = {
@@ -110,6 +113,8 @@ const shell: Shell = {
   cowAvailability: unprobed(),
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed(),
+  uiFlowClaim: 0,
+  uiFlows: new WeakMap(),
 };
 
 export function getPiInstance(): ExtensionAPI {
@@ -301,6 +306,26 @@ export function getWorktreeMaterialization(): WorktreeMaterialization {
     shell.store.agent.worktreeMaterialization,
     shell.cowAvailability,
   );
+}
+
+/**
+ * Claim the ui for the flow a command starts. pi has one screen slot, so a
+ * command's screens replace whatever is mounted; a newer command's claim is what
+ * keeps a flow the user has left behind from mounting over the screen they are
+ * looking at instead.
+ */
+export function beginUiFlow(ctx: object): void {
+  shell.uiFlowClaim += 1;
+  shell.uiFlows.set(ctx, shell.uiFlowClaim);
+}
+
+/**
+ * Whether this context's flow still owns the ui. A context nothing claimed (a
+ * screen opened outside a command) is its own flow.
+ */
+export function ownsUiFlow(ctx: object): boolean {
+  const claim = shell.uiFlows.get(ctx);
+  return claim === undefined || claim === shell.uiFlowClaim;
 }
 
 /**

@@ -8,6 +8,12 @@
  * modal, so a flow that continues opens its next screen once the previous one
  * resolves; nothing here keeps a stack of screens inside one call.
  *
+ * pi has one screen slot, not a stack: every `custom` replaces whatever is
+ * mounted, and its close restores the editor. A flow that awaits between screens
+ * can therefore outlive the user's interest in it, reaching `custom` after
+ * another command has taken the screen — so a screen only opens, and a close only
+ * lands, while the flow that started it still owns the ui (see ownsUiFlow).
+ *
  * A `SettingItem.submenu` factory returns a Component pi-tui renders in place of
  * the list's rows until the factory's `done` runs, so that boundary needs three
  * shapes of its own: a marker for a factory that completes instead of hosting
@@ -27,6 +33,7 @@ import {
   type KeybindingsManager,
   type TUI,
 } from "@earendil-works/pi-tui";
+import { ownsUiFlow } from "../../shell.js";
 
 /** One screen: the ui.custom arguments, plus the callback that ends it. */
 export interface Screen<T> {
@@ -59,11 +66,27 @@ export class ScreenHost {
     build: ScreenBuilder<T>,
     overlay: boolean,
   ): Promise<T | undefined> {
-    return await this.ctx.ui.custom<T | undefined>(
-      (tui, theme, keybindings, done) =>
-        build({ tui, theme, keybindings, close: (result) => done(result) }),
-      overlay ? { overlay: true } : undefined,
-    );
+    // The user has moved on: mounting now would take the screen they are on.
+    if (!ownsUiFlow(this.ctx)) return undefined;
+    return await new Promise<T | undefined>((resolve) => {
+      void this.ctx.ui
+        .custom<T | undefined>(
+          (tui, theme, keybindings, done) =>
+            build({
+              tui,
+              theme,
+              keybindings,
+              close: (result) => {
+                // Only the flow that owns the ui may hand it back; a close that
+                // arrives late still ends this flow, so its caller unwinds.
+                if (ownsUiFlow(this.ctx)) done(result);
+                resolve(result);
+              },
+            }),
+          overlay ? { overlay: true } : undefined,
+        )
+        .then(resolve);
+    });
   }
 }
 

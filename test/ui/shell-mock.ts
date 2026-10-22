@@ -51,6 +51,8 @@ export const shellState = {
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed() as Availability<string>,
   harnesses: createHarnessRegistry(),
+  uiFlowClaim: 0,
+  uiFlows: new WeakMap<object, number>(),
 };
 
 export function setStore(store: ConfigStore): void {
@@ -96,6 +98,9 @@ export function resetShell(): void {
   // A new session's vocabulary starts at the built-ins, so nothing a previous
   // case registered is still answerable.
   shellState.harnesses = createHarnessRegistry();
+  // Every case's command contexts claim the ui afresh.
+  shellState.uiFlowClaim = 0;
+  shellState.uiFlows = new WeakMap<object, number>();
 }
 
 // Getters mirroring src/shell.js.
@@ -149,3 +154,11 @@ export const getHarnessType = (): string =>
     shellState.store.agent.harnessType,
     shellState.harnessAvailability,
   );
+export const beginUiFlow = (ctx: object): void => {
+  shellState.uiFlowClaim += 1;
+  shellState.uiFlows.set(ctx, shellState.uiFlowClaim);
+};
+export const ownsUiFlow = (ctx: object): boolean => {
+  const claim = shellState.uiFlows.get(ctx);
+  return claim === undefined || claim === shellState.uiFlowClaim;
+};

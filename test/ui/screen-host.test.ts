@@ -15,6 +15,7 @@ import {
   asListFields,
   asSubmenuComponent,
 } from "../../src/ui/menu/screen-host.js";
+import { beginUiFlow } from "../../src/shell.js";
 import { KEY, openMenu } from "./harness.js";
 
 /** What a probe component remembers about the screen it stood in. */
@@ -176,6 +177,51 @@ describe("screen host — a flow of screens", () => {
 
     expect(session.screenCount).toBe(2);
     expect(await session.finished).toBe("run as general-purpose");
+  });
+});
+
+describe("screen host — the flow that owns the ui", () => {
+  it("never mounts a screen after a later command took the ui", async () => {
+    let release: (() => void) | undefined;
+    const waited = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stale = openMenu(async (ctx: ExtensionCommandContext) => {
+      beginUiFlow(ctx);
+      await waited;
+      return await new ScreenHost(ctx).open<string>(() => probe());
+    });
+    await stale.settle();
+
+    // The user opened another command's screen while this flow was between screens.
+    beginUiFlow({});
+    release?.();
+    await stale.settle();
+
+    expect(stale.screenCount).toBe(0);
+    expect(await stale.finished).toBeUndefined();
+  });
+
+  it("ends a superseded flow without taking the screen from the user", async () => {
+    let closeScreen: (() => void) | undefined;
+    const stale = openMenu((ctx: ExtensionCommandContext) => {
+      beginUiFlow(ctx);
+      return new ScreenHost(ctx).open<string>(({ close }) => {
+        closeScreen = () => close("late");
+        return probe();
+      });
+    });
+    await stale.whenScreens(1);
+
+    // A close that lands after the user moved on must not restore the editor over
+    // the screen they are looking at.
+    beginUiFlow({});
+    closeScreen?.();
+    await stale.settle();
+
+    expect(stale.closedScreens).toEqual([]);
+    // The flow still ends, so its caller unwinds instead of waiting forever.
+    expect(await stale.finished).toBe("late");
   });
 });
 

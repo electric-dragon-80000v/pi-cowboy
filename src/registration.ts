@@ -29,6 +29,7 @@ import {
   syncExtensionIndicator,
 } from "./extension-toggle.js";
 import {
+  beginUiFlow,
   getHarnessAvailability,
   getHarnessRegistry,
   getPiInstance,
@@ -272,6 +273,10 @@ export function registerCowboyCommand(pi: ExtensionAPI): void {
     getArgumentCompletions: async (prefix: string) =>
       (await import("./ui/menu/model-picker.js")).cowboyCompletions(prefix),
     handler: async (args: string, ctx: ExtensionCommandContext) => {
+      // This invocation owns the ui from here on: a flow it leaves pending (a
+      // probe still running when the user opens another screen) must not mount
+      // over the screen that newer command opened.
+      beginUiFlow(ctx);
       const subcommand = args.trim();
       // The first word names the subcommand and the rest is its inline argument,
       // so a tab or a run of spaces separates them exactly as one space does.
