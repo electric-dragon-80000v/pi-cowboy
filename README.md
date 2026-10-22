@@ -151,7 +151,7 @@ You can then ask for it by name in the parent session:
 <code>> Spawn a cowboy agent using release notes template to prepare the release notes for the most recent changes.</code>
 <hr>
 
-See [Agent Templates](docs/Agent%20Templates.md) for all template fields and directory locations.
+See [Agent Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Agent%20Templates.md) for all template fields and directory locations.
 
 ### Orchestrator templates
 
@@ -166,11 +166,11 @@ Run the adversarial-review tool before you commit, and fix any glaring mistakes 
 '''
 ```
 
-You can switch the active orchestrator at any time from `/cowboy` > `Default orchestrator`. See [Orchestrator Templates](docs/Orchestrator%20Templates.md) for details.
+You can switch the active orchestrator at any time from `/cowboy` > `Default orchestrator`. See [Orchestrator Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Orchestrator%20Templates.md) for details.
 
 ### Foreign harnesses
 
-`pi-cowboy` auto-detects Codex, Claude Code, OpenCode, PiG, and Pi-Bolt when they are installed on your `PATH`. You can request a specific harness directly in your prompt (for example, "Launch an OpenCode agent for this task") or set defaults in your [configuration](docs/Configuration.md#agentharnesstype) and [agent templates](docs/Agent%20Templates.md).
+`pi-cowboy` auto-detects Codex, Claude Code, OpenCode, PiG, and Pi-Bolt when they are installed on your `PATH`. You can request a specific harness directly in your prompt (for example, "Launch an OpenCode agent for this task") or set defaults in your [configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md#agentharnesstype) and [agent templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Agent%20Templates.md).
 
 ## Concurrency
 
@@ -185,7 +185,7 @@ A running agent occupies a slot in every limit that applies to it. When the agen
 
 If you steer a settled agent, it wakes up in its existing pane and runs immediately, even if that temporarily puts a limit over capacity.
 
-Configure these limits in `config.json` or live in your session via `/cowboy` > `Settings` > `Concurrency Settings`. See [Configuration](docs/Configuration.md#concurrency) for details.
+Configure these limits in `config.json` or live in your session via `/cowboy` > `Settings` > `Concurrency Settings`. See [Configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md#concurrency) for details.
 
 ## Model resolution
 
@@ -194,16 +194,16 @@ When `pi-cowboy` spawns an agent, it picks the model using the first match in th
 1. The `model` parameter passed to the `cowboy_agent` tool call
 2. The session per-type model override (`/cowboy` > `Model overrides`)
 3. The config per-type override (`agent.<agent-type>`)
-4. The model set in the [agent template](docs/Agent%20Templates.md) for the launching harness family
+4. The model set in the [agent template](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Agent%20Templates.md) for the launching harness family
 5. The Pi-family session default model (`/cowboy model`, which picks from Pi's catalogue)
 6. The launching harness's configured default (`agent.default` for the Pi family, or `agent.defaultModelByHarness` for foreign harnesses)
 7. For Pi-family launches, the parent session's active model
 
-See [Configuration](docs/Configuration.md#model-keys) for the full rules.
+See [Configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md#model-keys) for the full rules.
 
 ## Commands
 
-Run `/cowboy` to open the interactive menu, or pass a subcommand directly. See [Menu](docs/Menu.md) for a guide to every screen.
+Run `/cowboy` to open the interactive menu, or pass a subcommand directly. See [Menu](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Menu.md) for a guide to every screen.
 
 ```text
 /cowboy                         # Open the pi-cowboy menu
@@ -293,16 +293,16 @@ Every running agent occupies a slot in each concurrency limit that applies to it
 
 For a single tiny change, spinning up a fresh process can take longer than making the edit directly. `pi-cowboy` is built for running several tasks in parallel, where that startup cost is paid once across all concurrent agents.
 
-If you want faster startup and lower memory usage, `pi-cowboy` also supports [pig](https://github.com/MichaelKinsy/PiG) (a drop-in Pi replacement written in Go) and [pi-bolt](https://github.com/opensec-git/Pi-Bolt) (an ahead-of-time compiled Pi variant). Set `agent.harnessType` in [Configuration](docs/Configuration.md) to use them.
+If you want faster startup and lower memory usage, `pi-cowboy` also supports [pig](https://github.com/MichaelKinsy/PiG) (a drop-in Pi replacement written in Go) and [pi-bolt](https://github.com/opensec-git/Pi-Bolt) (an ahead-of-time compiled Pi variant). Set `agent.harnessType` in [Configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md) to use them.
 
 ### I don't like the emojis, can I turn them off?
 
-Yes. You can disable both the cowboy indicator and the grazing cows in `/cowboy` > `Settings` or in your config file. See [Configuration](docs/Configuration.md).
+Yes. You can disable both the cowboy indicator and the grazing cows in `/cowboy` > `Settings` or in your config file. See [Configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md).
 
 ## References
 
-- [Configuration](docs/Configuration.md)
-- [Menu](docs/Menu.md)
-- [Agent Templates](docs/Agent%20Templates.md)
-- [Orchestrator Templates](docs/Orchestrator%20Templates.md)
-- [Plugins](docs/Plugins.md)
+- [Configuration](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Configuration.md)
+- [Menu](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Menu.md)
+- [Agent Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Agent%20Templates.md)
+- [Orchestrator Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Orchestrator%20Templates.md)
+- [Plugins](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Plugins.md)
