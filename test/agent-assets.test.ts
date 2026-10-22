@@ -559,7 +559,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
     expect(host.release).toHaveBeenNthCalledWith(2, ref, "placement");
   });
 
-  it("tears every run's recorded harness down through the registry, and skips one nothing registers", async () => {
+  it("tears every run's recorded harness down through the registry, and skips any unregistered harness", async () => {
     const teardown = vi.fn(async () => {});
     const { harnesses } = installSessionRegistries();
     harnesses.register({

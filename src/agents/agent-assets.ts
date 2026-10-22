@@ -77,11 +77,12 @@ export interface CleanupDeps {
   /** Close a self-created placement. */
   closePane: (ref: AgentHostRef) => Promise<void>;
   /**
-   * Undo the harness state every run the environment engaged left behind,
-   * each at the address it prepared — ordered before any worktree dirty probe,
+   * Undo the harness state left behind by each run engaged by the environment,
+   * each at the address it prepared — ordered before any worktree dirty probe;
    * see Harness.teardown. The bound actuator resolves each run's harness and
-   * supplies the pi instance. A run whose teardown fails is logged, never
-   * thrown, and the rest still run: one bad harness cannot keep the worktree.
+   * supplies the pi instance. Any teardown failure is logged rather than
+   * thrown, and remaining runs still execute: one bad harness cannot keep the
+   * worktree.
    */
   teardownEnvironment: (request: EnvironmentTeardown) => Promise<void>;
 }
@@ -95,7 +96,7 @@ export interface RunTeardown {
   readonly cwd: string | null;
 }
 
-/** Every run an environment engaged, oldest first, and the id they report under. */
+/** All runs engaged by an environment, oldest first, and the subagent ID under which they report. */
 export interface EnvironmentTeardown {
   readonly subagentId: string;
   readonly runs: readonly RunTeardown[];
@@ -485,12 +486,11 @@ export function createMultiplexerAgentAssets(
       await host.release(ref, "placement");
     },
     teardownEnvironment: async ({ subagentId, runs }) => {
-      // The ids are read back from recorded runs rather than resolved here, so
-      // a plugin load reset between the launch that recorded one and this
-      // teardown (a reload, a session replacement) can leave it registered by
-      // nothing. Such an id has no teardown to run — the plugin's code went with
-      // its registration — which is the same success as a harness that never
-      // prepared.
+      // The IDs are read back from recorded runs rather than resolved here, so
+      // a plugin reload or session replacement between launch and teardown
+      // can leave a harness ID unregistered. Such an ID has no teardown to run —
+      // the plugin's code went with its registration — which is the same success
+      // as a harness that never prepared.
       const harnesses = getHarnessRegistry();
       for (const run of runs) {
         try {

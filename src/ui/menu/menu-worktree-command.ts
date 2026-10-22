@@ -8,8 +8,9 @@
  * nothing else is asked. The checkout policy is a question only when the parent
  * carries uncommitted work: a clean parent starts at HEAD either way. Only git
  * knows about the result — there is no spawn record, no entry in
- * `/cowboy status`, and nothing cleans it up. Any failure after the git create,
- * a failed herdr adoption included, removes the worktree and its branch.
+ * `/cowboy status`, and nothing cleans it up. Any failure after creating the
+ * git worktree, including a failed herdr adoption, removes the worktree and its
+ * branch.
  */
 
 import * as fs from "node:fs";

@@ -261,7 +261,7 @@ describe("executeCleanupAgentTool — a tracked id", () => {
     expect(text(result)).not.toContain("recovered:");
   });
 
-  it("lists every pane the environment knew, each by address", async () => {
+  it("lists every pane known to the environment, each by address", async () => {
     const manager = fakeManager({
       spawn: { id: ID } as AgentSpawn,
       report: trackedReport({

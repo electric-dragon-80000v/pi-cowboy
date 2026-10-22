@@ -279,7 +279,7 @@ export class AgentSandbox {
           branchName: placement.checkout.branch,
         },
         address: placement.ref,
-        // A create that failed engaged no run, so its placement is the only
+        // A creation that failed engaged no run, so its placement is the only
         // pane the environment has.
         panes: [placement.ref],
       },

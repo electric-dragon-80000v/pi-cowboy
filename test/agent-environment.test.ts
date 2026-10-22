@@ -1,6 +1,6 @@
 /**
  * agent-environment.test.ts — the container view over one spawn's execution.
- * Pins what a caller may ask the environment for: the placement, the run
+ * Pins what callers may query from the environment: the placement, the run
  * occupying it, and the runs before it.
  */
 

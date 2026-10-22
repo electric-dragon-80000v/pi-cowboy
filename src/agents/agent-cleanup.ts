@@ -1,8 +1,8 @@
 /**
  * agent-cleanup.ts — state-changing cleanup orchestration (policy lives in cleanup-policy.ts).
  * createWorktreeTeardown: worktree/branch/pane removal over injected actuators.
- * createCleanup: settled-or-recovered run cleanup over the assets seam — the
- * environment's every run, not only the active one.
+ * createCleanup: settled-or-recovered run cleanup over the assets seam — all
+ * runs in the environment, not only the active one.
  * WorktreeTeardown/Cleanup: the two planes. WorktreeTeardownOutcome: removal result.
  * WorktreeRemovalTarget: the tree and panes a teardown removes through.
  * AgentCleanupRegistry: spawn lookup/drop surface.
@@ -109,9 +109,9 @@ async function removeOwnedTree(
 }
 
 /**
- * Pane outcomes for a removal, one per pane the environment knew: a removed
- * tree takes its workspace's panes with it; a pane in another workspace (an
- * earlier run's, left behind by a handover) survives and is closed only if
+ * Pane outcomes for a removal, one per pane known to the environment: a removed
+ * tree takes its workspace's panes with it; a pane in another workspace (such as
+ * an earlier run's pane left behind by a handover) survives and is closed only if
  * the extension created it; a surviving tree keeps every pane it hosts.
  */
 async function paneOutcomes(
@@ -233,11 +233,11 @@ export type WorktreeTeardownOutcome =
   | { kind: "removal-failed"; path: string; detail: string };
 
 /**
- * Removal target: the tree, the address it is removed through, and every pane
- * the environment knows (current first). The address is the current
+ * Removal target: the tree, the address through which it is removed, and every pane
+ * known to the environment (current first). The address is the current
  * placement's — a removal releases that workspace, and an ended run's pane may
- * sit in another one — while each pane carries its own address, so a close
- * never depends on a caller remembering to pair them up.
+ * sit in another one — while each pane carries its own address, so closing a pane
+ * never depends on callers having to pair them up.
  */
 export interface WorktreeRemovalTarget {
   readonly worktree: WorktreeTarget;
@@ -322,10 +322,10 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
 /* ── The environment ───────────────────────────────────────────────────── */
 
 /**
- * Every pane the environment knows, current first: the located pane (a live
- * read, which may correct a stale record), then the panes earlier runs
- * engaged. An address appears once — a handover may reuse the pane, but it is
- * still one pane.
+ * Every pane known to the environment, current first: the located pane (a live
+ * read, which may correct a stale record), followed by the panes that earlier
+ * runs engaged. Each address appears only once — a handover may reuse a pane,
+ * but it remains a single pane.
  */
 function environmentPanes(
   current: AgentHostRef | undefined,
@@ -342,8 +342,8 @@ function environmentPanes(
 }
 
 /**
- * The harness state cleanup must undo, oldest first: every ended run at the
- * pane and tree it prepared, then the active run at the address cleanup
+ * The runs whose harness state cleanup must undo, oldest first: every ended run at the
+ * pane and tree it prepared, followed by the active run at the address cleanup
  * located — the live read is fresher than the record, and that tree is the one
  * the dirty probe is about to read.
  */
@@ -498,8 +498,8 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       try {
         await assets.teardownEnvironment({ subagentId: agentId, runs });
       } catch (err: unknown) {
-        // The seam isolates each run's failure; this guards the teardown's own
-        // fault so a cleanup still reaches the worktree.
+        // The seam isolates each run's failure; this guards against faults in
+        // teardown itself so cleanup still reaches the worktree.
         log.warn("environment teardown failed during cleanup", {
           spawnId: agentId,
           error: errorMessage(err),

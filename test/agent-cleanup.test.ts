@@ -1354,7 +1354,7 @@ describe("cleanup — environment teardown", () => {
     ]);
   });
 
-  it("tears no harness state down for an environment nothing engaged", async () => {
+  it("tears down no harness state for an environment that engaged no runs", async () => {
     const assets = buildAssets("clean");
     const { registry } = buildRegistry(new Map([[ID, completed()]]));
 

@@ -84,9 +84,9 @@ export function recordedSettlement(spawn: AgentSpawn): RecordedSettlement {
 }
 
 /**
- * What cleanup reports for one pane the environment knew. `open` is a pane
- * cleanup left standing — one the seam observed live, or one nothing touched
- * because the run was refused; `gone` is stated only for an address the
+ * What cleanup reports for one pane known to the environment. `open` designates
+ * a pane that cleanup left standing — one observed live by the seam, or one left
+ * untouched because cleanup was refused; `gone` is stated only for an address the
  * multiplexer no longer answers (never `closed`: the extension did not close
  * it); `unknown` is stated only when the read itself failed (never evidence
  * either way).
@@ -187,8 +187,8 @@ export interface WorktreeTarget {
 /**
  * What a run owns: no partial worktree state — an unresolved managed tree is
  * `worktree-unlocatable`, never `no-worktree`; `null` is genuine absence.
- * `panes` is every pane the environment knows, the current one first; only a
- * pane the extension created is ever closed.
+ * `panes` contains all panes known to the environment, with the current pane
+ * first; only a pane the extension created is ever closed.
  */
 export type CleanupPlan =
   | {
@@ -205,7 +205,7 @@ export type CleanupPlan =
     }
   | { kind: "no-worktree"; panes: readonly AgentHostRef[] };
 
-/** Narrow located artifacts into a plan (pure): resolved managed tree → worktree (missing workspace still goes via git); unresolved managed tree → worktree-unlocatable (never no-worktree, so nothing leaks). The panes are the caller's environment's, current first. */
+/** Narrow located artifacts into a plan (pure): resolved managed tree → worktree (missing workspace still goes via git); unresolved managed tree → worktree-unlocatable (never no-worktree, so nothing leaks). Panes come from the caller's environment, with the current pane first. */
 export function planRecovered(
   artifacts: LocatedArtifacts,
   panes: readonly AgentHostRef[],
@@ -365,7 +365,7 @@ export function keptReport(
           ? plan.branchName
           : undefined,
     settlement,
-    // A refusal closes nothing, so every pane the environment knew is still open.
+    // A refusal closes nothing, so every pane in the environment remains open.
     panes: plan.panes.map((pane) => ({ kind: "open", paneId: pane.paneId })),
     worktree,
     branch: { kind: "not-applicable" },
@@ -476,11 +476,12 @@ export function removalMechanismOf(
 /**
  * Whether removing the tree also takes this pane with it. A multiplexer
  * removal destroys the placements of the workspace it releases, so a pane in
- * that workspace goes with it — but a pane in another workspace (an earlier
- * run's, left behind by a handover) survives it and is handled by ownership
- * instead. An unrecorded workspace cannot be told apart from the removed one,
- * so it keeps the answer the removal implies. A pane the extension did not
- * create is never closed by cleanup, however its workspace fared.
+ * that workspace goes with it — but a pane in another workspace (such as an
+ * earlier run's pane left behind by a handover) survives and is handled by
+ * ownership instead. An unrecorded workspace cannot be distinguished from
+ * the removed one, so it retains the disposition that removal implies. A pane
+ * the extension did not create is never closed by cleanup, regardless of the
+ * outcome for its workspace.
  */
 export function paneDispositionFor(
   pane: AgentHostRef,

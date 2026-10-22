@@ -68,7 +68,7 @@ function paneText(pane: PaneOutcome): string {
   }
 }
 
-/** Every pane's outcome on one line; an environment that never had one says so. */
+/** Formats every pane's outcome on one line, or indicates that the agent never had a pane. */
 function panesText(panes: readonly PaneOutcome[]): string {
   return panes.length === 0
     ? "none (the agent never had a pane)"
@@ -89,7 +89,7 @@ function paneSummary(pane: PaneOutcome): string {
   }
 }
 
-/** One line for every pane: a single pane reads as it always did; several are counted by outcome. */
+/** Summary phrase for all panes: a single pane reads as it always did; multiple panes are counted by outcome. */
 function panesSummary(panes: readonly PaneOutcome[]): string {
   if (panes.length === 0) return "no pane";
   if (panes.length === 1) return paneSummary(panes[0]!);
