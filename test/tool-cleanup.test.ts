@@ -79,7 +79,7 @@ function trackedReport(overrides: Partial<CleanupReport> = {}): CleanupReport {
     source: "tracked",
     outcome: { kind: "torn-down" },
     settlement: { kind: "recorded", phase: "settled" },
-    pane: { kind: "closed", paneId: "w1:p1" },
+    panes: [{ kind: "closed", paneId: "w1:p1" }],
     worktree: { kind: "removed", path: WT_PATH },
     branch: { kind: "deleted" },
     branchName: BRANCH,
@@ -99,7 +99,7 @@ function recoveredReport(
       basis: { kind: "pane-not-working", state: "done" },
       deliverable: { path: DELIVERABLE, present: true },
     },
-    pane: { kind: "closed", paneId: "w1:p1" },
+    panes: [{ kind: "closed", paneId: "w1:p1" }],
     worktree: { kind: "removed", path: WT_PATH },
     branch: { kind: "deleted" },
     branchName: BRANCH,
@@ -184,7 +184,7 @@ describe("executeCleanupAgentTool — an id the store does not track", () => {
       [
         `Cleaned up agent ${ID}:`,
         "  agent status: unrecorded (basis: pane-not-working: done)",
-        "  pane: closed",
+        "  panes: w1:p1 closed",
         `  worktree: removed (${WT_PATH})`,
         `  branch: deleted (${BRANCH})`,
         "  recovered: no spawn record survived — this verdict rests on discovery (herdr's live read plus the worktree on disk)",
@@ -208,7 +208,7 @@ describe("executeCleanupAgentTool — an id the store does not track", () => {
         },
         forceable: false,
       },
-      pane: { kind: "none" },
+      panes: [],
       worktree: { kind: "kept", path: null },
       branch: { kind: "not-applicable" },
     });
@@ -253,7 +253,7 @@ describe("executeCleanupAgentTool — a tracked id", () => {
       [
         `Cleaned up agent ${ID}:`,
         "  agent status: settled",
-        "  pane: closed",
+        "  panes: w1:p1 closed",
         `  worktree: removed (${WT_PATH})`,
         `  branch: deleted (${BRANCH})`,
       ].join("\n"),
@@ -261,12 +261,29 @@ describe("executeCleanupAgentTool — a tracked id", () => {
     expect(text(result)).not.toContain("recovered:");
   });
 
+  it("lists every pane known to the environment, each by address", async () => {
+    const manager = fakeManager({
+      spawn: { id: ID } as AgentSpawn,
+      report: trackedReport({
+        panes: [
+          { kind: "closed", paneId: "w1:p1" },
+          { kind: "open", paneId: "w1:p2" },
+        ],
+      }),
+    });
+    getManagerMock.mockReturnValue(manager);
+
+    const result = await invoke({ agent_ids: [ID] });
+
+    expect(text(result)).toContain("  panes: w1:p1 closed, w1:p2 open");
+  });
+
   it("renders the phase a run ended in, never-started included", async () => {
     const manager = fakeManager({
       spawn: { id: ID } as AgentSpawn,
       report: trackedReport({
         settlement: { kind: "recorded", phase: "never-started" },
-        pane: { kind: "none" },
+        panes: [],
       }),
     });
     getManagerMock.mockReturnValue(manager);
@@ -277,7 +294,7 @@ describe("executeCleanupAgentTool — a tracked id", () => {
       [
         `Cleaned up agent ${ID}:`,
         "  agent status: never-started",
-        "  pane: none",
+        "  panes: none (the agent never had a pane)",
         `  worktree: removed (${WT_PATH})`,
         `  branch: deleted (${BRANCH})`,
       ].join("\n"),
@@ -394,7 +411,7 @@ describe("executeCleanupAgentTool — report rendering", () => {
     ],
     [
       trackedReport({
-        pane: { kind: "open", paneId: "w1:p1" },
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: { kind: "none" },
         branch: { kind: "not-applicable" },
         branchName: undefined,
@@ -415,8 +432,8 @@ describe("executeCleanupAgentTool — report rendering", () => {
       ["branch: NOT deleted — branch checkout failed"],
     ],
     [
-      trackedReport({ pane: { kind: "none" }, worktree: { kind: "none" } }),
-      ["pane: none"],
+      trackedReport({ panes: [], worktree: { kind: "none" } }),
+      ["panes: none (the agent never had a pane)"],
     ],
   ])("renders the failure and branch planes %#", async (report, expected) => {
     const manager = fakeManager({
@@ -489,7 +506,7 @@ describe("executeCleanupAgentTool — batch", () => {
       [
         `Cleaned up agent ${ID}:`,
         "  agent status: settled",
-        "  pane: closed",
+        "  panes: w1:p1 closed",
         `  worktree: removed (${WT_PATH})`,
         `  branch: deleted (${BRANCH})`,
         "",
@@ -497,7 +514,7 @@ describe("executeCleanupAgentTool — batch", () => {
         "",
         `Cleaned up agent ${OTHER}:`,
         "  agent status: settled",
-        "  pane: closed",
+        "  panes: w1:p1 closed",
         `  worktree: removed (${OTHER_WT})`,
         `  branch: kept (unmerged) (${OTHER_BRANCH})`,
       ].join("\n"),
@@ -512,7 +529,7 @@ describe("executeCleanupAgentTool — batch", () => {
     const spawned = trackedReport({
       agentId: OTHER,
       settlement: { kind: "recorded", phase: "spawned" },
-      pane: { kind: "open", paneId: "w1:p9" },
+      panes: [{ kind: "open", paneId: "w1:p9" }],
       outcome: {
         kind: "refused",
         reason: { kind: "agent-active", phase: "spawned" },
@@ -562,7 +579,7 @@ describe("executeCleanupAgentTool — batch", () => {
         "",
         `Cleaned up agent ${OTHER}:`,
         "  agent status: settled",
-        "  pane: closed",
+        "  panes: w1:p1 closed",
         `  worktree: removed (${OTHER_WT})`,
         `  branch: kept (unmerged) (${OTHER_BRANCH})`,
       ].join("\n"),

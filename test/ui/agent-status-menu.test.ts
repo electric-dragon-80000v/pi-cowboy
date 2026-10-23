@@ -57,6 +57,7 @@ function baseSpawn(overrides: {
     },
     execution: {
       promise: Promise.resolve(""),
+      history: [],
       ...(overrides.host === true ? { host: HOST } : {}),
     },
   } as unknown as AgentSpawn;

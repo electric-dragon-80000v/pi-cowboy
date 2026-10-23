@@ -493,6 +493,7 @@ describe("Agents menu — the Enabled switch", () => {
       "stop_cowboy_agent",
       "merge_cowboy_branch",
       "steer_cowboy_agent",
+      "handover_cowboy_agent",
       "cleanup_cowboy_agent",
     ]);
     expect(session.notifications.map((n) => n.message)).toContain(

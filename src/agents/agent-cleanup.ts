@@ -1,9 +1,10 @@
 /**
  * agent-cleanup.ts — state-changing cleanup orchestration (policy lives in cleanup-policy.ts).
  * createWorktreeTeardown: worktree/branch/pane removal over injected actuators.
- * createCleanup: settled-or-recovered run cleanup over the assets seam.
+ * createCleanup: settled-or-recovered run cleanup over the assets seam — all
+ * runs in the environment, not only the active one.
  * WorktreeTeardown/Cleanup: the two planes. WorktreeTeardownOutcome: removal result.
- * WorktreeRemovalTarget: the address a teardown removes through.
+ * WorktreeRemovalTarget: the tree and panes a teardown removes through.
  * AgentCleanupRegistry: spawn lookup/drop surface.
  * Report-gated (only ended runs are cleaned up; live runs are refused, never stopped);
  * ordered: gate before removal, workspace before pane, branch only after confirmed checkout removal.
@@ -19,7 +20,13 @@ import type {
   AgentHostRef,
   HostObservation,
 } from "./agent-host.js";
-import type { AgentAssets, CleanupDeps, Located } from "./agent-assets.js";
+import type {
+  AgentAssets,
+  CleanupDeps,
+  Located,
+  RunTeardown,
+} from "./agent-assets.js";
+import { environmentOf } from "./agent-environment.js";
 import {
   ambiguousReport,
   assembleReport,
@@ -36,9 +43,7 @@ import {
   type CleanupOptions,
   type CleanupReport,
   type DiscoveryBasis,
-  type LocatedPane,
   type PaneOutcome,
-  type PaneTarget,
   type RemovablePlan,
   type RemovalOutcomes,
   type SettlementVerdict,
@@ -81,18 +86,6 @@ function hostRefFor(
 
 /* ── Removal ───────────────────────────────────────────────────────────── */
 
-/** Close a self-created pane; a missing ref is incoherent (same address implies both), so it throws. */
-async function closeOwnedPane(
-  deps: CleanupDeps,
-  pane: PaneTarget,
-  ref?: AgentHostRef,
-): Promise<PaneOutcome> {
-  if (!ref)
-    throw new Error(`cleanup has a pane (${pane.paneId}) with no host address`);
-  await deps.closePane(ref);
-  return { kind: "closed", paneId: pane.paneId };
-}
-
 /** Remove the extension-owned worktree (failures reported, not hidden); a missing ref/workspace means never adopted, so the git fallback removes it. */
 async function removeOwnedTree(
   deps: CleanupDeps,
@@ -115,74 +108,94 @@ async function removeOwnedTree(
   return { kind: "removed", path: worktree.worktreePath };
 }
 
-/** Pane outcome for a removal: a removed tree takes its pane with it; a surviving tree still hosts its pane, which is never ours to close. */
-async function paneOutcomeFor(
+/**
+ * Pane outcomes for a removal, one per pane known to the environment: a removed
+ * tree takes its workspace's panes with it; a pane in another workspace (such as
+ * an earlier run's pane left behind by a handover) survives and is closed only if
+ * the extension created it; a surviving tree keeps every pane it hosts.
+ */
+async function paneOutcomes(
   deps: CleanupDeps,
-  pane: PaneTarget | null,
+  panes: readonly AgentHostRef[],
   mechanism: WorktreeRemovalMechanism | null,
   removed: boolean,
-  ref?: AgentHostRef,
-): Promise<PaneOutcome> {
-  if (pane === null) return { kind: "none" };
-  const disposition = paneDispositionFor(pane, mechanism, removed);
-  switch (disposition.kind) {
-    case "none":
-      return { kind: "none" };
-    case "closed-with-workspace":
-      return { kind: "closed", paneId: pane.paneId };
-    case "close":
-      return closeOwnedPane(deps, pane, ref);
-    case "leave-open":
-      return { kind: "open", paneId: pane.paneId };
+  treeWorkspaceId: string | undefined,
+): Promise<readonly PaneOutcome[]> {
+  const outcomes: PaneOutcome[] = [];
+  for (const pane of panes) {
+    const disposition = paneDispositionFor(
+      pane,
+      mechanism,
+      removed,
+      treeWorkspaceId,
+    );
+    switch (disposition.kind) {
+      case "closed-with-workspace":
+        outcomes.push({ kind: "closed", paneId: pane.paneId });
+        break;
+      case "close":
+        await deps.closePane(pane);
+        outcomes.push({ kind: "closed", paneId: pane.paneId });
+        break;
+      case "leave-open":
+        outcomes.push({ kind: "open", paneId: pane.paneId });
+        break;
+    }
   }
+  return outcomes;
 }
 
 /**
- * Pane outcome for a checkout proven absent: the settlement verdict never
- * reads the pane on the tracked path, so read it here and state only what
- * was observed. A live pane stays open; a gone address is reported gone
- * (never closed — the extension did not close it); an unreadable pane is
- * reported unknown (never evidence either way, and the drop does not rest
- * on it). No pane address means none.
+ * Pane outcomes for a checkout proven absent: the settlement verdict never
+ * reads a pane on the tracked path, so read each here and state only what was
+ * observed. A live pane stays open; a gone address is reported gone (never
+ * closed — the extension did not close it); an unreadable pane is reported
+ * unknown (never evidence either way, and the drop does not rest on it).
  */
-async function paneOutcomeForAbsentTree(
+async function paneOutcomesForAbsentTree(
   assets: AgentAssets,
-  pane: LocatedPane | null,
-): Promise<PaneOutcome> {
-  if (pane === null) return { kind: "none" };
-  let observation: HostObservation | undefined;
-  try {
-    observation = await assets.observe(pane);
-  } catch {
-    return { kind: "unknown", paneId: pane.paneId };
+  panes: readonly AgentHostRef[],
+): Promise<readonly PaneOutcome[]> {
+  const outcomes: PaneOutcome[] = [];
+  for (const pane of panes) {
+    let observation: HostObservation | undefined;
+    try {
+      observation = await assets.observe(pane);
+    } catch {
+      outcomes.push({ kind: "unknown", paneId: pane.paneId });
+      continue;
+    }
+    outcomes.push(
+      observation === undefined
+        ? { kind: "gone", paneId: pane.paneId }
+        : { kind: "open", paneId: pane.paneId },
+    );
   }
-  return observation === undefined
-    ? { kind: "gone", paneId: pane.paneId }
-    : { kind: "open", paneId: pane.paneId };
+  return outcomes;
 }
 
 async function removeResources(
   deps: CleanupDeps,
   plan: RemovablePlan,
-  ref?: AgentHostRef,
+  address: AgentHostRef | undefined,
 ): Promise<RemovalOutcomes> {
   if (plan.kind === "no-worktree") {
     return {
-      pane: await paneOutcomeFor(deps, plan.pane, null, true, ref),
+      panes: await paneOutcomes(deps, plan.panes, null, true, undefined),
       worktree: { kind: "none" },
       branch: { kind: "not-applicable" },
     };
   }
-  const { worktree, pane } = plan;
-  const outcome = await removeOwnedTree(deps, worktree, ref);
+  const { worktree, panes } = plan;
+  const outcome = await removeOwnedTree(deps, worktree, address);
   if (outcome.kind === "removed") {
     return {
-      pane: await paneOutcomeFor(
+      panes: await paneOutcomes(
         deps,
-        pane,
+        panes,
         removalMechanismOf(worktree),
         true,
-        ref,
+        worktree.workspaceId,
       ),
       worktree: outcome,
       branch: await deps.deleteBranch({
@@ -193,12 +206,12 @@ async function removeResources(
     };
   }
   return {
-    pane: await paneOutcomeFor(
+    panes: await paneOutcomes(
       deps,
-      pane,
+      panes,
       removalMechanismOf(worktree),
       false,
-      ref,
+      worktree.workspaceId,
     ),
     worktree: outcome,
     branch: { kind: "not-applicable" },
@@ -219,32 +232,19 @@ export type WorktreeTeardownOutcome =
   | { kind: "absent"; path?: string }
   | { kind: "removal-failed"; path: string; detail: string };
 
-/** A checkout the multiplexer adopted: removal rides the host address. */
-export type AdoptedWorktreeTarget = WorktreeTarget & { workspaceId: string };
-
-/** A pane the extension created: the only pane cleanup may close. */
-type SelfCreatedPaneTarget = PaneTarget & { origin: "self-created" };
-
 /**
- * Removal target: each legal case carries exactly the address it uses. A
- * host-adopted tree removes through its ref; a git-only tree closes a
- * self-created pane through its ref; a detached tree removes through git
- * and carries no ref.
+ * Removal target: the tree, the address through which it is removed, and every pane
+ * known to the environment (current first). The address is the current
+ * placement's — a removal releases that workspace, and an ended run's pane may
+ * sit in another one — while each pane carries its own address, so closing a pane
+ * never depends on callers having to pair them up.
  */
-export type WorktreeRemovalTarget =
-  | {
-      kind: "adopted";
-      worktree: AdoptedWorktreeTarget;
-      pane: PaneTarget | null;
-      ref: AgentHostRef;
-    }
-  | {
-      kind: "closing-pane";
-      worktree: WorktreeTarget;
-      pane: SelfCreatedPaneTarget;
-      ref: AgentHostRef;
-    }
-  | { kind: "detached"; worktree: WorktreeTarget; pane: PaneTarget | null };
+export interface WorktreeRemovalTarget {
+  readonly worktree: WorktreeTarget;
+  /** The placement whose workspace the removal releases; absent removes through git. */
+  readonly address: AgentHostRef | undefined;
+  readonly panes: readonly AgentHostRef[];
+}
 
 /** The state-changing teardown plane: worktree, then branch, then pane. */
 interface WorktreeTeardown {
@@ -271,9 +271,7 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
       target: WorktreeRemovalTarget,
       opts?: CleanupOptions,
     ): Promise<WorktreeTeardownOutcome> {
-      const worktree = target.worktree;
-      const pane = target.pane;
-      const ref = target.kind === "detached" ? undefined : target.ref;
+      const { worktree, panes, address } = target;
       try {
         // Applies to multiplexer and git targets alike: a rolled-back create has neither checkout nor workspace.
         if (!(await deps.worktreeExists(worktree.worktreePath))) {
@@ -293,11 +291,11 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
           };
         }
 
-        const outcome = await removeOwnedTree(deps, worktree, ref);
+        const outcome = await removeOwnedTree(deps, worktree, address);
         if (outcome.kind === "removal-failed") return outcome;
         const mechanism = removalMechanismOf(worktree);
-        // Pane closes before branch cleanup so a git-owned pane only closes after confirmed checkout removal.
-        await paneOutcomeFor(deps, pane, mechanism, true, ref);
+        // Panes close before branch cleanup so a git-owned pane only closes after confirmed checkout removal.
+        await paneOutcomes(deps, panes, mechanism, true, worktree.workspaceId);
         const branch = await deps.deleteBranch({
           branch: worktree.branchName,
           worktreePath: worktree.worktreePath,
@@ -319,6 +317,58 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
       }
     },
   };
+}
+
+/* ── The environment ───────────────────────────────────────────────────── */
+
+/**
+ * Every pane known to the environment, current first: the located pane (a live
+ * read, which may correct a stale record), followed by the panes that earlier
+ * runs engaged. Each address appears only once — a handover may reuse a pane,
+ * but it remains a single pane.
+ */
+function environmentPanes(
+  current: AgentHostRef | undefined,
+  hint: AgentSpawn | undefined,
+): readonly AgentHostRef[] {
+  const panes: AgentHostRef[] = current === undefined ? [] : [current];
+  for (const run of hint === undefined
+    ? []
+    : environmentOf(hint.execution).ended) {
+    if (panes.some((known) => known.paneId === run.host.paneId)) continue;
+    panes.push(run.host);
+  }
+  return panes;
+}
+
+/**
+ * The runs whose harness state cleanup must undo, oldest first: every ended run at the
+ * pane and tree it prepared, followed by the active run at the address cleanup
+ * located — the live read is fresher than the record, and that tree is the one
+ * the dirty probe is about to read.
+ */
+function teardownRuns(
+  hint: AgentSpawn | undefined,
+  located: Located,
+): readonly RunTeardown[] {
+  if (hint === undefined) return [];
+  const environment = environmentOf(hint.execution);
+  const ended = environment.ended.map((run) => ({
+    harness: run.harness,
+    paneId: run.host.paneId,
+    cwd: run.cwd,
+  }));
+  const active =
+    environment.harness === undefined
+      ? []
+      : [
+          {
+            harness: environment.harness,
+            paneId: located.pane?.paneId ?? null,
+            cwd: located.worktree?.path ?? null,
+          },
+        ];
+  return [...ended, ...active];
 }
 
 /* ── The cleanup plane ─────────────────────────────────────────────────── */
@@ -430,7 +480,8 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       );
     }
 
-    const plan = planRecovered(located);
+    const current = hostRefFor(located, assets.multiplexer);
+    const plan = planRecovered(located, environmentPanes(current, hint));
     const verdict = await verdictFor(agentId, located, hint, opts);
     if (verdict.kind === "refused") {
       return keptReport(agentId, located.source, plan, verdict.settlement, {
@@ -439,19 +490,18 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       });
     }
 
-    // Ordered before the dirty probe — see Harness.teardown.
-    const harness = hint?.execution.harness;
-    if (harness !== undefined) {
+    // Ordered before the dirty probe — see Harness.teardown. Every run the
+    // environment engaged is undone, not only the active one: a handover's
+    // outgoing harness left its own pane state behind.
+    const runs = teardownRuns(hint, located);
+    if (runs.length > 0) {
       try {
-        await assets.harnessTeardown(harness, {
-          paneId: located.pane?.paneId ?? null,
-          cwd: located.worktree?.path ?? null,
-          subagentId: agentId,
-        });
+        await assets.teardownEnvironment({ subagentId: agentId, runs });
       } catch (err: unknown) {
-        log.warn("harness teardown failed during cleanup", {
+        // The seam isolates each run's failure; this guards against faults in
+        // teardown itself so cleanup still reaches the worktree.
+        log.warn("environment teardown failed during cleanup", {
           spawnId: agentId,
-          harness,
           error: errorMessage(err),
         });
       }
@@ -474,7 +524,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           outcome: { kind: "torn-down", ...forcedFields(opts) },
           branchName: plan.branchName,
           settlement: verdict.settlement,
-          pane: await paneOutcomeForAbsentTree(assets, located.pane),
+          panes: await paneOutcomesForAbsentTree(assets, plan.panes),
           worktree: { kind: "absent", path: plan.worktreePath },
           branch: { kind: "not-applicable" },
         };
@@ -508,11 +558,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       }
     }
 
-    const removal = await removeResources(
-      assets,
-      plan,
-      hostRefFor(located, assets.multiplexer),
-    );
+    const removal = await removeResources(assets, plan, current);
     const report = assembleReport(
       agentId,
       located.source,

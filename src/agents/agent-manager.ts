@@ -43,10 +43,12 @@ import {
   type LocateResult,
 } from "./agent-assets.js";
 import type { CleanupOptions, CleanupReport } from "./cleanup-policy.js";
+import type { HandoverOutcome } from "./handover.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
   SubagentSession,
   type ResolvedSpawnOptions,
+  type SessionHandoverRequest,
   type SpawnArgs,
   type SpawnOptions,
   type SteerOutcome,
@@ -80,6 +82,11 @@ type OnAgentComplete = (spawn: AgentSpawn) => void;
 type OnAgentFollowUp = (spawn: AgentSpawn, deliverable: string) => void;
 
 const log = createLogger("manager");
+
+/** A handover this controller refuses before a session sees it, in the session's outcome shape. */
+function handoverRefused(detail: string): HandoverOutcome {
+  return { kind: "faulted", fault: { kind: "request-refused", detail } };
+}
 
 /**
  * The keep reason a cleanup report carries for a spawn that stays listed. A
@@ -117,6 +124,11 @@ export class AgentManager {
    * it for the same checkout.
    */
   private readonly teardowns = new Map<string, Promise<unknown>>();
+  /**
+   * Handovers in flight, by agent id. One handover owns an id at a time, and a
+   * cleanup or a steer arriving meanwhile waits or refuses instead of racing.
+   */
+  private readonly handovers = new Map<string, Promise<HandoverOutcome>>();
   /** The resource limiter the fleet drives directly; sessions charge their capacity to it. */
   private readonly pools: ConcurrencyPools;
   /** Task identity and admission serialization; pool accounting lives in `pools`. */
@@ -244,21 +256,71 @@ export class AgentManager {
    * reason; settled agents revive in their session. See SubagentSession.
    */
   async steer(id: string, message: string): Promise<SteerOutcome> {
+    // The run being replaced has no live process to deliver into: the message
+    // would land in a pane whose harness is already on its way out.
+    if (this.handovers.has(id)) {
+      return {
+        kind: "refused",
+        reason:
+          "it is being handed over to another harness — wait for the handover before steering it.",
+      };
+    }
     // Steer revives a settled agent, whose worktree a teardown may be removing.
     if (this.teardowns.has(id)) {
       return {
         kind: "refused",
-        reason: `agent ${id} is being cleaned up, so its worktree is on its way out — wait for the report before steering it.`,
+        reason:
+          "it is being cleaned up, so its worktree is on its way out — wait for the report before steering it.",
       };
     }
     const session = this.sessions.get(id);
     if (!session) {
       return {
         kind: "refused",
-        reason: `no live session tracks agent ${id} — check the id from its spawn or completion result (a cleaned-up agent is gone for good).`,
+        reason:
+          "no live session tracks it — check the id from its spawn or completion result (a cleaned-up agent is gone for good).",
       };
     }
     return session.steer(message);
+  }
+
+  /** Whether a handover owns this agent now: a stop arriving mid-handover would race the next run. */
+  isHandingOver(id: string): boolean {
+    return this.handovers.has(id);
+  }
+
+  /**
+   * Hand a settled agent over to another harness: the session exports the
+   * ended run's session, archives it, and launches the next run in the same
+   * checkout. Nothing is removed — the earlier run's pane and harness state
+   * stay until cleanup, which tears every run down at its own address.
+   */
+  async handover(
+    id: string,
+    request: SessionHandoverRequest,
+  ): Promise<HandoverOutcome> {
+    if (this.teardowns.has(id)) {
+      return handoverRefused(
+        "it is being cleaned up — wait for the cleanup report before handing it over.",
+      );
+    }
+    if (this.handovers.has(id)) {
+      return handoverRefused(
+        "a handover is already in progress — wait for it to finish.",
+      );
+    }
+    const session = this.sessions.get(id);
+    if (!session) {
+      return { kind: "faulted", fault: { kind: "agent-unknown" } };
+    }
+    const run = session.handover(request);
+    this.handovers.set(id, run);
+    try {
+      return await run;
+    } finally {
+      // Only the newest handover clears the id.
+      if (this.handovers.get(id) === run) this.handovers.delete(id);
+    }
   }
 
   /** One spawn by id, unfiltered, so cleanup reaches settled spawns too. */
@@ -376,6 +438,8 @@ export class AgentManager {
   ): Promise<CleanupReport> {
     // The earlier teardown's failure is its own report; this one still runs.
     await inFlight?.catch(() => {});
+    // A handover launched a run this cleanup must not race for the pane.
+    await this.handovers.get(id)?.catch(() => {});
     // Before the teardown, which is slow enough for a pending nudge to fire.
     getCoordinatorOrNull()?.dropNudge(id);
     // Whether the spawn is tracked now: only a tracked run has a recorded

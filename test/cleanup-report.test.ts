@@ -24,7 +24,7 @@ function report(overrides: Partial<CleanupReport> = {}): CleanupReport {
     source: "tracked",
     outcome: { kind: "torn-down" },
     settlement: { kind: "recorded", phase: "settled" },
-    pane: { kind: "closed", paneId: "w1:p1" },
+    panes: [{ kind: "closed", paneId: "w1:p1" }],
     worktree: { kind: "removed", path: WT_PATH },
     branch: { kind: "deleted" },
     branchName: BRANCH,
@@ -76,7 +76,7 @@ describe("summarizeCleanupReport", () => {
     expect(
       summarizeCleanupReport(
         report({
-          pane: { kind: "none" },
+          panes: [],
           worktree: { kind: "none" },
           branch: { kind: "not-applicable" },
           branchName: undefined,
@@ -91,7 +91,7 @@ describe("summarizeCleanupReport", () => {
     expect(
       summarizeCleanupReport(
         report({
-          pane: { kind: "gone", paneId: "w1:p1" },
+          panes: [{ kind: "gone", paneId: "w1:p1" }],
           worktree: { kind: "absent", path: WT_PATH },
           branch: { kind: "not-applicable" },
         }),
@@ -105,7 +105,7 @@ describe("summarizeCleanupReport", () => {
     expect(
       summarizeCleanupReport(
         report({
-          pane: { kind: "unknown", paneId: "w1:p1" },
+          panes: [{ kind: "unknown", paneId: "w1:p1" }],
           worktree: { kind: "absent", path: WT_PATH },
           branch: { kind: "not-applicable" },
         }),
@@ -119,7 +119,7 @@ describe("summarizeCleanupReport", () => {
     expect(
       summarizeCleanupReport(
         report({
-          pane: { kind: "open", paneId: "w1:p1" },
+          panes: [{ kind: "open", paneId: "w1:p1" }],
           worktree: {
             kind: "removal-failed",
             path: WT_PATH,
@@ -130,6 +130,22 @@ describe("summarizeCleanupReport", () => {
       ),
     ).toBe(
       `Cleaned up agent ${ID}: pane left open, worktree NOT removed — in use (${WT_PATH}), branch NOT deleted — checked out (${BRANCH})`,
+    );
+  });
+
+  it("counts several panes by outcome", () => {
+    expect(
+      summarizeCleanupReport(
+        report({
+          panes: [
+            { kind: "closed", paneId: "w1:p1" },
+            { kind: "closed", paneId: "w1:p2" },
+            { kind: "open", paneId: "w1:p3" },
+          ],
+        }),
+      ),
+    ).toBe(
+      `Cleaned up agent ${ID}: 3 panes (2 closed, 1 open), worktree removed (${WT_PATH}), branch deleted (${BRANCH})`,
     );
   });
 
@@ -196,7 +212,7 @@ describe("cleanupNeedsAttention", () => {
     expect(
       cleanupNeedsAttention(
         report({
-          pane: { kind: "gone", paneId: "w1:p1" },
+          panes: [{ kind: "gone", paneId: "w1:p1" }],
           worktree: { kind: "absent", path: WT_PATH },
           branch: { kind: "not-applicable" },
         }),

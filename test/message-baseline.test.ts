@@ -154,6 +154,7 @@ function baseSpawn(): AgentSpawn {
     execution: {
       promise: Promise.resolve(""),
       abortController: new AbortController(),
+      history: [],
     },
   } as unknown as AgentSpawn;
 }

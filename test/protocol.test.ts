@@ -70,7 +70,7 @@ function spawn(
       orchestration: TEST_ORCHESTRATION,
       ...overrides.display,
     },
-    execution: { ...overrides.execution },
+    execution: { history: [], ...overrides.execution },
   } as unknown as AgentSpawn;
 }
 
@@ -102,6 +102,7 @@ describe("buildAgentDetails", () => {
           },
         },
         execution: {
+          history: [],
           host: {
             multiplexer: "herdr",
             name: "cow-fix-login-abc12345",

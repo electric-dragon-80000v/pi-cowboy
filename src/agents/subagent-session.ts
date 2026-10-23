@@ -17,7 +17,10 @@ import {
   getWorktreeMaterialization,
 } from "../shell.js";
 import { subagentResultFileFor } from "../paths.js";
-import { removeResultArtifacts } from "../subagent/result-artifacts.js";
+import {
+  removeResultArtifacts,
+  removeResultFile,
+} from "../subagent/result-artifacts.js";
 import {
   createPaneSupervisor,
   type SupervisorTransport,
@@ -34,20 +37,30 @@ import type {
 import type {
   AgentLaunchState,
   AgentSpawn,
+  ModelChoice,
   SpawnConfig,
   StopInitiator,
   WorktreeRetentionReason,
 } from "../types.js";
-import { lifecycleResult } from "../types.js";
+import { lifecycleResult, lifecycleStatus } from "../types.js";
 import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
   buildWorktreeBranch,
   slugifyWorktreeType,
 } from "../spawn/worktree-policy.js";
-import { AgentSandbox } from "../spawn/sandbox.js";
-import { resolveWorktreeCheckoutType } from "./spawn-defaults.js";
+import {
+  provisionOwnedCheckout,
+  type OwnedCheckout,
+} from "../spawn/sandbox.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
 import type { AnyHarnessId } from "./harness.js";
+import { environmentOf } from "./agent-environment.js";
+import {
+  exportRunSession,
+  renderHandoverTask,
+  type HandoverFault,
+  type HandoverOutcome,
+} from "./handover.js";
 import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
@@ -59,6 +72,7 @@ import {
   enterSettling,
   failStart,
   finishSettling,
+  handoverRun,
   projectLifecycle,
   reviveRun,
   startRun,
@@ -126,6 +140,7 @@ export function buildAgentSpawn(
       promise,
       abortController: new AbortController(),
       host: options.hostRef,
+      history: [],
     },
   };
 }
@@ -182,11 +197,26 @@ type LaunchPlacement =
   | { kind: "held"; host: AgentHost; ref: AgentHostRef }
   | { kind: "committed" };
 
-/**
- * A launch failure deferred past the placement finally, so the placement is
- * released before the failure settles the run.
- */
 type LaunchFailure = { kind: "none" } | { kind: "failed"; error: unknown };
+
+/**
+ * What a launch does about the workspace it runs in. A spawn may provision the
+ * owned checkout it was named for; a handover's next run already has one and
+ * must never create a second.
+ */
+type LaunchOrigin = { kind: "spawn" } | { kind: "handover" };
+
+/** What a handover asks one session to do: launch the next run under another harness. */
+export interface SessionHandoverRequest {
+  readonly harness: AnyHarnessId;
+  /** The next run's model and level; absent leaves the harness to choose. */
+  readonly modelChoice?: ModelChoice;
+}
+
+/** The one shape a handover that did not happen takes. */
+function faulted(fault: HandoverFault): HandoverOutcome {
+  return { kind: "faulted", fault };
+}
 
 /**
  * Per-run lifecycle. State moves only through commit, which projects the
@@ -305,7 +335,7 @@ export class SubagentSession {
         reason: `agent ${this.id} is queued — it has no pane yet, so it cannot receive a message. Wait for a concurrency slot (or stop it).`,
       };
     }
-    const ref = this.spawn.execution.host;
+    const ref = environmentOf(this.spawn.execution).host;
     if (!ref) {
       // A missing host ref means different things along a run's life, so name
       // the one this is rather than blaming cleanup every time.
@@ -418,6 +448,124 @@ export class SubagentSession {
   }
 
   /**
+   * Hand the environment to the next run of the same spawn, under another
+   * harness. Gated on a settled run — a handover reads a finished session and
+   * then replaces the run that produced it — and refused as a capability gap
+   * when the source harness cannot export its own session. The next run is an
+   * ordinary launch: the same checkout, the same staging directory, a new pane.
+   */
+  async handover(request: SessionHandoverRequest): Promise<HandoverOutcome> {
+    const settled = this.run;
+    // A run settled before it started (stopped or failed while queued) never
+    // engaged an environment, so the check below is what reports it.
+    if (settled.shell !== "held" || settled.process.kind !== "settled") {
+      return faulted({
+        kind: "agent-not-settled",
+        status: lifecycleStatus(this.spawn.lifecycle),
+      });
+    }
+    const environment = environmentOf(this.spawn.execution);
+    const from = environment.harness;
+    const ref = environment.host;
+    // A source run is a started run at a known address; one settled without
+    // starting engaged neither.
+    if (from === undefined || ref === undefined || !settled.process.started) {
+      return faulted({ kind: "never-started" });
+    }
+    const cwd = this.args.options.worktree?.path ?? this.args.ctx.cwd;
+
+    // Export before stopping: a harness that cannot export its session must
+    // change nothing at all, so the capability is the first question asked.
+    const exported = await exportRunSession(getHarnessRegistry(), from, {
+      pi: this.args.pi,
+      subagentId: this.id,
+      paneId: ref.paneId,
+      cwd,
+    });
+    if (exported.kind === "faulted") return exported;
+    // A steer may have revived the run while its session was exported; that
+    // session is no longer finished, so this handover no longer applies.
+    if (this.run !== settled) {
+      return faulted({
+        kind: "agent-not-settled",
+        status: lifecycleStatus(this.spawn.lifecycle),
+      });
+    }
+
+    // A settled run's process may still be alive, and launching the next
+    // harness anyway would put two agents in one checkout.
+    let stopped: boolean;
+    try {
+      stopped = await this.deps.transport.createHost(this.args.pi).stop(ref, {
+        interruptGraceMs: 2_000,
+        confirmMs: 10_000,
+      });
+    } catch (error) {
+      return faulted({ kind: "stop-failed", detail: errorMessage(error) });
+    }
+    if (!stopped) {
+      return faulted({
+        kind: "stop-failed",
+        detail: "the source process did not confirm it was gone",
+      });
+    }
+    // The old process is gone, so its watch has nothing left to report: a
+    // follow-up would belong to the run that just ended.
+    this.supervisor?.detach();
+    this.supervisor = undefined;
+
+    // The ended run's report is still on disk; the next run must settle on its
+    // own (a revive resets the same file for the same reason).
+    removeResultFile(this.resultFilePath());
+    const task = renderHandoverTask({
+      taskSlug: this.spawn.display.taskSlug,
+      sourceName: getHarnessRegistry().displayName(from),
+      previous: environment.ended.map(({ harness, sessionId }) => ({
+        harness,
+        sessionId,
+      })),
+      current: { harness: from, sessionId: exported.sessionId },
+      session: exported.session,
+    });
+
+    environment.end({
+      harness: from,
+      host: ref,
+      cwd,
+      sessionId: exported.sessionId,
+      startedAt: settled.process.startedAt,
+      endedAt: Date.now(),
+    });
+    this.args.prompt = task;
+    this.args.options.harness = request.harness;
+    this.args.options.modelChoice = request.modelChoice;
+    this.launchState = undefined;
+    this.retention = undefined;
+    // A handover is not an admission, like a revive: the ended run released
+    // its slots, and the next one takes them back before it launches.
+    this.deps.pools.reacquire(this.id, {
+      harness: request.harness,
+      modelKey: modelChoiceKey(request.modelChoice),
+    });
+    this.commit(handoverRun(this.run, Date.now()));
+    // The next run belongs to the same spawn, so it answers to the same parent:
+    // an abort must stop it as it would stop a revive.
+    this.bindParentSignal();
+    await this.launch({ kind: "handover" });
+    if (!this.isActive()) {
+      const lifecycle = this.spawn.lifecycle;
+      return faulted({
+        kind: "launch-failed",
+        detail:
+          lifecycle.phase === "settled" && lifecycle.status === "error"
+            ? lifecycle.error
+            : "the next run did not start",
+      });
+    }
+    return { kind: "handed-over", from, to: request.harness };
+  }
+
+  /**
    * Unblock awaiters without touching the pane, and let the run's artifacts go:
    * a dropped spawn has no reporters left, so its result directory is removed.
    */
@@ -447,7 +595,9 @@ export class SubagentSession {
     this.detachParentBinding();
   }
 
-  private async launch(): Promise<void> {
+  private async launch(
+    origin: LaunchOrigin = { kind: "spawn" },
+  ): Promise<void> {
     let placement: LaunchPlacement = { kind: "none" };
     let failure: LaunchFailure = { kind: "none" };
     // The cwd a harness teardown needs if the launch fails past the plan; a
@@ -460,22 +610,26 @@ export class SubagentSession {
       // An owned checkout is provisioned here, once the run holds a slot: a
       // queued run must not hold a worktree or a pane. A caller that already
       // provisioned one (the spawn wizard) passes its own hostRef.
-      let ref = options.hostRef;
-      if (!ref && options.worktree?.kind === "owned") {
-        let sandbox: AgentSandbox;
+      // The wizard's placement belongs to the launch that provisioned it: a
+      // handover's run addresses a pane of its own, never the one it ends.
+      let ref = origin.kind === "spawn" ? options.hostRef : undefined;
+      if (
+        origin.kind === "spawn" &&
+        !ref &&
+        options.worktree?.kind === "owned"
+      ) {
+        let checkout: OwnedCheckout;
         try {
-          sandbox = await AgentSandbox.allocate(pi, {
-            naming: {
-              kind: "generated",
-              taskSlug: options.taskSlug ?? type,
-              id: this.spawn.id,
-            },
+          checkout = await provisionOwnedCheckout({
+            pi,
+            host,
             parentCwd: ctx.cwd,
+            spawnId: this.spawn.id,
+            agentType: type,
+            taskSlug: options.taskSlug,
             worktreeRoot: getStore().agent.worktreeRoot,
             materialization: getWorktreeMaterialization(),
-            dirtyCheckout: resolveWorktreeCheckoutType(type),
             notify: (message, kind) => ctx.ui.notify(message, kind),
-            host,
           });
         } catch (err) {
           // Allocation unwound itself: no checkout exists, so the failed settle
@@ -484,16 +638,14 @@ export class SubagentSession {
           this.spawn.display.worktree = undefined;
           throw err;
         }
-        if (sandbox.worktree) {
-          options.worktree = { kind: "owned", ...sandbox.worktree };
-          this.spawn.display.worktree = options.worktree;
-        } else {
-          // The parent left the repository since the spawn resolved: fall back
-          // to the parent cwd like any non-repo run.
-          options.worktree = undefined;
-          this.spawn.display.worktree = undefined;
-        }
-        ref = sandbox.hostRef;
+        // The fallback has no checkout: the run starts in the parent cwd like
+        // any non-repo run, and the launch opens its own pane.
+        options.worktree =
+          checkout.kind === "owned"
+            ? { kind: "owned", ...checkout.worktree }
+            : undefined;
+        this.spawn.display.worktree = options.worktree;
+        ref = checkout.kind === "owned" ? checkout.hostRef : undefined;
       }
       // The herdr agent name: the worktree's branch for a worktree run,
       // else the pinned `cow-<task>-<id>` the sandbox was allocated under.
@@ -535,10 +687,11 @@ export class SubagentSession {
         }));
       placement = { kind: "held", host, ref };
       if (!this.isLaunching()) return;
-      this.spawn.execution.host = ref;
+      const environment = environmentOf(this.spawn.execution);
+      environment.place(ref);
       // Recorded before prepare: cleanup and a failed launch read it to tear
       // this harness's pane state down, regardless of later config changes.
-      this.spawn.execution.harness = plan.harness;
+      environment.engage(plan.harness);
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({
         pi,
@@ -582,14 +735,15 @@ export class SubagentSession {
     if (failure.kind === "failed" && this.isLaunching()) {
       // Best-effort: a failed teardown is logged, never allowed to mask the
       // launch error that caused it.
-      const harnessId = this.spawn.execution.harness;
+      const environment = environmentOf(this.spawn.execution);
+      const harnessId = environment.harness;
       if (harnessId !== undefined) {
         try {
           await getHarnessRegistry()
             .require(harnessId)
             .teardown({
               pi: this.args.pi,
-              paneId: this.spawn.execution.host?.paneId ?? null,
+              paneId: environment.host?.paneId ?? null,
               cwd: launchCwd ?? null,
               subagentId: this.spawn.id,
             });
@@ -658,7 +812,7 @@ export class SubagentSession {
       await supervisor.stop(2_000);
       return;
     }
-    const ref = this.spawn.execution.host;
+    const ref = environmentOf(this.spawn.execution).host;
     if (!ref) return;
     await this.deps.transport
       .createHost(getPiInstance())

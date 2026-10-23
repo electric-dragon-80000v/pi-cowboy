@@ -486,6 +486,37 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 }
 
 /**
+ * What a harness is asked for when one run is handed over. The address is the
+ * run's own, not the spawn's: a handover's earlier run sits in a pane the next
+ * run never occupies.
+ */
+export interface HarnessExportRequest {
+  readonly pi: ExtensionAPI;
+  readonly subagentId: string;
+  readonly paneId: string;
+  /** The tree the run ran in; a harness that keys sessions by directory reads it. */
+  readonly cwd: string;
+}
+
+/**
+ * One run's session, exported for the harness that continues it. `session` is
+ * the conversation as plain text: a harness returns what it wrote, already
+ * reduced to what another harness can read, because only it knows where it
+ * kept thinking and tool traffic. `sessionId` is the source harness's own id
+ * for that run — the id it resumes that session by, not a display id — and it
+ * travels with the session so a later handover back names what it continues.
+ */
+export interface HarnessExport {
+  readonly sessionId: string;
+  readonly session: string;
+}
+
+/** One run exported for a handover, at the run's own address. */
+export type HarnessExportForHandover = (
+  request: HarnessExportRequest,
+) => Promise<HarnessExport>;
+
+/**
  * Supported thinking levels for a model and the enforcement policy of the list.
  *
  * - `closed`: Fixed vocabulary enforced by the harness (Pi levels, Claude effort
@@ -650,6 +681,13 @@ export interface Harness<
    */
   teardown(request: HarnessTeardownRequest): Promise<void>;
   /**
+   * Export one run's session for a handover to another harness. Optional: a
+   * harness that cannot export its session omits it, and a handover from that
+   * harness is refused as a capability gap rather than attempted — see
+   * `canExportForHandover`. The export is at the address the run ran in.
+   */
+  exportForHandover?(request: HarnessExportRequest): Promise<HarnessExport>;
+  /**
    * The models this harness can run, listed on demand — when a menu opens, and
    * when the spawn wizard opens. The pi family reads its catalog live on
    * every call. opencode and codex answer from their memoized fetches, so the
@@ -666,6 +704,17 @@ export interface Harness<
    * Fire-and-forget, so a slow channel never blocks the launch.
    */
   prefetchModels(pi: ExtensionAPI): void;
+}
+
+/**
+ * Whether a harness can be the source of a handover: the optional method is
+ * present, not merely declared. Structural, so the check reads the capability
+ * alone and narrows to a harness a caller can export through.
+ */
+export function canExportForHandover(harness: {
+  readonly exportForHandover?: HarnessExportForHandover;
+}): harness is { readonly exportForHandover: HarnessExportForHandover } {
+  return harness.exportForHandover !== undefined;
 }
 
 /**

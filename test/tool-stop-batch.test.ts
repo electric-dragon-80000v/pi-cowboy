@@ -42,16 +42,26 @@ function settledSpawn(id: string): AgentSpawn {
 interface FakeManager {
   getSpawn: ReturnType<typeof vi.fn>;
   abort: ReturnType<typeof vi.fn>;
+  isHandingOver: ReturnType<typeof vi.fn>;
   listAgents: ReturnType<typeof vi.fn>;
 }
 
 function fakeManager(
   spawns: Record<string, AgentSpawn | undefined>,
-  abortImpl?: (id: string) => Promise<boolean>,
+  options: {
+    abortImpl?: (id: string) => Promise<boolean>;
+    /** Ids a handover currently owns. */
+    handingOver?: readonly string[];
+  } = {},
 ): FakeManager {
   return {
     getSpawn: vi.fn((id: string) => spawns[id]),
-    abort: vi.fn(async (id: string) => (abortImpl ? abortImpl(id) : true)),
+    abort: vi.fn(async (id: string) =>
+      options.abortImpl ? options.abortImpl(id) : true,
+    ),
+    isHandingOver: vi.fn((id: string) =>
+      (options.handingOver ?? []).includes(id),
+    ),
     listAgents: vi.fn(() => []),
   };
 }
@@ -158,10 +168,37 @@ describe("executeStopAgentTool — batch", () => {
     ]);
   });
 
+  it("refuses a settled agent whose handover is still running", async () => {
+    const manager = fakeManager(
+      { [ID_A]: settledSpawn(ID_A), [ID_B]: spawnedSpawn(ID_B) },
+      { handingOver: [ID_A] },
+    );
+    getManagerMock.mockReturnValue(manager);
+
+    const result = await invoke({ agent_ids: [ID_A, ID_B] });
+
+    // The settled report would be misleading: the spawn is between runs, not
+    // finished — the next one is already launching.
+    expect(manager.abort).toHaveBeenCalledTimes(1);
+    expect(manager.abort).toHaveBeenCalledWith(ID_B, "agent");
+    expect(text(result)).toBe(
+      [
+        `Agent ${ID_A} was not stopped: it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped`,
+        `Stopped agent ${ID_B}`,
+      ].join("\n\n---\n\n"),
+    );
+    expect(result.details.agents[0]).toEqual({
+      kind: "refused",
+      agentId: ID_A,
+      reason:
+        "it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped",
+    });
+  });
+
   it("reports an abort failure as data and continues the batch", async () => {
     const manager = fakeManager(
       { [ID_A]: spawnedSpawn(ID_A), [ID_C]: spawnedSpawn(ID_C) },
-      async (id) => id !== ID_A,
+      { abortImpl: async (id) => id !== ID_A },
     );
     getManagerMock.mockReturnValue(manager);
 
