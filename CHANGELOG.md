@@ -1,3 +1,11 @@
+## [0.22.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.1...v0.22.2) (2026-10-25)
+
+
+### Bug Fixes
+
+* **agent:** [#33](https://github.com/electric-dragon-80000v/pi-cowboy/issues/33) enable write tool and update explore agent prompt so that it ([fabc922](https://github.com/electric-dragon-80000v/pi-cowboy/commit/fabc92279341cf03f2ecbc11564765b88138e209))
+* **agent:** enable write tool and update explore agent prompt so that it ([437ffd9](https://github.com/electric-dragon-80000v/pi-cowboy/commit/437ffd9fd1d9698af5d6c70f9ba68498978576d5))
+
 ## [0.22.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.0...v0.22.1) (2026-10-22)
 
 
