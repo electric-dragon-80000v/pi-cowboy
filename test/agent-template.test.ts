@@ -546,10 +546,10 @@ describe("the shipped Explore agent template", () => {
     expect(parsed.name).toBe("Explore");
     expect(parsed.display_name).toBe("Explore");
     expect(parsed.description).toBe(
-      "Fast codebase exploration agent (read-only)",
+      "Fast codebase exploration agent (no code modifications)",
     );
     expect(parsed.harness?.toolsByFamily).toEqual({
-      pi: { tools: ["read", "bash", "grep", "find"] },
+      pi: { tools: ["read", "write", "bash", "grep", "find"] },
     });
     expect(parsed.harness?.toolsByFamily).not.toHaveProperty("opencode");
   });
@@ -560,7 +560,7 @@ describe("the shipped Explore agent template", () => {
     expect(prompt).toBeDefined();
     expect(
       prompt?.startsWith(
-        "# CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS\n\nYou are a file search specialist.",
+        "# CRITICAL: NO CODEBASE MODIFICATIONS\n\nYou are a file search specialist.",
       ),
     ).toBe(true);
     expect(prompt?.endsWith("- Be thorough and precise")).toBe(true);
