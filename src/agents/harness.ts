@@ -517,6 +517,40 @@ export type HarnessExportForHandover = (
 ) => Promise<HarnessExport>;
 
 /**
+ * Why a run's session could not be exported, in one vocabulary every harness's
+ * exporter shares so a caller reports the failure without knowing which
+ * harness produced it. `export-command-failed` is the arm for a harness that
+ * exports through its CLI: the read itself was refused, rather than the store
+ * being missing or unreadable.
+ */
+export type SessionExportFault =
+  | "session-not-found"
+  | "ambiguous-session"
+  | "unreadable-record"
+  | "malformed-record"
+  | "unsupported-version"
+  | "missing-session-id"
+  | "empty-session"
+  | "export-command-failed";
+
+/** A refused export: the shared fault a caller reports, with the sentence it shows. */
+export class SessionExportError extends Error {
+  readonly fault: SessionExportFault;
+
+  constructor(fault: SessionExportFault, message: string) {
+    super(message);
+    this.name = "SessionExportError";
+    this.fault = fault;
+  }
+}
+
+/** One surviving turn of a conversation, in the order the record holds it. */
+export interface SessionExportTurn {
+  readonly role: "User" | "Assistant";
+  readonly text: string;
+}
+
+/**
  * Supported thinking levels for a model and the enforcement policy of the list.
  *
  * - `closed`: Fixed vocabulary enforced by the harness (Pi levels, Claude effort
