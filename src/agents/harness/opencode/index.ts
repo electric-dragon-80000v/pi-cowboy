@@ -43,6 +43,8 @@ import {
   modelListEntries,
   type Harness,
   type HarnessAvailability,
+  type HarnessExport,
+  type HarnessExportRequest,
   type HarnessPrepareRequest,
   type ModelEntry,
   type OpencodeLaunchRequest,
@@ -55,6 +57,7 @@ import {
   type PaneProof,
 } from "../pane-launcher.js";
 import { opencodeConfigCodec, type OpencodeConfig } from "./config.js";
+import { exportOpencodeSession } from "./session-export.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 import { probeOpencode } from "./version.js";
 
@@ -391,6 +394,19 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
     }
     args.push("--model", modelReference(request.modelKey, request.thinking));
     return args;
+  },
+  /**
+   * The session this run wrote, exported while the run's process is still
+   * alive. The run's directory and the staged definition's name identify it;
+   * the definition proof's session is not a run and is skipped by its model.
+   */
+  exportForHandover(request: HarnessExportRequest): Promise<HarnessExport> {
+    return exportOpencodeSession({
+      pi: request.pi,
+      subagentId: request.subagentId,
+      cwd: request.cwd,
+      proofModel: PROOF_MODEL,
+    });
   },
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
