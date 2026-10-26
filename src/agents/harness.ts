@@ -679,6 +679,16 @@ export interface Harness<
    */
   readonly reservedEnvVars?: () => readonly string[];
   /**
+   * Variables this harness's launch must hand the child from this process's own
+   * environment, read at launch time: the names a harness process uses to resolve
+   * its own state, and by which the parent reads that state back, so the two
+   * agree only when the child is handed the same values. Those names are reserved
+   * (see `reservedEnvVars`), so configuration cannot override them and this
+   * process is their only source. Absent when the pane's own environment is the
+   * harness's whole answer; one family's launch never inherits another's names.
+   */
+  readonly inheritedEnv?: () => Readonly<Record<string, string>>;
+  /**
    * The agent kind this harness launches as, in the multiplexer's vocabulary; the only
    * place a kind appears as a literal. A harness whose binary is not pi's can
    * only launch under its own kind, because the multiplexer matches the detected process

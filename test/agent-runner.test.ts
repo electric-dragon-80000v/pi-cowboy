@@ -1239,4 +1239,79 @@ describe("buildLaunchPlan — env overrides", () => {
       ),
     ).toBe(true);
   });
+
+  it("stages the variables a plugin harness declares as its launch's own", async () => {
+    harnesses.register({
+      id: "store-plugin",
+      displayName: "Store Plugin",
+      agentMultiplexerKind: "pi",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => ({ kind: "listed", entries: [] }),
+      prefetchModels: () => {},
+      // The name is reserved because the launch owns it, so the reservation
+      // must not drop the very value the launch is supplying.
+      reservedEnvVars: () => ["PLUGIN_STORE"],
+      inheritedEnv: () => ({ PLUGIN_STORE: "/var/plugin" }),
+    } as PluginHarness);
+    const { cwd, notify } = setup(makeAgent({ harnessType: "store-plugin" }));
+    storeRef.current = new ConfigStore(
+      memoryIO({
+        harness: { "store-plugin": { env: { PLUGIN_STORE: "/elsewhere" } } },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(stagedEnv(plan.launch)).toEqual({ PLUGIN_STORE: "/var/plugin" });
+    expect(
+      notify.mock.calls.some(([message]) =>
+        String(message).includes("PLUGIN_STORE"),
+      ),
+    ).toBe(true);
+  });
+
+  it("drops an inherited name the shell could not read, staging no file", async () => {
+    harnesses.register({
+      id: "unreadable-store-plugin",
+      displayName: "Unreadable Store Plugin",
+      agentMultiplexerKind: "pi",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => ({ kind: "listed", entries: [] }),
+      prefetchModels: () => {},
+      inheritedEnv: () => ({ "BAD NAME": "/var/plugin" }),
+    } as PluginHarness);
+    const { cwd, notify } = setup(
+      makeAgent({ harnessType: "unreadable-store-plugin" }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    expect(plan.launch.envFile).toBeNull();
+    expect(
+      notify.mock.calls.some(([message]) =>
+        String(message).includes("BAD NAME"),
+      ),
+    ).toBe(true);
+  });
+
+  it("leaves another family's child on the store its own launcher resolves", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
+    process.env.PI_CODING_AGENT_SESSION_DIR = path.join(
+      cwd,
+      "sessions-override",
+    );
+    try {
+      const plan = await launch("test-agent", cwd, notify);
+
+      expect(stagedEnv(plan.launch)).toEqual({});
+    } finally {
+      delete process.env.PI_CODING_AGENT_SESSION_DIR;
+    }
+  });
 });
