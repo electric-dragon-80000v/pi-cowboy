@@ -125,6 +125,13 @@ const madeRoots: string[] = [];
 /** The real TMPDIR, put back after every test that redirects it. */
 let realTmpdir: string | undefined;
 
+/**
+ * The real HOME, put back after every test. The staged store links into
+ * `$HOME/.claude/projects`, so a test redirects it rather than writing a real
+ * run's transcript into the developer's own store.
+ */
+let realHome: string | undefined;
+
 /** The spawn working directory for the current test (trust is seeded for it). */
 let cwd: string;
 
@@ -133,6 +140,8 @@ beforeEach(() => {
   const root = fs.mkdtempSync(path.join(tmpdir(), "cowboy-claude-cli-"));
   madeRoots.push(root);
   process.env.TMPDIR = root;
+  realHome = process.env.HOME;
+  process.env.HOME = path.join(root, "home");
   cwd = path.join(root, "work");
   fs.mkdirSync(cwd, { recursive: true });
 });
@@ -140,6 +149,8 @@ beforeEach(() => {
 afterEach(() => {
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  if (realHome === undefined) delete process.env.HOME;
+  else process.env.HOME = realHome;
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -239,7 +250,10 @@ describe.skipIf(!canRunRealClaude)(
   "claude staging against the real CLI",
   () => {
     it("answers through the staged directory with the harness's own argv", async () => {
-      const configDir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd });
+      const { configDir, sessionId } = writeClaudeStaging({
+        subagentId: SUBAGENT_ID,
+        cwd,
+      });
       // The resolver's own path, so every run below points at the directory the
       // module names rather than a path this file retyped.
       expect(configDir).toBe(claudeConfigDir(SUBAGENT_ID));
@@ -264,6 +278,10 @@ describe.skipIf(!canRunRealClaude)(
       const result = await runClaude(
         configDir,
         [
+          // What the launcher pins before `"$@"`: the id staging recorded, so
+          // the run writes one transcript whose name the export knows.
+          "--session-id",
+          sessionId,
           ...args,
           // What the pane launcher appends after `"$@"`: the `--` ends option
           // parsing before the task, and the task rides as one positional word.
@@ -280,7 +298,10 @@ describe.skipIf(!canRunRealClaude)(
     });
 
     it("removes everything it staged", async () => {
-      const configDir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd });
+      const { configDir } = writeClaudeStaging({
+        subagentId: SUBAGENT_ID,
+        cwd,
+      });
       expect(fs.existsSync(configDir)).toBe(true);
 
       removeClaudeStaging(SUBAGENT_ID);
@@ -294,7 +315,10 @@ describe.skipIf(!canRunKeylessClaude)(
   "claude staging without credentials",
   () => {
     it("fails loudly on the helper when no key reaches it, instead of falling through", async () => {
-      const configDir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd });
+      const { configDir } = writeClaudeStaging({
+        subagentId: SUBAGENT_ID,
+        cwd,
+      });
 
       // The no-key launch the pane performs after trimming nothing: the
       // staged helper is still configured, so it — not some silent fallback —

@@ -12,16 +12,19 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { PaneControl } from "../src/agents/agent-host.js";
@@ -33,6 +36,10 @@ import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js
 import { spawnCredentialStore } from "../src/agents/harness/claude/index.js";
 import {
   claudeConfigDir,
+  claudeProjectDir,
+  claudeProjectsDir,
+  claudeProjectsStore,
+  claudeSessionRecordFile,
   removeClaudeStaging,
   writeClaudeStaging,
 } from "../src/agents/harness/claude/staging.js";
@@ -88,12 +95,45 @@ let savedCredentialEnv: Record<string, string | undefined>;
 /** Temporary roots this file made; removed after every test, pass or fail. */
 const madeRoots: string[] = [];
 
+/** The real HOME, put back after every test: the store resolves under it. */
+let realHome: string | undefined;
+
 /** The root this test redirected TMPDIR to. */
 let tmpRoot: string;
 
 /** A name inside this test's redirected TMPDIR. */
 function inTmpRoot(name: string): string {
   return join(tmpRoot, name);
+}
+
+/**
+ * Write a transcript the way claude does — through the staged store link — so
+ * tests can assert what survives staging and teardown.
+ */
+function writeTranscript(
+  configDir: string,
+  sessionId = "9d0f1e42-0a1c-4c2b-9b3e-5f6a7b8c9d0e",
+): string {
+  const viaLink = claudeProjectDir(configDir, tmpRoot);
+  mkdirSync(viaLink, { recursive: true });
+  writeFileSync(
+    join(viaLink, `${sessionId}.jsonl`),
+    `${JSON.stringify({ type: "user", sessionId })}\n`,
+  );
+  // The durable path the link resolves to, which is where the bytes really are
+  // once the config directory is gone.
+  return join(claudeProjectsStore(), basename(viaLink), `${sessionId}.jsonl`);
+}
+
+/** The run record a staged config directory carries, parsed. */
+function sessionRecordOf(configDir: string): unknown {
+  return JSON.parse(readFileSync(claudeSessionRecordFile(configDir), "utf-8"));
+}
+
+/** The session id the last staging run recorded, read back the way the export reads it. */
+function stagedSessionId(subagentId = SUBAGENT_ID): string {
+  return (sessionRecordOf(claudeConfigDir(subagentId)) as { sessionId: string })
+    .sessionId;
 }
 
 /** The launch inputs every claude launch carries. */
@@ -118,6 +158,8 @@ beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "cowboy-claude-"));
   madeRoots.push(tmpRoot);
   process.env.TMPDIR = tmpRoot;
+  realHome = process.env.HOME;
+  process.env.HOME = inTmpRoot("home");
   savedCredentialEnv = {};
   for (const name of CREDENTIAL_ENV_VARS) {
     savedCredentialEnv[name] = process.env[name];
@@ -132,6 +174,8 @@ afterEach(() => {
   removeClaudeStaging(SUBAGENT_ID);
   if (realTmpdir === undefined) delete process.env.TMPDIR;
   else process.env.TMPDIR = realTmpdir;
+  if (realHome === undefined) delete process.env.HOME;
+  else process.env.HOME = realHome;
   for (const name of CREDENTIAL_ENV_VARS) {
     const value = savedCredentialEnv[name];
     if (value === undefined) delete process.env[name];
@@ -151,15 +195,86 @@ describe("claudeConfigDir", () => {
 });
 
 describe("writeClaudeStaging", () => {
-  it("writes the settings and the state file, and nothing else", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+  it("writes the settings, the state file, the run record, and the store link", () => {
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
 
     expect(dir).toBe(claudeConfigDir(SUBAGENT_ID));
-    expect(readdirSync(dir).sort()).toEqual([".claude.json", "settings.json"]);
+    expect(readdirSync(dir).sort()).toEqual([
+      ".claude.json",
+      "projects",
+      "session.json",
+      "settings.json",
+    ]);
+  });
+
+  it("records the session id it minted, a fresh UUID per launch", () => {
+    const first = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    // Read before the second launch stages, which overwrites the record.
+    expect(sessionRecordOf(first.configDir)).toEqual({
+      sessionId: first.sessionId,
+    });
+
+    const second = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
+
+    expect(sessionRecordOf(second.configDir)).toEqual({
+      sessionId: second.sessionId,
+    });
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(first.sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  it("links the project store to the user's own store, so no transcript lives in the staging tree", () => {
+    const { configDir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
+
+    const link = claudeProjectsDir(configDir);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(link)).toBe(claudeProjectsStore());
+    expect(claudeProjectsStore()).toBe(
+      join(tmpRoot, "home", ".claude", "projects"),
+    );
+    expect(statSync(claudeProjectsStore()).isDirectory()).toBe(true);
+  });
+
+  it("links to the store the launching session's config dir names", () => {
+    const sessionConfigDir = inTmpRoot("session-config");
+    process.env.CLAUDE_CONFIG_DIR = sessionConfigDir;
+
+    const { configDir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
+
+    expect(readlinkSync(claudeProjectsDir(configDir))).toBe(
+      join(sessionConfigDir, "projects"),
+    );
+  });
+
+  it("refuses to replace a real directory standing where the link goes", () => {
+    mkdirSync(join(claudeConfigDir(SUBAGENT_ID), "projects"), {
+      recursive: true,
+    });
+
+    expect(() =>
+      writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot }),
+    ).toThrow(/is not a link to .*could remove session transcripts/);
   });
 
   it("stages the answers the TUI's dialogs read", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
 
     const settings: unknown = JSON.parse(
       readFileSync(join(dir, "settings.json"), "utf-8"),
@@ -189,7 +304,10 @@ describe("writeClaudeStaging", () => {
   });
 
   it("keeps the helper on exactly one line, whose removal leaves valid settings", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
     const text = readFileSync(join(dir, "settings.json"), "utf-8");
 
     // The pane-side trim deletes the helper's line by key name (see the
@@ -215,7 +333,10 @@ describe("writeClaudeStaging", () => {
     const missing = inTmpRoot("never-created");
     expect(existsSync(missing)).toBe(false);
 
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: missing });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: missing,
+    });
 
     const state = JSON.parse(
       readFileSync(join(dir, ".claude.json"), "utf-8"),
@@ -224,7 +345,10 @@ describe("writeClaudeStaging", () => {
   });
 
   it("seeds no credential-derived state: approval stays the user's to give", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
 
     const stateText = readFileSync(join(dir, ".claude.json"), "utf-8");
     expect(stateText).not.toContain("customApiKeyResponses");
@@ -232,7 +356,10 @@ describe("writeClaudeStaging", () => {
   });
 
   it("stages byte-identical settings: every byte is accounted for, so no key material can hide in it", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
 
     expect(readFileSync(join(dir, "settings.json"), "utf-8")).toBe(
       `{\n  "apiKeyHelper": "printf '%s' \\"$COWBOY_API_KEY\\"",\n  "theme": "dark",\n  "skipDangerousModePermissionPrompt": true\n}\n`,
@@ -242,12 +369,30 @@ describe("writeClaudeStaging", () => {
   it("replaces the staging a previous call wrote", () => {
     const first = inTmpRoot("first");
     writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: first });
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
 
     const state = JSON.parse(
       readFileSync(join(dir, ".claude.json"), "utf-8"),
     ) as { projects: Record<string, unknown> };
     expect(Object.keys(state.projects)).toEqual([realpathSync.native(tmpRoot)]);
+  });
+
+  it("leaves a previous launch's transcript in the store, untouched", () => {
+    const first = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const transcript = writeTranscript(first.configDir);
+
+    const second = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
+
+    // The new run's file is named by the id it pins, so no earlier transcript
+    // has to be cleared to keep the store unambiguous.
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(existsSync(transcript)).toBe(true);
   });
 });
 
@@ -298,12 +443,29 @@ describe("spawnCredentialStore", () => {
 
 describe("removeClaudeStaging", () => {
   it("removes the staging tree it wrote", () => {
-    const dir = writeClaudeStaging({ subagentId: SUBAGENT_ID, cwd: tmpRoot });
+    const { configDir: dir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
     expect(existsSync(dir)).toBe(true);
 
     removeClaudeStaging(SUBAGENT_ID);
 
     expect(existsSync(dir)).toBe(false);
+  });
+
+  it("removes the staging tree and leaves the transcripts where they are", () => {
+    const { configDir } = writeClaudeStaging({
+      subagentId: SUBAGENT_ID,
+      cwd: tmpRoot,
+    });
+    const transcript = writeTranscript(configDir);
+
+    removeClaudeStaging(SUBAGENT_ID);
+
+    expect(existsSync(configDir)).toBe(false);
+    expect(existsSync(claudeProjectsStore())).toBe(true);
+    expect(readFileSync(transcript, "utf-8")).toContain("9d0f1e42");
   });
 
   it("does nothing when the staging tree is already gone", () => {
@@ -353,7 +515,7 @@ describe("prepare", () => {
 
     const body = runInPaneMock.mock.calls[0]![2] as string;
     expect(body).toContain(
-      `( . '${envFile}' && { command claude "$@" -- "$(cat '${taskFile}')"; } )`,
+      `( . '${envFile}' && { command claude --session-id '${stagedSessionId()}' "$@" -- "$(cat '${taskFile}')"; } )`,
     );
     // The value stays in the file: the typed command names only the path.
     expect(body).not.toContain("fast");
@@ -367,7 +529,7 @@ describe("prepare", () => {
       1,
       PI,
       "w1:p9",
-      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_SECURESTORAGE_CONFIG_DIR='${PARENT_CREDENTIAL_STORE}'; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude "$@" -- "$(cat '${taskFile}')"; }`,
+      `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_SECURESTORAGE_CONFIG_DIR='${PARENT_CREDENTIAL_STORE}'; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude --session-id '${stagedSessionId()}' "$@" -- "$(cat '${taskFile}')"; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
@@ -382,9 +544,11 @@ describe("prepare", () => {
       expect.any(Number),
     );
 
-    // The tree the launcher names is really there.
+    // The tree the launcher names is really there, and its store is the
+    // user's own — not a directory inside the disposable staging tree.
     expect(existsSync(join(configDir, "settings.json"))).toBe(true);
     expect(existsSync(join(configDir, ".claude.json"))).toBe(true);
+    expect(lstatSync(claudeProjectsDir(configDir)).isSymbolicLink()).toBe(true);
   });
 
   it("ends option parsing before the task so variadic tool flags cannot swallow it", async () => {
@@ -589,7 +753,7 @@ describe("listModels", () => {
 
 describe("teardown", () => {
   it("removes the staging tree the launch read", async () => {
-    const configDir = writeClaudeStaging({
+    const { configDir } = writeClaudeStaging({
       subagentId: SUBAGENT_ID,
       cwd: tmpRoot,
     });
