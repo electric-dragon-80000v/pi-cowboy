@@ -19,6 +19,7 @@ import type {
 } from "../src/agents/harness.js";
 import { createHarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import { trustedEnv } from "../src/agents/harness/env-overrides.js";
+import { codexHomeDirectory } from "../src/agents/harness/codex-session.js";
 import type { AgentConfig } from "../src/agents/types.js";
 import type { ModelChoice } from "../src/types.js";
 import {
@@ -27,7 +28,7 @@ import {
   type RawConfig,
 } from "../src/config/config-store.js";
 import type { LoadedConfig } from "../src/config/config-io.js";
-import { subagentResultDir } from "../src/paths.js";
+import { subagentEnvFileFor, subagentResultDir } from "../src/paths.js";
 import { buildOrchestrationGuidance } from "../src/orchestrators/briefing-section.js";
 import { resolveHarnessType } from "../src/agents/spawn-defaults.js";
 import {
@@ -477,7 +478,7 @@ describe("buildLaunchPlan CLI flags", () => {
       modelKey: null,
       thinking: null,
       toolSelection: { kind: "default" },
-      envFile: null,
+      envFile: subagentEnvFileFor("runner-test"),
       projectTrusted: true,
     } satisfies CodexLaunchRequest);
   });
@@ -1189,21 +1190,29 @@ describe("buildLaunchPlan — env overrides", () => {
       }),
     );
 
-    const plan = await launch("test-agent", cwd, notify);
+    // codex's own home: the reserved name is supplied by the launch, so the
+    // configured `/elsewhere` above is refused and this value reaches the pane.
+    process.env.CODEX_HOME = "/process/codex-home";
+    try {
+      const plan = await launch("test-agent", cwd, notify);
 
-    expect(stagedEnv(plan.launch)).toEqual({
-      SHARED: "template",
-      TEMPLATE_ONLY: "yes",
-      CONFIG_ONLY: "yes",
-    });
-    // Owner-only: the variables are usually credentials.
-    const envFile = plan.launch.envFile;
-    if (envFile === null) throw new Error("no env file was staged");
-    expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
-    const warnings = notify.mock.calls.map(([message]) => String(message));
-    expect(warnings.some((warning) => warning.includes("CODEX_HOME"))).toBe(
-      true,
-    );
+      expect(stagedEnv(plan.launch)).toEqual({
+        SHARED: "template",
+        TEMPLATE_ONLY: "yes",
+        CONFIG_ONLY: "yes",
+        CODEX_HOME: "/process/codex-home",
+      });
+      // Owner-only: the variables are usually credentials.
+      const envFile = plan.launch.envFile;
+      if (envFile === null) throw new Error("no env file was staged");
+      expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
+      const warnings = notify.mock.calls.map(([message]) => String(message));
+      expect(warnings.some((warning) => warning.includes("CODEX_HOME"))).toBe(
+        true,
+      );
+    } finally {
+      delete process.env.CODEX_HOME;
+    }
   });
 
   it("reads the machine's env for a plugin harness too, which has no template family", async () => {
@@ -1300,7 +1309,7 @@ describe("buildLaunchPlan — env overrides", () => {
     ).toBe(true);
   });
 
-  it("leaves another family's child on the store its own launcher resolves", async () => {
+  it("does not hand another family's store name to a codex launch", async () => {
     const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
     process.env.PI_CODING_AGENT_SESSION_DIR = path.join(
       cwd,
@@ -1309,9 +1318,23 @@ describe("buildLaunchPlan — env overrides", () => {
     try {
       const plan = await launch("test-agent", cwd, notify);
 
-      expect(stagedEnv(plan.launch)).toEqual({});
+      expect(stagedEnv(plan.launch)).not.toHaveProperty(
+        "PI_CODING_AGENT_SESSION_DIR",
+      );
     } finally {
       delete process.env.PI_CODING_AGENT_SESSION_DIR;
     }
+  });
+
+  it("stages a codex launch's own home with nothing configured", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex" }));
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    // The pane is handed the very home the handover export reads the run's
+    // rollout back from.
+    expect(stagedEnv(plan.launch)).toEqual({
+      CODEX_HOME: codexHomeDirectory(),
+    });
   });
 });
