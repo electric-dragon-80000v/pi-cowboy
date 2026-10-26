@@ -47,8 +47,10 @@ import { harnessFamilyOf } from "./harness/harness-registry.js";
 import { stageLaunchEnv } from "./harness/launch-env.js";
 import {
   mergeEnv,
+  sanitizeEnv,
   trustedEnv,
   type EnvOverrides,
+  type EnvProblem,
 } from "./harness/env-overrides.js";
 import type { AgentConfig, SubagentType } from "./types.js";
 import {
@@ -298,20 +300,29 @@ function buildHarnessArgs(
 
 /**
  * The variables one launch carries: the machine's table for this harness, the
- * agent's own family table over it, and then the names the resolved family or a
- * plugin harness reserves dropped with a warning. Both inputs are already
- * carriable (see env-overrides.ts), so the only question left here is one this
- * layer alone can answer: which names the launch actually resolved to own.
+ * agent's own family table over it, the variables the harness's launch inherits
+ * from this process, and then the names the resolved family or a plugin harness
+ * reserves dropped with a warning. The configured inputs are already carriable
+ * (see env-overrides.ts), so the only question left here is one this layer alone
+ * can answer: which names the launch actually resolved to own.
+ *
+ * Inheritance is the harness's own declaration — which names to inherit, and why,
+ * is a property of its process — so this layer reads them from the harness and
+ * never infers them from a family. The reserved set is not consulted for those
+ * entries: a name is reserved because the launch must supply it, not because it
+ * must not.
  */
 function resolveLaunchEnv(
   configured: EnvOverrides | undefined,
   overrides: EnvOverrides | undefined,
+  inherited: Readonly<Record<string, string>> | undefined,
   reserved: readonly string[],
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): EnvOverrides | undefined {
   const merged = mergeEnv(configured, overrides);
-  if (merged === undefined) return undefined;
+  const own = inheritedEnvOverrides(inherited, warn, harness);
+  if (merged === undefined) return own;
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(merged)) {
     if (!reserved.includes(name)) {
@@ -322,7 +333,37 @@ function resolveLaunchEnv(
       `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
     );
   }
-  return trustedEnv(kept);
+  return mergeEnv(trustedEnv(kept), own);
+}
+
+/** Why an entry cannot be carried by the shell, as a clause the warning below spells out. */
+const ENV_PROBLEM_TEXT: Record<EnvProblem, string> = {
+  name: "not a valid environment variable name",
+  reserved: "reserved",
+  "not-string": "not a string",
+  control: "carrying a control character",
+};
+
+/**
+ * The harness's inherited variables as a table this layer can merge, dropping
+ * whatever the shell could not read. `undefined` when the harness declares none
+ * or every entry was dropped, so a launch with nothing to hand over stages no
+ * file rather than an empty one.
+ */
+function inheritedEnvOverrides(
+  inherited: Readonly<Record<string, string>> | undefined,
+  warn: (message: string) => void,
+  harness: AnyHarnessId,
+): EnvOverrides | undefined {
+  if (inherited === undefined) return undefined;
+  const kept = sanitizeEnv(inherited, {
+    reserved: [],
+    report: (name, problem) =>
+      warn(
+        `Ignoring inherited environment variable ${name} for ${harness}: it is ${ENV_PROBLEM_TEXT[problem]} and cannot be carried`,
+      ),
+  });
+  return Object.keys(kept).length === 0 ? undefined : kept;
 }
 
 /**
@@ -426,6 +467,7 @@ export async function buildLaunchPlan(
   const env = resolveLaunchEnv(
     store.harnessEnv(harnessType),
     family === undefined ? undefined : agentConfig?.envByFamily?.[family],
+    registered?.inheritedEnv?.(),
     familyReservations(family, registered),
     bufferNotify,
     harnessType,

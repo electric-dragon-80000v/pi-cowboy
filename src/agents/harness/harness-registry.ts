@@ -204,6 +204,15 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
     config: harness.config,
     agentMultiplexerKind: harness.agentMultiplexerKind,
     availability: () => harness.availability(),
+    // The launch reads these off the registry entry, so the adapter carries
+    // them: dropped here, a built-in's child would silently resolve another
+    // store, and a name a built-in declares its own would not be reserved.
+    ...(harness.reservedEnvVars === undefined
+      ? {}
+      : { reservedEnvVars: harness.reservedEnvVars.bind(harness) }),
+    ...(harness.inheritedEnv === undefined
+      ? {}
+      : { inheritedEnv: harness.inheritedEnv.bind(harness) }),
     prepare: (request) =>
       withBuiltin(id, request.launch, (typed, launch) =>
         typed.prepare({
