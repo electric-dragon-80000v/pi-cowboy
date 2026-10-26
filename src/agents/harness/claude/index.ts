@@ -41,7 +41,9 @@ import {
   launchEnvBody,
   type PaneProof,
 } from "../pane-launcher.js";
+import { exportClaudeSession } from "./session-export.js";
 import {
+  claudeConfigDir,
   claudeSettingsFile,
   removeClaudeStaging,
   writeClaudeStaging,
@@ -343,4 +345,14 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
   teardown: async ({ subagentId }) => {
     removeClaudeStaging(subagentId);
   },
+  /**
+   * Read the run's conversation out of the staging directory this harness
+   * pointed claude at. The config directory is a pure function of the subagent
+   * id and the project directory a pure function of the run's cwd, so the
+   * export is a lookup; the reader refuses, with a typed reason, when the run
+   * left no single session behind. `pi` and `paneId` are not read: claude
+   * writes its own store, so nothing here asks the CLI or the pane.
+   */
+  exportForHandover: async ({ subagentId, cwd }) =>
+    exportClaudeSession({ configDir: claudeConfigDir(subagentId), cwd }),
 };
