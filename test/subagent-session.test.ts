@@ -1907,12 +1907,25 @@ describe("handover", () => {
 
   it("reports a source harness that cannot export its session, changing nothing", async () => {
     const run = await settledRun();
-    const outcome = await run.session.handover({ harness: "pi" });
+    // The capability is absent on a harness entry, whatever the built-in pi
+    // entry carries.
+    const withoutExport = {
+      ...exportingPi(async () => ({ sessionId: "unused", session: "unused" })),
+    };
+    delete withoutExport.exportForHandover;
+    registry.overrides.set("pi", withoutExport);
 
-    expect(outcome).toEqual({
-      kind: "faulted",
-      fault: { kind: "harness-cannot-export-session", harness: "pi" },
-    });
+    try {
+      const outcome = await run.session.handover({ harness: "pi" });
+
+      expect(outcome).toEqual({
+        kind: "faulted",
+        fault: { kind: "harness-cannot-export-session", harness: "pi" },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
     // Nothing failed and nothing was stopped: the run is left exactly as it was.
     expect(run.stopCalls).toEqual([]);
     expect(run.startCalls).toHaveLength(1);

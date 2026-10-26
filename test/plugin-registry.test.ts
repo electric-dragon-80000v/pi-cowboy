@@ -92,10 +92,14 @@ describe("the open harness registry", () => {
       ...pluginHarness("reg-export", { status: "available" }),
       readHandoverRecords,
     });
+    harnesses.register(pluginHarness("reg-no-export", { status: "available" }));
 
     const entry = harnesses.require("reg-export");
     expect(canReadHandoverRecords(entry)).toBe(true);
-    expect(canReadHandoverRecords(harnesses.require("pi"))).toBe(false);
+    expect(canReadHandoverRecords(harnesses.require("pi"))).toBe(true);
+    expect(canReadHandoverRecords(harnesses.require("reg-no-export"))).toBe(
+      false,
+    );
     await expect(
       entry.readHandoverRecords?.({
         pi: {} as never,

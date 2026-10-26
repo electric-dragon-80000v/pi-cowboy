@@ -1337,4 +1337,42 @@ describe("buildLaunchPlan — env overrides", () => {
       CODEX_HOME: codexHomeDirectory(),
     });
   });
+
+  it("hands a pi child this process's own store overrides", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "pi" }));
+    const sessionDir = path.join(cwd, "sessions-override");
+    process.env.PI_CODING_AGENT_SESSION_DIR = sessionDir;
+    try {
+      const plan = await launch("test-agent", cwd, notify);
+
+      // The export reads these same two variables from this process, so the
+      // child must write where that read points.
+      expect(stagedEnv(plan.launch)).toEqual({
+        PI_CODING_AGENT_DIR: path.join(cwd, "agent"),
+        PI_CODING_AGENT_SESSION_DIR: sessionDir,
+      });
+    } finally {
+      delete process.env.PI_CODING_AGENT_SESSION_DIR;
+    }
+  });
+
+  it("drops a store name the pig harness reserves, so nothing can move its child", async () => {
+    const { cwd, notify } = setup(makeAgent({ harnessType: "pig" }));
+    storeRef.current = new ConfigStore(
+      memoryIO({
+        harness: { pig: { env: { PIG_HOME: "/elsewhere", PIG_KEEP: "1" } } },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    // pig's root decides where the run writes and where its export reads, so a
+    // configured entry for it is dropped; a name pig does not own is carried.
+    expect(stagedEnv(plan.launch)).toEqual({ PIG_KEEP: "1" });
+    expect(
+      notify.mock.calls.some(([message]) =>
+        String(message).includes("PIG_HOME"),
+      ),
+    ).toBe(true);
+  });
 });
