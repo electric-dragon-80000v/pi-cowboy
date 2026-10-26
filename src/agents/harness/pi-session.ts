@@ -1,0 +1,447 @@
+/**
+ * pi-session.ts — the pi family's session format, and the store contract every
+ * binary in that family satisfies.
+ *
+ * The family (pi, pig, pi-bolt) writes pi's format: one append-only JSONL file
+ * per session under a store's sessions directory, a `session` header carrying
+ * the id, then one record per entry with `message` records holding the
+ * conversation. The launcher passes the spawn id as `--name`, the binary
+ * records it as a `session_info` entry before the first message, and its latest
+ * value is the lookup key: the export finds the file the run itself named and
+ * returns the header id, which is the value `--session` resumes.
+ *
+ * The format is one implementation; only the store differs (see pi-store.ts and
+ * pig-store.ts), so a new binary in the family adds a store and no reader.
+ *
+ * The artifact is prose only. The record set also carries thinking, tool calls,
+ * tool results, system content, images, compaction and extension entries; all of
+ * them are dropped here, because the next harness reads the result as a
+ * conversation and nothing else.
+ */
+
+import { readFile, readdir } from "node:fs/promises";
+import * as path from "node:path";
+import { z } from "zod";
+import { canonicalPath } from "../../paths.js";
+import { nonEmpty } from "../../predicates.js";
+import { errorMessage } from "../../utils.js";
+import {
+  SessionExportError,
+  type HarnessExport,
+  type HarnessExportForHandover,
+  type SessionExportTurn,
+} from "../harness.js";
+
+/** The session format this reader understands. */
+const SESSION_VERSION = 3;
+
+/** The name of the settings key that moves a store's session directory. */
+const SESSION_DIR_SETTING = "sessionDir";
+
+/** The environment a store resolves its directories from; `process.env` for a launch. */
+export type SessionStoreEnv = Readonly<Record<string, string | undefined>>;
+
+/**
+ * Where one pi-family binary keeps its sessions: the whole of what differs
+ * between the binaries, since they share the format above. Each member resolves
+ * from a passed environment rather than `process.env`, so a store's rules can be
+ * asserted without touching the real one.
+ *
+ * A store's two halves must agree, or a handover reads a directory nothing
+ * wrote: the values a launch hands the child (`inheritedEnv`) have to land it in
+ * the directory this store resolves for the export (`sessionDir`). A name the
+ * store resolves against this process — from this process's home, or against its
+ * cwd — is handed over expanded and absolute, so the child's own cwd cannot
+ * reinterpret it; a name it resolves against the run's cwd travels as written,
+ * because the child's cwd is that cwd.
+ */
+export interface SessionStore {
+  /**
+   * Env names this store's launch owns besides its family's reserved table, so
+   * a configured entry for one cannot move the child off the store its export
+   * reads. Empty when the family table already refuses every name it reads.
+   */
+  readonly reservedNames: readonly string[];
+  /**
+   * This cwd's session directory, resolved the way the binary's own process
+   * resolves it — the directory the run wrote its session into.
+   */
+  sessionDir(cwd: string, env: SessionStoreEnv): Promise<string>;
+  /**
+   * The store variables this process carries, for a child of this store to
+   * inherit — each value already in the form this store's `sessionDir` resolves,
+   * so the child writes where that resolution looks.
+   */
+  inheritedEnv(env: SessionStoreEnv): Record<string, string>;
+}
+
+/**
+ * One content part. Only a `text` part carries conversation prose; every other
+ * type (thinking, tool call, image) is structure the artifact does not keep.
+ */
+const ContentPartSchema = z.object({
+  type: z.string(),
+  text: z.string().optional(),
+});
+
+/**
+ * The content of a message: either the whole message as a string or an array of
+ * typed parts. The role is checked separately, because a message that is not
+ * user or assistant contributes nothing whatever its content holds.
+ */
+const MessageContentSchema = z.union([z.string(), z.array(z.unknown())]);
+
+interface SessionHeader {
+  readonly id: string;
+}
+
+/**
+ * The directory name a store keys this cwd by: the physical absolute path with
+ * its leading separator removed and every path separator or colon replaced.
+ * Physical, because a binary keys the bucket by the directory the kernel
+ * reports: a cwd reached through a symlink buckets under its target — `/tmp/x`
+ * on macOS is `/private/tmp/x`. A path that does not exist has no physical
+ * form, and then its own spelling is all there is to key by.
+ */
+export function sessionBucketName(cwd: string): string {
+  const resolved = canonicalPath(cwd) ?? path.resolve(cwd);
+  const encoded = resolved.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-");
+  return `--${encoded}--`;
+}
+
+/**
+ * The session directory a store's own `sessionDir` setting names, or nothing
+ * when no settings file declares one. A missing, unreadable or unparsable file
+ * is no setting, because the binary falls back to its defaults for one it
+ * cannot read.
+ */
+export async function readSessionDirSetting(
+  configDir: string,
+): Promise<string | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(path.join(configDir, "settings.json"), "utf8");
+  } catch {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed)) return undefined;
+  return nonEmpty(parsed[SESSION_DIR_SETTING]);
+}
+
+/** The session file the run named after itself, or a refusal naming what was looked for. */
+export async function findSessionFile(
+  sessionDir: string,
+  subagentId: string,
+  cwd: string,
+): Promise<string> {
+  let entries;
+  try {
+    entries = await readdir(sessionDir, { withFileTypes: true });
+  } catch {
+    throw new SessionExportError(
+      "session-not-found",
+      `no session record under ${sessionDir} for ${cwd} (subagent ${subagentId})`,
+    );
+  }
+
+  const matches: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+    const filePath = path.join(sessionDir, entry.name);
+    if ((await readLatestSessionName(filePath)) === subagentId) {
+      matches.push(filePath);
+    }
+  }
+
+  if (matches.length === 0) {
+    throw new SessionExportError(
+      "session-not-found",
+      `no session record under ${sessionDir} for ${cwd} (subagent ${subagentId})`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new SessionExportError(
+      "ambiguous-session",
+      `more than one session record under ${sessionDir} names subagent ${subagentId}: ${matches.join(", ")}`,
+    );
+  }
+  return matches[0]!;
+}
+
+/**
+ * The name the binary would show for a session file: its latest `session_info`
+ * record, trimmed, with an empty name clearing an earlier one. Unknown and
+ * malformed lines are skipped the way the binary's own session listing skips
+ * them.
+ */
+async function readLatestSessionName(
+  filePath: string,
+): Promise<string | undefined> {
+  let content: string;
+  try {
+    content = await readFile(filePath, "utf8");
+  } catch {
+    return undefined;
+  }
+
+  let latest: string | undefined;
+  for (const line of content.split("\n")) {
+    if (line.trim() === "") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed) || parsed.type !== "session_info") continue;
+    latest = nonEmpty(parsed.name);
+  }
+  return latest;
+}
+
+/**
+ * Export one session file: its header id and its user/assistant text as
+ * markdown. Only `type:"message"` records with role user or assistant
+ * contribute, and only their `text` parts survive; thinking, tool calls, tool
+ * results, system turns, and non-message records are not content.
+ */
+export async function readSessionFile(
+  filePath: string,
+): Promise<HarnessExport> {
+  const content = await readSessionFileContent(filePath);
+  const partialTail = !content.endsWith("\n");
+  const lines = content.split("\n");
+  // A complete file ends at the empty element after its final newline; an
+  // unterminated final element is the record the binary is still appending.
+  if (!partialTail) lines.pop();
+
+  let header: SessionHeader | undefined;
+  const turns: SessionExportTurn[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (line.trim() === "") continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      if (partialTail && index === lines.length - 1) break;
+      throw new SessionExportError(
+        "malformed-record",
+        `malformed session record in ${filePath} at line ${index + 1}`,
+      );
+    }
+    if (!isRecord(parsed)) {
+      throw new SessionExportError(
+        "malformed-record",
+        `malformed session record in ${filePath} at line ${index + 1}`,
+      );
+    }
+
+    if (header === undefined) {
+      header = readHeader(parsed, filePath);
+      continue;
+    }
+
+    const turn = readTurn(parsed, filePath, index + 1);
+    if (turn !== undefined) turns.push(turn);
+  }
+
+  if (header === undefined) {
+    throw new SessionExportError(
+      "malformed-record",
+      `session record ${filePath} has no session header`,
+    );
+  }
+  if (turns.length === 0) {
+    throw new SessionExportError(
+      "empty-session",
+      `session record ${filePath} (${header.id}) has no user or assistant text`,
+    );
+  }
+
+  return {
+    sessionId: header.id,
+    session: renderTurns(turns),
+  };
+}
+
+async function readSessionFileContent(filePath: string): Promise<string> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    throw new SessionExportError(
+      "unreadable-record",
+      `cannot read session record ${filePath}: ${errorMessage(error)}`,
+    );
+  }
+}
+
+/** The id in the session header, gated on the format version it declares. */
+function readHeader(
+  record: Record<string, unknown>,
+  filePath: string,
+): SessionHeader {
+  if (record.type !== "session") {
+    throw new SessionExportError(
+      "malformed-record",
+      `session record ${filePath} does not start with a session header`,
+    );
+  }
+
+  const version = record.version;
+  if (version !== undefined) {
+    if (typeof version !== "number" || !Number.isInteger(version)) {
+      throw new SessionExportError(
+        "malformed-record",
+        `session record ${filePath} has a non-numeric version`,
+      );
+    }
+    if (version > SESSION_VERSION) {
+      throw new SessionExportError(
+        "unsupported-version",
+        `session record ${filePath} uses version ${version}; this export understands versions up to ${SESSION_VERSION}`,
+      );
+    }
+  }
+
+  const id = nonEmpty(record.id);
+  if (id === undefined) {
+    throw new SessionExportError(
+      "missing-session-id",
+      `session record ${filePath} names no session id`,
+    );
+  }
+
+  return { id };
+}
+
+/** One message record as a turn, or nothing when it carries no prose. */
+function readTurn(
+  record: Record<string, unknown>,
+  filePath: string,
+  lineNumber: number,
+): SessionExportTurn | undefined {
+  if (record.type !== "message") return undefined;
+
+  if (!isRecord(record.message)) {
+    throw new SessionExportError(
+      "malformed-record",
+      `session record ${filePath} has no message body at line ${lineNumber}`,
+    );
+  }
+
+  const role = record.message.role;
+  if (role !== "user" && role !== "assistant") return undefined;
+
+  const content = MessageContentSchema.safeParse(record.message.content);
+  if (!content.success) {
+    throw new SessionExportError(
+      "malformed-record",
+      `session record ${filePath} has unusable message content at line ${lineNumber}`,
+    );
+  }
+
+  const text = messageText(content.data);
+  if (text === "") return undefined;
+  return { role: role === "user" ? "User" : "Assistant", text };
+}
+
+/**
+ * The text parts of one message as prose. A part that is not a `text` part, or
+ * a `text` part with no string to read, contributes nothing; multiple text
+ * parts are joined with a blank line.
+ */
+function messageText(content: string | readonly unknown[]): string {
+  if (typeof content === "string") {
+    return escapeContentHeadings(normalizeText(content));
+  }
+
+  const parts: string[] = [];
+  for (const candidate of content) {
+    const part = ContentPartSchema.safeParse(candidate);
+    if (!part.success) continue;
+    if (part.data.type !== "text" || part.data.text === undefined) continue;
+    const text = normalizeText(part.data.text);
+    if (text !== "") parts.push(text);
+  }
+  if (parts.length === 0) return "";
+
+  return escapeContentHeadings(parts.join("\n\n"));
+}
+
+/** Consistent newlines, no trailing whitespace, no blank margin. */
+function normalizeText(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
+/**
+ * Escape an ATX heading the message itself contains, so the only headings in
+ * the export are the role separators. A message line that reads `## User`
+ * would otherwise be indistinguishable from a role boundary. Fenced code is
+ * left untouched: there a leading `#` is literal text, not a heading.
+ */
+function escapeContentHeadings(text: string): string {
+  let fence: string | undefined;
+  return text
+    .split("\n")
+    .map((line) => {
+      const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fenceMatch !== null) {
+        const marker = fenceMatch[1]!;
+        if (fence === undefined) {
+          fence = marker;
+        } else if (
+          marker[0] === fence[0] &&
+          marker.length >= fence.length &&
+          fenceMatch[2]!.trim() === ""
+        ) {
+          fence = undefined;
+        }
+        return line;
+      }
+      if (fence !== undefined) return line;
+
+      const headingMatch = /^( {0,3})#{1,6}(?=\s|$)/.exec(line);
+      if (headingMatch === null) return line;
+      return `${headingMatch[1]!}\\${line.slice(headingMatch[1]!.length)}`;
+    })
+    .join("\n");
+}
+
+/** One blank line between blocks, exactly one final newline. */
+function renderTurns(turns: readonly SessionExportTurn[]): string {
+  return `${turns
+    .map((turn) => `## ${turn.role}\n\n${turn.text}`)
+    .join("\n\n")}\n`;
+}
+
+/**
+ * One store's handover export: resolve the directory the run wrote into, find
+ * the file it named after itself, and read it. The run's own cwd is the address
+ * both the directory and the lookup are keyed by.
+ */
+export function exportForHandoverOf(
+  store: SessionStore,
+): HarnessExportForHandover {
+  return async ({ subagentId, cwd }) => {
+    const sessionDir = await store.sessionDir(cwd, process.env);
+    const file = await findSessionFile(sessionDir, subagentId, cwd);
+    return readSessionFile(file);
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

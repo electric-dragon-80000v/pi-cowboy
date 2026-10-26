@@ -27,3 +27,14 @@ export function isTaskAgentName(name: string, taskSlug: string): boolean {
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+/**
+ * The string an environment value carries, or nothing when it is absent or
+ * blank: an unset variable and an empty one both mean `unset` to every reader
+ * here, which is why the answer is a value rather than a flag.
+ */
+export function nonEmpty(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}

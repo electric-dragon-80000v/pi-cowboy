@@ -5,22 +5,25 @@
  * herdr types the canonical name `pi` into the pane, so a harness whose binary
  * is not named `pi` must point the pane's `pi` at its own binary before herdr
  * starts the agent. That shell trick is identical for every such harness, so
- * this factory builds one from a binary name and a signature that proves which
- * launcher landed — the install itself is pane-launcher.ts's. The argv is
- * identical too — pi's CLI — so the whole family shares `buildPiLaunchArgs`, and
- * only the shell trick varies per binary.
+ * this factory builds one from a binary name, a signature that proves which
+ * launcher landed — the install itself is pane-launcher.ts's — and the session
+ * store its binary writes, which is the whole of what a handover needs from it
+ * beyond the launch (see pi-session.ts). The argv is identical too — pi's CLI —
+ * so the whole family shares `buildPiLaunchArgs`, and only the shell trick and
+ * the store vary per binary.
  */
 
 import { commandPath } from "../../infrastructure/exec-path.js";
 import { subagentTokenFor } from "../../paths.js";
-import type {
-  Harness,
-  HarnessListModels,
-  HarnessPrepareRequest,
-  ModelEntry,
-  PiFamilyLaunchRequest,
+import {
+  type Harness,
+  type HarnessListModels,
+  type HarnessPrepareRequest,
+  type ModelEntry,
+  type PiFamilyLaunchRequest,
 } from "../harness.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
+import { exportForHandoverOf, type SessionStore } from "./pi-session.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
@@ -87,6 +90,12 @@ export interface PiCompatibleSpec {
   readonly signature: string;
   /** Token the verify command echoes once the launcher body is confirmed. */
   readonly readyMarker: string;
+  /**
+   * Where this binary keeps its sessions, and the env names that move them. A
+   * handover from this harness reads the run's session there; nothing else
+   * about the binary differs from its siblings.
+   */
+  readonly store: SessionStore;
 }
 
 /**
@@ -115,6 +124,14 @@ export function createPiCompatibleHarness(
       commandPath(spec.binary) === undefined
         ? { status: "unavailable" }
         : { status: "available" },
+    // The store's own declarations: a child must resolve the same directories
+    // this process reads the run's session back from, and a configured entry for
+    // a name the store owns must not move it.
+    inheritedEnv: () => spec.store.inheritedEnv(process.env),
+    reservedEnvVars: () => spec.store.reservedNames,
+    // Attached here rather than by each harness: the store is the only thing
+    // that varies, so building the hook is the factory's work like the argv is.
+    exportForHandover: exportForHandoverOf(spec.store),
     // The binary is pi behind the shell trick, so the argv is pi's; only a
     // harness that stages filesystem state before launch has teardown work —
     // the launcher dies with the pane and the staged files belong to the

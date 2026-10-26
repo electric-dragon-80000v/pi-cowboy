@@ -180,6 +180,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
   // Remove through the module, with the redirected TMPDIR still in place.
   removeOpencodeStaging("esp02hpw");
   if (realTmpdir === undefined) delete process.env.TMPDIR;
@@ -773,6 +774,39 @@ describe("env overrides", () => {
       'typeset -f pi 2>/dev/null | grep -q "PI_ENV_LAUNCHER_4c7d19" && echo PI_""ENV_VERIFIED',
     );
   });
+
+  it.each([
+    ["pi", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"],
+    ["pi-bolt", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"],
+    ["pig", "PIG_CODING_AGENT_DIR", "PIG_CODING_AGENT_SESSION_DIR"],
+  ] as const)(
+    "%s hands its child the store variables its own store reads",
+    (id, agentDirEnv, sessionDirEnv) => {
+      // pig's own roots and mode are cleared so only the store's names answer.
+      vi.stubEnv("PIG_HOME", "");
+      vi.stubEnv("XDG_CONFIG_HOME", "");
+      vi.stubEnv("PIG_USE_PI_DIRS", "");
+      vi.stubEnv(agentDirEnv, "/var/agent");
+      vi.stubEnv(sessionDirEnv, "/var/sessions");
+
+      // A handover export resolves the run's store out of this process, so the
+      // child must be handed the names its own binary reads — pi's for the two
+      // binaries on pi's store, pig's for pig.
+      expect(harnessFor(id).inheritedEnv?.()).toEqual({
+        [agentDirEnv]: "/var/agent",
+        [sessionDirEnv]: "/var/sessions",
+      });
+    },
+  );
+
+  it.each(["opencode", "codex", "claude"] as const)(
+    "%s inherits nothing: its own launcher resolves the state it runs with",
+    (id) => {
+      vi.stubEnv("PI_CODING_AGENT_DIR", "/var/agent");
+
+      expect(harnessFor(id).inheritedEnv).toBeUndefined();
+    },
+  );
 });
 
 describe("buildArgs", () => {
