@@ -3,18 +3,23 @@
  * handover.
  *
  * The harness launches claude with `CLAUDE_CONFIG_DIR` naming a staging
- * directory that belongs to one spawn (`claudeConfigDir`), so a run's store is
- * `<configDir>/projects/<slugged-cwd>/`. claude writes one main conversation
+ * directory that belongs to one spawn (`claudeConfigDir`), and links that
+ * directory's `projects/` to the store the user's own sessions live in. So a
+ * run's store is `<configDir>/projects/<slugged-cwd>/` — durable, shared with
+ * every other session in that directory. claude writes one main conversation
  * per run there as `<session-id>.jsonl`, appending one JSON record per event;
  * subagent sidechains are separate `agent-*.jsonl` files beside it. The main
  * file's name is the id `--resume` takes, and every record repeats it as
  * `sessionId`.
  *
  * The export is a lookup, not a search: the config directory comes from the
- * spawn id, the project directory from the canonical cwd, and the only
- * UUID-named file is the session. A second UUID-named file means something
- * forked or cleared the conversation, and the export refuses rather than
- * choosing one.
+ * spawn id, the project directory from the canonical cwd, and the file's name
+ * from the id staging minted and pinned on the run's command line. The
+ * directory holds the user's own conversations and other runs' as well, so
+ * nothing is chosen by position or recency. A session that started while this
+ * run was live — `/clear` and a fork both start one — means the run moved on,
+ * and the export refuses rather than returning the conversation it left
+ * behind.
  *
  * The artifact is prose only. claude's record set carries thinking, tool
  * calls, tool results, system prompts, attachments, command wrappers, and
@@ -27,18 +32,23 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { z } from "zod";
-import { canonicalPath } from "../../../paths.js";
 import {
   SessionExportError,
   type HarnessExport,
   type SessionExportTurn,
 } from "../../harness.js";
+import { claudeProjectDir, claudeSessionRecordFile } from "./staging.js";
 
 /** What one export reads: the run's config directory and the tree it ran in. */
 export interface ClaudeSessionExportRequest {
   readonly configDir: string;
   readonly cwd: string;
 }
+
+/** The run record staging wrote: the session id the launcher pinned. */
+const ClaudeRunRecordSchema = z.object({
+  sessionId: z.string(),
+});
 
 /** The session id claude names a file and resumes by. */
 const SESSION_FILE_NAME =
@@ -78,26 +88,117 @@ interface ParsedRecord {
 }
 
 /**
- * The project directory claude derives from a cwd: the canonical path with
- * every non-alphanumeric character replaced by `-`. `/tmp` resolves to
- * `/private/tmp` on macOS before this runs, which is the spelling claude uses.
- */
-export function claudeProjectDir(configDir: string, cwd: string): string {
-  const resolved = canonicalPath(cwd) ?? cwd;
-  const slug = resolved.replace(/[^A-Za-z0-9]/g, "-");
-  return path.join(configDir, "projects", slug);
-}
-
-/**
- * Export one run's session for a handover: find the run's one session file,
- * then read it. Synchronous because the files are local and small; the hook
- * wraps it in a promise.
+ * Export one run's session for a handover: resolve the one file this run was
+ * launched to write, then read it. Synchronous because the files are local and
+ * small; the hook wraps it in a promise.
  */
 export function exportClaudeSession(
   request: ClaudeSessionExportRequest,
 ): HarnessExport {
   const projectDir = claudeProjectDir(request.configDir, request.cwd);
-  return readClaudeSession(sessionFileIn(projectDir, request.cwd));
+  const sessionId = runSessionIdOf(request.configDir);
+  return readClaudeSession(runSessionFile(projectDir, sessionId, request.cwd));
+}
+
+/**
+ * The id the run was launched with, from the record staging wrote beside
+ * claude's own state. A missing record means the staging tree is gone — a
+ * cleared spawn, or a run that never launched — and without it there is no
+ * file to name.
+ */
+function runSessionIdOf(configDir: string): string {
+  const recordFile = claudeSessionRecordFile(configDir);
+  let text: string;
+  try {
+    text = fs.readFileSync(recordFile, "utf8");
+  } catch (error) {
+    throw new SessionExportError(
+      "session-not-found",
+      `no claude run record under ${recordFile} (${errorMessage(error)}). The spawn's staging directory is gone, so the session id its run was launched with is unknown.`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new SessionExportError(
+      "malformed-record",
+      `malformed claude run record ${recordFile}: not valid JSON (${errorMessage(error)})`,
+    );
+  }
+  const record = ClaudeRunRecordSchema.safeParse(parsed);
+  if (!record.success || !SESSION_ID.test(record.data.sessionId)) {
+    throw new SessionExportError(
+      "malformed-record",
+      `malformed claude run record ${recordFile}: no valid sessionId`,
+    );
+  }
+  return record.data.sessionId;
+}
+
+/**
+ * The file the run was launched to write, if the run is still the end of its
+ * conversation there.
+ *
+ * The store is shared, so another session file that was created after this
+ * run's, or written after it, is the run having moved on: `/clear` and a fork
+ * both start a new session id in the same directory, and handing over the
+ * abandoned file would silently drop everything said after it. Creation time
+ * is checked beside the write time because claude can append bookkeeping to an
+ * abandoned file after the conversation moved on. Another session started in
+ * that directory while this run was live looks the same from here, and
+ * refusing is still the answer — the export cannot tell whose it is.
+ */
+function runSessionFile(
+  projectDir: string,
+  sessionId: string,
+  cwd: string,
+): string {
+  const file = path.join(projectDir, `${sessionId}.jsonl`);
+  let written: fs.Stats;
+  try {
+    written = fs.statSync(file);
+  } catch (error) {
+    throw new SessionExportError(
+      "session-not-found",
+      `no claude session ${sessionId} under ${projectDir} for ${cwd} (${errorMessage(error)}). The run wrote no session, or it was launched without this id.`,
+    );
+  }
+
+  const successors = sessionFilesIn(projectDir).filter((name) => {
+    if (name === `${sessionId}.jsonl`) return false;
+    try {
+      const other = fs.statSync(path.join(projectDir, name));
+      return (
+        other.mtimeMs > written.mtimeMs ||
+        other.birthtimeMs > written.birthtimeMs
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  if (successors.length > 0) {
+    throw new SessionExportError(
+      "ambiguous-session",
+      `claude wrote ${successors.join(", ")} under ${projectDir} after this run's session ${sessionId}. A /clear or a fork inside the run, or another session started in that directory while the run was live, leaves the run's conversation continuing in a file this export does not have. Refusing to hand over a transcript that may not be where the run ended.`,
+    );
+  }
+  return file;
+}
+
+/** Every session file in a project directory, by name. */
+function sessionFilesIn(projectDir: string): readonly string[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(projectDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && SESSION_FILE_NAME.test(entry.name))
+    .map((entry) => entry.name);
 }
 
 /**
@@ -125,41 +226,6 @@ export function readClaudeSession(file: string): HarnessExport {
     );
   }
   return { sessionId, session };
-}
-
-/**
- * The one UUID-named file under the project directory. A missing directory and
- * an empty directory are both "this run wrote no session"; two files are a
- * fork or a clear, and choosing one would make the export a guess.
- */
-function sessionFileIn(projectDir: string, cwd: string): string {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(projectDir, { withFileTypes: true });
-  } catch (error) {
-    throw new SessionExportError(
-      "session-not-found",
-      `no claude session record under ${projectDir} for ${cwd} (${errorMessage(error)}). The run wrote no session, or its staging directory is gone.`,
-    );
-  }
-
-  const files = entries
-    .filter((entry) => entry.isFile() && SESSION_FILE_NAME.test(entry.name))
-    .map((entry) => entry.name);
-
-  if (files.length === 0) {
-    throw new SessionExportError(
-      "session-not-found",
-      `no claude session record under ${projectDir} for ${cwd}. The run wrote no session, or its staging directory is gone.`,
-    );
-  }
-  if (files.length > 1) {
-    throw new SessionExportError(
-      "ambiguous-session",
-      `claude wrote more than one session under ${projectDir} for ${cwd}: ${files.join(", ")}. Refusing to choose one; a /clear or a forked session leaves no single conversation to hand over.`,
-    );
-  }
-  return path.join(projectDir, files[0] as string);
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,10 +23,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SessionExportError } from "../src/agents/harness.js";
 import { claudeHarness } from "../src/agents/harness/claude/index.js";
 import {
-  claudeProjectDir,
   exportClaudeSession,
   readClaudeSession,
 } from "../src/agents/harness/claude/session-export.js";
+import { claudeProjectDir } from "../src/agents/harness/claude/staging.js";
 
 const SESSION_ID = "54e910bc-afb7-4e8e-a70c-7df57ede3cf1";
 const OTHER_SESSION_ID = "d7d3b337-378f-44e5-b8d6-6c7339df5281";
@@ -46,6 +47,7 @@ beforeEach(() => {
   configDir = join(root, "claude");
   cwd = join(root, "work");
   mkdirSync(cwd, { recursive: true });
+  writeRunRecord();
 });
 
 afterEach(() => {
@@ -86,6 +88,15 @@ function assistant(
 /** The project directory claude derives from the fixture cwd. */
 function projectDir(): string {
   return claudeProjectDir(configDir, cwd);
+}
+
+/** The run record staging writes: the id the run was launched to write. */
+function writeRunRecord(sessionId = SESSION_ID): void {
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(
+    join(configDir, "session.json"),
+    `${JSON.stringify({ sessionId })}\n`,
+  );
 }
 
 /** Write one JSONL session file in the project directory. */
@@ -376,6 +387,7 @@ describe("exportClaudeSession", () => {
   });
 
   it("returns the id the records carry when it is the file's id", () => {
+    writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello", { sessionId: OTHER_SESSION_ID })], {
       sessionId: OTHER_SESSION_ID,
     });
@@ -384,12 +396,14 @@ describe("exportClaudeSession", () => {
   });
 
   it("refuses when the file name and the records disagree", () => {
+    writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello")], { name: `${OTHER_SESSION_ID}.jsonl` });
 
     expect(faultOf(exportFixture)).toBe("malformed-record");
   });
 
   it("refuses records that name no session", () => {
+    writeRunRecord(OTHER_SESSION_ID);
     writeSession(
       [{ type: "user", message: { role: "user", content: "hello" } }],
       {
@@ -401,6 +415,7 @@ describe("exportClaudeSession", () => {
   });
 
   it("refuses a non-UUID session id", () => {
+    writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello", { sessionId: "not-a-uuid" })], {
       name: `${OTHER_SESSION_ID}.jsonl`,
     });
@@ -430,11 +445,52 @@ describe("exportClaudeSession", () => {
     expect(exportFixture().session).toBe("## User\n\nmain\n");
   });
 
-  it("refuses two UUID-named files instead of choosing one", () => {
-    writeSession([user("first")]);
-    writeSession([user("second")], { sessionId: OTHER_SESSION_ID });
+  it("reads the pinned session even when older conversations share the directory", () => {
+    const older = writeSession([user("an older conversation")], {
+      sessionId: OTHER_SESSION_ID,
+    });
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(older, past, past);
+    writeSession([user("this run")]);
+
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session: "## User\n\nthis run\n",
+    });
+  });
+
+  it("refuses a newer session beside the run's, the way a /clear leaves one", () => {
+    writeSession([user("before the clear")]);
+    const successor = writeSession([user("after the clear")], {
+      sessionId: OTHER_SESSION_ID,
+    });
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(successor, later, later);
 
     expect(faultOf(exportFixture)).toBe("ambiguous-session");
+  });
+
+  it("refuses when the run record is gone, so the file cannot be named", () => {
+    writeSession([user("this run")]);
+    rmSync(join(configDir, "session.json"));
+
+    expect(faultOf(exportFixture)).toBe("session-not-found");
+  });
+
+  it("refuses a run record that names no session", () => {
+    writeSession([user("this run")]);
+    writeFileSync(
+      join(configDir, "session.json"),
+      `{"sessionId":"not-a-uuid"}\n`,
+    );
+
+    expect(faultOf(exportFixture)).toBe("malformed-record");
+  });
+
+  it("refuses when the pinned session file is absent, even with another session present", () => {
+    writeSession([user("someone else's")], { sessionId: OTHER_SESSION_ID });
+
+    expect(faultOf(exportFixture)).toBe("session-not-found");
   });
 
   it("refuses a conversation record without a readable message", () => {
@@ -526,6 +582,11 @@ describe("claudeHarness.exportForHandover", () => {
     const hookCwd = join(hookRoot, "work");
     mkdirSync(hookCwd, { recursive: true });
     const hookConfigDir = join(tmpdir(), "pi-cowboy", SUBAGENT_ID, "claude");
+    mkdirSync(hookConfigDir, { recursive: true });
+    writeFileSync(
+      join(hookConfigDir, "session.json"),
+      `${JSON.stringify({ sessionId: SESSION_ID })}\n`,
+    );
     const dir = claudeProjectDir(hookConfigDir, hookCwd);
     mkdirSync(dir, { recursive: true });
     writeFileSync(

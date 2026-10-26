@@ -112,8 +112,8 @@ export function spawnCredentialStore(platform: NodeJS.Platform): string {
  * The launcher body: the credential rename first, then claude's config
  * directory and the memory suppression a spawn needs (pi-cowboy renders
  * context into the system prompt itself, so the worktree's memory files would
- * only load twice), then the real binary with the pane's own arguments and
- * the task as its positional initial prompt.
+ * only load twice), then the real binary with the session id staging minted,
+ * the pane's own arguments, and the task as its positional initial prompt.
  *
  * The rename keeps the consent predicate from ever seeing a key: with
  * `ANTHROPIC_API_KEY` unset it cannot fire, and the key resolves through the
@@ -142,9 +142,14 @@ export function spawnCredentialStore(platform: NodeJS.Platform): string {
  * `CLAUDE_SECURESTORAGE_CONFIG_DIR` is exported before `CLAUDE_CONFIG_DIR` so
  * the credential store stays the parent's while the config dir is the staging
  * dir. An empty value is written as `''`, which pins the default store.
+ *
+ * `--session-id` is the id staging recorded, so the run writes one transcript
+ * whose name the export already knows. The store is shared with the user's own
+ * sessions, so a name found by scanning it would be a guess.
  */
 function launcherBody(
   configDir: string,
+  sessionId: string,
   taskFile: string,
   credentialStore: string,
   envFile: string | null,
@@ -158,7 +163,7 @@ function launcherBody(
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
     launchEnvBody(
       envFile,
-      `command claude "$@" -- "$(cat ${singleQuote(taskFile)})"`,
+      `command claude --session-id ${singleQuote(sessionId)} "$@" -- "$(cat ${singleQuote(taskFile)})"`,
     ),
   ].join("; ");
 }
@@ -285,7 +290,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     cwd,
     launch,
   }: HarnessPrepareRequest<ClaudeLaunchRequest>): Promise<void> {
-    const configDir = writeClaudeStaging({
+    const { configDir, sessionId } = writeClaudeStaging({
       subagentId: launch.subagentId,
       cwd,
     });
@@ -293,6 +298,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
       commandName: CLAUDE_COMMAND,
       body: launcherBody(
         configDir,
+        sessionId,
         launch.taskFile,
         spawnCredentialStore(process.platform),
         launch.envFile,
@@ -346,12 +352,13 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     removeClaudeStaging(subagentId);
   },
   /**
-   * Read the run's conversation out of the staging directory this harness
-   * pointed claude at. The config directory is a pure function of the subagent
-   * id and the project directory a pure function of the run's cwd, so the
-   * export is a lookup; the reader refuses, with a typed reason, when the run
-   * left no single session behind. `pi` and `paneId` are not read: claude
-   * writes its own store, so nothing here asks the CLI or the pane.
+   * Read the run's conversation out of the store this harness pointed claude
+   * at. The config directory is a pure function of the subagent id, the
+   * project directory a pure function of the run's cwd, and the file's name
+   * the session id staging pinned, so the export is a lookup; the reader
+   * refuses, with a typed reason, when the run wrote no such session or moved
+   * on to another. `pi` and `paneId` are not read: claude writes its own store,
+   * so nothing here asks the CLI or the pane.
    */
   exportForHandover: async ({ subagentId, cwd }) =>
     exportClaudeSession({ configDir: claudeConfigDir(subagentId), cwd }),
