@@ -37,6 +37,13 @@
  * The strict `[harness.codex]` table carries `model` and `thinking`: codex has
  * no tools flag, so there is no tool pair to stage, and the shared
  * `toolSelection` a codex launch receives is left unread.
+ *
+ * `exportForHandover` reads the run's rollout from codex's own session store:
+ * the newest session file whose metadata names the run's cwd, with the thread
+ * id that `codex resume` accepts. The reader lives in codex-session.ts so the
+ * artifact and the lookup can be tested without a process, and the home that
+ * store lives under is resolved there too — the launch hands the child that
+ * same home (`inheritedEnv`), so the child writes where the export reads.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -48,6 +55,11 @@ import type {
   HarnessPrepareRequest,
   ModelEntry,
 } from "../harness.js";
+import {
+  CODEX_HOME_ENV_VAR,
+  codexHomeDirectory,
+  exportCodexSession,
+} from "./codex-session.js";
 import {
   installPaneLauncher,
   launchEnvBody,
@@ -336,6 +348,15 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
       ? { status: "unavailable" }
       : { status: "available" },
   /**
+   * codex resolves its session store from its home, and this harness's export
+   * reads that store back from this process's value; a child left to resolve a
+   * home of its own — from a pane environment that need not be this one's —
+   * could write somewhere the export never looks. The name is reserved by the
+   * codex family's table, so this process is its only source, and what is
+   * handed over is the resolved directory the export reads by.
+   */
+  inheritedEnv: () => ({ [CODEX_HOME_ENV_VAR]: codexHomeDirectory() }),
+  /**
    * Install the launcher that appends the task as the TUI's positional
    * prompt. The launcher is the whole of the pane state this harness needs,
    * so its verification is the whole of the preparation.
@@ -396,4 +417,14 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   // system prompt and task files belong to the result-dir artifacts the
   // session owns — and the launcher dies with the pane.
   teardown: async () => {},
+  // The run's cwd is its worktree, and codex keys each rollout by the cwd it
+  // started in. The process is still alive when this is called, so its file is
+  // the newest one for that cwd.
+  exportForHandover: async ({ cwd }) => {
+    const exported = exportCodexSession({
+      cwd,
+      codexHome: codexHomeDirectory(),
+    });
+    return { sessionId: exported.sessionId, session: exported.session };
+  },
 };
