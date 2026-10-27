@@ -419,12 +419,18 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   teardown: async () => {},
   // The run's cwd is its worktree, and codex keys each rollout by the cwd it
   // started in. The process is still alive when this is called, so its file is
-  // the newest one for that cwd.
+  // the newest one for that cwd. A record the reader cannot use costs that
+  // record: the export reports how many it skipped and the caller decides
+  // whether that is too much to hand over.
   exportForHandover: async ({ cwd }) => {
     const exported = exportCodexSession({
       cwd,
       codexHome: codexHomeDirectory(),
     });
-    return { sessionId: exported.sessionId, session: exported.session };
+    return {
+      sessionId: exported.sessionId,
+      session: exported.session,
+      loss: exported.loss,
+    };
   },
 };

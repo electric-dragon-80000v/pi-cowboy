@@ -33,14 +33,17 @@ import {
   readFileSync,
   readSync,
   readdirSync,
-  realpathSync,
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { z } from "zod";
-import { expandTilde } from "../../paths.js";
-import { SessionExportError, type SessionExportTurn } from "../harness.js";
+import { canonicalPath, expandTilde } from "../../paths.js";
+import {
+  SessionExportError,
+  type HarnessExportLoss,
+  type SessionExportTurn,
+} from "../harness.js";
 
 /** The directory holding every rollout, under codex's own home. */
 const SESSIONS_SUBDIR = "sessions";
@@ -116,6 +119,13 @@ export interface CodexSessionExportRequest {
 /** A session as this harness exports it, with the record it came from. */
 export interface CodexSessionExport extends CodexSessionRecord {
   readonly session: string;
+  readonly loss: HarnessExportLoss;
+}
+
+/** One rollout read: its conversation, and the records the reader skipped. */
+export interface CodexSessionRead {
+  readonly session: string;
+  readonly loss: HarnessExportLoss;
 }
 
 /**
@@ -151,13 +161,15 @@ export function findCodexSession(
     );
   }
 
-  const canonicalCwd = canonicalPath(request.cwd);
+  const canonicalCwd = canonicalSpelling(request.cwd);
   let best: { file: string; sessionId: string; mtimeMs: number } | undefined;
   for (const file of rolloutFiles(sessionsRoot)) {
     const meta = readSessionMeta(file);
     if (meta === undefined) continue;
-    if (!samePath(meta.cwd, request.cwd, canonicalCwd)) continue;
+    // A subagent rollout carries its parent's cwd, so it is dropped before the
+    // comparison rather than after it.
     if (meta.subagent) continue;
+    if (!samePath(meta.cwd, request.cwd, canonicalCwd)) continue;
 
     let mtimeMs: number;
     try {
@@ -189,28 +201,34 @@ export function exportCodexSession(
   request: CodexSessionExportRequest,
 ): CodexSessionExport {
   const record = findCodexSession(request);
+  const read = readCodexSession(record.file);
   return {
     file: record.file,
     sessionId: record.sessionId,
-    session: readCodexSession(record.file),
+    session: read.session,
+    loss: read.loss,
   };
 }
 
 /**
- * The conversation in a rollout as markdown. Only `## User` and `## Assistant`
- * blocks survive; tool traffic, reasoning, developer instructions, injected
- * user envelopes, and ids are dropped. ATX headings the message itself
- * contains are escaped, so no content line can be read as a role boundary.
+ * The conversation in a rollout as markdown, with what the reader had to leave
+ * out. Only `## User` and `## Assistant` blocks survive; tool traffic,
+ * reasoning, developer instructions, injected user envelopes, and ids are
+ * dropped. ATX headings the message itself contains are escaped, so no content
+ * line can be read as a role boundary.
  *
  * `response_item` message records are the conversation. Versions before about
  * 0.162 also wrote a duplicate `event_msg` pair for each turn; that form is
  * read only when a file has no `response_item` message at all, so a legacy
  * file still exports and a dual-written file cannot emit every turn twice.
  *
- * A final line that does not parse is a write interrupted mid-record and is
- * ignored; a malformed line before the end names the file and line.
+ * A record this reader cannot use is skipped and counted, never fatal on its
+ * own: a line costs the export that line and nothing else, and the caller
+ * decides whether the loss is too large to hand over. An unterminated final
+ * line is a write interrupted mid-record — not a record at all, so it is
+ * neither read nor counted.
  */
-export function readCodexSession(file: string): string {
+export function readCodexSession(file: string): CodexSessionRead {
   let text: string;
   try {
     text = readFileSync(file, "utf8");
@@ -222,14 +240,27 @@ export function readCodexSession(file: string): string {
   }
 
   const lines = text.split("\n");
-  let lastContentLine = -1;
-  for (let index = 0; index < lines.length; index += 1) {
-    if (lines[index]!.trim() !== "") lastContentLine = index;
+  // The record the binary may still be appending: the last non-blank line of a
+  // file that does not end in a newline. Only this line, unreadable, is a torn
+  // write rather than a loss — it is not a record yet, so it is neither read
+  // nor counted. Unterminated but readable is a complete record.
+  let torn = -1;
+  if (!text.endsWith("\n")) {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      if (lines[index]!.trim() !== "") {
+        torn = index;
+        break;
+      }
+    }
   }
 
   const turns: SessionExportTurn[] = [];
   const legacyTurns: SessionExportTurn[] = [];
   let sawResponseMessage = false;
+  // Message records the export was built from, plus the lines it could not
+  // classify. A store's tool traffic is not part of either count.
+  let total = 0;
+  let excluded = 0;
 
   for (let index = 0; index < lines.length; index += 1) {
     const raw = lines[index]!.trim();
@@ -239,12 +270,16 @@ export function readCodexSession(file: string): string {
     try {
       record = JSON.parse(raw);
     } catch {
-      if (index === lastContentLine) continue;
-      throw malformed(file, index + 1, "not valid JSON");
+      if (index === torn) continue;
+      total += 1;
+      excluded += 1;
+      continue;
     }
     if (!isRecord(record)) {
-      if (index === lastContentLine) continue;
-      throw malformed(file, index + 1, "not a JSON object");
+      if (index === torn) continue;
+      total += 1;
+      excluded += 1;
+      continue;
     }
 
     if (record.type === "response_item") {
@@ -253,18 +288,29 @@ export function readCodexSession(file: string): string {
       const role = payload.role;
       if (role !== "user" && role !== "assistant") continue;
       sawResponseMessage = true;
-      const turn = responseTurn(payload, role, file, index + 1);
-      if (turn !== undefined) turns.push(turn);
+      total += 1;
+      const read = responseTurn(payload, role);
+      if (read.kind === "excluded") {
+        excluded += 1;
+        continue;
+      }
+      if (read.turn !== undefined) turns.push(read.turn);
       continue;
     }
 
     if (record.type !== "event_msg") continue;
     const payload = record.payload;
-    if (!isRecord(payload)) continue;
+    if (!isRecord(payload)) {
+      total += 1;
+      excluded += 1;
+      continue;
+    }
     const type = payload.type;
     if (type !== "user_message" && type !== "agent_message") continue;
+    total += 1;
     if (typeof payload.message !== "string") {
-      throw malformed(file, index + 1, "message is not text");
+      excluded += 1;
+      continue;
     }
     const role = type === "user_message" ? "User" : "Assistant";
     const content =
@@ -275,42 +321,45 @@ export function readCodexSession(file: string): string {
   }
 
   const conversation = sawResponseMessage ? turns : legacyTurns;
-  if (conversation.length === 0) {
-    throw new SessionExportError(
-      "empty-session",
-      `codex session record ${file} has no user or assistant messages`,
-    );
-  }
-  return renderConversation(conversation);
+  return {
+    session: conversation.length === 0 ? "" : renderConversation(conversation),
+    loss: { excluded, total },
+  };
 }
 
-/** One `response_item` message as a turn, or undefined when it says nothing. */
+/**
+ * One `response_item` message read as a turn, or the record this reader could
+ * not read. A turn is absent when the message survived but said nothing.
+ */
+type MessageRead =
+  | { readonly kind: "read"; readonly turn: SessionExportTurn | undefined }
+  | { readonly kind: "excluded" };
+
+/** One `response_item` message as a turn, or why it could not be read. */
 function responseTurn(
   payload: Record<string, unknown>,
   role: "user" | "assistant",
-  file: string,
-  line: number,
-): SessionExportTurn | undefined {
+): MessageRead {
   const content = MessageContentSchema.safeParse(payload.content);
-  if (!content.success) {
-    throw malformed(file, line, "message content is not an array of parts");
-  }
+  if (!content.success) return { kind: "excluded" };
 
   const parts: string[] = [];
   for (const part of content.data) {
     const expected = role === "user" ? "input_text" : "output_text";
     if (part.type !== expected) continue;
-    if (typeof part.text !== "string") {
-      throw malformed(file, line, `text of ${expected} is not a string`);
-    }
+    if (typeof part.text !== "string") return { kind: "excluded" };
     parts.push(part.text);
   }
 
   const text =
     role === "user" ? userText(parts) : normalizeText(parts.join("\n\n"));
-  return text === ""
-    ? undefined
-    : { role: role === "user" ? "User" : "Assistant", text };
+  return {
+    kind: "read",
+    turn:
+      text === ""
+        ? undefined
+        : { role: role === "user" ? "User" : "Assistant", text },
+  };
 }
 
 /** The surviving prose of a user message, with injected material removed. */
@@ -468,33 +517,25 @@ function readFirstLine(file: string): string | undefined {
   }
 }
 
-/** Whether two cwd spellings name the same directory, symlinks resolved. */
+/**
+ * Whether two cwd spellings name the same directory, symlinks resolved.
+ *
+ * Resolved on every comparison, never remembered: a record outlives the
+ * directory it names, and a spelling cached before a worktree was removed and
+ * re-created would answer for the wrong one.
+ */
 function samePath(candidate: string, wanted: string, canonicalWanted: string) {
-  return candidate === wanted || canonicalPath(candidate) === canonicalWanted;
-}
-
-const canonicalPaths = new Map<string, string>();
-
-/** A path with symlinks resolved, falling back to its absolute form. */
-function canonicalPath(value: string): string {
-  const known = canonicalPaths.get(value);
-  if (known !== undefined) return known;
-  let resolved: string;
-  try {
-    resolved = realpathSync.native(value);
-  } catch {
-    resolved = path.resolve(value);
-  }
-  canonicalPaths.set(value, resolved);
-  return resolved;
-}
-
-/** A malformed record at a known line, naming the file. */
-function malformed(file: string, line: number, detail: string): Error {
-  return new SessionExportError(
-    "malformed-record",
-    `malformed codex session record at ${file}:${line}: ${detail}`,
+  return (
+    candidate === wanted || canonicalSpelling(candidate) === canonicalWanted
   );
+}
+
+/**
+ * A path's one real spelling, falling back to its absolute form: the directory a
+ * record names may be gone, and the recorded text is the only comparison left.
+ */
+function canonicalSpelling(value: string): string {
+  return canonicalPath(value) ?? path.resolve(value);
 }
 
 /** The detail an unknown thrown value carries. */
