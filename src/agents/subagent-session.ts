@@ -140,6 +140,7 @@ export function buildAgentSpawn(
       promise,
       abortController: new AbortController(),
       host: options.hostRef,
+      session: { kind: "unidentified" },
       history: [],
     },
   };
@@ -484,6 +485,7 @@ export class SubagentSession {
         subagentId: this.id,
         paneId: ref.paneId,
         cwd,
+        session: environment.session,
       },
       { maxExcludedRatio: getStore().agent.handoverMaxExcludedRatio },
     );
