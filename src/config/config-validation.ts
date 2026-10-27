@@ -29,9 +29,25 @@ import {
 
 /** One agent key's schema, and the wording a warning names its expected shape with. */
 interface KeySpec {
-  schema: z.ZodType<string | boolean | null>;
+  schema: z.ZodType<string | boolean | number | null>;
   expected: string;
+  /** How the warning says the key is fixed; the menu's wording unless the key has no row. */
+  fix?: string;
 }
+
+/** How a value is fixed when the `/cowboy` menu carries a row for its key. */
+const MENU_FIX =
+  "Set it again in the /cowboy menu, or edit or delete the file to fix it.";
+
+/** How a value is fixed when no menu row carries its key. */
+export const FILE_FIX = "Edit or delete the key in that file to fix it.";
+
+/** A share of records, zero to one. */
+const RATIO: KeySpec = {
+  schema: z.number().min(0).max(1),
+  expected: "a number from 0 to 1",
+  fix: FILE_FIX,
+};
 
 const MODEL_KEY: KeySpec = {
   schema: z.union([z.string(), z.null()]),
@@ -105,6 +121,7 @@ const AGENT_KEY_SPECS: Record<string, KeySpec> = {
   worktreeRoot: NON_BLANK,
   worktreeMaterialization: WORKTREE_MATERIALIZATION,
   worktreeCheckoutType: WORKTREE_CHECKOUT_TYPE,
+  handoverMaxExcludedRatio: RATIO,
   // The harness setting takes any harness id — a built-in's or a plugin's — and
   // so does `harness_type`, on a template and in a tool call. Config cannot
   // check registration (it loads before any plugin does), so the value is shape
@@ -118,13 +135,6 @@ function describeValue(value: unknown): string {
   if (typeof value === "object") return "object";
   return typeof value;
 }
-
-/** How a value is fixed when the `/cowboy` menu carries a row for its key. */
-const MENU_FIX =
-  "Set it again in the /cowboy menu, or edit or delete the file to fix it.";
-
-/** How a value is fixed when no menu row carries its key. */
-export const FILE_FIX = "Edit or delete the key in that file to fix it.";
 
 /** The one wording every incompatible-value warning uses. */
 export function incompatibleWarning(
@@ -145,10 +155,9 @@ function warnIncompatible(
   keyPath: string,
   value: unknown,
   expected: string,
+  fix: string = MENU_FIX,
 ): void {
-  console.warn(
-    incompatibleWarning(filePath, keyPath, value, expected, MENU_FIX),
-  );
+  console.warn(incompatibleWarning(filePath, keyPath, value, expected, fix));
 }
 
 const EXPECTED_OBJECT = "object";
@@ -330,7 +339,14 @@ function cleanAgentEntries(
     const spec = AGENT_KEY_SPECS[key] ?? MODEL_KEY;
     const parsed = spec.schema.safeParse(value);
     if (parsed.success) kept[key] = parsed.data;
-    else warnIncompatible(filePath, `agent.${key}`, value, spec.expected);
+    else
+      warnIncompatible(
+        filePath,
+        `agent.${key}`,
+        value,
+        spec.expected,
+        spec.fix,
+      );
   }
   return kept;
 }

@@ -17,18 +17,29 @@ import type { AgentStatus } from "../types.js";
 import type { HarnessRegistry } from "./harness/harness-registry.js";
 import type { ToolSeverity } from "./tool-result.js";
 import {
-  canExportForHandover,
+  canReadHandoverRecords,
   type AnyHarnessId,
+  type HandoverRecordSource,
   type HarnessExport,
+  type HarnessExportLoss,
   type HarnessExportRequest,
+  type SessionExportTurn,
 } from "./harness.js";
+
+/** The maximum share of countable records a completed export may omit. */
+export interface SessionExportPolicy {
+  readonly maxExcludedRatio: number;
+}
+
+/** By default, up to half a session's countable records may be lost before handover is refused. */
+export const DEFAULT_MAX_EXCLUDED_RATIO = 0.5;
 
 /** Why a handover did not happen. Data, never a throw: a caller reports it. */
 export type HandoverFault =
   | { readonly kind: "agent-unknown" }
   /** A run still doing its own work has no finished session to hand over. */
   | { readonly kind: "agent-not-settled"; readonly status: AgentStatus }
-  /** The source harness has no `exportForHandover` — or is no longer registered. */
+  /** The source harness has no record reader — or is no longer registered. */
   | {
       readonly kind: "harness-cannot-export-session";
       readonly harness: AnyHarnessId;
@@ -53,6 +64,8 @@ export type HandoverOutcome =
       readonly kind: "handed-over";
       readonly from: AnyHarnessId;
       readonly to: AnyHarnessId;
+      /** Countable source records the shared export had to omit. */
+      readonly loss?: HarnessExportLoss;
     }
   | { readonly kind: "faulted"; readonly fault: HandoverFault };
 
@@ -64,7 +77,9 @@ export type HandoverOutcome =
  * failure.
  */
 export function handoverSeverity(outcome: HandoverOutcome): ToolSeverity {
-  if (outcome.kind === "handed-over") return "success";
+  if (outcome.kind === "handed-over") {
+    return outcome.loss === undefined ? "success" : "warning";
+  }
   switch (outcome.fault.kind) {
     case "agent-unknown":
     case "agent-not-settled":
@@ -86,35 +101,126 @@ export type RunSession =
       readonly kind: "exported";
       readonly sessionId: string;
       readonly session: string;
+      /** Countable source records the shared export had to omit. */
+      readonly loss?: HarnessExportLoss;
     }
   | { readonly kind: "faulted"; readonly fault: HandoverFault };
 
+/** The whole-number percentage the human-facing loss report prints. */
+function percentOf(ratio: number): number {
+  return Math.round(ratio * 100);
+}
+
+/** The detail a refusal gives when its record loss exceeds the policy. */
+function lossDetail(
+  loss: HarnessExportLoss,
+  policy: SessionExportPolicy,
+): string {
+  const share = percentOf(loss.excluded / loss.total);
+  return (
+    `${loss.excluded} of ${loss.total} session records could not be read — ${share}%, ` +
+    `over the ${percentOf(policy.maxExcludedRatio)}% limit set by agent.handoverMaxExcludedRatio`
+  );
+}
+
 /**
- * Export one ended run's session through the harness that ran it. The
- * capability is the first question: a harness that cannot export its session
- * is a fault before anything is stopped or exported. The harness owns where
- * its session lives and which id names it; this owns the rules around it: a
- * throw is the harness's failure, an idless export is a broken one (the next
- * run's task would name a session it cannot reach), and an empty answer is no
- * session — a handover that handed over nothing would tell the next harness
- * nothing it could not guess.
+ * Complete one harness's classified native records into the handover artifact.
+ * All yielded records are countable conversation records. A source reader
+ * leaves known irrelevant store traffic out altogether; an unparseable record
+ * is still a record and is therefore counted as loss.
+ */
+export function completeHandoverExport(
+  source: HandoverRecordSource,
+): HarnessExport {
+  const turns: SessionExportTurn[] = [];
+  let total = 0;
+  let excluded = 0;
+
+  for (const record of source.records) {
+    total += 1;
+    switch (record.kind) {
+      case "export":
+        turns.push(record.turn);
+        break;
+      case "dont-export":
+        break;
+      case "unparseable":
+        excluded += 1;
+        break;
+    }
+  }
+
+  const loss = excluded === 0 ? undefined : { excluded, total };
+  return {
+    sessionId: source.sessionId,
+    session: renderHandoverTranscript(turns),
+    ...(loss === undefined ? {} : { loss }),
+  };
+}
+
+/** The task artifact: only role headings and prose, separated by one blank line. */
+function renderHandoverTranscript(turns: readonly SessionExportTurn[]): string {
+  if (turns.length === 0) return "";
+  return `${turns
+    .map((turn) => `## ${turn.role}\n\n${escapeContentHeadings(turn.text)}`)
+    .join("\n\n")}\n`;
+}
+
+/**
+ * A content heading must not be mistaken for a role boundary in the artifact.
+ * Fenced code is untouched: there a leading hash is literal content.
+ */
+function escapeContentHeadings(text: string): string {
+  let fence: string | undefined;
+  return text
+    .split("\n")
+    .map((line) => {
+      const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (fenceMatch !== null) {
+        const marker = fenceMatch[1]!;
+        if (fence === undefined) {
+          fence = marker;
+        } else if (
+          marker[0] === fence[0] &&
+          marker.length >= fence.length &&
+          fenceMatch[2]!.trim() === ""
+        ) {
+          fence = undefined;
+        }
+        return line;
+      }
+      if (fence !== undefined) return line;
+
+      const headingMatch = /^( {0,3})#{1,6}(?=\s|$)/.exec(line);
+      if (headingMatch === null) return line;
+      const indent = headingMatch[1]!;
+      return `${indent}\\${line.slice(indent.length)}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Export one ended run's session through the harness that ran it. The reader
+ * owns native discovery and record classification; this shared layer renders,
+ * counts, and applies policy before anything stops the source run.
  */
 export async function exportRunSession(
   harnesses: HarnessRegistry,
   from: AnyHarnessId,
   request: HarnessExportRequest,
+  policy: SessionExportPolicy,
 ): Promise<RunSession> {
   const harness = harnesses.get(from);
-  if (harness === undefined || !canExportForHandover(harness)) {
+  if (harness === undefined || !canReadHandoverRecords(harness)) {
     return {
       kind: "faulted",
       fault: { kind: "harness-cannot-export-session", harness: from },
     };
   }
 
-  let exported: HarnessExport;
+  let source: HandoverRecordSource;
   try {
-    exported = await harness.exportForHandover(request);
+    source = await harness.readHandoverRecords(request);
   } catch (error) {
     return {
       kind: "faulted",
@@ -125,13 +231,30 @@ export async function exportRunSession(
       },
     };
   }
-  if (exported.sessionId.trim() === "") {
+  if (source.sessionId.trim() === "") {
     return {
       kind: "faulted",
       fault: {
         kind: "session-export-failed",
         harness: from,
         detail: "the harness named no session id for the run it exported",
+      },
+    };
+  }
+
+  const exported = completeHandoverExport(source);
+  const loss = exported.loss;
+  if (
+    loss !== undefined &&
+    loss.total > 0 &&
+    loss.excluded / loss.total > policy.maxExcludedRatio
+  ) {
+    return {
+      kind: "faulted",
+      fault: {
+        kind: "session-export-failed",
+        harness: from,
+        detail: lossDetail(loss, policy),
       },
     };
   }
@@ -142,6 +265,7 @@ export async function exportRunSession(
     kind: "exported",
     sessionId: exported.sessionId,
     session: exported.session,
+    ...(loss === undefined ? {} : { loss }),
   };
 }
 

@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { SubagentsConfig } from "../models/model-precedence.js";
 import { DEFAULT_HARNESS, type AnyHarnessId } from "../agents/harness.js";
+import { DEFAULT_MAX_EXCLUDED_RATIO } from "../agents/handover.js";
 import { defaultMultiplexer } from "../agents/multiplexer-registry.js";
 import { defaultExtensionDir, EXTENSION_NAME } from "../paths.js";
 import { isRecord } from "../predicates.js";
@@ -66,6 +67,7 @@ const DEFAULT_AGENT: SubagentsConfig["agent"] = {
   grazingEnabled: true,
   worktreeMaterialization: DEFAULT_WORKTREE_MATERIALIZATION,
   worktreeCheckoutType: DEFAULT_WORKTREE_CHECKOUT_TYPE,
+  handoverMaxExcludedRatio: DEFAULT_MAX_EXCLUDED_RATIO,
   harnessType: DEFAULT_HARNESS,
 };
 

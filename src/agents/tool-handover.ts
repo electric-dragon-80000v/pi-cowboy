@@ -157,7 +157,11 @@ export function renderHandoverOutcome(
  */
 function handoverReport(outcome: HandoverOutcome): string {
   if (outcome.kind === "handed-over") {
-    return `handed over from "${outcome.from}" to "${outcome.to}". The ended run is archived; the next one runs in the same checkout and reports when it settles.`;
+    const loss =
+      outcome.loss === undefined
+        ? ""
+        : ` ${outcome.loss.excluded} of ${outcome.loss.total} session records could not be read and were omitted from the transcript.`;
+    return `handed over from "${outcome.from}" to "${outcome.to}".${loss} The ended run is archived; the next one runs in the same checkout and reports when it settles.`;
   }
   switch (outcome.fault.kind) {
     case "agent-unknown":

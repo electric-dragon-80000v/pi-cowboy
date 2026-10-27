@@ -41,7 +41,7 @@ import {
 } from "../src/concurrency-pools.js";
 import type {
   AnyHarnessId,
-  HarnessExportForHandover,
+  ReadHandoverRecords,
   HarnessPrepareRequest,
 } from "../src/agents/harness.js";
 import type {
@@ -1831,7 +1831,7 @@ describe("SubagentSession steer inside the settle pass", () => {
 describe("handover", () => {
   /** A registry entry that only has to answer what a handover asks of a harness. */
   function exportingPi(
-    exportForHandover: HarnessExportForHandover,
+    readHandoverRecords: ReadHandoverRecords,
   ): RegisteredHarness {
     return {
       id: "pi",
@@ -1843,7 +1843,7 @@ describe("handover", () => {
       teardown: async () => {},
       listModels: async () => ({ kind: "unavailable", notice: "test" }),
       prefetchModels: () => {},
-      exportForHandover,
+      readHandoverRecords,
     };
   }
 
@@ -1925,7 +1925,10 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        session: "user: fix it\nassistant: fixed",
+        records: [
+          { kind: "export", turn: { role: "User", text: "fix it" } },
+          { kind: "export", turn: { role: "Assistant", text: "fixed" } },
+        ],
       })),
     );
     const staleReport = stubPlan.launch.resultFile;
@@ -1973,7 +1976,9 @@ describe("handover", () => {
     expect(continuation).toContain(
       'The previous run\'s session id is "ses_1".',
     );
-    expect(continuation).toContain("user: fix it\nassistant: fixed");
+    expect(continuation).toContain(
+      "## User\n\nfix it\n\n## Assistant\n\nfixed\n",
+    );
     expect(run.startCalls).toHaveLength(2);
 
     // A settle released the ended run's slots; the next run takes them again.
@@ -2000,7 +2005,9 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_2",
-        session: "user: still going",
+        records: [
+          { kind: "export", turn: { role: "User", text: "still going" } },
+        ],
       })),
     );
     try {
@@ -2039,7 +2046,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        session: "user: go on",
+        records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
       })),
     );
     try {
@@ -2081,7 +2088,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        session: "user: go on",
+        records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
       })),
     );
     try {
@@ -2113,11 +2120,16 @@ describe("handover", () => {
     await driveRun(DRIVE_COMPLETED_MS);
     expect(run.session.isSettled()).toBe(true);
 
-    const exportForHandover = vi.fn(async () => ({
+    const readHandoverRecords = vi.fn(async () => ({
       sessionId: "ses_1",
-      session: "user: go on",
+      records: [
+        {
+          kind: "export" as const,
+          turn: { role: "User" as const, text: "go on" },
+        },
+      ],
     }));
-    registry.overrides.set("pi", exportingPi(exportForHandover));
+    registry.overrides.set("pi", exportingPi(readHandoverRecords));
     try {
       await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
         kind: "faulted",
@@ -2165,7 +2177,10 @@ describe("handover", () => {
     const run = await settledRun();
     registry.overrides.set(
       "pi",
-      exportingPi(async () => ({ sessionId: "ses_1", session: "   \n" })),
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        records: [{ kind: "dont-export", content: "empty" }],
+      })),
     );
     try {
       await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
@@ -2185,7 +2200,9 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        session: "user: keep going",
+        records: [
+          { kind: "export", turn: { role: "User", text: "keep going" } },
+        ],
       })),
     );
     buildLaunchPlanMock.mockRejectedValueOnce(new Error("boom"));

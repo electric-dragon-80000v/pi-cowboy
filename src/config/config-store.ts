@@ -27,6 +27,7 @@ import {
   type HarnessConfigIssue,
 } from "../agents/harness.js";
 import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
+import { DEFAULT_MAX_EXCLUDED_RATIO } from "../agents/handover.js";
 import type { EnvOverrides } from "../agents/harness/env-overrides.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
@@ -211,6 +212,8 @@ interface ResolvedAgentSettings {
   readonly worktreeRoot: string | undefined;
   readonly worktreeMaterialization: WorktreeMaterialization;
   readonly worktreeCheckoutType: WorktreeCheckoutType;
+  /** The share of countable handover records that may be unreadable before handover is refused (0 to 1). */
+  readonly handoverMaxExcludedRatio: number;
   /** Harness for agents whose template omits `harness_type`. */
   readonly harnessType: AnyHarnessId;
 }
@@ -266,6 +269,8 @@ export class ConfigStore {
         a.worktreeMaterialization ?? DEFAULT_WORKTREE_MATERIALIZATION,
       worktreeCheckoutType:
         a.worktreeCheckoutType ?? DEFAULT_WORKTREE_CHECKOUT_TYPE,
+      handoverMaxExcludedRatio:
+        a.handoverMaxExcludedRatio ?? DEFAULT_MAX_EXCLUDED_RATIO,
       harnessType: a.harnessType ?? DEFAULT_HARNESS,
     };
   }

@@ -8,7 +8,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import {
-  canExportForHandover,
+  canReadHandoverRecords,
   type HarnessConfigCodec,
   type HarnessListModelsRequest,
   type ModelEntry,
@@ -78,28 +78,36 @@ describe("the open harness registry", () => {
     );
   });
 
-  it("keeps a plugin's session export on the registry entry, and no export means no capability", async () => {
-    const exportForHandover = vi.fn(async () => ({
+  it("keeps a plugin's handover record reader on the registry entry", async () => {
+    const readHandoverRecords = vi.fn(async () => ({
       sessionId: "ses_1",
-      session: "user: hi",
+      records: [
+        {
+          kind: "export" as const,
+          turn: { role: "User" as const, text: "hi" },
+        },
+      ],
     }));
     harnesses.register({
       ...pluginHarness("reg-export", { status: "available" }),
-      exportForHandover,
+      readHandoverRecords,
     });
 
     const entry = harnesses.require("reg-export");
-    expect(canExportForHandover(entry)).toBe(true);
-    expect(canExportForHandover(harnesses.require("pi"))).toBe(false);
+    expect(canReadHandoverRecords(entry)).toBe(true);
+    expect(canReadHandoverRecords(harnesses.require("pi"))).toBe(false);
     await expect(
-      entry.exportForHandover?.({
+      entry.readHandoverRecords?.({
         pi: {} as never,
         subagentId: "s",
         paneId: "w1:p1",
         cwd: "/repo",
       }),
-    ).resolves.toEqual({ sessionId: "ses_1", session: "user: hi" });
-    expect(exportForHandover).toHaveBeenCalledOnce();
+    ).resolves.toEqual({
+      sessionId: "ses_1",
+      records: [{ kind: "export", turn: { role: "User", text: "hi" } }],
+    });
+    expect(readHandoverRecords).toHaveBeenCalledOnce();
   });
 
   it("validates each harness's config with its own codec, built-in or plugin", () => {

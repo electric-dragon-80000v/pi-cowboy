@@ -230,10 +230,10 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
     listModels: (request) => harness.listModels(request),
     prefetchModels: (pi) => harness.prefetchModels(pi),
     // Absent stays absent: the capability is what a handover checks, so an
-    // adapter must not supply an export the implementation never wrote.
-    ...(harness.exportForHandover === undefined
+    // adapter must not supply a record reader the implementation never wrote.
+    ...(harness.readHandoverRecords === undefined
       ? {}
-      : { exportForHandover: harness.exportForHandover.bind(harness) }),
+      : { readHandoverRecords: harness.readHandoverRecords.bind(harness) }),
   };
 }
 
