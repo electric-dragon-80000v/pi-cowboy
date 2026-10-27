@@ -223,7 +223,11 @@ export interface SubagentLaunchPlan {
    * The system prompt text itself, as written to `launch.systemPromptFile`.
    */
   systemPrompt?: string;
-  /** Legacy name: the complete argv the harness built, whatever binary it launches — the supervisor and herdr seams both spell it `piArgs`. */
+  /**
+   * The complete argv the harness built, whatever binary it launches. The name
+   * is the seam's own vocabulary — the supervisor and herdr both spell it
+   * `piArgs` — not a claim that the process is pi.
+   */
   piArgs: string[];
   /**
    * The launch request `piArgs` was built from, and the same object a harness's

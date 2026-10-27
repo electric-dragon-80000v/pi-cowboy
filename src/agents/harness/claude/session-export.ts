@@ -79,12 +79,39 @@ const ClaudeContentPartSchema = z.object({
  */
 const ClaudeMessageSchema = z.object({
   content: z.union([z.string(), z.array(z.unknown())]),
+  model: z.string().optional(),
 });
+
+/**
+ * The fields this reader places a record by. Everything else claude writes —
+ * parent pointers, timestamps, cwd, usage, tool payloads — is dropped here: a
+ * record that cannot carry these fields is not one the reader can put in a
+ * conversation, and guessing at it would be a misread rather than a skip.
+ */
+const ClaudeSessionRecordSchema = z.object({
+  type: z.string().optional(),
+  sessionId: z.string().optional(),
+  isSidechain: z.boolean().optional(),
+  isMeta: z.boolean().optional(),
+  isCompactSummary: z.boolean().optional(),
+  isVisibleInTranscriptOnly: z.boolean().optional(),
+  isApiErrorMessage: z.boolean().optional(),
+  message: z.unknown().optional(),
+});
+
+/** One record as the reader sees it, with every unread field stripped. */
+type ClaudeSessionRecord = z.infer<typeof ClaudeSessionRecordSchema>;
 
 /** One record and the file line it came from, so a refusal names the line. */
 interface ParsedRecord {
-  readonly record: Record<string, unknown>;
+  readonly record: ClaudeSessionRecord;
   readonly line: number;
+}
+
+/** One conversation message reduced to what the artifact keeps. */
+interface ParsedMessage {
+  readonly text: string;
+  readonly model: string | undefined;
 }
 
 /**
@@ -254,13 +281,14 @@ function readRecords(file: string): readonly ParsedRecord[] {
     if (line.trim() === "") continue;
     try {
       const parsed: unknown = JSON.parse(line);
-      if (!isRecord(parsed)) {
+      const record = ClaudeSessionRecordSchema.safeParse(parsed);
+      if (!record.success) {
         throw new SessionExportError(
           "malformed-record",
-          `malformed claude session record ${file}: line ${index + 1} is not a JSON object`,
+          `malformed claude session record ${file}: line ${index + 1} is not a claude session record`,
         );
       }
-      records.push({ record: parsed, line: index + 1 });
+      records.push({ record: record.data, line: index + 1 });
     } catch (error) {
       if (error instanceof SessionExportError) throw error;
       if (index === tail) continue;
@@ -292,12 +320,10 @@ function sessionIdOf(
   file: string,
   sessionIdFromName: string,
 ): string {
-  const named = records.find(
-    ({ record }) =>
-      typeof record.sessionId === "string" && record.sessionId !== "",
-  );
-  const namedId = named?.record.sessionId;
-  if (typeof namedId !== "string") {
+  const namedId = records.find(
+    ({ record }) => record.sessionId !== undefined && record.sessionId !== "",
+  )?.record.sessionId;
+  if (namedId === undefined) {
     throw new SessionExportError(
       "missing-session-id",
       `malformed claude session record ${file}: no record carries a sessionId`,
@@ -342,7 +368,7 @@ function renderTranscript(
 
 /** One record reduced to the turn it contributes, or nothing. */
 function turnOf(
-  record: Record<string, unknown>,
+  record: ClaudeSessionRecord,
   file: string,
   line: number,
 ): SessionExportTurn | undefined {
@@ -352,32 +378,34 @@ function turnOf(
     if (record.isMeta === true) return undefined;
     if (record.isCompactSummary === true) return undefined;
     if (record.isVisibleInTranscriptOnly === true) return undefined;
-    const text = escapeContentHeadings(
-      cleanText(messageText(record.message, file, line)),
-    );
-    if (text === "" || isLocalCommand(text)) return undefined;
-    return { role: "User", text };
+    const { text } = messageOf(record.message, file, line);
+    const cleaned = escapeContentHeadings(cleanText(text));
+    if (cleaned === "" || isLocalCommand(cleaned)) return undefined;
+    return { role: "User", text: cleaned };
   }
 
   if (record.type === "assistant") {
     if (record.isApiErrorMessage === true) return undefined;
-    if (messageModel(record.message) === "<synthetic>") return undefined;
-    const text = escapeContentHeadings(
-      cleanText(messageText(record.message, file, line)),
-    );
-    if (text === "") return undefined;
-    return { role: "Assistant", text };
+    const { text, model } = messageOf(record.message, file, line);
+    if (model === "<synthetic>") return undefined;
+    const cleaned = escapeContentHeadings(cleanText(text));
+    if (cleaned === "") return undefined;
+    return { role: "Assistant", text: cleaned };
   }
 
   return undefined;
 }
 
 /**
- * The text blocks of one message. Tool results, thinking, and tool calls are
- * not text and never reach the transcript; a message that holds only those
- * yields the empty string and contributes no heading.
+ * One message's surviving text and the model it names. Tool results, thinking,
+ * and tool calls are not text and never reach the transcript; a message that
+ * holds only those yields the empty string and contributes no heading.
  */
-function messageText(message: unknown, file: string, line: number): string {
+function messageOf(
+  message: unknown,
+  file: string,
+  line: number,
+): ParsedMessage {
   const body = ClaudeMessageSchema.safeParse(message);
   if (!body.success) {
     throw new SessionExportError(
@@ -386,7 +414,11 @@ function messageText(message: unknown, file: string, line: number): string {
     );
   }
 
-  const content = body.data.content;
+  return { text: textOfContent(body.data.content), model: body.data.model };
+}
+
+/** The text blocks of a message's content, joined in order. */
+function textOfContent(content: string | unknown[]): string {
   if (typeof content === "string") return content;
 
   const parts: string[] = [];
@@ -397,12 +429,6 @@ function messageText(message: unknown, file: string, line: number): string {
     parts.push(part.data.text);
   }
   return parts.join("\n");
-}
-
-/** The model a record names, when it names one. */
-function messageModel(message: unknown): string | undefined {
-  if (!isRecord(message)) return undefined;
-  return typeof message.model === "string" ? message.model : undefined;
 }
 
 /**
@@ -462,23 +488,16 @@ function escapeContentHeadings(text: string): string {
 
 /**
  * A user record that is a slash command or a local shell result rather than
- * something the human said. Older versions have no `isMeta` flag for these;
- * the wrapper is the record's own shape.
+ * something the human said. claude writes these as ordinary user records with
+ * no `isMeta` flag, so the wrapper tag is what identifies them; the caveat
+ * record is also matched here, though claude marks that one meta. A message the
+ * human typed that happens to start with one of these tags is indistinguishable
+ * from the wrapper and is dropped.
  */
 function isLocalCommand(text: string): boolean {
-  const trimmed = text.trim();
-  return (
-    /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr)>/.test(
-      trimmed,
-    ) ||
-    trimmed.startsWith(
-      "Caveat: The messages below were generated by the user while running local commands",
-    )
+  return /^<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat|bash-input|bash-stdout|bash-stderr)>/.test(
+    text.trim(),
   );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

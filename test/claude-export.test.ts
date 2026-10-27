@@ -64,7 +64,6 @@ function user(text: string, extra: Record<string, unknown> = {}) {
     sessionId: SESSION_ID,
     isSidechain: false,
     message: { role: "user", content: text },
-    version: "2.1.287",
     ...extra,
   };
 }
@@ -80,7 +79,6 @@ function assistant(
     sessionId: SESSION_ID,
     isSidechain: false,
     message: { id: "msg_1", role: "assistant", content: [block] },
-    version: "2.1.287",
     ...extra,
   };
 }
@@ -386,6 +384,13 @@ describe("exportClaudeSession", () => {
     expect(faultOf(exportFixture)).toBe("malformed-record");
   });
 
+  it("refuses a JSON value that is not a claude session record", () => {
+    const file = writeSession([user("first")]);
+    writeFileSync(file, `${JSON.stringify([user("not a record")])}\n`, "utf8");
+
+    expect(faultOf(exportFixture)).toBe("malformed-record");
+  });
+
   it("returns the id the records carry when it is the file's id", () => {
     writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello", { sessionId: OTHER_SESSION_ID })], {
@@ -526,7 +531,7 @@ describe("exportClaudeSession", () => {
     expect(faultOf(exportFixture)).toBe("empty-session");
   });
 
-  it("reads the older 2.0.70 record shape", () => {
+  it("ignores the record fields the export does not read", () => {
     writeSession([
       {
         parentUuid: null,
@@ -534,27 +539,25 @@ describe("exportClaudeSession", () => {
         userType: "external",
         cwd,
         sessionId: SESSION_ID,
-        version: "2.0.70",
         type: "user",
-        message: { role: "user", content: "older prompt" },
+        message: { role: "user", content: "the prompt" },
       },
       {
         parentUuid: "u1",
         isSidechain: false,
         cwd,
         sessionId: SESSION_ID,
-        version: "2.0.70",
         type: "assistant",
         message: {
           role: "assistant",
-          content: [{ type: "text", text: "older answer" }],
+          content: [{ type: "text", text: "the answer" }],
         },
       },
     ]);
 
     expect(exportFixture()).toEqual({
       sessionId: SESSION_ID,
-      session: "## User\n\nolder prompt\n\n## Assistant\n\nolder answer\n",
+      session: "## User\n\nthe prompt\n\n## Assistant\n\nthe answer\n",
     });
   });
 });
