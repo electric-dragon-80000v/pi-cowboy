@@ -154,7 +154,7 @@ function leaks(session: string, markers: readonly string[]): readonly string[] {
 function readFixture(records: readonly Record<string, unknown>[]): string {
   const { dir } = fixtureHome();
   const file = writeRollout(dir, { records });
-  return readCodexSession(file);
+  return readCodexSession(file).session;
 }
 
 /** The fault a refused export carries; a test that expects a refusal uses it. */
@@ -386,13 +386,16 @@ describe("readCodexSession", () => {
       raw: `${complete}\n{"timestamp":"2026-10-23T08:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"unfinished`,
     });
 
-    const session = readCodexSession(file);
-    expect(session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
-    expect(session).not.toContain("unfinished");
-    expect(session.match(/^## Assistant$/gm)).toHaveLength(1);
+    const read = readCodexSession(file);
+    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
+    expect(read.session).not.toContain("unfinished");
+    expect(read.session.match(/^## Assistant$/gm)).toHaveLength(1);
+    // The two turns are counted; the interrupted write is not a record yet, so
+    // it is neither read nor counted.
+    expect(read.loss).toEqual({ excluded: 0, total: 2 });
   });
 
-  it("throws naming the file and line for a malformed record before the end", () => {
+  it("skips a malformed record and reports what it lost", () => {
     const { dir } = fixtureHome();
     const file = writeRollout(dir, {
       raw: [
@@ -403,16 +406,15 @@ describe("readCodexSession", () => {
       ].join("\n"),
     });
 
-    expect(() => readCodexSession(file)).toThrow(SessionExportError);
-    expect(() => readCodexSession(file)).toThrow(
-      new RegExp(
-        `malformed codex session record at .*${path.basename(file)}:3`,
-      ),
-    );
-    expect(faultOf(() => readCodexSession(file))).toBe("malformed-record");
+    const read = readCodexSession(file);
+
+    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
+    // Two turns plus the line that could not be read; the metadata record is
+    // not a message, so it is in neither count.
+    expect(read.loss).toEqual({ excluded: 1, total: 3 });
   });
 
-  it("refuses a message whose content is not an array of parts", () => {
+  it("skips a message whose content is not an array of parts", () => {
     const { dir } = fixtureHome();
     const file = writeRollout(dir, {
       raw: [
@@ -424,7 +426,32 @@ describe("readCodexSession", () => {
       ].join("\n"),
     });
 
-    expect(faultOf(() => readCodexSession(file))).toBe("malformed-record");
+    const read = readCodexSession(file);
+
+    expect(read.session).toBe("");
+    expect(read.loss).toEqual({ excluded: 1, total: 1 });
+  });
+
+  it("does not abort over an unreadable legacy record while response items exist", () => {
+    const { dir } = fixtureHome();
+    const file = writeRollout(dir, {
+      raw: [
+        JSON.stringify(sessionMeta("/worktree", id(1))),
+        JSON.stringify(userMessage("hello")),
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "user_message", message: 42 },
+        }),
+        JSON.stringify(assistantMessage("hi")),
+      ].join("\n"),
+    });
+
+    const read = readCodexSession(file);
+
+    // The legacy form is never read once response items exist, so an
+    // unreadable one costs the export that record and nothing more.
+    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
+    expect(read.loss).toEqual({ excluded: 1, total: 3 });
   });
 
   it("refuses a record it cannot read", () => {
@@ -432,16 +459,18 @@ describe("readCodexSession", () => {
     expect(faultOf(() => readCodexSession(home))).toBe("unreadable-record");
   });
 
-  it("throws when a session has no user or assistant text", () => {
+  it("returns no session for a file whose records carry no prose", () => {
     const { dir } = fixtureHome();
     const file = writeRollout(dir, {
       records: [sessionMeta("/worktree", id(1))],
     });
 
-    expect(() => readCodexSession(file)).toThrow(
-      `codex session record ${file} has no user or assistant messages`,
-    );
-    expect(faultOf(() => readCodexSession(file))).toBe("empty-session");
+    const read = readCodexSession(file);
+
+    // Nothing was skipped: the file simply holds no turn, and the caller is
+    // what reports that as an empty session.
+    expect(read.session).toBe("");
+    expect(read.loss).toEqual({ excluded: 0, total: 0 });
   });
 
   it("falls back to legacy event messages when no response items exist", () => {
@@ -616,6 +645,7 @@ describe("findCodexSession", () => {
     expect(exported).toEqual({
       sessionId: id(7),
       session: "## User\n\nhello\n",
+      loss: { excluded: 0, total: 1 },
     });
   });
 });
