@@ -223,10 +223,10 @@ export function exportCodexSession(
  * file still exports and a dual-written file cannot emit every turn twice.
  *
  * A record this reader cannot use is skipped and counted, never fatal on its
- * own: a line costs the export that line and nothing else, and the caller
- * decides whether the loss is too large to hand over. An unterminated final
- * line is a write interrupted mid-record — not a record at all, so it is
- * neither read nor counted.
+ * own: an unreadable line is excluded without aborting the export, and the
+ * caller decides whether the loss is too large to hand over. An unterminated
+ * final line is a write interrupted mid-record — not a record at all, so it
+ * is neither read nor counted.
  */
 export function readCodexSession(file: string): CodexSessionRead {
   let text: string;
@@ -241,9 +241,10 @@ export function readCodexSession(file: string): CodexSessionRead {
 
   const lines = text.split("\n");
   // The record the binary may still be appending: the last non-blank line of a
-  // file that does not end in a newline. Only this line, unreadable, is a torn
-  // write rather than a loss — it is not a record yet, so it is neither read
-  // nor counted. Unterminated but readable is a complete record.
+  // file that does not end in a newline. Only this line, when unreadable, is a
+  // torn write rather than a loss — it is not a record yet, so it is neither
+  // read nor counted. An unterminated line that is readable is processed as a
+  // complete record.
   let torn = -1;
   if (!text.endsWith("\n")) {
     for (let index = lines.length - 1; index >= 0; index -= 1) {

@@ -21,7 +21,7 @@ Evidence labels: **proven** (a command ran against this machine), **read from so
 
 **What an id-bearing filename looks like.** Ordinary files end in the thread id (`rollout-2026-10-22T18-14-19-01a16464-5343-7943-a1a1-5fd71e024ffa.jsonl`). A reverted thread appends `_<rollout id>` after the stable thread id (`rollout_file_name.rs`), so the filename is **not** a reliable parse for the id. **read from source**.
 
-**Two record eras.** Versions before roughly 0.162 wrote the conversation twice: a `response_item`/`message` record and a duplicate `event_msg` `user_message`/`agent_message` record, adjacent and with the same or a 1–2 ms different timestamp. 0.162 and 0.163 write only the `response_item` message. 322 of the 325 files contain `response_item` records; the other three are a compacted-only file, an empty file, and a file written before the split. **proven** (counts by `jq` over the store).
+**Two record eras.** Versions before roughly 0.162 wrote the conversation twice: a `response_item`/`message` record and a duplicate `event_msg` `user_message`/`agent_message` record, adjacent and with identical timestamps or timestamps differing by 1–2 ms. 0.162 and 0.163 write only the `response_item` message. 322 of the 325 files contain `response_item` records; the other three are a compacted-only file, an empty file, and a file written before the split. **proven** (counts by `jq` over the store).
 
 Worked example, the smallest real shape that shows both turns (text replaced, paths reduced):
 
@@ -61,7 +61,7 @@ Empty parts and parts that reduce to whitespace are dropped; a message with no s
 
 ## 3. Artifact
 
-The implementation reproduces §1 of the task exactly:
+The implementation reproduces the handover artifact specification exactly:
 
 - markdown, blocks introduced only by `## User` / `## Assistant` on their own line;
 - blocks joined by one blank line, file ends with exactly one newline, no trailing whitespace on any line;
@@ -95,8 +95,8 @@ No divergence from §1 was needed. The inherited-transcript behaviour (a handove
 - no rollout whose `session_meta.cwd` equals `cwd` → `session-not-found` (no session record under `<path>` for `<cwd>`);
 - only subagent rollouts match → `session-not-found` (a subagent session is not the run's conversation);
 - a file with no `session_meta` or no `payload.id` is never a candidate → it cannot be selected, so it surfaces only as the `session-not-found` above;
-- the chosen file has no user/assistant message text (compacted-only or empty) → `empty-session`, naming the record;
-- a malformed record before the last line → `malformed-record` with `file:line` and the detail;
+- the chosen file has no user/assistant message text (compacted-only or empty) → yields an empty session string, which the caller rejects as an empty session;
+- a malformed record before the last line → skipped and counted as an excluded record in `loss`;
 - cwd reused by a second concurrent codex process → the newest file may be that process's; this is the honest limit of a store lookup by cwd, and comparing the export's id with the `threads` row for that cwd is how the verification detects it.
 
 ## 5. Live verification
@@ -157,9 +157,9 @@ Cleanup: both panes and the scratch tab were closed, `/private/tmp/codex-handove
 
 **Reads.** Only the rollout files: a bounded first-line read per candidate (1 MiB cap, because the first line embeds the base instructions) and a whole-file read for the chosen one. No writes, no `pi.exec` (the CLI is never asked), no dependencies.
 
-**Refuses**, each with a sentence naming the path and the reason: missing store, no record for the cwd, only subagent records, a chosen record with no `session_meta.payload.id`, a record with no surviving user/assistant text, an unreadable file or directory, and a malformed record before the last line (with `file:line`).
+**Refuses**, each with a sentence naming the path and the reason: missing store, no record for the cwd, only subagent records, a chosen record with no `session_meta.payload.id`, and an unreadable file or directory. Malformed lines and records without text are skipped and counted in `loss`.
 
-**Tests.** `test/codex-export.test.ts`, 22 hermetic tests over fixture rollouts in a temporary `CODEX_HOME`: exact block shape, order, and single trailing newline; developer content, reasoning, tool calls, tool results, custom tool calls, and inter-agent messages absent by marker; injected user envelopes dropped with the rest of the message kept; image markers stripped and an image-only turn dropped; empty and whitespace-only turns emit no heading; a partial trailing record ignored without duplicating the previous turn; a malformed mid-file record throws naming file and line; an empty session throws; the legacy `event_msg` fallback and the absence of duplication in dual-written files; newest cwd match wins and subagents are excluded; the id comes from the record rather than the filename and a reverted filename yields the thread id, not its suffix; a cwd matches through a symlink; missing store, no cwd match, and subagent-only refusal; and the hook wired through `CODEX_HOME` with `canExportForHandover` true.
+**Tests.** `test/codex-export.test.ts`, 22 hermetic tests over fixture rollouts in a temporary `CODEX_HOME`: exact block shape, order, and single trailing newline; developer content, reasoning, tool calls, tool results, custom tool calls, and inter-agent messages absent by marker; injected user envelopes dropped with the rest of the message kept; image markers stripped and an image-only turn dropped; empty and whitespace-only turns emit no heading; a partial trailing record ignored without duplicating the previous turn; a malformed mid-file record is skipped and counted in loss; an empty session returns an empty string without throwing; the legacy `event_msg` fallback and the absence of duplication in dual-written files; newest cwd match wins and subagents are excluded; the id comes from the record rather than the filename and a reverted filename yields the thread id, not its suffix; a cwd matches through a symlink; missing store, no cwd match, and subagent-only refusal; and the hook wired through `CODEX_HOME` with `canExportForHandover` true.
 
 **Gates.** `pnpm run typecheck` clean; `pnpm run test:unit` 132 files, 2578 passed plus 1 expected fail and 1 skipped; `pnpm run format:check` and `pnpm run lint` clean. The pre-commit hook runs typecheck, lint, format, and the unit project over the staged snapshot, and passed.
 
@@ -168,7 +168,7 @@ Cleanup: both panes and the scratch tab were closed, `/private/tmp/codex-handove
 - **Version drift.** The reader targets the `response_item` message shape (present since at least 0.118) and tolerates the legacy `event_msg` duplicate era. A future rename of `input_text`/`output_text`, or moving messages to a different record type, would silently produce an empty export; the export throws rather than returning empty, so the failure is visible. There is no version gate.
 - **Compressed cold rollouts.** `.jsonl.zst` files are not scanned or decompressed. A live session's rollout is plain `.jsonl` (`open_log_file` materializes it for append), so this does not affect the hook; it does affect a full historical sweep if cold files are compressed. None are compressed on this machine.
 - **Compaction.** `compacted`/`replacement_history` is dropped and the original turns remain in the rollout. If a future codex rewrites history in place, the current file order is still what the file holds; no separate compaction handling exists. A later compaction variant would hook in where the artifact is built, before rendering.
-- **Partial tail.** A final line that is not complete JSON is ignored. A partially written JSON line in the middle of a turn cannot occur because the writer appends complete lines; a mid-file malformed line throws with the file name.
+- **Partial tail.** A final line that is not complete JSON is ignored. A partially written JSON line in the middle of a turn cannot occur because the writer appends complete lines; a mid-file malformed line is skipped and counted in the export's loss.
 - **cwd reuse and mtime ties.** The store lookup is a search by cwd plus newest mtime, not an exact key. A manual codex session in the same worktree, or two files with the same mtime, can make the choice ambiguous. The production path does not consult the process, and 0.163.0 keeps no rollout descriptor open, so a live-process tie-breaker is not available without reading the state DB.
 - **Live-process correlation is weaker than the source suggests.** `open_log_file` creates an append handle, but the running 0.163.0 process holds no rollout open; correlating a pane to its file needs the pid plus the DB (or cwd plus mtime, as the lookup does).
 - **Injected user envelopes.** The drop list is a fixed set of observed prefixes. A new codex injection that is not listed would leak into the artifact as a user turn. The alternative — an allowlist of real user text — does not exist in the record.
