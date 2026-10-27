@@ -499,22 +499,49 @@ export interface HarnessExportRequest {
 }
 
 /**
- * One run's session, exported for the harness that continues it. `session` is
- * the conversation as plain text: a harness returns what it wrote, already
- * reduced to what another harness can read, because only it knows where it
- * kept thinking and tool traffic. `sessionId` is the source harness's own id
- * for that run — the id it resumes that session by, not a display id — and it
- * travels with the session so a later handover back names what it continues.
+ * One countable conversation record after a harness has read its native store.
+ * A harness emits only records that could be part of the conversation: native
+ * metadata, tool traffic, and other known irrelevant entries stay outside this
+ * boundary and cannot dilute loss. `content` is retained only where no turn
+ * survives, for reader diagnostics and tests; shared handover code never puts
+ * it in the task it gives the next run.
+ */
+export type HandoverRecord =
+  | { readonly kind: "export"; readonly turn: SessionExportTurn }
+  | { readonly kind: "dont-export"; readonly content: string }
+  | { readonly kind: "unparseable"; readonly content: string };
+
+/**
+ * What a harness finds at one run's session address. The harness owns native
+ * discovery and per-record classification; shared handover code owns counting,
+ * rendering, loss policy, and the completed export.
+ */
+export interface HandoverRecordSource {
+  /** The source harness's resume id for this run, not a display id. */
+  readonly sessionId: string;
+  readonly records: readonly HandoverRecord[];
+}
+
+/** What shared handover code had to omit from a record source. */
+export interface HarnessExportLoss {
+  readonly excluded: number;
+  readonly total: number;
+}
+
+/**
+ * One completed handover export. This is constructed by shared handover code,
+ * after it renders the source records and applies the configured loss policy.
  */
 export interface HarnessExport {
   readonly sessionId: string;
   readonly session: string;
+  readonly loss?: HarnessExportLoss;
 }
 
-/** One run exported for a handover, at the run's own address. */
-export type HarnessExportForHandover = (
+/** One harness's native-record read at one run's handover address. */
+export type ReadHandoverRecords = (
   request: HarnessExportRequest,
-) => Promise<HarnessExport>;
+) => Promise<HandoverRecordSource>;
 
 /**
  * Why a run's session could not be exported, in one vocabulary every harness's
@@ -725,12 +752,12 @@ export interface Harness<
    */
   teardown(request: HarnessTeardownRequest): Promise<void>;
   /**
-   * Export one run's session for a handover to another harness. Optional: a
-   * harness that cannot export its session omits it, and a handover from that
+   * Read and classify one run's native session records for a handover. Optional:
+   * a harness that cannot read its session omits it, and a handover from that
    * harness is refused as a capability gap rather than attempted — see
-   * `canExportForHandover`. The export is at the address the run ran in.
+   * `canReadHandoverRecords`. The address is the run's own.
    */
-  exportForHandover?(request: HarnessExportRequest): Promise<HarnessExport>;
+  readHandoverRecords?: ReadHandoverRecords;
   /**
    * The models this harness can run, listed on demand — when a menu opens, and
    * when the spawn wizard opens. The pi family reads its catalog live on
@@ -751,14 +778,14 @@ export interface Harness<
 }
 
 /**
- * Whether a harness can be the source of a handover: the optional method is
+ * Whether a harness can be the source of a handover: the optional reader is
  * present, not merely declared. Structural, so the check reads the capability
- * alone and narrows to a harness a caller can export through.
+ * alone and narrows to a harness the shared layer can export through.
  */
-export function canExportForHandover(harness: {
-  readonly exportForHandover?: HarnessExportForHandover;
-}): harness is { readonly exportForHandover: HarnessExportForHandover } {
-  return harness.exportForHandover !== undefined;
+export function canReadHandoverRecords(harness: {
+  readonly readHandoverRecords?: ReadHandoverRecords;
+}): harness is { readonly readHandoverRecords: ReadHandoverRecords } {
+  return harness.readHandoverRecords !== undefined;
 }
 
 /**

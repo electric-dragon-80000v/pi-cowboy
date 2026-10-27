@@ -476,12 +476,17 @@ export class SubagentSession {
 
     // Export before stopping: a harness that cannot export its session must
     // change nothing at all, so the capability is the first question asked.
-    const exported = await exportRunSession(getHarnessRegistry(), from, {
-      pi: this.args.pi,
-      subagentId: this.id,
-      paneId: ref.paneId,
-      cwd,
-    });
+    const exported = await exportRunSession(
+      getHarnessRegistry(),
+      from,
+      {
+        pi: this.args.pi,
+        subagentId: this.id,
+        paneId: ref.paneId,
+        cwd,
+      },
+      { maxExcludedRatio: getStore().agent.handoverMaxExcludedRatio },
+    );
     if (exported.kind === "faulted") return exported;
     // A steer may have revived the run while its session was exported; that
     // session is no longer finished, so this handover no longer applies.
@@ -562,7 +567,12 @@ export class SubagentSession {
             : "the next run did not start",
       });
     }
-    return { kind: "handed-over", from, to: request.harness };
+    return {
+      kind: "handed-over",
+      from,
+      to: request.harness,
+      ...(exported.loss === undefined ? {} : { loss: exported.loss }),
+    };
   }
 
   /**

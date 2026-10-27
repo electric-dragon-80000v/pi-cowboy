@@ -108,6 +108,8 @@ export interface SubagentsConfig {
     worktreeMaterialization?: WorktreeMaterialization;
     /** "clean" (default) keeps only a dirty parent's ignored state; "dirty" starts the worktree with its WIP. */
     worktreeCheckoutType?: WorktreeCheckoutType;
+    /** The share of handover records that may be unreadable before refusal (0 to 1). Global config only. */
+    handoverMaxExcludedRatio?: number;
     /** Harness that agents launch under unless their template sets `harness_type`. Default: "pi". Global config only. */
     harnessType?: AnyHarnessId;
     /**

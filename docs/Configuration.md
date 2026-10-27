@@ -146,6 +146,16 @@ Controls what a new worktree inherits when the parent working tree has uncommitt
 
 If the parent working tree is already clean, both modes start at `HEAD`. Individual agent templates can override this setting with `worktree_checkout_type` (see [Agent Templates](Agent%20Templates.md)).
 
+### `agent.handoverMaxExcludedRatio`
+
+The maximum fraction of a handover session's countable records that may be unparseable before the handover is refused. A source harness classifies its native conversation records; shared handover logic omits unparseable records, reports their count once, and compares their share with this key:
+
+- `0.5` (default): an export that loses more than half its records is refused as a failure, leaving the run unchanged.
+- `1`: an export that loses records is still handed over, regardless of the number lost.
+- `0`: an export that loses any record is refused as a failure, leaving the run unchanged.
+
+Known irrelevant store traffic is not a handover record and cannot dilute the ratio. A valid conversation record deliberately omitted from the transcript is not lost. A handover that remains within the limit reports one loss summary with warning severity. Project configuration files cannot set this key, and no menu row carries it.
+
 ### `agent.disableDefaultAgents`
 
 When `true`, `pi-cowboy` skips its built-in agent types and loads only `.toml` files from the user, shared, and project directories listed in [Agent Templates](Agent%20Templates.md). Changes to this key take effect on the next session.
