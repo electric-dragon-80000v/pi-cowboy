@@ -23,7 +23,7 @@ import { readFile, readdir } from "node:fs/promises";
 import * as path from "node:path";
 import { z } from "zod";
 import { canonicalPath } from "../../paths.js";
-import { nonEmpty } from "../../predicates.js";
+import { isRecord, nonEmpty } from "../../predicates.js";
 import { errorMessage } from "../../utils.js";
 import {
   SessionExportError,
@@ -32,7 +32,12 @@ import {
   type SessionExportTurn,
 } from "../harness.js";
 
-/** The session format this reader understands. */
+/**
+ * The one session format this reader reads: the version every binary in the
+ * family writes today. An older header describes a layout this reader does not
+ * migrate, and a newer one may describe a layout it cannot know, so both are
+ * refused rather than read through the current rules.
+ */
 const SESSION_VERSION = 3;
 
 /** The name of the settings key that moves a store's session directory. */
@@ -85,11 +90,11 @@ const ContentPartSchema = z.object({
 });
 
 /**
- * The content of a message: either the whole message as a string or an array of
- * typed parts. The role is checked separately, because a message that is not
- * user or assistant contributes nothing whatever its content holds.
+ * The content of a message: its typed parts. The role is checked separately,
+ * because a message that is not user or assistant contributes nothing whatever
+ * its content holds.
  */
-const MessageContentSchema = z.union([z.string(), z.array(z.unknown())]);
+const MessageContentSchema = z.array(z.unknown());
 
 interface SessionHeader {
   readonly id: string;
@@ -285,7 +290,10 @@ async function readSessionFileContent(filePath: string): Promise<string> {
   }
 }
 
-/** The id in the session header, gated on the format version it declares. */
+/**
+ * The id in the session header, which must declare the one format version this
+ * reader reads.
+ */
 function readHeader(
   record: Record<string, unknown>,
   filePath: string,
@@ -298,19 +306,17 @@ function readHeader(
   }
 
   const version = record.version;
-  if (version !== undefined) {
-    if (typeof version !== "number" || !Number.isInteger(version)) {
-      throw new SessionExportError(
-        "malformed-record",
-        `session record ${filePath} has a non-numeric version`,
-      );
-    }
-    if (version > SESSION_VERSION) {
-      throw new SessionExportError(
-        "unsupported-version",
-        `session record ${filePath} uses version ${version}; this export understands versions up to ${SESSION_VERSION}`,
-      );
-    }
+  if (typeof version !== "number" || !Number.isInteger(version)) {
+    throw new SessionExportError(
+      "malformed-record",
+      `session record ${filePath} has no numeric version`,
+    );
+  }
+  if (version !== SESSION_VERSION) {
+    throw new SessionExportError(
+      "unsupported-version",
+      `session record ${filePath} uses version ${version}; this export reads version ${SESSION_VERSION}`,
+    );
   }
 
   const id = nonEmpty(record.id);
@@ -360,11 +366,7 @@ function readTurn(
  * a `text` part with no string to read, contributes nothing; multiple text
  * parts are joined with a blank line.
  */
-function messageText(content: string | readonly unknown[]): string {
-  if (typeof content === "string") {
-    return escapeContentHeadings(normalizeText(content));
-  }
-
+function messageText(content: readonly unknown[]): string {
   const parts: string[] = [];
   for (const candidate of content) {
     const part = ContentPartSchema.safeParse(candidate);
@@ -440,8 +442,4 @@ export function exportForHandoverOf(
     const file = await findSessionFile(sessionDir, subagentId, cwd);
     return readSessionFile(file);
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
