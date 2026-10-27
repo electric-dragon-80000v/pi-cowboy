@@ -530,6 +530,27 @@ describe("session records", () => {
     expect(error.message).toContain(file);
   });
 
+  it("fails a version older than it reads, rather than reading it by current rules", async () => {
+    const file = await writeLines([
+      record({ ...HEADER, version: 2 }),
+      user("one"),
+    ]);
+
+    const error = await rejected(readSessionFile(file));
+    expectFault(error, "unsupported-version");
+    expect(error.message).toContain(file);
+  });
+
+  it("fails a header with no version", async () => {
+    const unversioned: Record<string, unknown> = { ...HEADER };
+    delete unversioned.version;
+    const file = await writeLines([record(unversioned), user("one")]);
+
+    const error = await rejected(readSessionFile(file));
+    expectFault(error, "malformed-record");
+    expect(error.message).toContain(file);
+  });
+
   it("fails a non-numeric version", async () => {
     const file = await writeLines([
       record({ ...HEADER, version: "3" }),
@@ -577,7 +598,7 @@ describe("session records", () => {
     expect(error.message).toContain(file);
   });
 
-  it("fails a message whose content is neither text nor parts", async () => {
+  it("fails a message whose content is not an array of parts", async () => {
     const file = await writeLines([
       record(HEADER),
       record({
@@ -586,6 +607,24 @@ describe("session records", () => {
         parentId: null,
         timestamp: "2026-10-23T00:11:00.000Z",
         message: { role: "user", content: 42 },
+      }),
+    ]);
+
+    const error = await rejected(readSessionFile(file));
+    expectFault(error, "malformed-record");
+    expect(error.message).toContain(file);
+    expect(error.message).toContain("line 2");
+  });
+
+  it("fails a turn whose content is a bare string, the shape the family no longer writes", async () => {
+    const file = await writeLines([
+      record(HEADER),
+      record({
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-10-23T00:11:00.000Z",
+        message: { role: "user", content: "bare string" },
       }),
     ]);
 
