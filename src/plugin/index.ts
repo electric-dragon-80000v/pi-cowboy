@@ -41,6 +41,7 @@ export type {
   ModelEntry,
   ModelList,
   ReadHandoverRecords,
+  RunSessionIdentity,
   SessionExportTurn,
   SubagentLaunchInputs,
   ThinkingLevels,

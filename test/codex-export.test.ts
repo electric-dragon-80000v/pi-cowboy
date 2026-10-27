@@ -1,7 +1,11 @@
 /**
- * codex-export.test.ts — the codex handover export against fixture rollouts:
- * the two-heading artifact, the filtering, the cwd lookup, the resume id read
- * from the record, and every typed refusal.
+ * codex-export.test.ts — the codex handover reader against fixture rollouts:
+ * the records it classifies, the traffic it ignores, the cwd lookup, and the
+ * resume id read from the record.
+ *
+ * Rendering the artifact, escaping content headings, applying the exclusion
+ * threshold, and reporting aggregate loss belong to the shared handover layer
+ * and are pinned by its own tests; nothing here asserts them.
  *
  * The fixtures are small JSONL records in a temporary CODEX_HOME, never the
  * machine's own store and never the CLI.
@@ -25,13 +29,15 @@ import {
   exportCodexSession,
   findCodexSession,
   readCodexSession,
+  type CodexSessionExport,
   type CodexSessionExportRequest,
-  type CodexSessionRecord,
 } from "../src/agents/harness/codex-session.js";
 import {
-  canExportForHandover,
+  canReadHandoverRecords,
   SessionExportError,
+  type HandoverRecord,
   type SessionExportFault,
+  type SessionExportTurn,
 } from "../src/agents/harness.js";
 
 const roots: string[] = [];
@@ -142,22 +148,42 @@ function writeRollout(
   return file;
 }
 
-/**
- * The listed markers that survive in an export. Asserting on the whole list
- * names the leak in the failure instead of one marker per assertion.
- */
-function leaks(session: string, markers: readonly string[]): readonly string[] {
-  return markers.filter((marker) => session.includes(marker));
+/** The native line a fixture record is written as. */
+function lineOf(record: Record<string, unknown>): string {
+  return JSON.stringify(record);
+}
+
+/** The turns a read produced, in order. */
+function turns(
+  records: readonly HandoverRecord[],
+): readonly SessionExportTurn[] {
+  return records.flatMap((record) =>
+    record.kind === "export" ? [record.turn] : [],
+  );
+}
+
+/** The kinds a read produced, in order. */
+function kinds(records: readonly HandoverRecord[]): readonly string[] {
+  return records.map((record) => record.kind);
+}
+
+/** Every kept-but-not-exported line a read produced. */
+function keptLines(records: readonly HandoverRecord[]): readonly string[] {
+  return records.flatMap((record) =>
+    record.kind === "export" ? [] : [record.content],
+  );
 }
 
 /** One conversation fixture, read straight from a path. */
-function readFixture(records: readonly Record<string, unknown>[]): string {
+function readFixture(
+  records: readonly Record<string, unknown>[],
+): readonly HandoverRecord[] {
   const { dir } = fixtureHome();
   const file = writeRollout(dir, { records });
-  return readCodexSession(file).session;
+  return readCodexSession(file);
 }
 
-/** The fault a refused export carries; a test that expects a refusal uses it. */
+/** The fault a refused read carries; a test that expects a refusal uses it. */
 function faultOf(run: () => unknown): SessionExportFault {
   try {
     run();
@@ -165,37 +191,49 @@ function faultOf(run: () => unknown): SessionExportFault {
     if (error instanceof SessionExportError) return error.fault;
     throw error;
   }
-  throw new Error("expected the export to refuse, but it returned");
+  throw new Error("expected the read to refuse, but it returned");
+}
+
+/** The whole read, JSON-encoded, for asserting what never survived it. */
+function leaks(records: readonly HandoverRecord[], markers: readonly string[]) {
+  const text = JSON.stringify(records);
+  return markers.filter((marker) => text.includes(marker));
 }
 
 describe("readCodexSession", () => {
-  it("renders user and assistant turns in order, in the exact block shape", () => {
-    const session = readFixture([
+  it("classifies user and assistant messages as turns, in order", () => {
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       userMessage("first"),
       assistantMessage("second"),
       userMessage("third"),
     ]);
 
-    expect(session).toBe(
-      "## User\n\nfirst\n\n## Assistant\n\nsecond\n\n## User\n\nthird\n",
-    );
-    expect(session.endsWith("\n\n")).toBe(false);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "first" },
+      { role: "Assistant", text: "second" },
+      { role: "User", text: "third" },
+    ]);
+    // The metadata record is traffic, not a record of the conversation.
+    expect(kinds(records)).toEqual(["export", "export", "export"]);
   });
 
   it("keeps assistant prose that starts with a plan envelope", () => {
-    const session = readFixture([
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       assistantMessage("<proposed_plan>\nThe plan.\n</proposed_plan>"),
     ]);
 
-    expect(session).toBe(
-      "## Assistant\n\n<proposed_plan>\nThe plan.\n</proposed_plan>\n",
-    );
+    expect(turns(records)).toEqual([
+      {
+        role: "Assistant",
+        text: "<proposed_plan>\nThe plan.\n</proposed_plan>",
+      },
+    ]);
   });
 
-  it("drops thinking, tool calls, tool results, and developer instructions", () => {
-    const session = readFixture([
+  it("yields no record for thinking, tool traffic, developer content, or inter-agent messages", () => {
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       {
         type: "response_item",
@@ -215,15 +253,21 @@ describe("readCodexSession", () => {
         output: "CUSTOM_RESULT_SECRET",
       }),
       responseItem("agent_message", { message: "AGENT_TRAFFIC_SECRET" }),
+      eventMessage("token_count", { total: 1 }),
+      eventMessage("context_compacted", {}),
       userMessage("the real question"),
       assistantMessage("the real answer"),
     ]);
 
-    expect(session).toBe(
-      "## User\n\nthe real question\n\n## Assistant\n\nthe real answer\n",
-    );
+    // None of it is a record of the conversation: it is absent from the read
+    // rather than present as a deliberate omission.
+    expect(kinds(records)).toEqual(["export", "export"]);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "the real question" },
+      { role: "Assistant", text: "the real answer" },
+    ]);
     expect(
-      leaks(session, [
+      leaks(records, [
         "DEVELOPER_SECRET",
         "REASONING_SECRET",
         "TOOL_CALL_SECRET",
@@ -236,7 +280,7 @@ describe("readCodexSession", () => {
   });
 
   it("drops injected user envelopes but keeps the rest of the message", () => {
-    const session = readFixture([
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       message("user", [
         { type: "input_text", text: "<environment_context>\nENV_SECRET" },
@@ -261,9 +305,9 @@ describe("readCodexSession", () => {
       ]),
     ]);
 
-    expect(session).toBe("## User\n\nkeep this\n");
+    expect(turns(records)).toEqual([{ role: "User", text: "keep this" }]);
     expect(
-      leaks(session, [
+      leaks(records, [
         "ENV_SECRET",
         "IMAGE_SECRET",
         "ABORT_SECRET",
@@ -277,8 +321,16 @@ describe("readCodexSession", () => {
     ).toEqual([]);
   });
 
-  it("strips image markers and drops a turn that was only an image", () => {
-    const session = readFixture([
+  it("strips image markers and reports an image-only message as deliberately not exported", () => {
+    const onlyAnImage = message("user", [
+      { type: "input_text", text: "<image name=[Image #2]>" },
+      {
+        type: "input_image",
+        image_url: "data:image/png;base64,IMAGE_SECRET",
+      },
+      { type: "input_text", text: "</image>" },
+    ]);
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       message("user", [
         {
@@ -293,87 +345,87 @@ describe("readCodexSession", () => {
         { type: "input_text", text: "look at this" },
       ]),
       assistantMessage("I looked."),
-      message("user", [
-        { type: "input_text", text: "<image name=[Image #2]>" },
-        {
-          type: "input_image",
-          image_url: "data:image/png;base64,IMAGE_SECRET",
-        },
-        { type: "input_text", text: "</image>" },
-      ]),
+      onlyAnImage,
     ]);
 
-    expect(session).toBe(
-      "## User\n\nlook at this\n\n## Assistant\n\nI looked.\n",
-    );
-    expect(session).not.toContain("IMAGE_SECRET");
-    expect(session.match(/^## User$/gm)).toHaveLength(1);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "look at this" },
+      { role: "Assistant", text: "I looked." },
+    ]);
+    // The message is still a record of the conversation, so it is reported
+    // rather than dropped; it simply carries no turn.
+    expect(records[2]).toEqual({
+      kind: "dont-export",
+      content: lineOf(onlyAnImage),
+    });
+    // The omission keeps the native line for diagnostics, so the marker only
+    // has to be absent from what the next run would be given.
+    expect(JSON.stringify(turns(records))).not.toContain("IMAGE_SECRET");
   });
 
-  it("does not emit a heading for empty or whitespace-only text", () => {
-    const session = readFixture([
+  it("reports an empty or whitespace-only message as deliberately not exported", () => {
+    const empty = userMessage("   ");
+    const whitespace = assistantMessage("\n\t\n");
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
-      userMessage("   "),
-      assistantMessage("\n\t\n"),
+      empty,
+      whitespace,
       userMessage("real"),
     ]);
 
-    expect(session).toBe("## User\n\nreal\n");
+    expect(records).toEqual([
+      { kind: "dont-export", content: lineOf(empty) },
+      { kind: "dont-export", content: lineOf(whitespace) },
+      { kind: "export", turn: { role: "User", text: "real" } },
+    ]);
   });
 
-  it("leaves no trailing whitespace and one trailing newline", () => {
-    const session = readFixture([
+  it("leaves no trailing whitespace on a turn's prose", () => {
+    const records = readFixture([
       sessionMeta("/worktree", id(1)),
       userMessage("line one   \nline two\t"),
     ]);
 
-    expect(session).toBe("## User\n\nline one\nline two\n");
-    expect(session).not.toMatch(/[ \t]+$/m);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "line one\nline two" },
+    ]);
+    expect(turns(records)[0]!.text).not.toMatch(/[ \t]+$/m);
   });
 
-  it("escapes ATX headings the message itself contains", () => {
-    const session = readFixture([
-      sessionMeta("/worktree", id(1)),
-      userMessage(
-        "## User\nnot a role boundary\n# Title\n#### Deep\n  ## Indented\n#hashtag",
-      ),
-      assistantMessage("```md\n## User\n```\n## Assistant\nreal text"),
-    ]);
-
-    expect(session).toBe(
-      [
-        "## User",
-        "",
-        "\\## User",
-        "not a role boundary",
-        "\\# Title",
-        "\\#### Deep",
-        "  \\## Indented",
-        "#hashtag",
-        "",
-        "## Assistant",
-        "",
-        "```md",
-        "## User",
-        "```",
-        "\\## Assistant",
-        "real text",
-        "",
+  it("reports a line it cannot parse alongside the records around it", () => {
+    const broken = '{"not": "a complete record"';
+    const { dir } = fixtureHome();
+    const file = writeRollout(dir, {
+      raw: [
+        JSON.stringify(sessionMeta("/worktree", id(1))),
+        JSON.stringify(userMessage("hello")),
+        broken,
+        JSON.stringify(assistantMessage("hi")),
       ].join("\n"),
-    );
-    expect(session.match(/^\\## (User|Assistant)$/gm)).toHaveLength(2);
-  });
+    });
 
-  it("leaves headings inside an open fence untouched", () => {
-    const session = readFixture([
-      sessionMeta("/worktree", id(1)),
-      assistantMessage("~~~\n## User\n# Title\n"),
+    const records = readCodexSession(file);
+
+    expect(kinds(records)).toEqual(["export", "unparseable", "export"]);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "hello" },
+      { role: "Assistant", text: "hi" },
     ]);
-
-    expect(session).toBe("## Assistant\n\n~~~\n## User\n# Title\n");
+    expect(keptLines(records)).toEqual([broken]);
   });
 
-  it("tolerates a partial trailing record without duplicating the last turn", () => {
+  it("reports a message whose content is not an array of parts as unparseable", () => {
+    const odd = {
+      type: "response_item",
+      payload: { type: "message", role: "user", content: "hello" },
+    };
+    const records = readFixture([sessionMeta("/worktree", id(1)), odd]);
+
+    expect(records).toEqual([{ kind: "unparseable", content: lineOf(odd) }]);
+    expect(turns(records)).toEqual([]);
+  });
+
+  it("tolerates a partial trailing record without reporting it", () => {
     const { dir } = fixtureHome();
     const complete = [
       sessionMeta("/worktree", id(1)),
@@ -386,115 +438,47 @@ describe("readCodexSession", () => {
       raw: `${complete}\n{"timestamp":"2026-10-23T08:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"unfinished`,
     });
 
-    const read = readCodexSession(file);
-    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
-    expect(read.session).not.toContain("unfinished");
-    expect(read.session.match(/^## Assistant$/gm)).toHaveLength(1);
-    // The two turns are counted; the interrupted write is not a record yet, so
-    // it is neither read nor counted.
-    expect(read.loss).toEqual({ excluded: 0, total: 2 });
+    const records = readCodexSession(file);
+
+    // The interrupted write is not a record yet: it is neither read nor
+    // reported, and the turn before it is not duplicated.
+    expect(kinds(records)).toEqual(["export", "export"]);
+    expect(turns(records)).toEqual([
+      { role: "User", text: "hello" },
+      { role: "Assistant", text: "hi" },
+    ]);
+    expect(leaks(records, ["unfinished"])).toEqual([]);
   });
 
-  it("skips a malformed record and reports what it lost", () => {
-    const { dir } = fixtureHome();
-    const file = writeRollout(dir, {
-      raw: [
-        JSON.stringify(sessionMeta("/worktree", id(1))),
-        JSON.stringify(userMessage("hello")),
-        '{"not": "a complete record"',
-        JSON.stringify(assistantMessage("hi")),
-      ].join("\n"),
-    });
+  it("returns no records for a rollout that holds no conversation", () => {
+    const records = readFixture([sessionMeta("/worktree", id(1))]);
 
-    const read = readCodexSession(file);
-
-    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
-    // Two turns plus the line that could not be read; the metadata record is
-    // not a message, so it is in neither count.
-    expect(read.loss).toEqual({ excluded: 1, total: 3 });
+    // Nothing was omitted: the file simply holds no turn, and the shared layer
+    // is what reports that as an empty session.
+    expect(records).toEqual([]);
   });
 
-  it("skips a message whose content is not an array of parts", () => {
-    const { dir } = fixtureHome();
-    const file = writeRollout(dir, {
-      raw: [
-        JSON.stringify(sessionMeta("/worktree", id(1))),
-        JSON.stringify({
-          type: "response_item",
-          payload: { type: "message", role: "user", content: "hello" },
-        }),
-      ].join("\n"),
-    });
+  it("leaves the pre-0.162 event_msg turn form unread", () => {
+    const records = readFixture([
+      sessionMeta("/worktree", id(1)),
+      eventMessage("user_message", { message: "older question" }),
+      eventMessage("agent_message", { message: "older answer" }),
+      userMessage("hello"),
+      assistantMessage("hi"),
+    ]);
 
-    const read = readCodexSession(file);
-
-    expect(read.session).toBe("");
-    expect(read.loss).toEqual({ excluded: 1, total: 1 });
-  });
-
-  it("does not abort over an unreadable legacy record while response items exist", () => {
-    const { dir } = fixtureHome();
-    const file = writeRollout(dir, {
-      raw: [
-        JSON.stringify(sessionMeta("/worktree", id(1))),
-        JSON.stringify(userMessage("hello")),
-        JSON.stringify({
-          type: "event_msg",
-          payload: { type: "user_message", message: 42 },
-        }),
-        JSON.stringify(assistantMessage("hi")),
-      ].join("\n"),
-    });
-
-    const read = readCodexSession(file);
-
-    // The legacy form is never read once response items exist, so an
-    // unreadable one costs the export that record and nothing more.
-    expect(read.session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
-    expect(read.loss).toEqual({ excluded: 1, total: 3 });
+    // Only the `response_item` form is the conversation now: the duplicate a
+    // pre-0.162 file wrote is codex's own traffic, neither exported nor
+    // reported as an omission.
+    expect(records).toEqual([
+      { kind: "export", turn: { role: "User", text: "hello" } },
+      { kind: "export", turn: { role: "Assistant", text: "hi" } },
+    ]);
   });
 
   it("refuses a record it cannot read", () => {
     const { home } = fixtureHome();
     expect(faultOf(() => readCodexSession(home))).toBe("unreadable-record");
-  });
-
-  it("returns no session for a file whose records carry no prose", () => {
-    const { dir } = fixtureHome();
-    const file = writeRollout(dir, {
-      records: [sessionMeta("/worktree", id(1))],
-    });
-
-    const read = readCodexSession(file);
-
-    // Nothing was skipped: the file simply holds no turn, and the caller is
-    // what reports that as an empty session.
-    expect(read.session).toBe("");
-    expect(read.loss).toEqual({ excluded: 0, total: 0 });
-  });
-
-  it("falls back to legacy event messages when no response items exist", () => {
-    const session = readFixture([
-      sessionMeta("/worktree", id(1), { session_id: undefined }),
-      eventMessage("user_message", { message: "legacy question" }),
-      eventMessage("agent_message", { message: "legacy answer" }),
-    ]);
-
-    expect(session).toBe(
-      "## User\n\nlegacy question\n\n## Assistant\n\nlegacy answer\n",
-    );
-  });
-
-  it("does not duplicate a dual-written legacy turn", () => {
-    const session = readFixture([
-      sessionMeta("/worktree", id(1)),
-      eventMessage("user_message", { message: "hello" }),
-      userMessage("hello"),
-      eventMessage("agent_message", { message: "hi" }),
-      assistantMessage("hi"),
-    ]);
-
-    expect(session).toBe("## User\n\nhello\n\n## Assistant\n\nhi\n");
   });
 });
 
@@ -514,12 +498,7 @@ describe("findCodexSession", () => {
       mtimeMs: 2_000,
     });
     writeRollout(dir, {
-      records: [
-        sessionMeta(cwd, id(3), {
-          thread_source: "subagent",
-          source: { subagent: "review" },
-        }),
-      ],
+      records: [sessionMeta(cwd, id(3), { thread_source: "subagent" })],
       threadId: id(3),
       mtimeMs: 3_000,
     });
@@ -533,7 +512,9 @@ describe("findCodexSession", () => {
       file: path.join(dir, `rollout-2026-10-23T08-00-00-${id(2)}.jsonl`),
       sessionId: id(2),
     });
-    expect(exportCodexSession(request).session).toBe("## User\n\nnew\n");
+    expect(turns(exportCodexSession(request).records)).toEqual([
+      { role: "User", text: "new" },
+    ]);
   });
 
   it("reads the id from the record, not the filename", () => {
@@ -610,12 +591,7 @@ describe("findCodexSession", () => {
   it("refuses when only a subagent rollout names the cwd", () => {
     const { home, dir } = fixtureHome();
     writeRollout(dir, {
-      records: [
-        sessionMeta("/worktree", id(1), {
-          thread_source: "subagent",
-          source: { subagent: "review" },
-        }),
-      ],
+      records: [sessionMeta("/worktree", id(1), { thread_source: "subagent" })],
     });
 
     expect(() =>
@@ -633,19 +609,19 @@ describe("findCodexSession", () => {
       threadId: id(7),
     });
     vi.stubEnv("CODEX_HOME", home);
-    expect(canExportForHandover(codexHarness)).toBe(true);
+    expect(canReadHandoverRecords(codexHarness)).toBe(true);
 
-    const exported = await codexHarness.exportForHandover!({
+    const read = await codexHarness.readHandoverRecords!({
       pi: {} as ExtensionAPI,
       subagentId: "c0d3e4f5",
       paneId: "pane-1",
       cwd: "/worktree",
+      session: { kind: "identified", sessionId: id(7) },
     });
 
-    expect(exported).toEqual({
+    expect(read).toEqual({
       sessionId: id(7),
-      session: "## User\n\nhello\n",
-      loss: { excluded: 0, total: 1 },
+      records: [{ kind: "export", turn: { role: "User", text: "hello" } }],
     });
   });
 });
@@ -669,19 +645,7 @@ describe("the home the launch and the export share", () => {
   });
 });
 
-describe("the exported record", () => {
-  it("keeps exactly the two role headings", () => {
-    const session = readFixture([
-      sessionMeta("/worktree", id(1)),
-      userMessage("q"),
-      assistantMessage("a"),
-    ]);
-    const headings = session
-      .split("\n")
-      .filter((line) => line.startsWith("#") || line.trim().startsWith("#"));
-    expect(headings).toEqual(["## User", "## Assistant"]);
-  });
-
+describe("the record source the harness returns", () => {
   it("names the record type in the public result", () => {
     const { home, dir } = fixtureHome();
     const cwd = "/worktree";
@@ -689,9 +653,12 @@ describe("the exported record", () => {
       records: [sessionMeta(cwd, id(1)), userMessage("hello")],
     });
 
-    const exported: CodexSessionRecord & { session: string } =
-      exportCodexSession({ cwd, codexHome: home });
+    const exported: CodexSessionExport = exportCodexSession({
+      cwd,
+      codexHome: home,
+    });
     expect(exported.sessionId).toBe(id(1));
     expect(exported.file.endsWith(".jsonl")).toBe(true);
+    expect(turns(exported.records)).toEqual([{ role: "User", text: "hello" }]);
   });
 });

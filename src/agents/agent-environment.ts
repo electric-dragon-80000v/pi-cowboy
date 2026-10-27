@@ -10,7 +10,7 @@
 
 import type { AgentExecutionState, EndedRun } from "../types.js";
 import type { AgentHostRef } from "./agent-host.js";
-import type { AnyHarnessId } from "./harness.js";
+import type { AnyHarnessId, RunSessionIdentity } from "./harness.js";
 
 /**
  * The environment: the pane that a spawn's runs occupy in turn, the currently
@@ -23,6 +23,11 @@ export interface AgentEnvironment {
   readonly host: AgentHostRef | undefined;
   /** The harness occupying that pane; absent until a run engages it. */
   readonly harness: AnyHarnessId | undefined;
+  /**
+   * The session the active run is in, as that run's harness identified it: the
+   * id to read or resume it by, or the statement that no id was learned.
+   */
+  readonly session: RunSessionIdentity;
   /** Every run the environment hosted before the active one, oldest first. */
   readonly ended: readonly EndedRun[];
   /** Record the pane a launch adopted or created. */
@@ -30,9 +35,10 @@ export interface AgentEnvironment {
   /** Record the harness engaging the placed pane. */
   engage(harness: AnyHarnessId): void;
   /**
-   * Archive the active run into the history and give up the placement and the
-   * harness: a handover ends one run before the next engages an address of its
-   * own. The environment addresses nothing until that run places one.
+   * Archive the active run into the history and give up the placement, the
+   * harness, and the session that harness identified: a handover ends one run
+   * before the next engages an address of its own. The environment addresses
+   * nothing, and identifies no session, until that run places one.
    */
   end(run: EndedRun): void;
 }
@@ -44,6 +50,7 @@ export function environmentOf(
   return {
     host: execution.host,
     harness: execution.harness,
+    session: execution.session,
     ended: execution.history,
     place: (host) => {
       execution.host = host;
@@ -55,6 +62,7 @@ export function environmentOf(
       execution.history.push(run);
       execution.host = undefined;
       execution.harness = undefined;
+      execution.session = { kind: "unidentified" };
     },
   };
 }

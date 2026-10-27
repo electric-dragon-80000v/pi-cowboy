@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SubagentType, AgentInvocation } from "./agents/types.js";
 import type { AgentHostRef } from "./agents/agent-host.js";
-import type { AnyHarnessId } from "./agents/harness.js";
+import type { AnyHarnessId, RunSessionIdentity } from "./agents/harness.js";
 import type { OrchestratorConfig } from "./orchestrators/types.js";
 
 /**
@@ -399,6 +399,12 @@ export interface AgentExecutionState {
    * that tears it down, regardless of later config changes.
    */
   harness?: AnyHarnessId;
+  /**
+   * The session the active run is in. A run whose session was never identified
+   * records that fact rather than leaving a reader to read an absent id, and it
+   * is given up with the run when the environment archives one.
+   */
+  session: RunSessionIdentity;
   /** Every run this environment hosted before the active one, oldest first. */
   history: EndedRun[];
   /** Opened exactly once at the terminal transition; never the run's own promise. */

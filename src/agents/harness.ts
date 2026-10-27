@@ -486,6 +486,26 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 }
 
 /**
+ * How the run in a spawn's environment is addressed by its harness's own session
+ * id: the id that harness gave that run, or the statement that no id was learned
+ * for it. Identity is never inferred from the tree the run worked in, where
+ * another session's record can be the newest one.
+ */
+export type RunSessionIdentity =
+  | {
+      /** The id the harness resumes this run's session by. */
+      readonly kind: "identified";
+      readonly sessionId: string;
+    }
+  | {
+      /**
+       * No id was learned for the run occupying the environment, so its session
+       * cannot be read or resumed by id.
+       */
+      readonly kind: "unidentified";
+    };
+
+/**
  * What a harness is asked for when one run is handed over. The address is the
  * run's own, not the spawn's: a handover's earlier run sits in a pane the next
  * run never occupies.
@@ -496,6 +516,12 @@ export interface HarnessExportRequest {
   readonly paneId: string;
   /** The tree the run ran in; a harness that keys sessions by directory reads it. */
   readonly cwd: string;
+  /**
+   * The session the run is in, as the spawn's store learned it from the
+   * harness: the harness's own id for that run, or the statement that no id was
+   * learned.
+   */
+  readonly session: RunSessionIdentity;
 }
 
 /**

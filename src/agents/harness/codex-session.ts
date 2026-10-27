@@ -6,15 +6,16 @@
  * `$CODEX_HOME/sessions/YYYY/MM/DD/`. The file is the session: it carries the
  * connection's `session_meta` (its thread id and the cwd the run started in)
  * and every `response_item` the model exchanged. This module resolves the file
- * for a run's cwd, recovers the user and assistant prose, and returns the
- * thread id the CLI resumes by.
+ * for a run's cwd and classifies the conversation records it holds into the
+ * shared handover vocabulary; rendering the artifact, counting the loss, and
+ * applying the exclusion policy all belong to the shared handover layer.
  *
  * The cwd is the lookup key because a run owns one worktree. The newest
  * rollout whose metadata names that cwd belongs to the live (settled) run:
  * its file is opened when the process starts and written on every turn, so no
  * earlier session in the same worktree can be newer. Subagent rollouts share
- * the parent's cwd and must be excluded; older versions mark them only in
- * `source`, newer ones also in `thread_source`.
+ * the parent's cwd and must be excluded, and `thread_source` is what marks
+ * one.
  *
  * The id is read from `session_meta.payload.id`, never parsed from the
  * filename. A reverted thread's filename appends `_<rollout id>` after its
@@ -24,6 +25,20 @@
  * Which home to look in is resolved here too (`codexHomeDirectory`), because
  * the launch hands the child that same value: one resolver, so the store the
  * child writes and the store this reader scans cannot be told apart.
+ *
+ * The store's shapes are the schema module's (`codex-session-schema.ts`): what a
+ * rollout's first line and each following line are is decided there, and this
+ * module reads only what those schemas accepted.
+ *
+ * A rollout line is one of three things to this reader. A conversation record
+ * whose prose survived codex's own filtering is a turn. A conversation record
+ * that codex emptied or injected — an image-only message, an injected
+ * user-role envelope — is still a record of the conversation, so it is reported
+ * as deliberately not exported and the shared layer keeps it in the count. A
+ * record that should carry a turn and cannot be interpreted is reported as
+ * such. Everything else in the store — metadata, reasoning, tool calls and
+ * their results, token counts, turn state — was never conversation and yields
+ * no record at all, so it cannot be mistaken for loss.
  */
 
 import {
@@ -37,13 +52,14 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { z } from "zod";
 import { canonicalPath, expandTilde } from "../../paths.js";
+import { SessionExportError, type HandoverRecord } from "../harness.js";
 import {
-  SessionExportError,
-  type HarnessExportLoss,
-  type SessionExportTurn,
-} from "../harness.js";
+  RolloutLineSchema,
+  SessionMetaSchema,
+  type RolloutRecord,
+  type Turn,
+} from "./codex-session-schema.js";
 
 /** The directory holding every rollout, under codex's own home. */
 const SESSIONS_SUBDIR = "sessions";
@@ -79,30 +95,18 @@ const INJECTED_USER_PREFIXES: readonly string[] = [
 const IMAGE_MARKER = /<\/?image\b[^>]*>/g;
 
 /**
- * The first line of a rollout, as the lookup reads it. Only `session_meta` is
- * a candidate: every file starts with one. `id` must survive trimming, and a
- * file without it cannot name a session to resume, so it is no candidate.
- * `thread_source` and `source` are the two marks of a subagent rollout, and
- * differ in shape between versions, so their contents are read separately.
+ * One rollout line the reader kept: its native text, and the record that text
+ * validated as. The text rides along because a record the reader cannot
+ * interpret is reported by the line it could not read, and the shared layer
+ * counts that as loss.
  */
-const SessionMetaSchema = z.object({
-  type: z.literal("session_meta"),
-  payload: z.object({
-    id: z.string().trim().min(1),
-    cwd: z.string().min(1),
-    thread_source: z.unknown().optional(),
-    source: z.unknown().optional(),
-  }),
-});
-
-/** One content part of a message; a part that is not text carries no `text`. */
-const ContentPartSchema = z.object({
-  type: z.string(),
-  text: z.unknown().optional(),
-});
-
-/** A message's content: the parts in order, or a record this reader refuses. */
-const MessageContentSchema = z.array(ContentPartSchema);
+type RolloutLine =
+  | {
+      readonly kind: "record";
+      readonly content: string;
+      readonly record: RolloutRecord;
+    }
+  | { readonly kind: "unreadable"; readonly content: string };
 
 /** Where a run's session lives and the id the CLI resumes it by. */
 export interface CodexSessionRecord {
@@ -116,16 +120,9 @@ export interface CodexSessionExportRequest {
   readonly codexHome: string;
 }
 
-/** A session as this harness exports it, with the record it came from. */
+/** A session as this harness reads it, with the record it came from. */
 export interface CodexSessionExport extends CodexSessionRecord {
-  readonly session: string;
-  readonly loss: HarnessExportLoss;
-}
-
-/** One rollout read: its conversation, and the records the reader skipped. */
-export interface CodexSessionRead {
-  readonly session: string;
-  readonly loss: HarnessExportLoss;
+  readonly records: readonly HandoverRecord[];
 }
 
 /**
@@ -196,39 +193,30 @@ export function findCodexSession(
   return { file: best.file, sessionId: best.sessionId };
 }
 
-/** Read one run's session and the resume id its record names. */
+/** Read one run's session records and the resume id its metadata names. */
 export function exportCodexSession(
   request: CodexSessionExportRequest,
 ): CodexSessionExport {
   const record = findCodexSession(request);
-  const read = readCodexSession(record.file);
   return {
     file: record.file,
     sessionId: record.sessionId,
-    session: read.session,
-    loss: read.loss,
+    records: readCodexSession(record.file),
   };
 }
 
 /**
- * The conversation in a rollout as markdown, with what the reader had to leave
- * out. Only `## User` and `## Assistant` blocks survive; tool traffic,
- * reasoning, developer instructions, injected user envelopes, and ids are
- * dropped. ATX headings the message itself contains are escaped, so no content
- * line can be read as a role boundary.
+ * Classify the conversation records of a rollout into the shared handover
+ * vocabulary, in file order.
  *
- * `response_item` message records are the conversation. Versions before about
- * 0.162 also wrote a duplicate `event_msg` pair for each turn; that form is
- * read only when a file has no `response_item` message at all, so a legacy
- * file still exports and a dual-written file cannot emit every turn twice.
+ * `response_item` message records are the conversation.
  *
- * A record this reader cannot use is skipped and counted, never fatal on its
- * own: an unreadable line is excluded without aborting the export, and the
- * caller decides whether the loss is too large to hand over. An unterminated
- * final line is a write interrupted mid-record — not a record at all, so it
- * is neither read nor counted.
+ * A line this reader cannot interpret is reported, never fatal on its own: the
+ * reader returns, and the shared layer decides whether the loss is too large
+ * to hand over. An unterminated final line is a write interrupted mid-record —
+ * not a record at all, so it is neither read nor reported.
  */
-export function readCodexSession(file: string): CodexSessionRead {
+export function readCodexSession(file: string): readonly HandoverRecord[] {
   let text: string;
   try {
     text = readFileSync(file, "utf8");
@@ -242,9 +230,8 @@ export function readCodexSession(file: string): CodexSessionRead {
   const lines = text.split("\n");
   // The record the binary may still be appending: the last non-blank line of a
   // file that does not end in a newline. Only this line, when unreadable, is a
-  // torn write rather than a loss — it is not a record yet, so it is neither
-  // read nor counted. An unterminated line that is readable is processed as a
-  // complete record.
+  // torn write rather than a loss — it is not a record yet. An unterminated
+  // line that is readable is processed as a complete record.
   let torn = -1;
   if (!text.endsWith("\n")) {
     for (let index = lines.length - 1; index >= 0; index -= 1) {
@@ -255,112 +242,70 @@ export function readCodexSession(file: string): CodexSessionRead {
     }
   }
 
-  const turns: SessionExportTurn[] = [];
-  const legacyTurns: SessionExportTurn[] = [];
-  let sawResponseMessage = false;
-  // Message records the export was built from, plus the lines it could not
-  // classify. A store's tool traffic is not part of either count.
-  let total = 0;
-  let excluded = 0;
-
+  const kept: RolloutLine[] = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const raw = lines[index]!.trim();
-    if (raw === "") continue;
-
-    let record: unknown;
+    const line = lines[index]!;
+    if (line.trim() === "") continue;
+    let value: unknown;
     try {
-      record = JSON.parse(raw);
+      value = JSON.parse(line.trim());
     } catch {
       if (index === torn) continue;
-      total += 1;
-      excluded += 1;
+      kept.push({ kind: "unreadable", content: line });
       continue;
     }
-    if (!isRecord(record)) {
-      if (index === torn) continue;
-      total += 1;
-      excluded += 1;
-      continue;
-    }
-
-    if (record.type === "response_item") {
-      const payload = record.payload;
-      if (!isRecord(payload) || payload.type !== "message") continue;
-      const role = payload.role;
-      if (role !== "user" && role !== "assistant") continue;
-      sawResponseMessage = true;
-      total += 1;
-      const read = responseTurn(payload, role);
-      if (read.kind === "excluded") {
-        excluded += 1;
-        continue;
-      }
-      if (read.turn !== undefined) turns.push(read.turn);
-      continue;
-    }
-
-    if (record.type !== "event_msg") continue;
-    const payload = record.payload;
-    if (!isRecord(payload)) {
-      total += 1;
-      excluded += 1;
-      continue;
-    }
-    const type = payload.type;
-    if (type !== "user_message" && type !== "agent_message") continue;
-    total += 1;
-    if (typeof payload.message !== "string") {
-      excluded += 1;
-      continue;
-    }
-    const role = type === "user_message" ? "User" : "Assistant";
-    const content =
-      role === "User"
-        ? userText([payload.message])
-        : normalizeText(payload.message);
-    if (content !== "") legacyTurns.push({ role, text: content });
+    const record = RolloutLineSchema.safeParse(value);
+    kept.push(
+      record.success
+        ? { kind: "record", content: line, record: record.data }
+        : { kind: "unreadable", content: line },
+    );
   }
 
-  const conversation = sawResponseMessage ? turns : legacyTurns;
-  return {
-    session: conversation.length === 0 ? "" : renderConversation(conversation),
-    loss: { excluded, total },
-  };
+  const records: HandoverRecord[] = [];
+  for (const line of kept) {
+    const record = classifyLine(line);
+    if (record !== undefined) records.push(record);
+  }
+  return records;
 }
 
-/**
- * One `response_item` message read as a turn, or the record this reader could
- * not read. A turn is absent when the message survived but said nothing.
- */
-type MessageRead =
-  | { readonly kind: "read"; readonly turn: SessionExportTurn | undefined }
-  | { readonly kind: "excluded" };
-
-/** One `response_item` message as a turn, or why it could not be read. */
-function responseTurn(
-  payload: Record<string, unknown>,
-  role: "user" | "assistant",
-): MessageRead {
-  const content = MessageContentSchema.safeParse(payload.content);
-  if (!content.success) return { kind: "excluded" };
-
-  const parts: string[] = [];
-  for (const part of content.data) {
-    const expected = role === "user" ? "input_text" : "output_text";
-    if (part.type !== expected) continue;
-    if (typeof part.text !== "string") return { kind: "excluded" };
-    parts.push(part.text);
+/** One rollout line in the shared vocabulary, or nothing when it is not conversation. */
+function classifyLine(line: RolloutLine): HandoverRecord | undefined {
+  if (line.kind === "unreadable") {
+    return { kind: "unparseable", content: line.content };
   }
+  const record = line.record;
+  switch (record.kind) {
+    // Store traffic was never the conversation, so it is absent from the read
+    // rather than present as a deliberate omission.
+    case "traffic":
+      return undefined;
+    case "turn":
+      return responseItemTurn(record, line.content);
+  }
+}
 
+/** A `response_item` message as a turn: the prose of the parts its role writes. */
+function responseItemTurn(turn: Turn, content: string): HandoverRecord {
+  const expected = turn.role === "user" ? "input_text" : "output_text";
+  const prose = turn.parts.flatMap((part) =>
+    part.kind === "prose" && part.type === expected ? [part.text] : [],
+  );
   const text =
-    role === "user" ? userText(parts) : normalizeText(parts.join("\n\n"));
-  return {
-    kind: "read",
-    turn:
-      text === ""
-        ? undefined
-        : { role: role === "user" ? "User" : "Assistant", text },
-  };
+    turn.role === "user" ? userText(prose) : normalizeText(prose.join("\n\n"));
+  return turnRecord(turn.role === "user" ? "User" : "Assistant", text, content);
+}
+
+/** A turn when the prose survived, and a deliberate omission when it did not. */
+function turnRecord(
+  role: "User" | "Assistant",
+  text: string,
+  content: string,
+): HandoverRecord {
+  return text === ""
+    ? { kind: "dont-export", content }
+    : { kind: "export", turn: { role, text } };
 }
 
 /** The surviving prose of a user message, with injected material removed. */
@@ -389,49 +334,6 @@ function normalizeText(text: string): string {
     lines.pop();
   }
   return lines.join("\n");
-}
-
-/**
- * Escape an ATX heading the message itself contains, so the only headings in
- * the export are the role separators. A line that reads `## User` would
- * otherwise be indistinguishable from a role boundary. Fenced code is left
- * untouched: there a leading `#` is literal text, not a heading.
- */
-function escapeHeadings(text: string): string {
-  let fence: string | undefined;
-  return text
-    .split("\n")
-    .map((line) => {
-      const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (fenceMatch !== null) {
-        const marker = fenceMatch[1]!;
-        if (fence === undefined) {
-          fence = marker;
-        } else if (
-          marker[0] === fence[0] &&
-          marker.length >= fence.length &&
-          fenceMatch[2]!.trim() === ""
-        ) {
-          fence = undefined;
-        }
-        return line;
-      }
-      if (fence !== undefined) return line;
-
-      const headingMatch = /^( {0,3})#{1,6}(?=\s|$)/.exec(line);
-      if (headingMatch === null) return line;
-      const indent = headingMatch[1]!;
-      return `${indent}\\${line.slice(indent.length)}`;
-    })
-    .join("\n");
-}
-
-/** The artifact: role headings and prose, one blank line between blocks. */
-function renderConversation(turns: readonly SessionExportTurn[]): string {
-  const blocks = turns.map(
-    (turn) => `## ${turn.role}\n\n${escapeHeadings(turn.text)}`,
-  );
-  return `${blocks.join("\n\n")}\n`;
 }
 
 /** Every rollout file below the sessions root, at any date depth. */
@@ -483,9 +385,7 @@ function readSessionMeta(file: string): SessionMetaSummary | undefined {
   return {
     id: payload.id,
     cwd: payload.cwd,
-    subagent:
-      payload.thread_source === "subagent" ||
-      (isRecord(payload.source) && "subagent" in payload.source),
+    subagent: payload.thread_source === "subagent",
   };
 }
 
@@ -542,9 +442,4 @@ function canonicalSpelling(value: string): string {
 /** The detail an unknown thrown value carries. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** Whether a parsed JSON value is an object rather than a scalar or array. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

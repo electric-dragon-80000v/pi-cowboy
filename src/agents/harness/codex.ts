@@ -38,12 +38,15 @@
  * no tools flag, so there is no tool pair to stage, and the shared
  * `toolSelection` a codex launch receives is left unread.
  *
- * `exportForHandover` reads the run's rollout from codex's own session store:
+ * `readHandoverRecords` reads the run's rollout from codex's own session store:
  * the newest session file whose metadata names the run's cwd, with the thread
- * id that `codex resume` accepts. The reader lives in codex-session.ts so the
- * artifact and the lookup can be tested without a process, and the home that
- * store lives under is resolved there too — the launch hands the child that
- * same home (`inheritedEnv`), so the child writes where the export reads.
+ * id that `codex resume` accepts and the conversation records it holds classified
+ * into the shared handover vocabulary. Rendering the transcript and counting the
+ * loss are the shared layer's, so nothing here reproduces them. The reader lives
+ * in codex-session.ts so the classification and the lookup can be tested without
+ * a process, and the home that store lives under is resolved there too — the
+ * launch hands the child that same home (`inheritedEnv`), so the child writes
+ * where the export reads.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -419,18 +422,14 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   teardown: async () => {},
   // The run's cwd is its worktree, and codex keys each rollout by the cwd it
   // started in. The process is still alive when this is called, so its file is
-  // the newest one for that cwd. A record the reader cannot use is skipped
-  // rather than fatal: the export reports the count of skipped records, and the
-  // caller decides whether the loss is too large to hand over.
-  exportForHandover: async ({ cwd }) => {
-    const exported = exportCodexSession({
+  // the newest one for that cwd. The reader classifies what the file holds and
+  // returns it; a record it cannot interpret is reported rather than fatal, and
+  // the shared layer decides whether that loss is too large to hand over.
+  readHandoverRecords: async ({ cwd }) => {
+    const { sessionId, records } = exportCodexSession({
       cwd,
       codexHome: codexHomeDirectory(),
     });
-    return {
-      sessionId: exported.sessionId,
-      session: exported.session,
-      loss: exported.loss,
-    };
+    return { sessionId, records };
   },
 };
