@@ -21,10 +21,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SessionExportError } from "../src/agents/harness.js";
+import { completeHandoverExport } from "../src/agents/handover.js";
 import { claudeHarness } from "../src/agents/harness/claude/index.js";
 import {
-  exportClaudeSession,
   readClaudeSession,
+  readClaudeSessionRecords,
 } from "../src/agents/harness/claude/session-export.js";
 import { claudeProjectDir } from "../src/agents/harness/claude/staging.js";
 
@@ -117,7 +118,7 @@ function writeSession(
 
 /** Export the fixture store. */
 function exportFixture() {
-  return exportClaudeSession({ configDir, cwd });
+  return completeHandoverExport(readClaudeSessionRecords({ configDir, cwd }));
 }
 
 /** The typed reason an export refused with. */
@@ -151,7 +152,7 @@ describe("claudeProjectDir", () => {
   });
 });
 
-describe("exportClaudeSession", () => {
+describe("readClaudeSessionRecords", () => {
   it("renders user and assistant prose as the two headings, in order", () => {
     writeSession([
       user("What the user said."),
@@ -370,7 +371,7 @@ describe("exportClaudeSession", () => {
     expect(exportFixture().session).toBe("## User\n\nfirst\n");
   });
 
-  it("still refuses a malformed line that is not the trailing one", () => {
+  it("reports a malformed middle line as loss and keeps readable records", () => {
     const file = writeSession([
       user("first"),
       assistant({ type: "text", text: "second" }),
@@ -381,14 +382,22 @@ describe("exportClaudeSession", () => {
       "utf8",
     );
 
-    expect(faultOf(exportFixture)).toBe("malformed-record");
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session: "## User\n\nfirst\n\n## Assistant\n\nsecond\n",
+      loss: { excluded: 1, total: 3 },
+    });
   });
 
-  it("refuses a JSON value that is not a claude session record", () => {
+  it("reports a JSON value that is not a claude session record as loss", () => {
     const file = writeSession([user("first")]);
     writeFileSync(file, `${JSON.stringify([user("not a record")])}\n`, "utf8");
 
-    expect(faultOf(exportFixture)).toBe("malformed-record");
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session: "",
+      loss: { excluded: 1, total: 1 },
+    });
   });
 
   it("returns the id the records carry when it is the file's id", () => {
@@ -400,32 +409,42 @@ describe("exportClaudeSession", () => {
     expect(exportFixture().sessionId).toBe(OTHER_SESSION_ID);
   });
 
-  it("refuses when the file name and the records disagree", () => {
+  it("reports records whose session differs from the pinned file as loss", () => {
     writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello")], { name: `${OTHER_SESSION_ID}.jsonl` });
 
-    expect(faultOf(exportFixture)).toBe("malformed-record");
+    expect(exportFixture()).toEqual({
+      sessionId: OTHER_SESSION_ID,
+      session: "",
+      loss: { excluded: 1, total: 1 },
+    });
   });
 
-  it("refuses records that name no session", () => {
+  it("reports records that name no session as loss", () => {
     writeRunRecord(OTHER_SESSION_ID);
     writeSession(
       [{ type: "user", message: { role: "user", content: "hello" } }],
-      {
-        name: `${OTHER_SESSION_ID}.jsonl`,
-      },
+      { name: `${OTHER_SESSION_ID}.jsonl` },
     );
 
-    expect(faultOf(exportFixture)).toBe("missing-session-id");
+    expect(exportFixture()).toEqual({
+      sessionId: OTHER_SESSION_ID,
+      session: "",
+      loss: { excluded: 1, total: 1 },
+    });
   });
 
-  it("refuses a non-UUID session id", () => {
+  it("reports a non-UUID record session id as loss", () => {
     writeRunRecord(OTHER_SESSION_ID);
     writeSession([user("hello", { sessionId: "not-a-uuid" })], {
       name: `${OTHER_SESSION_ID}.jsonl`,
     });
 
-    expect(faultOf(exportFixture)).toBe("malformed-record");
+    expect(exportFixture()).toEqual({
+      sessionId: OTHER_SESSION_ID,
+      session: "",
+      loss: { excluded: 1, total: 1 },
+    });
   });
 
   it("refuses when there is no project directory", () => {
@@ -498,7 +517,7 @@ describe("exportClaudeSession", () => {
     expect(faultOf(exportFixture)).toBe("session-not-found");
   });
 
-  it("refuses a conversation record without a readable message", () => {
+  it("reports a conversation record without a readable message as loss", () => {
     writeSession([
       {
         type: "user",
@@ -507,28 +526,34 @@ describe("exportClaudeSession", () => {
       },
     ]);
 
-    expect(faultOf(exportFixture)).toBe("malformed-record");
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session: "",
+      loss: { excluded: 1, total: 1 },
+    });
   });
 
   it("fails an unknown session file with the unreadable-record fault", () => {
     expect(
-      faultOf(() => readClaudeSession(join(configDir, "missing.jsonl"))),
+      faultOf(() =>
+        readClaudeSession(join(configDir, "missing.jsonl"), SESSION_ID),
+      ),
     ).toBe("unreadable-record");
   });
 
-  it("refuses a session with no prose after filtering", () => {
+  it("returns no turns when every readable record is deliberately omitted", () => {
     writeSession([
       assistant({ type: "thinking", thinking: "only thinking" }),
       assistant({ type: "tool_use", id: "t", name: "Read", input: {} }),
     ]);
 
-    expect(faultOf(exportFixture)).toBe("empty-session");
+    expect(exportFixture()).toEqual({ sessionId: SESSION_ID, session: "" });
   });
 
-  it("refuses an empty file", () => {
+  it("returns no turns for an empty file", () => {
     writeSession([]);
 
-    expect(faultOf(exportFixture)).toBe("empty-session");
+    expect(exportFixture()).toEqual({ sessionId: SESSION_ID, session: "" });
   });
 
   it("ignores the record fields the export does not read", () => {
@@ -562,7 +587,7 @@ describe("exportClaudeSession", () => {
   });
 });
 
-describe("claudeHarness.exportForHandover", () => {
+describe("claudeHarness.readHandoverRecords", () => {
   /** The real TMPDIR, put back after every test. */
   let realTmpdir: string | undefined;
 
@@ -597,14 +622,14 @@ describe("claudeHarness.exportForHandover", () => {
       `${JSON.stringify(user("hook prompt"))}\n${JSON.stringify(assistant({ type: "text", text: "hook answer" }))}\n`,
     );
 
-    const exported = await claudeHarness.exportForHandover?.({
+    const exported = await claudeHarness.readHandoverRecords?.({
       pi: {} as unknown as ExtensionAPI,
       subagentId: SUBAGENT_ID,
       paneId: "w1:p9",
       cwd: hookCwd,
     });
 
-    expect(exported).toEqual({
+    expect(completeHandoverExport(exported!)).toEqual({
       sessionId: SESSION_ID,
       session: "## User\n\nhook prompt\n\n## Assistant\n\nhook answer\n",
     });

@@ -1910,9 +1910,9 @@ describe("handover", () => {
     // The capability is absent on a harness entry, whatever the built-in pi
     // entry carries.
     const withoutExport = {
-      ...exportingPi(async () => ({ sessionId: "unused", session: "unused" })),
+      ...exportingPi(async () => ({ sessionId: "unused", records: [] })),
     };
-    delete withoutExport.exportForHandover;
+    delete withoutExport.readHandoverRecords;
     registry.overrides.set("pi", withoutExport);
 
     try {

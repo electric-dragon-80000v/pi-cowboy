@@ -30,15 +30,12 @@
  * rollout's first line and each following line are is decided there, and this
  * module reads only what those schemas accepted.
  *
- * A rollout line is one of three things to this reader. A conversation record
- * whose prose survived codex's own filtering is a turn. A conversation record
- * that codex emptied or injected — an image-only message, an injected
- * user-role envelope — is still a record of the conversation, so it is reported
- * as deliberately not exported and the shared layer keeps it in the count. A
- * record that should carry a turn and cannot be interpreted is reported as
- * such. Everything else in the store — metadata, reasoning, tool calls and
- * their results, token counts, turn state — was never conversation and yields
- * no record at all, so it cannot be mistaken for loss.
+ * Every complete rollout line is represented in the shared vocabulary. A
+ * conversation record whose prose survived codex's own filtering is a turn;
+ * one codex emptied or injected — an image-only message or injected user-role
+ * envelope — is deliberately not exported. Metadata, reasoning, tool calls,
+ * their results, token counts, and turn state are likewise readable but not
+ * transferable. A line the reader cannot interpret is reported as such.
  */
 
 import {
@@ -262,25 +259,18 @@ export function readCodexSession(file: string): readonly HandoverRecord[] {
     );
   }
 
-  const records: HandoverRecord[] = [];
-  for (const line of kept) {
-    const record = classifyLine(line);
-    if (record !== undefined) records.push(record);
-  }
-  return records;
+  return kept.map(classifyLine);
 }
 
-/** One rollout line in the shared vocabulary, or nothing when it is not conversation. */
-function classifyLine(line: RolloutLine): HandoverRecord | undefined {
+/** One complete rollout line in the shared vocabulary. */
+function classifyLine(line: RolloutLine): HandoverRecord {
   if (line.kind === "unreadable") {
     return { kind: "unparseable", content: line.content };
   }
   const record = line.record;
   switch (record.kind) {
-    // Store traffic was never the conversation, so it is absent from the read
-    // rather than present as a deliberate omission.
     case "traffic":
-      return undefined;
+      return { kind: "dont-export", content: line.content };
     case "turn":
       return responseItemTurn(record, line.content);
   }

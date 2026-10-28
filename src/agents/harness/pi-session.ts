@@ -13,10 +13,10 @@
  * The format is one implementation; only the store differs (see pi-store.ts and
  * pig-store.ts), so a new binary in the family adds a store and no reader.
  *
- * The artifact is prose only. The record set also carries thinking, tool calls,
- * tool results, system content, images, compaction and extension entries; all of
- * them are dropped here, because the next harness reads the result as a
- * conversation and nothing else.
+ * Every complete record becomes transferable prose, a deliberate omission, or
+ * an unparseable record. Thinking, tool calls, tool results, system content,
+ * images, compaction, and extension entries are readable omissions; shared
+ * handover code alone renders the transcript and applies loss policy.
  */
 
 import { readFile, readdir } from "node:fs/promises";
@@ -27,9 +27,9 @@ import { isRecord, nonEmpty } from "../../predicates.js";
 import { errorMessage } from "../../utils.js";
 import {
   SessionExportError,
-  type HarnessExport,
-  type HarnessExportForHandover,
-  type SessionExportTurn,
+  type HandoverRecord,
+  type HandoverRecordSource,
+  type ReadHandoverRecords,
 } from "../harness.js";
 
 /**
@@ -212,14 +212,14 @@ async function readLatestSessionName(
 }
 
 /**
- * Export one session file: its header id and its user/assistant text as
- * markdown. Only `type:"message"` records with role user or assistant
- * contribute, and only their `text` parts survive; thinking, tool calls, tool
- * results, system turns, and non-message records are not content.
+ * Read one session file into countable native records. Every complete entry is
+ * returned as transferable prose, a deliberate omission, or an unreadable
+ * record; shared handover code renders the surviving turns and applies loss
+ * policy.
  */
 export async function readSessionFile(
   filePath: string,
-): Promise<HarnessExport> {
+): Promise<HandoverRecordSource> {
   const content = await readSessionFileContent(filePath);
   const partialTail = !content.endsWith("\n");
   const lines = content.split("\n");
@@ -228,7 +228,7 @@ export async function readSessionFile(
   if (!partialTail) lines.pop();
 
   let header: SessionHeader | undefined;
-  const turns: SessionExportTurn[] = [];
+  const records: HandoverRecord[] = [];
 
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
@@ -239,12 +239,20 @@ export async function readSessionFile(
       parsed = JSON.parse(line);
     } catch {
       if (partialTail && index === lines.length - 1) break;
+      if (header !== undefined) {
+        records.push({ kind: "unparseable", content: line });
+        continue;
+      }
       throw new SessionExportError(
         "malformed-record",
         `malformed session record in ${filePath} at line ${index + 1}`,
       );
     }
     if (!isRecord(parsed)) {
+      if (header !== undefined) {
+        records.push({ kind: "unparseable", content: line });
+        continue;
+      }
       throw new SessionExportError(
         "malformed-record",
         `malformed session record in ${filePath} at line ${index + 1}`,
@@ -253,11 +261,11 @@ export async function readSessionFile(
 
     if (header === undefined) {
       header = readHeader(parsed, filePath);
+      records.push({ kind: "dont-export", content: line });
       continue;
     }
 
-    const turn = readTurn(parsed, filePath, index + 1);
-    if (turn !== undefined) turns.push(turn);
+    records.push(readTurn(parsed, line));
   }
 
   if (header === undefined) {
@@ -266,17 +274,7 @@ export async function readSessionFile(
       `session record ${filePath} has no session header`,
     );
   }
-  if (turns.length === 0) {
-    throw new SessionExportError(
-      "empty-session",
-      `session record ${filePath} (${header.id}) has no user or assistant text`,
-    );
-  }
-
-  return {
-    sessionId: header.id,
-    session: renderTurns(turns),
-  };
+  return { sessionId: header.id, records };
 }
 
 async function readSessionFileContent(filePath: string): Promise<string> {
@@ -330,35 +328,33 @@ function readHeader(
   return { id };
 }
 
-/** One message record as a turn, or nothing when it carries no prose. */
+/** One complete native record in the shared vocabulary. */
 function readTurn(
   record: Record<string, unknown>,
-  filePath: string,
-  lineNumber: number,
-): SessionExportTurn | undefined {
-  if (record.type !== "message") return undefined;
-
+  content: string,
+): HandoverRecord {
+  if (record.type !== "message") {
+    return { kind: "dont-export", content };
+  }
   if (!isRecord(record.message)) {
-    throw new SessionExportError(
-      "malformed-record",
-      `session record ${filePath} has no message body at line ${lineNumber}`,
-    );
+    return { kind: "unparseable", content };
   }
 
   const role = record.message.role;
-  if (role !== "user" && role !== "assistant") return undefined;
-
-  const content = MessageContentSchema.safeParse(record.message.content);
-  if (!content.success) {
-    throw new SessionExportError(
-      "malformed-record",
-      `session record ${filePath} has unusable message content at line ${lineNumber}`,
-    );
+  if (role !== "user" && role !== "assistant") {
+    return { kind: "dont-export", content };
   }
 
-  const text = messageText(content.data);
-  if (text === "") return undefined;
-  return { role: role === "user" ? "User" : "Assistant", text };
+  const parts = MessageContentSchema.safeParse(record.message.content);
+  if (!parts.success) return { kind: "unparseable", content };
+
+  const text = messageText(parts.data);
+  return text === ""
+    ? { kind: "dont-export", content }
+    : {
+        kind: "export",
+        turn: { role: role === "user" ? "User" : "Assistant", text },
+      };
 }
 
 /**
@@ -377,7 +373,7 @@ function messageText(content: readonly unknown[]): string {
   }
   if (parts.length === 0) return "";
 
-  return escapeContentHeadings(parts.join("\n\n"));
+  return parts.join("\n\n");
 }
 
 /** Consistent newlines, no trailing whitespace, no blank margin. */
@@ -389,54 +385,13 @@ function normalizeText(text: string): string {
 }
 
 /**
- * Escape an ATX heading the message itself contains, so the only headings in
- * the export are the role separators. A message line that reads `## User`
- * would otherwise be indistinguishable from a role boundary. Fenced code is
- * left untouched: there a leading `#` is literal text, not a heading.
+ * One store's handover record read: resolve the directory the run wrote into,
+ * find the file it named after itself, and classify it. The run's own cwd is
+ * the address both the directory and the lookup are keyed by.
  */
-function escapeContentHeadings(text: string): string {
-  let fence: string | undefined;
-  return text
-    .split("\n")
-    .map((line) => {
-      const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (fenceMatch !== null) {
-        const marker = fenceMatch[1]!;
-        if (fence === undefined) {
-          fence = marker;
-        } else if (
-          marker[0] === fence[0] &&
-          marker.length >= fence.length &&
-          fenceMatch[2]!.trim() === ""
-        ) {
-          fence = undefined;
-        }
-        return line;
-      }
-      if (fence !== undefined) return line;
-
-      const headingMatch = /^( {0,3})#{1,6}(?=\s|$)/.exec(line);
-      if (headingMatch === null) return line;
-      return `${headingMatch[1]!}\\${line.slice(headingMatch[1]!.length)}`;
-    })
-    .join("\n");
-}
-
-/** One blank line between blocks, exactly one final newline. */
-function renderTurns(turns: readonly SessionExportTurn[]): string {
-  return `${turns
-    .map((turn) => `## ${turn.role}\n\n${turn.text}`)
-    .join("\n\n")}\n`;
-}
-
-/**
- * One store's handover export: resolve the directory the run wrote into, find
- * the file it named after itself, and read it. The run's own cwd is the address
- * both the directory and the lookup are keyed by.
- */
-export function exportForHandoverOf(
+export function readHandoverRecordsOf(
   store: SessionStore,
-): HarnessExportForHandover {
+): ReadHandoverRecords {
   return async ({ subagentId, cwd }) => {
     const sessionDir = await store.sessionDir(cwd, process.env);
     const file = await findSessionFile(sessionDir, subagentId, cwd);

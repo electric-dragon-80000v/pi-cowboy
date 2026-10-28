@@ -486,26 +486,6 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
 }
 
 /**
- * How the run in a spawn's environment is addressed by its harness's own session
- * id: the id that harness gave that run, or the statement that no id was learned
- * for it. Identity is never inferred from the tree the run worked in, where
- * another session's record can be the newest one.
- */
-export type RunSessionIdentity =
-  | {
-      /** The id the harness resumes this run's session by. */
-      readonly kind: "identified";
-      readonly sessionId: string;
-    }
-  | {
-      /**
-       * No id was learned for the run occupying the environment, so its session
-       * cannot be read or resumed by id.
-       */
-      readonly kind: "unidentified";
-    };
-
-/**
  * What a harness is asked for when one run is handed over. The address is the
  * run's own, not the spawn's: a handover's earlier run sits in a pane the next
  * run never occupies.
@@ -516,19 +496,13 @@ export interface HarnessExportRequest {
   readonly paneId: string;
   /** The tree the run ran in; a harness that keys sessions by directory reads it. */
   readonly cwd: string;
-  /**
-   * The session the run is in, as the spawn's store learned it from the
-   * harness: the harness's own id for that run, or the statement that no id was
-   * learned.
-   */
-  readonly session: RunSessionIdentity;
 }
 
 /**
- * One countable conversation record after a harness has read its native store.
- * A harness emits only records that could be part of the conversation: native
- * metadata, tool traffic, and other known irrelevant entries stay outside this
- * boundary and cannot dilute loss. `content` is retained only where no turn
+ * One complete native session record after a harness has read its store. A
+ * reader emits exactly one for every complete entry it can enumerate: readable
+ * entries with no transferable prose are `dont-export`, and entries it cannot
+ * classify are `unparseable`. `content` is retained only where no turn
  * survives, for reader diagnostics and tests; shared handover code never puts
  * it in the task it gives the next run.
  */
@@ -583,7 +557,6 @@ export type SessionExportFault =
   | "malformed-record"
   | "unsupported-version"
   | "missing-session-id"
-  | "empty-session"
   | "export-command-failed";
 
 /** A refused export: the shared fault a caller reports, with the sentence it shows. */

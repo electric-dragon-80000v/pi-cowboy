@@ -11,7 +11,7 @@
 import { type Harness, type PiFamilyLaunchRequest } from "../harness.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
-import { exportForHandoverOf } from "./pi-session.js";
+import { readHandoverRecordsOf } from "./pi-session.js";
 import { piStore } from "./pi-store.js";
 
 /** Signature the env launcher carries, so verification proves which launcher landed. */
@@ -34,7 +34,7 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
   // inheritance and the same export its siblings get from the factory.
   inheritedEnv: () => piStore.inheritedEnv(process.env),
   reservedEnvVars: () => piStore.reservedNames,
-  exportForHandover: exportForHandoverOf(piStore),
+  readHandoverRecords: readHandoverRecordsOf(piStore),
   async prepare({ pane, paneId, launch }): Promise<void> {
     // Nothing to hand over, no launcher: the pane's own `pi` is already the
     // binary, and its environment is the whole answer.

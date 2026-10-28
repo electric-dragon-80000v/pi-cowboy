@@ -26,12 +26,12 @@ import {
   type SessionExportTurn,
 } from "./harness.js";
 
-/** The maximum share of countable records a completed export may omit. */
+/** The maximum share of complete native records a completed export may omit. */
 export interface SessionExportPolicy {
   readonly maxExcludedRatio: number;
 }
 
-/** By default, up to half a session's countable records may be lost before handover is refused. */
+/** By default, up to half a session's complete native records may be lost before handover is refused. */
 export const DEFAULT_MAX_EXCLUDED_RATIO = 0.5;
 
 /** Why a handover did not happen. Data, never a throw: a caller reports it. */
@@ -125,9 +125,9 @@ function lossDetail(
 
 /**
  * Complete one harness's classified native records into the handover artifact.
- * All yielded records are countable conversation records. A source reader
- * leaves known irrelevant store traffic out altogether; an unparseable record
- * is still a record and is therefore counted as loss.
+ * Every yielded record is a complete native session entry. A readable entry
+ * with no transferable prose still counts in the denominator; an unparseable
+ * entry also counts as loss.
  */
 export function completeHandoverExport(
   source: HandoverRecordSource,

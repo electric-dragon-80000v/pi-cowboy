@@ -1,9 +1,9 @@
 /**
- * opencode-session-export.integration.test.ts — `exportForHandover` against the
- * real opencode binary.
+ * opencode-session-export.integration.test.ts — handover record reads against
+ * the real opencode binary.
  *
- * The unit tests pin the selection and the renderer against fixtures this repo
- * invented; this file proves the two things only the real CLI can answer: that
+ * The unit tests pin selection and record classification against fixtures this
+ * repo invented; this file proves the two things only the real CLI can answer: that
  * `opencode api GET /api/session` reports a session the harness can find, and
  * that `opencode session export` returns the transfer JSON the parser reads.
  * Both reads travel through `pi.exec`, so the fake here is only the process
@@ -14,8 +14,8 @@
  * transfer document with the real `opencode session import`, never by writing
  * opencode's database: the database is someone else's format, and an import is
  * the CLI's own public way in. The fixture carries a reasoning part and a tool
- * part, so a renderer that leaked either would fail on data the real importer
- * accepted.
+ * part, so record classification that leaked either would fail on data the real
+ * importer accepted.
  *
  * A definition proof opens a session under the same agent name in the same
  * directory, and its model is the sentinel this harness launches only for the
@@ -34,6 +34,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HarnessExportRequest } from "../src/agents/harness.js";
+import { completeHandoverExport } from "../src/agents/handover.js";
 import { opencodeHarness } from "../src/agents/harness/opencode/index.js";
 import { subagentEnvFileFor } from "../src/paths.js";
 import { commandPath } from "../src/infrastructure/exec-path.js";
@@ -311,7 +312,9 @@ describe.skipIf(opencodeMissing)(
       const runId = await importRun();
       await importProof();
 
-      const exported = await opencodeHarness.exportForHandover!(request());
+      const exported = completeHandoverExport(
+        await opencodeHarness.readHandoverRecords!(request()),
+      );
 
       expect(exported.sessionId).toBe(runId);
       expect(exported.session).toBe(
@@ -326,7 +329,7 @@ describe.skipIf(opencodeMissing)(
       await importProof();
 
       await expect(
-        opencodeHarness.exportForHandover!(request()),
+        opencodeHarness.readHandoverRecords!(request()),
       ).rejects.toThrow(
         `no opencode session for agent ${SUBAGENT_ID} in ${project}`,
       );
@@ -349,7 +352,9 @@ describe.skipIf(opencodeMissing)(
         fs.mkdirSync(path.dirname(envFile), { recursive: true });
         fs.writeFileSync(envFile, `export XDG_DATA_HOME='${runStore}'\n`);
 
-        const exported = await opencodeHarness.exportForHandover!(request());
+        const exported = completeHandoverExport(
+          await opencodeHarness.readHandoverRecords!(request()),
+        );
 
         expect(exported.sessionId).toBe(runId);
         expect(exported.session).toBe(
@@ -360,7 +365,7 @@ describe.skipIf(opencodeMissing)(
         // selects the store the run never wrote to.
         fs.rmSync(envFile, { force: true });
         await expect(
-          opencodeHarness.exportForHandover!(request()),
+          opencodeHarness.readHandoverRecords!(request()),
         ).rejects.toThrow(`no opencode session for agent ${SUBAGENT_ID}`);
       } finally {
         if (previousTmpdir === undefined) delete process.env.TMPDIR;

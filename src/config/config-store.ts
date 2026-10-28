@@ -212,7 +212,7 @@ interface ResolvedAgentSettings {
   readonly worktreeRoot: string | undefined;
   readonly worktreeMaterialization: WorktreeMaterialization;
   readonly worktreeCheckoutType: WorktreeCheckoutType;
-  /** The share of countable handover records that may be unreadable before handover is refused (0 to 1). */
+  /** The share of complete native handover records that may be unreadable before handover is refused (0 to 1). */
   readonly handoverMaxExcludedRatio: number;
   /** Harness for agents whose template omits `harness_type`. */
   readonly harnessType: AnyHarnessId;

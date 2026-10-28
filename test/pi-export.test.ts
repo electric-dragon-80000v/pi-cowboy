@@ -28,10 +28,11 @@ import {
   SessionExportError,
   type SessionExportFault,
 } from "../src/agents/harness.js";
+import { completeHandoverExport } from "../src/agents/handover.js";
 import {
-  exportForHandoverOf,
   findSessionFile,
-  readSessionFile,
+  readHandoverRecordsOf,
+  readSessionFile as readSessionRecords,
   sessionBucketName,
   type SessionStore,
 } from "../src/agents/harness/pi-session.js";
@@ -68,6 +69,10 @@ const HEADER = {
 
 function record(value: unknown): string {
   return JSON.stringify(value);
+}
+
+async function readSessionFile(file: string) {
+  return completeHandoverExport(await readSessionRecords(file));
 }
 
 function user(...text: string[]): string {
@@ -505,7 +510,7 @@ describe("session records", () => {
     });
   });
 
-  it("fails a malformed middle record with the file and the line named", async () => {
+  it("reports a malformed middle record as loss and preserves readable turns", async () => {
     const file = await writeLines([
       record(HEADER),
       user("one"),
@@ -513,10 +518,11 @@ describe("session records", () => {
       assistant([text("two")]),
     ]);
 
-    const error = await rejected(readSessionFile(file));
-    expectFault(error, "malformed-record");
-    expect(error.message).toContain(file);
-    expect(error.message).toContain("line 3");
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "## User\n\none\n\n## Assistant\n\ntwo\n",
+      loss: { excluded: 1, total: 4 },
+    });
   });
 
   it("fails a version newer than it understands", async () => {
@@ -578,7 +584,7 @@ describe("session records", () => {
     expect(error.message).toContain(file);
   });
 
-  it("fails a session with no user or assistant text", async () => {
+  it("returns no turns for a session without conversation records", async () => {
     const file = await writeLines([
       record(HEADER),
       record({
@@ -593,12 +599,13 @@ describe("session records", () => {
       }),
     ]);
 
-    const error = await rejected(readSessionFile(file));
-    expectFault(error, "empty-session");
-    expect(error.message).toContain(file);
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "",
+    });
   });
 
-  it("fails a message whose content is not an array of parts", async () => {
+  it("reports unusable message content as loss", async () => {
     const file = await writeLines([
       record(HEADER),
       record({
@@ -610,13 +617,14 @@ describe("session records", () => {
       }),
     ]);
 
-    const error = await rejected(readSessionFile(file));
-    expectFault(error, "malformed-record");
-    expect(error.message).toContain(file);
-    expect(error.message).toContain("line 2");
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "",
+      loss: { excluded: 1, total: 2 },
+    });
   });
 
-  it("fails a turn whose content is a bare string, the shape the family no longer writes", async () => {
+  it("reports a bare-string turn as loss", async () => {
     const file = await writeLines([
       record(HEADER),
       record({
@@ -628,10 +636,11 @@ describe("session records", () => {
       }),
     ]);
 
-    const error = await rejected(readSessionFile(file));
-    expectFault(error, "malformed-record");
-    expect(error.message).toContain(file);
-    expect(error.message).toContain("line 2");
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "",
+      loss: { excluded: 1, total: 2 },
+    });
   });
 
   it("fails an unreadable file with a typed error", async () => {
@@ -753,10 +762,15 @@ describe("the family's export", () => {
       vi.stubEnv(storeCase.sessionDirEnv, dir);
 
       await expect(
-        exportForHandoverOf(storeCase.store)(exportRequest("spawn-abc")),
+        readHandoverRecordsOf(storeCase.store)(exportRequest("spawn-abc")),
       ).resolves.toEqual({
         sessionId: HEADER.id,
-        session: "## User\n\nhand this on\n\n## Assistant\n\ndone\n",
+        records: [
+          { kind: "dont-export", content: record(HEADER) },
+          { kind: "dont-export", content: sessionInfo("spawn-abc") },
+          { kind: "export", turn: { role: "User", text: "hand this on" } },
+          { kind: "export", turn: { role: "Assistant", text: "done" } },
+        ],
       });
     },
   );
@@ -768,7 +782,7 @@ describe("the family's export", () => {
       vi.stubEnv(storeCase.sessionDirEnv, dir);
 
       await expect(
-        exportForHandoverOf(storeCase.store)(exportRequest("spawn-abc")),
+        readHandoverRecordsOf(storeCase.store)(exportRequest("spawn-abc")),
       ).rejects.toMatchObject({ fault: "session-not-found" });
     },
   );
@@ -802,7 +816,7 @@ describe("the family's export", () => {
       const harness = createHarnessRegistry().require(id);
 
       await expect(
-        harness.exportForHandover!(exportRequest("spawn-abc")),
+        harness.readHandoverRecords!(exportRequest("spawn-abc")),
       ).resolves.toMatchObject({ sessionId: HEADER.id });
     },
   );
@@ -816,7 +830,7 @@ describe("the family's export", () => {
     const harness = createHarnessRegistry().require("pig");
 
     await expect(
-      harness.exportForHandover!(exportRequest("spawn-abc")),
+      harness.readHandoverRecords!(exportRequest("spawn-abc")),
     ).resolves.toMatchObject({ sessionId: HEADER.id });
 
     // The same directory, named through pi's variable: pig reads its own in
@@ -828,7 +842,7 @@ describe("the family's export", () => {
     );
     const pigHarness = createHarnessRegistry().require("pig");
     await expect(
-      pigHarness.exportForHandover!(exportRequest("spawn-abc")),
+      pigHarness.readHandoverRecords!(exportRequest("spawn-abc")),
     ).rejects.toMatchObject({ fault: "session-not-found" });
   });
 });

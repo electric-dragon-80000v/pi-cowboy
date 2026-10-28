@@ -167,10 +167,10 @@ function kinds(records: readonly HandoverRecord[]): readonly string[] {
   return records.map((record) => record.kind);
 }
 
-/** Every kept-but-not-exported line a read produced. */
+/** Every native line the reader could not parse. */
 function keptLines(records: readonly HandoverRecord[]): readonly string[] {
   return records.flatMap((record) =>
-    record.kind === "export" ? [] : [record.content],
+    record.kind === "unparseable" ? [record.content] : [],
   );
 }
 
@@ -194,9 +194,9 @@ function faultOf(run: () => unknown): SessionExportFault {
   throw new Error("expected the read to refuse, but it returned");
 }
 
-/** The whole read, JSON-encoded, for asserting what never survived it. */
+/** Transferable turns never contain native traffic. */
 function leaks(records: readonly HandoverRecord[], markers: readonly string[]) {
-  const text = JSON.stringify(records);
+  const text = JSON.stringify(turns(records));
   return markers.filter((marker) => text.includes(marker));
 }
 
@@ -214,8 +214,12 @@ describe("readCodexSession", () => {
       { role: "Assistant", text: "second" },
       { role: "User", text: "third" },
     ]);
-    // The metadata record is traffic, not a record of the conversation.
-    expect(kinds(records)).toEqual(["export", "export", "export"]);
+    expect(kinds(records)).toEqual([
+      "dont-export",
+      "export",
+      "export",
+      "export",
+    ]);
   });
 
   it("keeps assistant prose that starts with a plan envelope", () => {
@@ -232,7 +236,7 @@ describe("readCodexSession", () => {
     ]);
   });
 
-  it("yields no record for thinking, tool traffic, developer content, or inter-agent messages", () => {
+  it("counts thinking, tool traffic, developer content, and inter-agent messages as omitted", () => {
     const records = readFixture([
       sessionMeta("/worktree", id(1)),
       {
@@ -259,9 +263,20 @@ describe("readCodexSession", () => {
       assistantMessage("the real answer"),
     ]);
 
-    // None of it is a record of the conversation: it is absent from the read
-    // rather than present as a deliberate omission.
-    expect(kinds(records)).toEqual(["export", "export"]);
+    expect(kinds(records)).toEqual([
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "dont-export",
+      "export",
+      "export",
+    ]);
     expect(turns(records)).toEqual([
       { role: "User", text: "the real question" },
       { role: "Assistant", text: "the real answer" },
@@ -354,7 +369,7 @@ describe("readCodexSession", () => {
     ]);
     // The message is still a record of the conversation, so it is reported
     // rather than dropped; it simply carries no turn.
-    expect(records[2]).toEqual({
+    expect(records[3]).toEqual({
       kind: "dont-export",
       content: lineOf(onlyAnImage),
     });
@@ -374,6 +389,10 @@ describe("readCodexSession", () => {
     ]);
 
     expect(records).toEqual([
+      {
+        kind: "dont-export",
+        content: lineOf(sessionMeta("/worktree", id(1))),
+      },
       { kind: "dont-export", content: lineOf(empty) },
       { kind: "dont-export", content: lineOf(whitespace) },
       { kind: "export", turn: { role: "User", text: "real" } },
@@ -406,7 +425,12 @@ describe("readCodexSession", () => {
 
     const records = readCodexSession(file);
 
-    expect(kinds(records)).toEqual(["export", "unparseable", "export"]);
+    expect(kinds(records)).toEqual([
+      "dont-export",
+      "export",
+      "unparseable",
+      "export",
+    ]);
     expect(turns(records)).toEqual([
       { role: "User", text: "hello" },
       { role: "Assistant", text: "hi" },
@@ -421,7 +445,13 @@ describe("readCodexSession", () => {
     };
     const records = readFixture([sessionMeta("/worktree", id(1)), odd]);
 
-    expect(records).toEqual([{ kind: "unparseable", content: lineOf(odd) }]);
+    expect(records).toEqual([
+      {
+        kind: "dont-export",
+        content: lineOf(sessionMeta("/worktree", id(1))),
+      },
+      { kind: "unparseable", content: lineOf(odd) },
+    ]);
     expect(turns(records)).toEqual([]);
   });
 
@@ -442,7 +472,7 @@ describe("readCodexSession", () => {
 
     // The interrupted write is not a record yet: it is neither read nor
     // reported, and the turn before it is not duplicated.
-    expect(kinds(records)).toEqual(["export", "export"]);
+    expect(kinds(records)).toEqual(["dont-export", "export", "export"]);
     expect(turns(records)).toEqual([
       { role: "User", text: "hello" },
       { role: "Assistant", text: "hi" },
@@ -450,12 +480,11 @@ describe("readCodexSession", () => {
     expect(leaks(records, ["unfinished"])).toEqual([]);
   });
 
-  it("returns no records for a rollout that holds no conversation", () => {
-    const records = readFixture([sessionMeta("/worktree", id(1))]);
+  it("reports metadata as omitted when a rollout holds no conversation", () => {
+    const meta = sessionMeta("/worktree", id(1));
+    const records = readFixture([meta]);
 
-    // Nothing was omitted: the file simply holds no turn, and the shared layer
-    // is what reports that as an empty session.
-    expect(records).toEqual([]);
+    expect(records).toEqual([{ kind: "dont-export", content: lineOf(meta) }]);
   });
 
   it("leaves the pre-0.162 event_msg turn form unread", () => {
@@ -467,10 +496,25 @@ describe("readCodexSession", () => {
       assistantMessage("hi"),
     ]);
 
-    // Only the `response_item` form is the conversation now: the duplicate a
-    // pre-0.162 file wrote is codex's own traffic, neither exported nor
-    // reported as an omission.
+    // Only the `response_item` form is transferable prose; older event forms
+    // remain readable native entries and therefore count as omissions.
     expect(records).toEqual([
+      {
+        kind: "dont-export",
+        content: lineOf(sessionMeta("/worktree", id(1))),
+      },
+      {
+        kind: "dont-export",
+        content: lineOf(
+          eventMessage("user_message", { message: "older question" }),
+        ),
+      },
+      {
+        kind: "dont-export",
+        content: lineOf(
+          eventMessage("agent_message", { message: "older answer" }),
+        ),
+      },
       { kind: "export", turn: { role: "User", text: "hello" } },
       { kind: "export", turn: { role: "Assistant", text: "hi" } },
     ]);
@@ -616,12 +660,17 @@ describe("findCodexSession", () => {
       subagentId: "c0d3e4f5",
       paneId: "pane-1",
       cwd: "/worktree",
-      session: { kind: "identified", sessionId: id(7) },
     });
 
     expect(read).toEqual({
       sessionId: id(7),
-      records: [{ kind: "export", turn: { role: "User", text: "hello" } }],
+      records: [
+        {
+          kind: "dont-export",
+          content: lineOf(sessionMeta("/worktree", id(7))),
+        },
+        { kind: "export", turn: { role: "User", text: "hello" } },
+      ],
     });
   });
 });
