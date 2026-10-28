@@ -17,7 +17,7 @@ import { HARNESS_IDS } from "../harness.js";
 const AGENT_ID_DESCRIPTION =
   "REQUIRED. The id of the SETTLED agent to hand over, as printed by the cowboy_agent spawn result or a completion message. A live agent is refused, never stopped — stop it with stop_cowboy_agent and hand it over once it has settled.";
 
-const HARNESS_TYPE_DESCRIPTION = `REQUIRED. The harness that runs the next run of this agent. Available: the built-in harnesses (${HARNESS_IDS.join(", ")}) and any harness a plugin registered in this session. Unlike the configured default, an explicit harness never falls back: an id this session did not register, or one this machine cannot launch, refuses the call before anything is stopped. The source harness must be able to export its own session; a harness that cannot is reported in the result and nothing changes.`;
+const HARNESS_TYPE_DESCRIPTION = `REQUIRED. The harness that executes the next run of this agent. Available: the built-in harnesses (${HARNESS_IDS.join(", ")}) and any harness a plugin registered in this session. Unlike the configured default, an explicit harness never falls back: an ID this session did not register, or one this machine cannot launch, causes the call to be refused before anything is stopped. The source harness must be able to export its own session; a harness that cannot is reported in the result and nothing changes.`;
 
 const MODEL_DESCRIPTION =
   "Optional model for the next run as \"provider/model-id\", in the target harness's own vocabulary. Omit it, or pass null, to leave it unset and let the harness choose its default. A model that is not in this session's registry (or in the target harness's list) refuses the call before anything is stopped.";
