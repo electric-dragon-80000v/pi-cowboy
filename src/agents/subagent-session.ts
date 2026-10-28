@@ -54,7 +54,11 @@ import {
 } from "../spawn/sandbox.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
 import type { AnyHarnessId } from "./harness.js";
-import { environmentOf } from "./agent-environment.js";
+import {
+  engageExecution,
+  endExecutionRun,
+  placeExecution,
+} from "./agent-environment.js";
 import {
   exportRunSession,
   renderHandoverTask,
@@ -335,7 +339,7 @@ export class SubagentSession {
         reason: `agent ${this.id} is queued — it has no pane yet, so it cannot receive a message. Wait for a concurrency slot (or stop it).`,
       };
     }
-    const ref = environmentOf(this.spawn.execution).host;
+    const ref = this.spawn.execution.host;
     if (!ref) {
       // A missing host ref means different things along a run's life, so name
       // the one this is rather than blaming cleanup every time.
@@ -464,9 +468,8 @@ export class SubagentSession {
         status: lifecycleStatus(this.spawn.lifecycle),
       });
     }
-    const environment = environmentOf(this.spawn.execution);
-    const from = environment.harness;
-    const ref = environment.host;
+    const from = this.spawn.execution.harness;
+    const ref = this.spawn.execution.host;
     // A source run is a started run at a known address; one settled without
     // starting engaged neither.
     if (from === undefined || ref === undefined || !settled.process.started) {
@@ -525,7 +528,7 @@ export class SubagentSession {
     const task = renderHandoverTask({
       taskSlug: this.spawn.display.taskSlug,
       sourceName: getHarnessRegistry().displayName(from),
-      previous: environment.ended.map(({ harness, sessionId }) => ({
+      previous: this.spawn.execution.history.map(({ harness, sessionId }) => ({
         harness,
         sessionId,
       })),
@@ -533,7 +536,7 @@ export class SubagentSession {
       session: exported.session,
     });
 
-    environment.end({
+    endExecutionRun(this.spawn.execution, {
       harness: from,
       host: ref,
       cwd,
@@ -697,11 +700,10 @@ export class SubagentSession {
         }));
       placement = { kind: "held", host, ref };
       if (!this.isLaunching()) return;
-      const environment = environmentOf(this.spawn.execution);
-      environment.place(ref);
+      placeExecution(this.spawn.execution, ref);
       // Recorded before prepare: cleanup and a failed launch read it to tear
       // this harness's pane state down, regardless of later config changes.
-      environment.engage(plan.harness);
+      engageExecution(this.spawn.execution, plan.harness);
       // The pane exists now, so the harness can bring it into its launch state.
       await harness.prepare({
         pi,
@@ -745,15 +747,14 @@ export class SubagentSession {
     if (failure.kind === "failed" && this.isLaunching()) {
       // Best-effort: a failed teardown is logged, never allowed to mask the
       // launch error that caused it.
-      const environment = environmentOf(this.spawn.execution);
-      const harnessId = environment.harness;
+      const harnessId = this.spawn.execution.harness;
       if (harnessId !== undefined) {
         try {
           await getHarnessRegistry()
             .require(harnessId)
             .teardown({
               pi: this.args.pi,
-              paneId: environment.host?.paneId ?? null,
+              paneId: this.spawn.execution.host?.paneId ?? null,
               cwd: launchCwd ?? null,
               subagentId: this.spawn.id,
             });
@@ -822,7 +823,7 @@ export class SubagentSession {
       await supervisor.stop(2_000);
       return;
     }
-    const ref = environmentOf(this.spawn.execution).host;
+    const ref = this.spawn.execution.host;
     if (!ref) return;
     await this.deps.transport
       .createHost(getPiInstance())

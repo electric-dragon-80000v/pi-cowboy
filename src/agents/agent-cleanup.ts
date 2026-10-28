@@ -26,7 +26,6 @@ import type {
   Located,
   RunTeardown,
 } from "./agent-assets.js";
-import { environmentOf } from "./agent-environment.js";
 import {
   ambiguousReport,
   assembleReport,
@@ -117,18 +116,17 @@ async function removeOwnedTree(
 async function paneOutcomes(
   deps: CleanupDeps,
   panes: readonly AgentHostRef[],
-  mechanism: WorktreeRemovalMechanism | null,
-  removed: boolean,
-  treeWorkspaceId: string | undefined,
+  removal:
+    | { readonly kind: "retained" }
+    | {
+        readonly kind: "removed";
+        readonly mechanism: WorktreeRemovalMechanism | null;
+        readonly workspaceId: string | undefined;
+      },
 ): Promise<readonly PaneOutcome[]> {
   const outcomes: PaneOutcome[] = [];
   for (const pane of panes) {
-    const disposition = paneDispositionFor(
-      pane,
-      mechanism,
-      removed,
-      treeWorkspaceId,
-    );
+    const disposition = paneDispositionFor(pane, removal);
     switch (disposition.kind) {
       case "closed-with-workspace":
         outcomes.push({ kind: "closed", paneId: pane.paneId });
@@ -181,7 +179,11 @@ async function removeResources(
 ): Promise<RemovalOutcomes> {
   if (plan.kind === "no-worktree") {
     return {
-      panes: await paneOutcomes(deps, plan.panes, null, true, undefined),
+      panes: await paneOutcomes(deps, plan.panes, {
+        kind: "removed",
+        mechanism: null,
+        workspaceId: undefined,
+      }),
       worktree: { kind: "none" },
       branch: { kind: "not-applicable" },
     };
@@ -190,13 +192,11 @@ async function removeResources(
   const outcome = await removeOwnedTree(deps, worktree, address);
   if (outcome.kind === "removed") {
     return {
-      panes: await paneOutcomes(
-        deps,
-        panes,
-        removalMechanismOf(worktree),
-        true,
-        worktree.workspaceId,
-      ),
+      panes: await paneOutcomes(deps, panes, {
+        kind: "removed",
+        mechanism: removalMechanismOf(worktree),
+        workspaceId: worktree.workspaceId,
+      }),
       worktree: outcome,
       branch: await deps.deleteBranch({
         branch: worktree.branchName,
@@ -206,13 +206,7 @@ async function removeResources(
     };
   }
   return {
-    panes: await paneOutcomes(
-      deps,
-      panes,
-      removalMechanismOf(worktree),
-      false,
-      worktree.workspaceId,
-    ),
+    panes: await paneOutcomes(deps, panes, { kind: "retained" }),
     worktree: outcome,
     branch: { kind: "not-applicable" },
   };
@@ -295,7 +289,11 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
         if (outcome.kind === "removal-failed") return outcome;
         const mechanism = removalMechanismOf(worktree);
         // Panes close before branch cleanup so a git-owned pane only closes after confirmed checkout removal.
-        await paneOutcomes(deps, panes, mechanism, true, worktree.workspaceId);
+        await paneOutcomes(deps, panes, {
+          kind: "removed",
+          mechanism,
+          workspaceId: worktree.workspaceId,
+        });
         const branch = await deps.deleteBranch({
           branch: worktree.branchName,
           worktreePath: worktree.worktreePath,
@@ -332,9 +330,7 @@ function environmentPanes(
   hint: AgentSpawn | undefined,
 ): readonly AgentHostRef[] {
   const panes: AgentHostRef[] = current === undefined ? [] : [current];
-  for (const run of hint === undefined
-    ? []
-    : environmentOf(hint.execution).ended) {
+  for (const run of hint === undefined ? [] : hint.execution.history) {
     if (panes.some((known) => known.paneId === run.host.paneId)) continue;
     panes.push(run.host);
   }
@@ -352,18 +348,17 @@ function teardownRuns(
   located: Located,
 ): readonly RunTeardown[] {
   if (hint === undefined) return [];
-  const environment = environmentOf(hint.execution);
-  const ended = environment.ended.map((run) => ({
+  const ended = hint.execution.history.map((run) => ({
     harness: run.harness,
     paneId: run.host.paneId,
     cwd: run.cwd,
   }));
   const active =
-    environment.harness === undefined
+    hint.execution.harness === undefined
       ? []
       : [
           {
-            harness: environment.harness,
+            harness: hint.execution.harness,
             paneId: located.pane?.paneId ?? null,
             cwd: located.worktree?.path ?? null,
           },

@@ -15,10 +15,11 @@ import {
   type HandoverOutcome,
 } from "../src/agents/handover.js";
 import type { HarnessRegistry } from "../src/agents/harness/harness-registry.js";
-import type {
-  AnyHarnessId,
-  HandoverRecordSource,
-  ReadHandoverRecords,
+import {
+  SessionExportError,
+  type AnyHarnessId,
+  type HandoverRecordSource,
+  type ReadHandoverRecords,
 } from "../src/agents/harness.js";
 
 const POLICY = { maxExcludedRatio: 0.5 };
@@ -226,13 +227,16 @@ describe("exportRunSession", () => {
     });
   });
 
-  it("turns a throwing record read into its own fault", async () => {
+  it("preserves a reader's typed fault and detail", async () => {
     await expect(
       exportRunSession(
         registryWith({
           id: "claude",
           readHandoverRecords: async () => {
-            throw new Error("no session file");
+            throw new SessionExportError(
+              "session-not-found",
+              "no session file",
+            );
           },
         }),
         "claude",
@@ -241,7 +245,11 @@ describe("exportRunSession", () => {
       ),
     ).resolves.toMatchObject({
       kind: "faulted",
-      fault: { kind: "session-export-failed", detail: "no session file" },
+      fault: {
+        kind: "session-export-failed",
+        detail: "no session file",
+        exportFault: "session-not-found",
+      },
     });
   });
 

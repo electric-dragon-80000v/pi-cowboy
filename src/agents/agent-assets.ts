@@ -50,7 +50,6 @@ import type {
   LocatedPane,
   RecoveredDeliverable,
 } from "./cleanup-policy.js";
-import { environmentOf } from "./agent-environment.js";
 
 const log = createLogger("assets");
 
@@ -305,7 +304,7 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     entries: readonly PlacementWorktree[] | undefined,
     records: readonly PlacementRecord[] | undefined,
   ): Promise<LocateResult> {
-    const recorded = environmentOf(hint.execution).host;
+    const recorded = hint.execution.host;
     const worktreeCoords = hint.display.worktree;
     // Ownership rides with the coordinates: a picked tree is never owned,
     // so memory's path is read only for owned runs.

@@ -23,7 +23,6 @@ import type {
   AgentSpawn,
   ModelChoice,
 } from "../types.js";
-import { environmentOf } from "../agents/agent-environment.js";
 import {
   ACTIVE_AGENT_PHASES,
   hasOutcome,
@@ -164,7 +163,7 @@ export function buildAgentDetails(
   if (spawn.display.worktree?.kind === "owned") {
     details.worktreeManaged = true;
   }
-  const host = environmentOf(spawn.execution).host;
+  const host = spawn.execution.host;
   if (host) {
     details.herdrAgent = host.name;
     details.herdrPane = host.paneId;
@@ -335,27 +334,23 @@ export class DelegationProtocol {
     const thinking = readThinkingRequest(
       params as unknown as Record<string, unknown>,
     );
-    const requested = await resolveSpawnModel(
-      readModelRequest(params as unknown as Record<string, unknown>),
-      {
-        harness,
-        registry: ctx.modelRegistry,
-        parent: ctx.model,
-        thinking,
-        listModels: async (foreign) => {
-          const list = await getHarnessRegistry()
-            .require(foreign)
-            .listModels({
-              pi: getPiInstance(),
-              modelCatalog: piModelCatalog(ctx.modelRegistry),
-            });
-          const notice = modelListNotice(list);
-          if (notice !== undefined && ctx.hasUI)
-            ctx.ui.notify(notice, "warning");
-          return modelListEntries(list);
-        },
+    const requested = await resolveSpawnModel(readModelRequest(params), {
+      harness,
+      registry: ctx.modelRegistry,
+      parent: ctx.model,
+      thinking,
+      listModels: async (foreign) => {
+        const list = await getHarnessRegistry()
+          .require(foreign)
+          .listModels({
+            pi: getPiInstance(),
+            modelCatalog: piModelCatalog(ctx.modelRegistry),
+          });
+        const notice = modelListNotice(list);
+        if (notice !== undefined && ctx.hasUI) ctx.ui.notify(notice, "warning");
+        return modelListEntries(list);
       },
-    );
+    });
 
     // Resolution reports, the caller shows: a level outside the vocabulary is
     // a warning, and the launch proceeds with the level as written.

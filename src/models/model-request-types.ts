@@ -39,13 +39,21 @@ export function readModelKey(value: unknown): string | undefined {
     : undefined;
 }
 
+/** Values the model-request readers use from tool and orchestrator params. */
+export interface ModelRequestParams {
+  readonly model?: unknown;
+  readonly thinking?: unknown;
+  readonly _configuredModel?: unknown;
+  readonly _configuredThinking?: unknown;
+}
+
 /**
  * The level the caller asked for, or the one the listener injected when the
  * caller named none. The caller's own value always wins: the injected one is a
  * configured default, and a default never overrides an explicit request.
  */
 export function readThinkingRequest(
-  params: Record<string, unknown>,
+  params: ModelRequestParams,
 ): string | undefined {
   return (
     readModelKey(params.thinking) ??
@@ -55,7 +63,7 @@ export function readThinkingRequest(
 
 /** The caller's own request, or undefined. Read through here, never re-derived from args after the listener ran. */
 export function readModelRequest(
-  params: Record<string, unknown>,
+  params: ModelRequestParams,
 ): ModelRequest | undefined {
   const called = readModelKey(params.model);
   if (called) return { source: "call", key: called };
