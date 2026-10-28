@@ -57,18 +57,12 @@ export function errorResult<TDetails>(
   return resultWithSeverity("error", text, details);
 }
 
-/**
- * No `details` key at runtime (pi reads `result.details` straight off the
- * object, so missing and `undefined` are identical); asserted here because
- * `ToolResult` requires the field for the registration site to typecheck.
- */
-export function textOnlyResult<TDetails = undefined>(
-  text: string,
-): ToolResult<TDetails> {
+/** No additional details payload; severity remains present for result rendering. */
+export function textOnlyResult(text: string): ToolResult<Record<never, never>> {
   return {
     content: [{ type: "text", text }],
     details: { severity: "success" },
-  } as unknown as ToolResult<TDetails>;
+  };
 }
 
 /**

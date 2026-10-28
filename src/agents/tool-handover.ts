@@ -106,13 +106,12 @@ async function resolveIntent(
   if (target.kind === "faulted") return target;
   const harness = target.harness;
 
-  const args = params as unknown as Record<string, unknown>;
   try {
-    const resolved = await resolveSpawnModel(readModelRequest(args), {
+    const resolved = await resolveSpawnModel(readModelRequest(params), {
       harness,
       registry: ctx.modelRegistry,
       parent: ctx.model,
-      thinking: readThinkingRequest(args),
+      thinking: readThinkingRequest(params),
       listModels: async (foreign) => {
         const list = await getHarnessRegistry()
           .require(foreign)
@@ -204,7 +203,7 @@ export async function executeHandoverAgentTool(
     | undefined,
   ctx: ExtensionContext,
 ): Promise<ToolResult<{ agentId: string; outcome: HandoverOutcome }>> {
-  const agentId = params.agent_id;
+  const agentId = params.agent_id.trim();
   const intent = await resolveIntent(params, ctx);
   const outcome: HandoverOutcome =
     intent.kind === "faulted"

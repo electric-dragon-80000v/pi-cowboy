@@ -1,11 +1,13 @@
 /**
- * agent-environment.test.ts — the container view over one spawn's execution.
- * Pins what callers may query from the environment: the placement, the run
- * occupying it and the session that run is in, and the runs before it.
+ * agent-environment.test.ts — execution placement and run-history transitions.
  */
 
 import { describe, expect, it } from "vitest";
-import { environmentOf } from "../src/agents/agent-environment.js";
+import {
+  engageExecution,
+  endExecutionRun,
+  placeExecution,
+} from "../src/agents/agent-environment.js";
 import { buildAgentSpawn } from "../src/agents/subagent-session.js";
 import type { AgentExecutionState, EndedRun } from "../src/types.js";
 import type { AgentHostRef } from "../src/agents/agent-host.js";
@@ -45,56 +47,26 @@ function execution(
   };
 }
 
-describe("environmentOf", () => {
-  it("reads the placement and the harness occupying it", () => {
-    const environment = environmentOf(
-      execution({ host: ACTIVE, harness: "pig" }),
-    );
-
-    expect(environment.host).toEqual(ACTIVE);
-    expect(environment.harness).toBe("pig");
-  });
-
-  it("reports no active run before a launch places one", () => {
-    const environment = environmentOf(execution());
-
-    expect(environment.host).toBeUndefined();
-    expect(environment.harness).toBeUndefined();
-    expect(environment.ended).toEqual([]);
-  });
-
-  it("keeps each ended run's own address, oldest first", () => {
-    const earlier = endedRun("claude", ref("w1:p2"));
-    const oldest = endedRun("pi", ref("w1:p3"));
-    const environment = environmentOf(
-      execution({
-        host: ACTIVE,
-        harness: "opencode",
-        history: [oldest, earlier],
-      }),
-    );
-
-    expect(environment.ended).toEqual([oldest, earlier]);
-  });
-
-  it("writes a placement and the harness engaging it back to the execution", () => {
+describe("execution transitions", () => {
+  it("writes a placement and the harness engaging it", () => {
     const state = execution();
 
-    environmentOf(state).place(ACTIVE);
-    environmentOf(state).engage("pig");
+    placeExecution(state, ACTIVE);
+    engageExecution(state, "pig");
 
     expect(state.host).toEqual(ACTIVE);
     expect(state.harness).toBe("pig");
   });
 
-  it("gives up the placement and harness when a run ends", () => {
+  it("archives a run and releases its placement and harness", () => {
     const state = execution({ host: ACTIVE, harness: "codex" });
+    const run = endedRun("codex", ACTIVE);
 
-    environmentOf(state).end(endedRun("codex", ACTIVE));
+    endExecutionRun(state, run);
 
-    expect(environmentOf(state).host).toBeUndefined();
-    expect(environmentOf(state).harness).toBeUndefined();
-    expect(state.history).toEqual([endedRun("codex", ACTIVE)]);
+    expect(state.host).toBeUndefined();
+    expect(state.harness).toBeUndefined();
+    expect(state.history).toEqual([run]);
   });
 });
 
@@ -112,6 +84,6 @@ describe("buildAgentSpawn", () => {
     );
 
     expect(spawn.execution.history).toEqual([]);
-    expect(environmentOf(spawn.execution).harness).toBeUndefined();
+    expect(spawn.execution.harness).toBeUndefined();
   });
 });

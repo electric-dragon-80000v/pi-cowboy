@@ -93,6 +93,21 @@ describe("executeHandoverAgentTool", () => {
     expect(result.details.severity).toBe("success");
   });
 
+  it("trims the agent id before lookup and reporting", async () => {
+    handoverMock.mockResolvedValue({
+      kind: "faulted",
+      fault: { kind: "agent-unknown" },
+    });
+
+    const result = await invoke({ agent_id: ` ${ID} `, harness_type: "pi" });
+
+    expect(handoverMock).toHaveBeenCalledWith(ID, {
+      harness: "pi",
+      modelChoice: undefined,
+    });
+    expect(text(result)).toContain(`Agent ${ID} not found`);
+  });
+
   it("reports a harness that cannot export its session, naming it", async () => {
     handoverMock.mockResolvedValue({
       kind: "faulted",

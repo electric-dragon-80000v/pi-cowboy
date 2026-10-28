@@ -13,18 +13,25 @@
  * and the fault's own kind says so, so no separate severity exists.
  */
 
+import { z } from "zod";
 import type { AgentStatus } from "../types.js";
 import type { HarnessRegistry } from "./harness/harness-registry.js";
 import type { ToolSeverity } from "./tool-result.js";
 import {
   canReadHandoverRecords,
+  SessionExportError,
   type AnyHarnessId,
   type HandoverRecordSource,
   type HarnessExport,
   type HarnessExportLoss,
   type HarnessExportRequest,
+  type SessionExportFault,
   type SessionExportTurn,
 } from "./harness.js";
+
+const HandoverSessionChainSchema = z
+  .array(z.object({ harness: z.string(), sessionId: z.string() }))
+  .nonempty();
 
 /** The maximum share of complete native records a completed export may omit. */
 export interface SessionExportPolicy {
@@ -53,6 +60,7 @@ export type HandoverFault =
       readonly kind: "session-export-failed";
       readonly harness: AnyHarnessId;
       readonly detail: string;
+      readonly exportFault?: SessionExportFault;
     }
   /** The request itself was refused before anything was touched (harness, model). */
   | { readonly kind: "request-refused"; readonly detail: string }
@@ -228,6 +236,9 @@ export async function exportRunSession(
         kind: "session-export-failed",
         harness: from,
         detail: error instanceof Error ? error.message : String(error),
+        ...(error instanceof SessionExportError
+          ? { exportFault: error.fault }
+          : {}),
       },
     };
   }
@@ -315,25 +326,10 @@ export function parseHandoverMarker(
     } catch {
       return undefined;
     }
-    if (!isSessionChain(parsed)) return undefined;
-    return parsed.map(({ harness, sessionId }) => ({ harness, sessionId }));
+    const chain = HandoverSessionChainSchema.safeParse(parsed);
+    return chain.success ? chain.data : undefined;
   }
   return undefined;
-}
-
-/** A non-empty list of refs, each naming a harness and a session id. */
-function isSessionChain(value: unknown): value is HandoverSessionRef[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((entry: unknown) => {
-      if (typeof entry !== "object" || entry === null) return false;
-      const ref = entry as { harness?: unknown; sessionId?: unknown };
-      return (
-        typeof ref.harness === "string" && typeof ref.sessionId === "string"
-      );
-    })
-  );
 }
 
 /** What the next run is told about the run it continues. */

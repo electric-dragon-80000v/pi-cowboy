@@ -480,23 +480,42 @@ const TARGET: WorktreeTarget = {
 
 describe("paneDispositionFor", () => {
   it.each([
-    [REF, "multiplexer", true, "w1", { kind: "closed-with-workspace" }],
+    [
+      REF,
+      { kind: "removed", mechanism: "multiplexer", workspaceId: "w1" },
+      { kind: "closed-with-workspace" },
+    ],
     // A pane in another workspace outlives the tree removal: only a pane the
     // extension created is cleanup's to close.
-    [REF, "multiplexer", true, "w2", { kind: "close" }],
-    [ADOPTED_REF, "multiplexer", true, "w2", { kind: "leave-open" }],
-    [REF, "multiplexer", true, undefined, { kind: "closed-with-workspace" }],
-    [REF, "git", true, "w1", { kind: "close" }],
-    [ADOPTED_REF, null, true, "w1", { kind: "leave-open" }],
-    [REF, "multiplexer", false, "w1", { kind: "leave-open" }],
-  ] as const)(
-    "returns %#",
-    (pane, mechanism, removed, workspaceId, expected) => {
-      expect(paneDispositionFor(pane, mechanism, removed, workspaceId)).toEqual(
-        expected,
-      );
-    },
-  );
+    [
+      REF,
+      { kind: "removed", mechanism: "multiplexer", workspaceId: "w2" },
+      { kind: "close" },
+    ],
+    [
+      ADOPTED_REF,
+      { kind: "removed", mechanism: "multiplexer", workspaceId: "w2" },
+      { kind: "leave-open" },
+    ],
+    [
+      REF,
+      { kind: "removed", mechanism: "multiplexer", workspaceId: undefined },
+      { kind: "closed-with-workspace" },
+    ],
+    [
+      REF,
+      { kind: "removed", mechanism: "git", workspaceId: "w1" },
+      { kind: "close" },
+    ],
+    [
+      ADOPTED_REF,
+      { kind: "removed", mechanism: null, workspaceId: "w1" },
+      { kind: "leave-open" },
+    ],
+    [REF, { kind: "retained" }, { kind: "leave-open" }],
+  ] as const)("returns %#", (pane, removal, expected) => {
+    expect(paneDispositionFor(pane, removal)).toEqual(expected);
+  });
 });
 
 describe("removalMechanismOf", () => {

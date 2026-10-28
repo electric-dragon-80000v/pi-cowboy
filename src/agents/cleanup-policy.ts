@@ -483,25 +483,32 @@ export function removalMechanismOf(
  * the extension did not create is never closed by cleanup, regardless of the
  * outcome for its workspace.
  */
+export type PaneRemovalContext =
+  | { readonly kind: "retained" }
+  | {
+      readonly kind: "removed";
+      readonly mechanism: WorktreeRemovalMechanism | null;
+      readonly workspaceId: string | undefined;
+    };
+
 export function paneDispositionFor(
   pane: AgentHostRef,
-  mechanism: WorktreeRemovalMechanism | null,
-  removed: boolean,
-  treeWorkspaceId: string | undefined,
+  removal: PaneRemovalContext,
 ): PaneDisposition {
-  if (!removed) return { kind: "leave-open" };
+  if (removal.kind === "retained") return { kind: "leave-open" };
   const inRemovedWorkspace =
-    treeWorkspaceId === undefined || pane.workspaceId === treeWorkspaceId;
-  if (mechanism === "multiplexer" && inRemovedWorkspace) {
+    removal.workspaceId === undefined ||
+    pane.workspaceId === removal.workspaceId;
+  if (removal.mechanism === "multiplexer" && inRemovedWorkspace) {
     return { kind: "closed-with-workspace" };
   }
   // A git-side removal, or a plan with no tree at all, leaves the pane standing: only a pane the extension created may be closed.
-  switch (mechanism) {
+  switch (removal.mechanism) {
     case "multiplexer":
     case "git":
     case null:
       return pane.paneCreated ? { kind: "close" } : { kind: "leave-open" };
     default:
-      return assertNever(mechanism);
+      return assertNever(removal.mechanism);
   }
 }
