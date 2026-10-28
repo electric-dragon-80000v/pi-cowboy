@@ -262,7 +262,7 @@ export class AgentManager {
       return {
         kind: "refused",
         reason:
-          "it is being handed over to another harness — wait for the handover before steering it.",
+          "it is being handed over to another harness — wait for the handover to finish before steering it.",
       };
     }
     // Steer revives a settled agent, whose worktree a teardown may be removing.

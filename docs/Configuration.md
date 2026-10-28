@@ -148,7 +148,7 @@ If the parent working tree is already clean, both modes start at `HEAD`. Individ
 
 ### `agent.handoverMaxExcludedRatio`
 
-The maximum fraction of a handover session's countable records that may be unparseable before the handover is refused. A source harness classifies its native conversation records; shared handover logic omits unparseable records, reports their count once, and compares their share with this key:
+The maximum fraction of a handover session's countable records that may be unparseable before the handover is refused. A source harness classifies its native conversation records; shared handover logic omits unparseable records, reports their count once, and compares their ratio against this threshold:
 
 - `0.5` (default): an export that loses more than half its records is refused as a failure, leaving the run unchanged.
 - `1`: an export that loses records is still handed over, regardless of the number lost.
@@ -224,7 +224,7 @@ Each spawn receives its variables in an owner-only file (`env.sh`) inside its st
 
 This is a machine-level setting configured only in the global `config.json`; project configuration files cannot set it.
 
-Independently of this setting, a pi-family spawn (`pi`, `pig`, `pi-bolt`) is handed the store variables the orchestrating process itself runs with, so the child writes its session where a handover export reads it: pi and pi-bolt take `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`, and `pig` takes its own root, agent directory, session override and mode flag (`PIG_HOME` — or `XDG_CONFIG_HOME`, which is its root when `PIG_HOME` is unset — `PIG_CODING_AGENT_DIR`, `PIG_CODING_AGENT_SESSION_DIR`, `PIG_USE_PI_DIRS`) — or pi's two when `PIG_USE_PI_DIRS=1` selects pi's directories. Those names are reserved, so a configured entry for one is dropped rather than honoured; an unset value in the orchestrating process sets no override.
+Independently of this setting, a Pi-family spawn (`pi`, `pig`, `pi-bolt`) inherits the store variables under which the orchestrating process runs, ensuring the child writes its session where a handover export reads it. `pi` and `pi-bolt` receive `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`. `pig` receives its own configuration root (`PIG_HOME`, or `XDG_CONFIG_HOME` when `PIG_HOME` is unset), agent directory (`PIG_CODING_AGENT_DIR`), session override (`PIG_CODING_AGENT_SESSION_DIR`), and mode flag (`PIG_USE_PI_DIRS`), or Pi's directories when `PIG_USE_PI_DIRS=1`. Because these variable names are reserved, configured overrides are dropped rather than honored; an unset variable in the orchestrating process sets no override.
 
 ### `harness.opencode`
 

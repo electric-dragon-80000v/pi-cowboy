@@ -221,7 +221,7 @@ Run `/cowboy` to open the interactive menu, or pass a subcommand directly. See [
 
 ## Tools
 
-Every tool result is marked by how the call ended: `✓` success, `!` refused (nothing failed and nothing changed), `✗` failure. A batch shows the worst outcome among its items. A `cowboy_agent` run sent to the background or waiting in the queue is an acknowledgement and reads as a success; one run in the same turn reads as a success when it completed and as a refusal when it was stopped.
+Every tool result is marked by how the call ended: `✓` success, `!` refused (nothing failed and nothing changed), `✗` failure. A batch shows the worst outcome among its items. A `cowboy_agent` run sent to the background or waiting in the queue is an acknowledgement and reads as a success; a foreground run (`run_in_background: false`) reads as a success when completed and as a refusal when stopped.
 
 ### `cowboy_agent`
 
@@ -255,14 +255,14 @@ Queued agents cannot be steered because they do not have a pane yet. Agents that
 
 ### `handover_cowboy_agent`
 
-Hands one settled agent over to another harness without starting over: the ended run is stopped and its session exported by the source harness, the run is archived, and the next run launches in the same checkout with that session and its id as its task. The earlier run's pane and harness state stay until `cleanup_cowboy_agent`, which removes every run.
+Hands one settled agent over to another harness without starting over: the ended run is stopped, its session is exported by the source harness, the run is archived, and the next run launches in the same checkout with that session and its ID quoted in its task. Earlier panes and harness state remain until `cleanup_cowboy_agent`, which removes all runs.
 
 A live agent is refused, never stopped — stop it with `stop_cowboy_agent` first. `harness_type` is required and never falls back to the configured default. The **source** harness must be able to export its own session; a harness that cannot is reported in the result, and nothing is stopped or changed.
 
 | Parameter      | Required | Description                                                 |
 | -------------- | -------- | ----------------------------------------------------------- |
 | `agent_id`     | yes      | The settled agent to hand over.                             |
-| `harness_type` | yes      | Harness that runs the next run.                             |
+| `harness_type` | yes      | Harness that executes the next run.                         |
 | `model`        | no       | Model for the next run, in the target harness's vocabulary. |
 | `thinking`     | no       | Thinking level for the next run.                            |
 
