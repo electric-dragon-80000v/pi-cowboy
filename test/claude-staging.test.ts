@@ -49,6 +49,25 @@ const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
   waitForPaneOutputMock: vi.fn(),
 }));
 
+/**
+ * `os.homedir()` is a native binding that reads the *process* environment, and
+ * a worker thread cannot write to it: under the threads pool `process.env.HOME`
+ * is a per-thread copy, so a per-test HOME redirect would never reach the
+ * binding. Reading HOME here keeps that redirect authoritative under either
+ * pool, and matches the home the launched claude resolves from the environment
+ * it inherits. `os.tmpdir()` needs no seam — it reads `process.env` itself.
+ */
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return {
+    ...actual,
+    homedir: () => {
+      const home = process.env.HOME;
+      return home === undefined || home === "" ? actual.homedir() : home;
+    },
+  };
+});
+
 vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<
