@@ -1,12 +1,12 @@
 /**
  * opencode-session-export.test.ts — reading a run's session back for a handover.
  *
- * The renderer is the contract another harness reads: user turns and assistant
- * text in order, with reasoning and tool traffic gone. The selection is the
- * part the CLI cannot answer: one directory holds a run per spawn and a
- * definition proof under the same agent name, so only its model tells them
- * apart. The hook test pins the wiring — the list query carries the run's
- * directory, and the export reads the id the list selected.
+ * Record classification carries user turns and assistant text in order while
+ * omitting reasoning and tool traffic. Selection is the part the CLI cannot
+ * answer: one directory holds a run per spawn and a definition proof under the
+ * same agent name, so only its model tells them apart. The hook test pins the
+ * wiring — the list query carries the run's directory, and the read uses the
+ * id the list selected.
  */
 
 import * as fs from "node:fs";
@@ -15,18 +15,30 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { SessionExportError } from "../src/agents/harness.js";
+import { completeHandoverExport } from "../src/agents/handover.js";
 import type {
   OpencodeSessionExportRequest,
   OpencodeSessionSummary,
 } from "../src/agents/harness/opencode/session-export.js";
 import {
-  exportOpencodeSession,
+  classifyOpencodeMessages,
   opencodeSessionListPath,
   parseOpencodeSessionExport,
   parseOpencodeSessionList,
-  renderOpencodeSession,
+  readOpencodeSessionRecords,
   selectOpencodeRunSession,
 } from "../src/agents/harness/opencode/session-export.js";
+
+function renderRecords(messages: readonly unknown[]): string {
+  return completeHandoverExport({
+    sessionId: "ses_1",
+    records: classifyOpencodeMessages(messages),
+  }).session;
+}
+
+async function readRecords(request: OpencodeSessionExportRequest) {
+  return completeHandoverExport(await readOpencodeSessionRecords(request));
+}
 
 const CWD = "/repo/wt";
 
@@ -192,8 +204,8 @@ describe("parseOpencodeSessionExport", () => {
   });
 });
 
-describe("renderOpencodeSession", () => {
-  it("renders user turns and assistant text in order", () => {
+describe("classifyOpencodeMessages", () => {
+  it("classifies user turns and assistant text in order", () => {
     const parsed = parseOpencodeSessionExport(
       sessionExport("ses_1", [
         user("first"),
@@ -201,7 +213,16 @@ describe("renderOpencodeSession", () => {
         assistant(text("third")),
       ]),
     );
-    expect(renderOpencodeSession(parsed?.messages ?? [])).toBe(
+    const records = classifyOpencodeMessages(parsed?.messages ?? []);
+
+    expect(records).toEqual([
+      { kind: "export", turn: { role: "User", text: "first" } },
+      { kind: "export", turn: { role: "Assistant", text: "second" } },
+      { kind: "export", turn: { role: "Assistant", text: "third" } },
+    ]);
+    expect(
+      completeHandoverExport({ sessionId: "ses_1", records }).session,
+    ).toBe(
       [
         "## User",
         "",
@@ -219,8 +240,8 @@ describe("renderOpencodeSession", () => {
     );
   });
 
-  it("drops thinking, tool traffic, and non-conversation messages", () => {
-    const rendered = renderOpencodeSession([
+  it("classifies readable non-transferable messages as deliberate omissions", () => {
+    const messages = [
       { type: "agent-switched" },
       { type: "model-switched" },
       { type: "system", text: "tools changed" },
@@ -228,21 +249,27 @@ describe("renderOpencodeSession", () => {
       { type: "compaction", text: "summary of earlier work" },
       { type: "shell", text: "echo hi" },
       { type: "idle" },
-      {
-        type: "assistant",
-        content: [reasoning("thinking")],
-      },
-      {
-        type: "assistant",
-        content: [tool()],
-      },
+      { type: "assistant", content: [reasoning("thinking")] },
+      { type: "assistant", content: [tool()] },
+    ];
+
+    expect(classifyOpencodeMessages(messages)).toEqual(
+      messages.map((message) => ({
+        kind: "dont-export",
+        content: JSON.stringify(message),
+      })),
+    );
+  });
+
+  it("reports native messages it cannot classify as unparseable", () => {
+    expect(classifyOpencodeMessages([null])).toEqual([
+      { kind: "unparseable", content: "null" },
     ]);
-    expect(rendered).toBe("");
   });
 
   it("joins several text parts of one message with one blank line", () => {
     expect(
-      renderOpencodeSession([
+      renderRecords([
         { type: "assistant", content: [text("one"), text("two")] },
       ]),
     ).toBe("## Assistant\n\none\n\ntwo\n");
@@ -250,7 +277,7 @@ describe("renderOpencodeSession", () => {
 
   it("skips blank text", () => {
     expect(
-      renderOpencodeSession([
+      renderRecords([
         { type: "user", text: "   " },
         { type: "assistant", content: [text("")] },
       ]),
@@ -259,43 +286,39 @@ describe("renderOpencodeSession", () => {
 
   it("escapes a heading the message itself contains", () => {
     const body = "## Verdict\n\n- pass\n- one note";
-    expect(
-      renderOpencodeSession([{ type: "assistant", content: [text(body)] }]),
-    ).toBe("## Assistant\n\n\\## Verdict\n\n- pass\n- one note\n");
+    expect(renderRecords([{ type: "assistant", content: [text(body)] }])).toBe(
+      "## Assistant\n\n\\## Verdict\n\n- pass\n- one note\n",
+    );
   });
 
   it("escapes a role heading a message quotes", () => {
     expect(
-      renderOpencodeSession([
-        { type: "user", text: "## User\nnot a boundary" },
-      ]),
+      renderRecords([{ type: "user", text: "## User\nnot a boundary" }]),
     ).toBe("## User\n\n\\## User\nnot a boundary\n");
   });
 
   it("leaves a heading inside fenced code alone", () => {
     const body = "```markdown\n## User\n```";
-    expect(
-      renderOpencodeSession([{ type: "assistant", content: [text(body)] }]),
-    ).toBe(`## Assistant\n\n${body}\n`);
+    expect(renderRecords([{ type: "assistant", content: [text(body)] }])).toBe(
+      `## Assistant\n\n${body}\n`,
+    );
   });
 
   it("trims the blank margin and trailing whitespace, keeping indentation", () => {
     expect(
-      renderOpencodeSession([
-        { type: "user", text: "\n\n  keep indent  \n\t\n\n" },
-      ]),
+      renderRecords([{ type: "user", text: "\n\n  keep indent  \n\t\n\n" }]),
     ).toBe("## User\n\n  keep indent\n");
   });
 
   it("ends the artifact with exactly one newline", () => {
-    expect(renderOpencodeSession([{ type: "user", text: "one\n\n\n" }])).toBe(
+    expect(renderRecords([{ type: "user", text: "one\n\n\n" }])).toBe(
       "## User\n\none\n",
     );
   });
 });
 
-describe("exportOpencodeSession", () => {
-  /** The staging root the exporter resolves this spawn's env file under. */
+describe("readOpencodeSessionRecords", () => {
+  /** The staging root the reader resolves this spawn's env file under. */
   let staging: string;
   let previousTmpdir: string | undefined;
 
@@ -331,7 +354,7 @@ describe("exportOpencodeSession", () => {
     };
   }
 
-  /** The refusal an export threw, so its shared fault can be asserted. */
+  /** The failure a record read threw, so its shared fault can be asserted. */
   async function refusalOf(
     exportPromise: Promise<unknown>,
   ): Promise<SessionExportError> {
@@ -372,7 +395,7 @@ describe("exportOpencodeSession", () => {
       ]),
     });
 
-    await expect(exportOpencodeSession(request(exec))).resolves.toEqual({
+    await expect(readRecords(request(exec))).resolves.toEqual({
       sessionId: "ses_run",
       session: "## User\n\ndo it\n\n## Assistant\n\ndone\n",
     });
@@ -403,7 +426,7 @@ describe("exportOpencodeSession", () => {
       exported: sessionExport("ses_run", [user("do it")]),
     });
 
-    await expect(exportOpencodeSession(request(exec))).resolves.toEqual({
+    await expect(readRecords(request(exec))).resolves.toEqual({
       sessionId: "ses_run",
       session: "## User\n\ndo it\n",
     });
@@ -444,7 +467,7 @@ describe("exportOpencodeSession", () => {
       list: JSON.stringify({ data: [] }),
       exported: sessionExport("ses_run", [user("do it")]),
     });
-    const refused = await refusalOf(exportOpencodeSession(request(exec)));
+    const refused = await refusalOf(readRecords(request(exec)));
     expect(refused.fault).toBe("session-not-found");
     expect(refused.message).toContain(
       "no opencode session for agent a1b2c3d4 in /repo/wt: the run wrote no session this harness can find",
@@ -457,7 +480,7 @@ describe("exportOpencodeSession", () => {
       stdout: "",
       stderr: "no server\n",
     }));
-    const refused = await refusalOf(exportOpencodeSession(request(exec)));
+    const refused = await refusalOf(readRecords(request(exec)));
     expect(refused.fault).toBe("export-command-failed");
     expect(refused.message).toBe(
       "could not list the opencode sessions in /repo/wt: `opencode api --standalone GET /api/session?directory=%2Frepo%2Fwt&limit=100` exited 2: no server",
@@ -477,7 +500,7 @@ describe("exportOpencodeSession", () => {
       }
       return { code: 1, stdout: "", stderr: "session not found" };
     });
-    const refused = await refusalOf(exportOpencodeSession(request(exec)));
+    const refused = await refusalOf(readRecords(request(exec)));
     expect(refused.fault).toBe("export-command-failed");
     expect(refused.message).toBe(
       "could not export opencode session ses_run: `opencode session export --standalone ses_run` exited 1: session not found",
@@ -491,7 +514,7 @@ describe("exportOpencodeSession", () => {
       }),
       exported: "not json",
     });
-    const refused = await refusalOf(exportOpencodeSession(request(exec)));
+    const refused = await refusalOf(readRecords(request(exec)));
     expect(refused.fault).toBe("malformed-record");
     expect(refused.message).toBe(
       "`opencode session export ses_run` returned a shape this harness does not recognize.",
@@ -503,7 +526,7 @@ describe("exportOpencodeSession", () => {
       list: "not json",
       exported: sessionExport("ses_run", [user("do it")]),
     });
-    const refused = await refusalOf(exportOpencodeSession(request(exec)));
+    const refused = await refusalOf(readRecords(request(exec)));
     expect(refused.fault).toBe("malformed-record");
     expect(refused.message).toContain(
       "returned a shape this harness does not recognize",

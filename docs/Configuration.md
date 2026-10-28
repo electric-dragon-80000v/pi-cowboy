@@ -148,13 +148,13 @@ If the parent working tree is already clean, both modes start at `HEAD`. Individ
 
 ### `agent.handoverMaxExcludedRatio`
 
-The maximum fraction of a handover session's countable records that may be unparseable before the handover is refused. A source harness classifies its native conversation records; shared handover logic omits unparseable records, reports their count once, and compares their ratio against this threshold:
+The maximum fraction of a handover session's complete native records that may be unparseable before the handover is refused. A source harness classifies every complete native entry; shared handover logic omits unparseable records from the transcript, reports their count once, and compares their ratio against this threshold:
 
 - `0.5` (default): an export that loses more than half its records is refused as a failure, leaving the run unchanged.
 - `1`: an export that loses records is still handed over, regardless of the number lost.
 - `0`: an export that loses any record is refused as a failure, leaving the run unchanged.
 
-Known irrelevant store traffic is not a handover record and cannot dilute the ratio. A valid conversation record deliberately omitted from the transcript is not lost. A handover that remains within the limit reports one loss summary with warning severity. Project configuration files cannot set this key, and no menu row carries it.
+Every complete native entry is a handover record: readable entries that do not enter the transcript still count in the ratio's denominator, while only unparseable entries count as loss. An incomplete trailing write is not a complete entry and does not count. A handover that remains within the limit reports one loss summary with warning severity. Project configuration files cannot set this key, and no menu row carries it.
 
 ### `agent.disableDefaultAgents`
 

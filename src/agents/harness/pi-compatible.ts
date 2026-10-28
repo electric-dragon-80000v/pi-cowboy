@@ -23,7 +23,7 @@ import {
   type PiFamilyLaunchRequest,
 } from "../harness.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
-import { exportForHandoverOf, type SessionStore } from "./pi-session.js";
+import { readHandoverRecordsOf, type SessionStore } from "./pi-session.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
@@ -131,7 +131,7 @@ export function createPiCompatibleHarness(
     reservedEnvVars: () => spec.store.reservedNames,
     // Attached here rather than by each harness: the store is the only thing
     // that varies, so building the hook is the factory's work like the argv is.
-    exportForHandover: exportForHandoverOf(spec.store),
+    readHandoverRecords: readHandoverRecordsOf(spec.store),
     // The binary is pi behind the shell trick, so the argv is pi's; only a
     // harness that stages filesystem state before launch has teardown work —
     // the launcher dies with the pane and the staged files belong to the

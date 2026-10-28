@@ -106,7 +106,6 @@ describe("the open harness registry", () => {
         subagentId: "s",
         paneId: "w1:p1",
         cwd: "/repo",
-        session: { kind: "identified", sessionId: "ses_1" },
       }),
     ).resolves.toEqual({
       sessionId: "ses_1",

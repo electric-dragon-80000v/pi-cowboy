@@ -40,7 +40,6 @@ function execution(
   return {
     promise: Promise.resolve(""),
     abortController: new AbortController(),
-    session: { kind: "unidentified" },
     history: [],
     ...overrides,
   };
@@ -61,23 +60,7 @@ describe("environmentOf", () => {
 
     expect(environment.host).toBeUndefined();
     expect(environment.harness).toBeUndefined();
-    expect(environment.session).toEqual({ kind: "unidentified" });
     expect(environment.ended).toEqual([]);
-  });
-
-  it("reads the session the active run is in", () => {
-    const environment = environmentOf(
-      execution({
-        host: ACTIVE,
-        harness: "codex",
-        session: { kind: "identified", sessionId: "ses-codex-1" },
-      }),
-    );
-
-    expect(environment.session).toEqual({
-      kind: "identified",
-      sessionId: "ses-codex-1",
-    });
   });
 
   it("keeps each ended run's own address, oldest first", () => {
@@ -104,18 +87,13 @@ describe("environmentOf", () => {
     expect(state.harness).toBe("pig");
   });
 
-  it("gives up the placement, the harness, and the session when a run ends", () => {
-    const state = execution({
-      host: ACTIVE,
-      harness: "codex",
-      session: { kind: "identified", sessionId: "ses-codex-1" },
-    });
+  it("gives up the placement and harness when a run ends", () => {
+    const state = execution({ host: ACTIVE, harness: "codex" });
 
     environmentOf(state).end(endedRun("codex", ACTIVE));
 
     expect(environmentOf(state).host).toBeUndefined();
     expect(environmentOf(state).harness).toBeUndefined();
-    expect(environmentOf(state).session).toEqual({ kind: "unidentified" });
     expect(state.history).toEqual([endedRun("codex", ACTIVE)]);
   });
 });
@@ -135,8 +113,5 @@ describe("buildAgentSpawn", () => {
 
     expect(spawn.execution.history).toEqual([]);
     expect(environmentOf(spawn.execution).harness).toBeUndefined();
-    expect(environmentOf(spawn.execution).session).toEqual({
-      kind: "unidentified",
-    });
   });
 });

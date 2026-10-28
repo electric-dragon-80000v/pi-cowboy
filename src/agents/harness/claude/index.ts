@@ -41,7 +41,7 @@ import {
   launchEnvBody,
   type PaneProof,
 } from "../pane-launcher.js";
-import { exportClaudeSession } from "./session-export.js";
+import { readClaudeSessionRecords } from "./session-export.js";
 import {
   claudeConfigDir,
   claudeSettingsFile,
@@ -360,6 +360,6 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
    * on to another. `pi` and `paneId` are not read: claude writes its own store,
    * so nothing here asks the CLI or the pane.
    */
-  exportForHandover: async ({ subagentId, cwd }) =>
-    exportClaudeSession({ configDir: claudeConfigDir(subagentId), cwd }),
+  readHandoverRecords: async ({ subagentId, cwd }) =>
+    readClaudeSessionRecords({ configDir: claudeConfigDir(subagentId), cwd }),
 };

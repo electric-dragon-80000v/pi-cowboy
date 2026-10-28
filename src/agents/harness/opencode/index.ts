@@ -43,7 +43,6 @@ import {
   modelListEntries,
   type Harness,
   type HarnessAvailability,
-  type HarnessExport,
   type HarnessExportRequest,
   type HarnessPrepareRequest,
   type ModelEntry,
@@ -57,7 +56,7 @@ import {
   type PaneProof,
 } from "../pane-launcher.js";
 import { opencodeConfigCodec, type OpencodeConfig } from "./config.js";
-import { exportOpencodeSession } from "./session-export.js";
+import { readOpencodeSessionRecords } from "./session-export.js";
 import { removeOpencodeStaging, writeOpencodeStaging } from "./staging.js";
 import { probeOpencode } from "./version.js";
 
@@ -400,8 +399,8 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
    * alive. The run's directory and the staged definition's name identify it;
    * the definition proof's session is not a run and is skipped by its model.
    */
-  exportForHandover(request: HarnessExportRequest): Promise<HarnessExport> {
-    return exportOpencodeSession({
+  readHandoverRecords(request: HarnessExportRequest) {
+    return readOpencodeSessionRecords({
       pi: request.pi,
       subagentId: request.subagentId,
       cwd: request.cwd,

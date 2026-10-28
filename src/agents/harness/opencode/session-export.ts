@@ -7,10 +7,10 @@
  * session list is scoped by the run's directory and the stage's agent name (the
  * spawn id), and the export is opencode's own transfer JSON for that session.
  *
- * Another harness can use the conversation, so what travels is user turns and
- * assistant text. Reasoning and tool traffic are dropped here: only the message
- * shape distinguishes them, and neither belongs in the task the next harness
- * starts from.
+ * The reader classifies native messages into the shared handover vocabulary.
+ * Every complete native message becomes a turn, a deliberate omission, or an
+ * unparseable record; shared handover code renders the surviving turns and
+ * applies the loss policy.
  */
 
 import { existsSync } from "node:fs";
@@ -19,8 +19,8 @@ import { z } from "zod";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   SessionExportError,
-  type HarnessExport,
-  type SessionExportTurn,
+  type HandoverRecord,
+  type HandoverRecordSource,
 } from "../../harness.js";
 import { canonicalPath, subagentEnvFileFor } from "../../../paths.js";
 import { launchEnvBody } from "../pane-launcher.js";
@@ -81,17 +81,15 @@ const OpencodeMessageSchema = z.object({
   content: z.array(OpencodePartSchema).optional(),
 });
 
-export type OpencodeSessionMessage = z.infer<typeof OpencodeMessageSchema>;
-
 /** opencode's transfer JSON: the session, and its messages in order. */
 const OpencodeSessionExportSchema = z.object({
   info: z.object({ id: z.string().min(1) }),
-  messages: z.array(OpencodeMessageSchema),
+  messages: z.array(z.unknown()),
 });
 
 export interface OpencodeSessionExport {
   readonly sessionId: string;
-  readonly messages: readonly OpencodeSessionMessage[];
+  readonly messages: readonly unknown[];
 }
 
 /**
@@ -205,75 +203,40 @@ function parseJson(text: string): unknown {
   }
 }
 
-/**
- * The conversation as markdown, in order: user turns and assistant text, with
- * reasoning and tool traffic left out. A message with no surviving text (an
- * idle notice, a model switch, an assistant turn that only called tools) adds
- * nothing and is skipped. Blocks are `## User` / `## Assistant` and are joined
- * by one blank line; the artifact ends with exactly one newline.
- */
-export function renderOpencodeSession(
-  messages: readonly OpencodeSessionMessage[],
-): string {
-  const turns: SessionExportTurn[] = [];
-  for (const message of messages) {
-    if (message.type === "user") {
-      const text = normalizeText(message.text);
-      if (text !== undefined) turns.push({ role: "User", text });
-      continue;
-    }
-    if (message.type !== "assistant") continue;
-    const parts = (message.content ?? [])
-      .filter((part) => part.type === "text")
-      .map((part) => normalizeText(part.text))
-      .filter((part): part is string => part !== undefined);
-    if (parts.length > 0) {
-      turns.push({ role: "Assistant", text: parts.join("\n\n") });
-    }
+/** Classify every complete native message, preserving its raw payload. */
+export function classifyOpencodeMessages(
+  messages: readonly unknown[],
+): readonly HandoverRecord[] {
+  return messages.map(readOpencodeMessage);
+}
+
+/** Classify one native message, preserving its raw payload only when it is lost. */
+function readOpencodeMessage(message: unknown): HandoverRecord {
+  const parsed = OpencodeMessageSchema.safeParse(message);
+  if (!parsed.success) {
+    return { kind: "unparseable", content: JSON.stringify(message) };
   }
-  return turns.length === 0 ? "" : renderTurns(turns);
-}
 
-/** One blank line between blocks, exactly one final newline, no marker. */
-function renderTurns(turns: readonly SessionExportTurn[]): string {
-  return `${turns
-    .map((turn) => `## ${turn.role}\n\n${escapeContentHeadings(turn.text)}`)
-    .join("\n\n")}\n`;
-}
+  if (parsed.data.type === "user") {
+    const text = normalizeText(parsed.data.text);
+    return text === undefined
+      ? { kind: "dont-export", content: JSON.stringify(message) }
+      : { kind: "export", turn: { role: "User", text } };
+  }
+  if (parsed.data.type !== "assistant") {
+    return { kind: "dont-export", content: JSON.stringify(message) };
+  }
 
-/**
- * Escape an ATX heading the message itself contains, so the only headings in
- * the export are the role separators. A message line that reads `## User`
- * would otherwise be indistinguishable from a role boundary. Fenced code is
- * left untouched: there a leading `#` is literal text, not a heading.
- */
-function escapeContentHeadings(text: string): string {
-  let fence: string | undefined;
-  return text
-    .split("\n")
-    .map((line) => {
-      const fenceMatch = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
-      if (fenceMatch !== null) {
-        const marker = fenceMatch[1]!;
-        if (fence === undefined) {
-          fence = marker;
-        } else if (
-          marker[0] === fence[0] &&
-          marker.length >= fence.length &&
-          fenceMatch[2]!.trim() === ""
-        ) {
-          fence = undefined;
-        }
-        return line;
-      }
-      if (fence !== undefined) return line;
-
-      const headingMatch = /^( {0,3})#{1,6}(?=\s|$)/.exec(line);
-      if (headingMatch === null) return line;
-      const indent = headingMatch[1]!;
-      return `${indent}\\${line.slice(indent.length)}`;
-    })
-    .join("\n");
+  const parts = (parsed.data.content ?? [])
+    .filter((part) => part.type === "text")
+    .map((part) => normalizeText(part.text))
+    .filter((part): part is string => part !== undefined);
+  return parts.length === 0
+    ? { kind: "dont-export", content: JSON.stringify(message) }
+    : {
+        kind: "export",
+        turn: { role: "Assistant", text: parts.join("\n\n") },
+      };
 }
 
 /**
@@ -300,9 +263,9 @@ function normalizeText(text: string | undefined): string | undefined {
  * reads through the CLI; a refusal is a `SessionExportError` naming its fault,
  * so the handover reports it without knowing this harness.
  */
-export async function exportOpencodeSession(
+export async function readOpencodeSessionRecords(
   request: OpencodeSessionExportRequest,
-): Promise<HarnessExport> {
+): Promise<HandoverRecordSource> {
   const { pi, subagentId, cwd } = request;
   const envFile = stagedEnvFile(subagentId);
   const sessions = await readSessionList(pi, envFile, cwd);
@@ -333,7 +296,7 @@ export async function exportOpencodeSession(
   }
   return {
     sessionId: parsed.sessionId,
-    session: renderOpencodeSession(parsed.messages),
+    records: classifyOpencodeMessages(parsed.messages),
   };
 }
 
