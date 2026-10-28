@@ -183,7 +183,7 @@ describe("executeStopAgentTool — batch", () => {
     expect(manager.abort).toHaveBeenCalledWith(ID_B, "agent");
     expect(text(result)).toBe(
       [
-        `Agent ${ID_A} was not stopped: it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped`,
+        `Agent ${ID_A} was not stopped: it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped.`,
         `Stopped agent ${ID_B}`,
       ].join("\n\n---\n\n"),
     );
@@ -191,7 +191,7 @@ describe("executeStopAgentTool — batch", () => {
       kind: "refused",
       agentId: ID_A,
       reason:
-        "it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped",
+        "it is being handed over to another harness — wait for the handover to finish, then stop the new run if you still want it stopped.",
     });
   });
 

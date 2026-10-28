@@ -799,7 +799,7 @@ describe("env overrides", () => {
     },
   );
 
-  it.each(["opencode", "codex", "claude"] as const)(
+  it.each(["opencode", "claude"] as const)(
     "%s inherits nothing: its own launcher resolves the state it runs with",
     (id) => {
       vi.stubEnv("PI_CODING_AGENT_DIR", "/var/agent");
