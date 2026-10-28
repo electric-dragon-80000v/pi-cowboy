@@ -1358,21 +1358,33 @@ describe("buildLaunchPlan — env overrides", () => {
 
   it("drops a store name the pig harness reserves, so nothing can move its child", async () => {
     const { cwd, notify } = setup(makeAgent({ harnessType: "pig" }));
+    const previousPigHome = process.env.PIG_HOME;
+    const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    delete process.env.PIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
     storeRef.current = new ConfigStore(
       memoryIO({
         harness: { pig: { env: { PIG_HOME: "/elsewhere", PIG_KEEP: "1" } } },
       }),
     );
 
-    const plan = await launch("test-agent", cwd, notify);
+    try {
+      const plan = await launch("test-agent", cwd, notify);
 
-    // pig's root decides where the run writes and where its export reads, so a
-    // configured entry for it is dropped; a name pig does not own is carried.
-    expect(stagedEnv(plan.launch)).toEqual({ PIG_KEEP: "1" });
-    expect(
-      notify.mock.calls.some(([message]) =>
-        String(message).includes("PIG_HOME"),
-      ),
-    ).toBe(true);
+      // pig's root decides where the run writes and where its export reads, so a
+      // configured entry for it is dropped; a name pig does not own is carried.
+      expect(stagedEnv(plan.launch)).toEqual({ PIG_KEEP: "1" });
+      expect(
+        notify.mock.calls.some(([message]) =>
+          String(message).includes("PIG_HOME"),
+        ),
+      ).toBe(true);
+    } finally {
+      if (previousPigHome === undefined) delete process.env.PIG_HOME;
+      else process.env.PIG_HOME = previousPigHome;
+      if (previousXdgConfigHome === undefined)
+        delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
+    }
   });
 });
