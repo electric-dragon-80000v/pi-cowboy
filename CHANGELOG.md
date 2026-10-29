@@ -1,3 +1,10 @@
+## [0.23.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.1...v0.23.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* stop agent didn't work ([d366e6b](https://github.com/electric-dragon-80000v/pi-cowboy/commit/d366e6bdcb23fdecf0efb2658d34bce918c2cfec))
+
 ## [0.23.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.0...v0.23.1) (2026-10-29)
 
 
