@@ -1,11 +1,11 @@
 import { Type } from "typebox";
-import { DEV_MODE } from "./dev-mode.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { DEV_MODE } from "./dev-mode.js";
 import {
   CowboyAgentsSchema,
   type CowboyAgentParams,
