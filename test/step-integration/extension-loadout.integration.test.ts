@@ -30,7 +30,10 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { COWBOY_TOOL_NAMES } from "../../src/registration.js";
+import {
+  COWBOY_TOOL_NAMES,
+  REGISTERED_TOOL_NAMES,
+} from "../../src/registration.js";
 import { startFakeOpenAI, type FakeOpenAI } from "./fake-openai-server.js";
 import {
   PI_RUN_TIMEOUT_MS,
@@ -144,9 +147,11 @@ describe("step integration: a real pi process against the fake-openai stub", () 
       expect(names).toContain("cowboy_agent");
       expect(names).toContain("read");
 
+      // The built entry is the production one: the dev-only handover tool is
+      // never registered here, so the loadout is REGISTERED_TOOL_NAMES.
       const observed = observedRegistration(ctx);
       expect(observed.activeTools).toEqual(
-        expect.arrayContaining([...COWBOY_TOOL_NAMES]),
+        expect.arrayContaining([...REGISTERED_TOOL_NAMES]),
       );
       expect(observed.commands).toContain("cowboy");
     });
