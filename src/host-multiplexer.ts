@@ -70,5 +70,4 @@ export function getHostMultiplexer(): HostMultiplexer | undefined {
  * (see multiplexer-registry.ts), so a session inside one never reaches this
  * reason.
  */
-export const NO_HOST_REASON =
-  "pi-cowboy launches agents in panes, so it runs only inside a multiplexer it can detect. None hosting this process is registered — run pi inside herdr, or install a plugin multiplexer for the multiplexer you run pi inside.";
+export const NO_HOST_REASON "Warning: pi-cowboy is disabled. Run pi inside herdr (or a compatible multiplexer plugin you have installed)"
