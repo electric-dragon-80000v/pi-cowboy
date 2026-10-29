@@ -1,3 +1,10 @@
+## [0.23.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.0...v0.23.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* handover worktree association ([7d2c4f3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/7d2c4f3aefded88c7e7ac635362c2af81d607d7c))
+
 # [0.23.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.2...v0.23.0) (2026-10-29)
 
 
