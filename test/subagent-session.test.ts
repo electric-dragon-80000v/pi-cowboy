@@ -22,6 +22,7 @@ import type {
   AgentHost,
   AgentHostRef,
   AgentMultiplexerKind,
+  PaneControl,
 } from "../src/agents/agent-host.js";
 import { AgentSandbox } from "../src/spawn/sandbox.js";
 import type {
@@ -43,6 +44,7 @@ import type {
   AnyHarnessId,
   ReadHandoverRecords,
   HarnessPrepareRequest,
+  HarnessStopRequest,
 } from "../src/agents/harness.js";
 import type {
   HarnessRegistry,
@@ -175,11 +177,7 @@ class ScriptedDeliverable implements DeliverableSource {
   }
 }
 
-type StopOptions = {
-  interruptGraceMs?: number;
-  confirmMs?: number;
-  interrupt?: boolean;
-};
+type StopOptions = { timeoutMs?: number };
 type StopCall = { ref: AgentHostRef; options?: StopOptions };
 type ReleaseScope = "placement" | "worktree-association";
 type ReleaseCall = { ref: AgentHostRef; scope: ReleaseScope };
@@ -242,7 +240,10 @@ function makeFakeHost(options: FakeHostOptions = {}) {
         ? options.observeAgent()
         : { state: observeState };
     },
-    stop: async (stoppedRef: AgentHostRef, stopOptions?: StopOptions) => {
+    waitUntilGone: async (
+      stoppedRef: AgentHostRef,
+      stopOptions?: StopOptions,
+    ) => {
       stopCalls.push({ ref: stoppedRef, options: stopOptions });
       return options.stopResult ?? true;
     },
@@ -273,6 +274,8 @@ function makeFakeHost(options: FakeHostOptions = {}) {
 interface HarnessOptions {
   id?: string;
   host?: AgentHost;
+  /** The session's pane surface; defaults to the recording no-op test pane. */
+  pane?: PaneControl;
   /** Overrides the host factory entirely (e.g. a transport that throws). */
   createHost?: (pi: unknown) => AgentHost;
   deliverable?: DeliverableSource;
@@ -310,7 +313,7 @@ function makeSession(options: HarnessOptions = {}) {
   const deps: SubagentSessionDeps = {
     transport: {
       createHost: options.createHost ?? (() => options.host!),
-      createPane: () => TEST_PANE,
+      createPane: () => options.pane ?? TEST_PANE,
       createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => options.deliverable!,
     },
@@ -529,6 +532,7 @@ describe("SubagentSession launch failure", () => {
 describe("SubagentSession harness seam", () => {
   const teardownCalls: unknown[] = [];
   const prepareCalls: HarnessPrepareRequest[] = [];
+  const stopCalls: HarnessStopRequest[] = [];
 
   /** Stand in the resolved harness; records the prepare and teardown requests it receives. */
   function stubHarness(
@@ -542,6 +546,9 @@ describe("SubagentSession harness seam", () => {
       availability: () => ({ status: "available" }),
       prepare: async (request: HarnessPrepareRequest) => {
         prepareCalls.push(request);
+      },
+      stop: async (request: HarnessStopRequest) => {
+        stopCalls.push(request);
       },
       buildArgs: (request: never) => request,
       teardown,
@@ -574,6 +581,7 @@ describe("SubagentSession harness seam", () => {
   beforeEach(() => {
     teardownCalls.length = 0;
     prepareCalls.length = 0;
+    stopCalls.length = 0;
   });
 
   afterEach(() => {
@@ -643,6 +651,34 @@ describe("SubagentSession harness seam", () => {
     // The pane a harness prepares through is the one the session's transport
     // mints — the multiplexer's, not a multiplexer picked here.
     expect(prepareCalls[0]!.pane).toBe(TEST_PANE);
+  });
+
+  it("stops through the recorded harness's pane surface, then waits for the host", async () => {
+    const pane: PaneControl = {
+      kind: "test",
+      run: async () => {},
+      sendKeys: async () => {},
+      waitForOutput: async () => {},
+    };
+    const fake = makeFakeHost({ observeState: "working" });
+    stubHarness();
+    const run = makeSession({
+      pane,
+      host: fake.host,
+      deliverable: new ScriptedDeliverable(),
+      hostRef: fake.ref,
+    });
+    run.session.start();
+    await driveRun(0);
+
+    await expect(run.session.abort("user")).resolves.toBe(true);
+
+    expect(stopCalls).toEqual([
+      expect.objectContaining({ pane, paneId: fake.ref.paneId }),
+    ]);
+    expect(fake.stopCalls).toEqual([
+      { ref: fake.ref, options: { timeoutMs: 2_000 } },
+    ]);
   });
 
   it("tears the recorded harness down, guarded, when the launch fails past prepare", async () => {
@@ -1045,7 +1081,7 @@ describe("SubagentSession worktree retention capture", () => {
       stop: { initiator: "user" },
     };
     const note = formatResultContent(spawn);
-    // Stopped is interrupt-only: process ends, pane survives.
+    // A stopped settle asks the harness to exit: process ends, pane survives.
     expect(note).toContain("cleanup_cowboy_agent to remove it");
     expect(note).not.toContain("agent process");
   });
@@ -1096,7 +1132,7 @@ describe("SubagentSession routing and projection", () => {
     });
     expect(harness.session.spawn.lifecycle.phase).toBe("settled");
     expect(fake.stopCalls).toEqual([
-      { ref: fake.ref, options: { interruptGraceMs: 2_000, confirmMs: 0 } },
+      { ref: fake.ref, options: { timeoutMs: 2_000 } },
     ]);
     expect(harness.releasedSlots).toEqual(["session-1"]);
   });
@@ -1853,6 +1889,7 @@ describe("handover", () => {
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "unavailable", notice: "test" }),
+      stop: async () => {},
       prefetchModels: () => {},
       readHandoverRecords,
     };
@@ -1985,10 +2022,7 @@ describe("handover", () => {
 
     // The old process is stopped at the run's own pane before the next starts.
     expect(run.stopCalls).toEqual([
-      {
-        ref: run.ref,
-        options: { interruptGraceMs: 2_000, confirmMs: 10_000 },
-      },
+      { ref: run.ref, options: { timeoutMs: 12_000 } },
     ]);
 
     // The next run is an ordinary launch whose task quotes the session.

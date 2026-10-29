@@ -41,7 +41,7 @@ import { builtinTransport, noMultiplexer } from "./helpers/transport.js";
 const {
   getPiInstanceMock,
   getStoreMock,
-  stopAgentAndWaitMock,
+  waitForAgentGoneMock,
   getAgentInfoMock,
   closePaneMock,
   buildLaunchPlanMock,
@@ -53,7 +53,7 @@ const {
 } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(),
   getStoreMock: vi.fn(() => ({ agent: {} })),
-  stopAgentAndWaitMock: vi.fn(),
+  waitForAgentGoneMock: vi.fn(),
   getAgentInfoMock: vi.fn(),
   closePaneMock: vi.fn(),
   buildLaunchPlanMock: vi.fn(),
@@ -76,7 +76,7 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     >();
   return {
     ...actual,
-    stopAgentAndWait: stopAgentAndWaitMock,
+    waitForAgentGone: waitForAgentGoneMock,
     getAgentInfo: getAgentInfoMock,
     closePane: closePaneMock,
     removeHerdrWorktree: removeHerdrWorktreeMock,
@@ -195,7 +195,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     hostAt: async () => HOST_REF,
     release: async () => true,
     start: async () => {},
-    stop: async () => true,
+    waitUntilGone: async () => true,
     observe: async () => ({ state: "done" }),
   } as unknown as AgentHost;
   const transport = {
@@ -442,7 +442,7 @@ describe("spawn retention through the manager", () => {
     vi.useFakeTimers();
     getPiInstanceMock.mockReset().mockReturnValue({});
     getStoreMock.mockReset().mockReturnValue({ agent: {} });
-    stopAgentAndWaitMock.mockReset().mockResolvedValue(true);
+    waitForAgentGoneMock.mockReset().mockResolvedValue(true);
     getAgentInfoMock.mockReset().mockResolvedValue({
       state: "working",
       paneId: "w1:p1",

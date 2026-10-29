@@ -571,6 +571,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       buildArgs: () => [],
       teardown,
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
     });
     const { host, catalog } = engineProbes();
@@ -622,6 +623,7 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       buildArgs: () => [],
       teardown,
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
     });
     const { host, catalog } = engineProbes();

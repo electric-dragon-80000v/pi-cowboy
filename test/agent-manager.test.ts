@@ -289,7 +289,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       }),
       release: async () => true,
       start: async () => {},
-      stop: async (ref: AgentHostRef) => {
+      waitUntilGone: async (ref: AgentHostRef) => {
         stopCalls.push({ paneId: ref.paneId });
         return true;
       },
@@ -386,7 +386,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       start: async () => {},
       // The registry never knows this agent.
       observe: async () => undefined,
-      stop: async (ref: AgentHostRef) => {
+      waitUntilGone: async (ref: AgentHostRef) => {
         stopCalls.push(ref.paneId);
         return true;
       },
@@ -808,7 +808,7 @@ describe("AgentManager fleet routing", () => {
       hostAt: async () => ref,
       start: async () => {},
       observe: async () => ({ state: "working" }),
-      stop: async () => true,
+      waitUntilGone: async () => true,
       release: async () => true,
       deliver: async (deliveryRef: AgentHostRef, message: string) => {
         deliveries.push({ ref: deliveryRef, message });
@@ -874,7 +874,7 @@ describe("AgentManager fleet routing", () => {
       hostAt: async () => ref,
       start: async () => {},
       observe: async () => ({ state: "working" }),
-      stop: async () => true,
+      waitUntilGone: async () => true,
       release: async () => true,
       deliver: async () => ({ kind: "submitted" as const }),
     } as unknown as AgentHost;
@@ -956,7 +956,7 @@ describe("AgentManager fleet routing", () => {
       }),
       start: async () => {},
       observe: async () => ({ state: "working" }),
-      stop: async (ref: AgentHostRef) => {
+      waitUntilGone: async (ref: AgentHostRef) => {
         stopCalls.push(ref.paneId);
         return true;
       },

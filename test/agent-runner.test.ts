@@ -1080,6 +1080,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
       buildArgs: () => argv,
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
     };
   }
@@ -1226,6 +1227,7 @@ describe("buildLaunchPlan — env overrides", () => {
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
       reservedEnvVars: () => ["PLUGIN_OWNED"],
     } as PluginHarness);
@@ -1260,6 +1262,7 @@ describe("buildLaunchPlan — env overrides", () => {
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
       // The name is reserved because the launch owns it, so the reservation
       // must not drop the very value the launch is supplying.
@@ -1293,6 +1296,7 @@ describe("buildLaunchPlan — env overrides", () => {
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
       inheritedEnv: () => ({ "BAD NAME": "/var/plugin" }),
     } as PluginHarness);

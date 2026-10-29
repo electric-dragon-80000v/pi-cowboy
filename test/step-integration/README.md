@@ -634,8 +634,8 @@ invoked via `process.execPath`; see `pi-headless.ts`):
   (`dist/modes/print-mode.js`), and SIGINT is unhandled, so the process is
   killed by the signal with its turn still open — that killed-mid-turn shape
   is the process-level meaning of
-  the ctrl+c the extension's own stop path injects into a pane
-  (`herdr agent send-keys <agent> ctrl+c`). In that shape nothing reaches
+  the ctrl+d the extension's own stop path presses into a pi pane
+  (`herdr agent send-keys <agent> ctrl+d`). In that shape nothing reaches
   extension turn hooks and nothing is printed: no `turn_end`, no
   `stopReason` message, no stderr error, no orchestrator-facing report. A FAILED
   inference ends the same way as far as the parent is concerned: pi ends the turn

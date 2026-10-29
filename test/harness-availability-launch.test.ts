@@ -243,6 +243,7 @@ describe("a harness whose hooks throw", () => {
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {
         throw new Error(`${id} exploded`);
       },

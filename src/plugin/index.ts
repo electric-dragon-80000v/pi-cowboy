@@ -36,6 +36,8 @@ export type {
   HandoverRecord,
   HandoverRecordSource,
   HarnessPrepareRequest,
+  HarnessStop,
+  HarnessStopRequest,
   HarnessTeardownContext,
   HarnessTeardownRequest,
   ModelEntry,

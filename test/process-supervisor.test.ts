@@ -48,7 +48,7 @@ class FakeAgentHost implements AgentHost {
   }> = [];
   stopCalls: Array<{
     ref: AgentHostRef;
-    opts?: { interruptGraceMs?: number; confirmMs?: number };
+    opts?: { timeoutMs?: number };
   }> = [];
   hostAtCalls = 0;
 
@@ -95,9 +95,9 @@ class FakeAgentHost implements AgentHost {
     this.startCalls.push({ ref, options });
   }
 
-  async stop(
+  async waitUntilGone(
     ref: AgentHostRef,
-    opts?: { interruptGraceMs?: number; confirmMs?: number },
+    opts?: { timeoutMs?: number },
   ): Promise<boolean> {
     this.stopCalls.push({ ref, opts });
     return this.stopResult;
@@ -323,10 +323,8 @@ describe("ProcessSupervisorEngine.adopt", () => {
       kind: "stopped",
       initiator: "user",
     });
-    expect(host.stopCalls).toEqual([
-      { ref: REF, opts: { interruptGraceMs: 2_000, confirmMs: 0 } },
-    ]);
-    // Interrupt-only: the supervisor never releases the placement.
+    expect(host.stopCalls).toEqual([{ ref: REF, opts: { timeoutMs: 2_000 } }]);
+    // Stop-keys-then-wait: the supervisor never releases the placement.
     expect(host.startCalls).toEqual([]);
   });
 });
@@ -534,7 +532,7 @@ describe("ProcessSupervisorEngine.watch — lifecycle", () => {
   });
 });
 
-describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane", () => {
+describe("ProcessSupervisorEngine.stop — stop keys, then confirm, never closes the pane", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -542,7 +540,7 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
     vi.useRealTimers();
   });
 
-  it("never closes the surface across interrupt-success, interrupt-ignored, and already-gone paths", async () => {
+  it("never closes the surface across stop-success, stop-ignored, and already-gone paths", async () => {
     // Every stop path must leave the pane alive for the worktree removal after stop.
     const sharedHost = new FakeAgentHost({ agent: workingAgent });
     const sharedDeliverable = new FakeDeliverable();
@@ -586,32 +584,36 @@ describe("ProcessSupervisorEngine.stop — interrupt-only, never closes the pane
       initiator: "user",
     });
 
-    // Interrupt-only with confirmMs 0 throughout: host.stop cannot close a surface.
+    // The grace window is the confirmation timeout throughout: the host only
+    // waits, so it cannot close a surface.
     expect(sharedHost.stopCalls).toHaveLength(3);
-    expect(sharedHost.stopCalls[0].opts).toEqual({
-      confirmMs: 0,
-      interruptGraceMs: 8_000,
-    });
-    expect(sharedHost.stopCalls[1].opts).toEqual({
-      confirmMs: 0,
-      interruptGraceMs: 8_000,
-    });
-    expect(sharedHost.stopCalls[2].opts).toEqual({
-      confirmMs: 0,
-      interruptGraceMs: 8_000,
-    });
+    expect(sharedHost.stopCalls[0].opts).toEqual({ timeoutMs: 8_000 });
+    expect(sharedHost.stopCalls[1].opts).toEqual({ timeoutMs: 8_000 });
+    expect(sharedHost.stopCalls[2].opts).toEqual({ timeoutMs: 8_000 });
   });
 
-  it("passes the grace window through as interruptGraceMs with confirmMs 0", async () => {
+  it("passes the grace window through as the confirmation timeout", async () => {
     const { host, supervisor } = makeFixture({ agent: workingAgent });
     await supervisor.start(PLAN, REF);
     await supervisor.stop(2_500);
-    expect(host.stopCalls).toEqual([
+    expect(host.stopCalls).toEqual([{ ref: REF, opts: { timeoutMs: 2_500 } }]);
+  });
+
+  it("uses the injected stop process instead of the host's own wait", async () => {
+    const stopProcess = vi.fn(async () => true);
+    const host = new FakeAgentHost({ agent: workingAgent });
+    const supervisor = new ProcessSupervisorEngine(
+      host,
+      new FakeDeliverable(),
       {
-        ref: REF,
-        opts: { interruptGraceMs: 2_500, confirmMs: 0 },
+        pollMs: 1_000,
+        stopProcess,
       },
-    ]);
+    );
+    await supervisor.start(PLAN, REF);
+    await expect(supervisor.stop(3_500)).resolves.toBe(true);
+    expect(stopProcess).toHaveBeenCalledWith(REF, 3_500);
+    expect(host.stopCalls).toEqual([]);
   });
 
   it("carries the configured stopInitiator on the stopped outcome", async () => {

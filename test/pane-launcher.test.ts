@@ -35,7 +35,12 @@ function makePane() {
       if (timesOut(output)) throw new Error("timed out waiting");
     },
   );
-  const pane: PaneControl = { kind: "test", run, waitForOutput };
+  const pane: PaneControl = {
+    kind: "test",
+    run,
+    sendKeys: async () => {},
+    waitForOutput,
+  };
   return {
     pane,
     run,

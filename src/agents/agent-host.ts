@@ -1,8 +1,8 @@
 /**
  * agent-host.ts — execution-multiplexer contracts (types only).
- * AgentHost: hostAt/start/observe/stop/release/isAttached/findAttempts/deliver.
+ * AgentHost: hostAt/start/observe/waitUntilGone/release/isAttached/findAttempts/deliver.
  * AgentView: placement presentation (focus).
- * PaneControl: the pane-side surface a harness prepares through.
+ * PaneControl: the pane-side surface a harness prepares and stops through.
  * PlacementCatalog: the multiplexer's own view of the placements it owns (discovery,
  * observation, path spelling) — the multiplexer vocabulary cleanup and status read.
  * HerdrHostRef/AgentHostRef: host address. CheckoutBinding/ViewRequest: placement input.
@@ -76,10 +76,11 @@ export interface AgentView {
 }
 
 /**
- * The pane-side surface a harness prepares through. A harness that must type
- * into its pane — installing a launcher, proving staged state is live — reaches
- * the pane here, never through the multiplexer's own client, so the same harness
- * runs under any multiplexer that offers this surface.
+ * The pane-side surface a harness prepares and stops through. A harness that
+ * must type into its pane — installing a launcher, proving staged state is
+ * live, pressing its TUI's exit keys — reaches the pane here, never through the
+ * multiplexer's own client, so the same harness runs under any multiplexer that
+ * offers this surface.
  */
 export interface PaneControl {
   /** How the pane is addressed; the multiplexer's own vocabulary (herdr for the built-in multiplexer). */
@@ -90,6 +91,14 @@ export interface PaneControl {
    * typed rather than trusting this call (see pane-launcher.ts).
    */
   run(paneId: string, command: string): Promise<void>;
+  /**
+   * Press logical keys, in order, into the pane's agent. The names are the
+   * multiplexer's key vocabulary (`ctrl+c`, `ctrl+d`); a multiplexer validates
+   * every name before writing any bytes, so an unsupported key fails without
+   * partial input. The pane's foreground process must be the agent: a harness
+   * uses this for its TUI's own keybindings, never to run a command.
+   */
+  sendKeys(paneId: string, keys: readonly string[]): Promise<void>;
   /** Resolve once the pane's output comes to contain `output`, or reject when the budget elapses. */
   waitForOutput(
     paneId: string,
@@ -194,13 +203,15 @@ export interface AgentHost {
   ): Promise<void>;
   /** Live snapshot, or undefined when the host is gone. */
   observe(ref: AgentHostRef): Promise<HostObservation | undefined>;
-  /** Interrupt and wait; never closes the placement (worktree removal depends on it). */
-  stop(
+  /**
+   * Wait until this placement no longer hosts an agent; true once the
+   * multiplexer's own registry confirms it gone. Sends no keys — the run's
+   * harness asks its process to exit through `PaneControl` first — and never
+   * closes the placement (worktree removal depends on it).
+   */
+  waitUntilGone(
     ref: AgentHostRef,
-    options?: {
-      interruptGraceMs?: number;
-      confirmMs?: number;
-    },
+    options?: { timeoutMs?: number },
   ): Promise<boolean>;
   /**
    * Undo hostAt. Destroying a placement ends its process (kill of last

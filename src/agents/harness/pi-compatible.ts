@@ -24,6 +24,7 @@ import {
 } from "../harness.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { readHandoverRecordsOf, type SessionStore } from "./pi-session.js";
+import { stopWithKeys } from "./stop-keys.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
@@ -137,6 +138,9 @@ export function createPiCompatibleHarness(
     // the launcher dies with the pane and the staged files belong to the
     // result-dir artifacts the session owns.
     buildArgs: buildPiLaunchArgs,
+    // pi's TUI binds ctrl+d to quit; ctrl+c only clears the editor and would
+    // leave the process running.
+    stop: stopWithKeys(["ctrl+d"]),
     listModels: piFamilyListModels,
     // The catalog is local: nothing to warm.
     prefetchModels: () => {},

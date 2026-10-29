@@ -4,7 +4,7 @@
  *
  *   Layer 1  herdr-transport.ts, polling.ts
  *   Layer 2  panes.ts, agents.ts, worktrees.ts, herdr-client.ts (facade)
- *   Layer 3  agent-stopper.ts (stop-and-confirm state machine)
+ *   Layer 3  agent-exit.ts (registry-gone confirmation)
  */
 
 export * from "./herdr-transport.js";
@@ -13,4 +13,4 @@ export * from "./panes.js";
 export * from "./agents.js";
 export * from "./worktrees.js";
 export * from "./herdr-client.js";
-export * from "./agent-stopper.js";
+export * from "./agent-exit.js";

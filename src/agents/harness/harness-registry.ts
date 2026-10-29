@@ -189,6 +189,7 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
           config: request.config,
         }),
       ),
+    stop: (request) => harness.stop(request),
     buildArgs: (launch) =>
       withBuiltin(id, launch, (typed, request) => typed.buildArgs(request)),
     teardown: (request) => harness.teardown(request),

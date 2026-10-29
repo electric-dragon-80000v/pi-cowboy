@@ -1,12 +1,13 @@
 /**
  * harness.ts — the harness contract: which process launches a subagent, and how.
  *
- * A harness owns five things: the multiplexer agent kind its process launches as
+ * A harness owns six things: the multiplexer agent kind its process launches as
  * (`agentMultiplexerKind`), bringing its host pane into the state it launches in
- * (`prepare`), the argv the pane runs (`buildArgs`), undoing any state it
- * left on the filesystem (`teardown`), and warming a slow model list at boot
- * (`prefetchModels`). One `Harness<L>` contract serves a built-in and a plugin;
- * `L` is the launch type the implementation reads. What every harness has in
+ * (`prepare`), the argv the pane runs (`buildArgs`), asking its process to exit
+ * (`stop`), undoing any state it left on the filesystem (`teardown`), and
+ * warming a slow model list at boot (`prefetchModels`). One `Harness<L>`
+ * contract serves a built-in and a plugin; `L` is the launch type the
+ * implementation reads. What every harness has in
  * common lives here as `SubagentLaunchInputs`; what one built-in family alone
  * uses (pi's fork, codex's project trust) lives beside it as that family's
  * inputs, so a second family adds a request member — never an optional field, a
@@ -469,6 +470,21 @@ export interface HarnessPrepareRequest<
   readonly launch: L;
 }
 
+/** What a harness is handed to ask its process to exit. */
+export interface HarnessStopRequest {
+  readonly pi: ExtensionAPI;
+  /**
+   * The pane surface the session's multiplexer offers. A harness presses its
+   * TUI's own stop keys through this, never through a multiplexer's client, so
+   * one stop runs under any multiplexer that offers the surface.
+   */
+  readonly pane: PaneControl;
+  readonly paneId: string;
+}
+
+/** Asks one run's process to exit; the harness owns the key sequence. */
+export type HarnessStop = (request: HarnessStopRequest) => Promise<void>;
+
 /**
  * The run identity and address half of a teardown request. `paneId` is
  * `null` when the pane is already gone; `cwd` is `null` when no directory
@@ -734,6 +750,13 @@ export interface Harness<
    * be established.
    */
   prepare(request: HarnessPrepareRequest<L, C>): Promise<void>;
+  /**
+   * Ask this run's process to exit through its own TUI keybindings. The
+   * sequence is the harness's: pi, PiG, Pi-Bolt and codex exit on ctrl+d, while
+   * opencode and claude interrupt with one ctrl+c and exit on the second. The
+   * multiplexer only carries the keys and then confirms the process is gone.
+   */
+  stop: HarnessStop;
   /**
    * The complete argv the pane runs, including how the task rides (the pi
    * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.

@@ -68,6 +68,7 @@ import {
   launchEnvBody,
   singleQuoteShellWord,
 } from "./pane-launcher.js";
+import { stopWithKeys } from "./stop-keys.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
 const LIST_MODELS_TIMEOUT_MS = 10_000;
@@ -408,6 +409,9 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
       args.push("-c", `model_reasoning_effort=${tomlString(request.thinking)}`);
     return args;
   },
+  // codex's TUI quits on ctrl+d; ctrl+c aborts the current turn and leaves the
+  // process running.
+  stop: stopWithKeys(["ctrl+d"]),
   // codex reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
   // boot warm and every menu select ride one CLI run. The answer carries its

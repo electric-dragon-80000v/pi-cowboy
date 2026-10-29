@@ -507,10 +507,7 @@ export class SubagentSession {
     // harness anyway would put two agents in one checkout.
     let stopped: boolean;
     try {
-      stopped = await this.deps.transport.createHost(this.args.pi).stop(ref, {
-        interruptGraceMs: 2_000,
-        confirmMs: 10_000,
-      });
+      stopped = await this.stopHarnessProcess(ref, 12_000);
     } catch (error) {
       return faulted({ kind: "stop-failed", detail: errorMessage(error) });
     }
@@ -794,9 +791,43 @@ export class SubagentSession {
   private supervisorOptions(): ProcessSupervisorOptions {
     return {
       stopInitiator: "agent",
+      stopProcess: (ref, timeoutMs) => this.stopHarnessProcess(ref, timeoutMs),
       onFollowUp: (deliverable) =>
         this.deps.onFollowUpResult(this.spawn, deliverable),
     };
+  }
+
+  /**
+   * Ask the run's harness to exit through the session's active pane, then let
+   * the multiplexer confirm the process is gone. A harness stop that fails is
+   * best effort, exactly like a TUI keypress that does not land: the caller
+   * acts on the confirmation, never on the keypress.
+   */
+  private async stopHarnessProcess(
+    ref: AgentHostRef,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const harnessId = this.spawn.execution.harness ?? this.args.options.harness;
+    try {
+      await getHarnessRegistry()
+        .require(harnessId)
+        .stop({
+          pi: this.args.pi,
+          pane: this.deps.transport.createPane(this.args.pi),
+          paneId: ref.paneId,
+        });
+    } catch (err) {
+      // A stop key can race the TUI exiting on its own; the confirmation, not
+      // the keypress, is what decides whether the stop succeeded.
+      log.debug("harness stop failed", {
+        harness: harnessId,
+        paneId: ref.paneId,
+        detail: errorMessage(err),
+      });
+    }
+    return this.deps.transport
+      .createHost(this.args.pi)
+      .waitUntilGone(ref, { timeoutMs });
   }
 
   /** Where the run's result artifacts live; a run that never launched still reserves the path. */
@@ -838,9 +869,7 @@ export class SubagentSession {
     }
     const ref = this.spawn.execution.host;
     if (!ref) return;
-    await this.deps.transport
-      .createHost(getPiInstance())
-      .stop(ref, { interruptGraceMs: 2_000, confirmMs: 10_000 });
+    await this.stopHarnessProcess(ref, 12_000);
   }
 
   /**

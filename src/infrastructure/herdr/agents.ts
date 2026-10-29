@@ -16,7 +16,6 @@ import { createLogger } from "../../logger.js";
 // imports across into spawn/.
 import { isTaskAgentName } from "../../predicates.js";
 import type { LiveAttempt } from "../../task-registry.js";
-import { errorMessage } from "../../utils.js";
 import {
   HerdrError,
   HerdrTransport,
@@ -283,30 +282,6 @@ export class HerdrAgents {
     await this.transport.call(["agent", "prompt", target, text], {
       timeoutMs: AGENT_COMMAND_TIMEOUT_MS,
     });
-  }
-
-  /**
-   * Send a ctrl+c interrupt to a herdr agent. Non-fatal by intent: the agent
-   * being gone already is the wanted outcome, while any other failure is logged
-   * because the stopper then waits out its confirmation window on an agent it
-   * never reached.
-   */
-  async interruptAgent(name: string): Promise<void> {
-    try {
-      await this.transport.call(["agent", "send-keys", name, "ctrl+c"], {
-        timeoutMs: AGENT_COMMAND_TIMEOUT_MS,
-      });
-    } catch (err) {
-      if (isAgentGoneError(err)) {
-        log.debug("interrupt skipped: agent already gone", { name });
-        return;
-      }
-      log.warn("agent interrupt failed", {
-        name,
-        code: herdrErrorCode(err),
-        detail: errorMessage(err),
-      });
-    }
   }
 }
 

@@ -95,7 +95,7 @@ export const stopAgentTool = {
   name: COWBOY_TOOLS.stopAgent,
   label: COWBOY_TOOLS.stopAgent,
   description:
-    "Stop one or more active agents in one call: pass every id in `agent_ids`. Each id is handled independently in input order — stopped, reported as already settled, or reported unknown — and one id's outcome never blocks the rest. A repeated id in `agent_ids` is rejected before anything is stopped — pass each id once. Stopping interrupts the pi process (its pane is left in place) and settles the agent as stopped. Nothing is removed — the worktree and branch are preserved.",
+    "Stop one or more active agents in one call: pass every id in `agent_ids`. Each id is handled independently in input order — stopped, reported as already settled, or reported unknown — and one id's outcome never blocks the rest. A repeated id in `agent_ids` is rejected before anything is stopped — pass each id once. Stopping sends the agent's harness its own exit keys (its pane is left in place) and settles the agent as stopped once the process is confirmed gone. Nothing is removed — the worktree and branch are preserved.",
   parameters: StopBatchSchema,
   execute: executeStopAgentTool,
   constrainedSampling: CONSTRAINED_SAMPLING,

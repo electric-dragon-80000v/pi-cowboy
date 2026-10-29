@@ -57,7 +57,7 @@ function makeFixture(options: FixtureOptions = {}) {
       startCalls.push({ ref });
     },
     observe: async () => undefined,
-    stop: async () => true,
+    waitUntilGone: async () => true,
     release: async () => true,
     deliver: async () => ({ kind: "submitted" as const }),
     isAttached: async () => false,

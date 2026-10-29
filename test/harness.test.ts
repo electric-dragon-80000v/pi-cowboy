@@ -76,6 +76,7 @@ const PI = {} as unknown as ExtensionAPI;
 const PANE: PaneControl = {
   kind: "herdr",
   run: (paneId, command) => runInPaneMock(PI, paneId, command),
+  sendKeys: async () => {},
   waitForOutput: (paneId, output, timeoutMs) =>
     waitForPaneOutputMock(PI, paneId, output, timeoutMs),
 };
@@ -1800,4 +1801,36 @@ describe("teardown", () => {
       }),
     ).resolves.toBeUndefined();
   });
+});
+
+describe("stop", () => {
+  /** A pane surface that records what a harness pressed, and on which pane. */
+  function recordingPane() {
+    const calls: Array<{ paneId: string; keys: readonly string[] }> = [];
+    const pane: PaneControl = {
+      kind: "test",
+      run: async () => {},
+      sendKeys: async (paneId, keys) => {
+        calls.push({ paneId, keys });
+      },
+      waitForOutput: async () => {},
+    };
+    return { pane, calls };
+  }
+
+  it.each([
+    ["pi", ["ctrl+d"]],
+    ["pig", ["ctrl+d"]],
+    ["pi-bolt", ["ctrl+d"]],
+    ["opencode", ["ctrl+c", "ctrl+c"]],
+    ["codex", ["ctrl+d"]],
+    ["claude", ["ctrl+c", "ctrl+c"]],
+  ] as ReadonlyArray<readonly [HarnessId, readonly string[]]>)(
+    "%s presses its TUI's exit keys through the active pane",
+    async (id, keys) => {
+      const { pane, calls } = recordingPane();
+      await harnessFor(id).stop({ pi: PI, pane, paneId: "w1:p9" });
+      expect(calls).toEqual([{ paneId: "w1:p9", keys }]);
+    },
+  );
 });

@@ -400,7 +400,7 @@ describe("HerdrAgents registry reads", () => {
   });
 });
 
-describe("HerdrAgents.sendKeys / interruptAgent", () => {
+describe("HerdrAgents.sendKeys", () => {
   it("sends logical keys and surfaces a rejection", async () => {
     const { pi, calls } = recordingPi([ok({})]);
     await expect(
@@ -418,34 +418,5 @@ describe("HerdrAgents.sendKeys / interruptAgent", () => {
     await expect(
       agentsFor(unsupported).sendKeys("w1:p1", ["nope"]),
     ).rejects.toThrow(HerdrError);
-  });
-
-  it("interrupts with ctrl+c and swallows a failure", async () => {
-    const { pi, calls } = recordingPi([ok({})]);
-    await expect(
-      agentsFor(pi).interruptAgent("cow-x-01234567"),
-    ).resolves.toBeUndefined();
-    expect(calls).toEqual([
-      {
-        cmd: "herdr",
-        args: ["agent", "send-keys", "cow-x-01234567", "ctrl+c"],
-        opts: { timeout: 15_000 },
-      },
-    ]);
-
-    const gone = mockPi(() => fail("agent_not_found", "gone"));
-    await expect(
-      agentsFor(gone).interruptAgent("cow-x-01234567"),
-    ).resolves.toBeUndefined();
-
-    const broken = mockPi(() => fail("server_error", "boom"));
-    await expect(
-      agentsFor(broken).interruptAgent("cow-x-01234567"),
-    ).resolves.toBeUndefined();
-
-    const silent = mockPi(() => ({ code: 1, stdout: "", stderr: "" }));
-    await expect(
-      agentsFor(silent).interruptAgent("cow-x-01234567"),
-    ).resolves.toBeUndefined();
   });
 });

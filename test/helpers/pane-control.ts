@@ -14,6 +14,7 @@ import type {
 export const TEST_PANE: PaneControl = {
   kind: "test",
   run: async () => {},
+  sendKeys: async () => {},
   waitForOutput: async () => {},
 };
 

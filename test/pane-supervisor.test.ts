@@ -45,7 +45,7 @@ function makeInput() {
       startCalls.push({ ref, options });
     },
     observe: async () => undefined,
-    stop: async () => true,
+    waitUntilGone: async () => true,
     release: async () => true,
     deliver: async () => ({ kind: "submitted" as const }),
   } as unknown as AgentHost;

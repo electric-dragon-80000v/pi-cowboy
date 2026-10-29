@@ -13,7 +13,8 @@ const {
   renamePaneMock,
   renameTabMock,
   findTaskAttemptsMock,
-  stopAgentAndWaitMock,
+  waitForAgentGoneMock,
+  sendAgentKeysMock,
 } = vi.hoisted(() => ({
   focusTabMock: vi.fn(),
   runHerdrMock: vi.fn(),
@@ -23,7 +24,8 @@ const {
   renamePaneMock: vi.fn(),
   renameTabMock: vi.fn(),
   findTaskAttemptsMock: vi.fn(),
-  stopAgentAndWaitMock: vi.fn(),
+  waitForAgentGoneMock: vi.fn(),
+  sendAgentKeysMock: vi.fn(),
 }));
 
 vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
@@ -41,7 +43,8 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     renamePane: renamePaneMock,
     renameTab: renameTabMock,
     findTaskAttempts: findTaskAttemptsMock,
-    stopAgentAndWait: stopAgentAndWaitMock,
+    waitForAgentGone: waitForAgentGoneMock,
+    sendAgentKeys: sendAgentKeysMock,
   };
 });
 
@@ -54,7 +57,8 @@ beforeEach(() => {
   renamePaneMock.mockReset();
   renameTabMock.mockReset();
   findTaskAttemptsMock.mockReset();
-  stopAgentAndWaitMock.mockReset();
+  waitForAgentGoneMock.mockReset();
+  sendAgentKeysMock.mockReset();
 });
 
 const REF: AgentHostRef = {
@@ -334,17 +338,26 @@ describe("createHerdrRuntime host.deliver", () => {
   });
 });
 
-describe("createHerdrRuntime host.stop", () => {
+describe("createHerdrRuntime host.waitUntilGone", () => {
   const pi = {} as unknown as ExtensionAPI;
 
-  it("interrupts by default (no interrupt option)", async () => {
-    await createHerdrRuntime(pi).host.stop(REF, {
-      interruptGraceMs: 2_000,
-      confirmMs: 0,
+  it("waits for the registry with the caller's timeout and sends no keys", async () => {
+    await createHerdrRuntime(pi).host.waitUntilGone(REF, { timeoutMs: 2_000 });
+    expect(waitForAgentGoneMock).toHaveBeenCalledWith(pi, "w1:p2", {
+      timeoutMs: 2_000,
     });
-    expect(stopAgentAndWaitMock).toHaveBeenCalledWith(pi, "w1:p2", {
-      interruptGraceMs: 2_000,
-      confirmMs: 0,
-    });
+    expect(sendAgentKeysMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createHerdrRuntime pane.sendKeys", () => {
+  const pi = {} as unknown as ExtensionAPI;
+
+  it("sends logical keys to the agent on the pane", async () => {
+    await createHerdrRuntime(pi).pane.sendKeys("w1:p2", ["ctrl+c", "ctrl+c"]);
+    expect(sendAgentKeysMock).toHaveBeenCalledWith(pi, "w1:p2", [
+      "ctrl+c",
+      "ctrl+c",
+    ]);
   });
 });

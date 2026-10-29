@@ -18,7 +18,7 @@ import {
   getAgentInfo,
   runHerdr,
   startAgent,
-  stopAgentAndWait,
+  waitForAgentGone,
 } from "../src/infrastructure/herdr-client.js";
 import {
   deleteWorktreeBranch,
@@ -408,8 +408,8 @@ describe("startAgent", () => {
   });
 });
 
-describe("stopAgentAndWait", () => {
-  it("confirms an interrupted agent is gone without closing its pane", async () => {
+describe("waitForAgentGone", () => {
+  it("confirms an agent is gone without sending keys or closing its pane", async () => {
     const commands: string[][] = [];
     const pi = mockPi((args) => {
       commands.push(args);
@@ -429,19 +429,15 @@ describe("stopAgentAndWait", () => {
       };
     });
 
-    await expect(
-      stopAgentAndWait(pi, "w1:p1", {
-        interruptGraceMs: 0,
-        confirmMs: 0,
-      }),
-    ).resolves.toBe(true);
+    await expect(waitForAgentGone(pi, "w1:p1", { timeoutMs: 0 })).resolves.toBe(
+      true,
+    );
     expect(commands.map((args) => args.slice(0, 3))).toEqual([
-      ["agent", "send-keys", "w1:p1"],
       ["agent", "get", "w1:p1"],
     ]);
   });
 
-  it("confirms an agent that outlived the interrupt grace without closing its pane", async () => {
+  it("confirms an agent only after the registry reports it gone", async () => {
     let getCalls = 0;
     const commands: string[][] = [];
     const pi = mockPi((args) => {
@@ -479,13 +475,9 @@ describe("stopAgentAndWait", () => {
     });
 
     await expect(
-      stopAgentAndWait(pi, "w1:p1", {
-        interruptGraceMs: 0,
-        confirmMs: 0,
-      }),
+      waitForAgentGone(pi, "w1:p1", { timeoutMs: 1_000 }),
     ).resolves.toBe(true);
     expect(commands.map((args) => args.slice(0, 3))).toEqual([
-      ["agent", "send-keys", "w1:p1"],
       ["agent", "get", "w1:p1"],
       ["agent", "get", "w1:p1"],
     ]);
@@ -509,12 +501,9 @@ describe("stopAgentAndWait", () => {
       };
     });
 
-    await expect(
-      stopAgentAndWait(pi, "w1:p1", {
-        interruptGraceMs: 0,
-        confirmMs: 0,
-      }),
-    ).resolves.toBe(false);
+    await expect(waitForAgentGone(pi, "w1:p1", { timeoutMs: 0 })).resolves.toBe(
+      false,
+    );
   });
 });
 

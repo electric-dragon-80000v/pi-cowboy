@@ -44,6 +44,7 @@ function pluginHarness(
     buildArgs: () => [`run-${id}`],
     teardown: async () => {},
     listModels: async () => ({ kind: "listed", entries: [] }),
+    stop: async () => {},
     prefetchModels: () => {},
   };
 }
@@ -154,6 +155,7 @@ describe("the open harness registry", () => {
     const pane: PaneControl = {
       kind: "test",
       run: async () => {},
+      sendKeys: async () => {},
       waitForOutput: async () => {},
     };
     const launch = {

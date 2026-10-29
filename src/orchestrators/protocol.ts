@@ -238,7 +238,7 @@ export function formatResultContent(spawn: AgentSpawn): string {
             branch: worktree.branch,
             retention: retention ? formatRetentionClause(retention) : undefined,
             // Only a reported run leaves its process alive; a launch failure
-            // never started one, and a stopped settle is interrupt-only.
+            // never started one, and a stopped settle asked its harness to exit.
             processAlive:
               lifecycle.phase === "settled" && lifecycle.status === "completed",
           }

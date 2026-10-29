@@ -38,10 +38,11 @@ import {
   renameTab,
   runHerdr,
   runInPane,
+  sendAgentKeys,
   startAgent,
-  stopAgentAndWait,
   strField,
   submitAgentPrompt,
+  waitForAgentGone,
   waitForPaneOutput,
 } from "./herdr-client.js";
 
@@ -191,11 +192,8 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
       return { state: info.state };
     },
 
-    stop: (ref, options) =>
-      stopAgentAndWait(pi, ref.paneId, {
-        interruptGraceMs: options?.interruptGraceMs,
-        confirmMs: options?.confirmMs,
-      }),
+    waitUntilGone: (ref, options) =>
+      waitForAgentGone(pi, ref.paneId, { timeoutMs: options?.timeoutMs }),
 
     release: async (ref, scope) => {
       if (scope === "worktree-association") {
@@ -247,6 +245,9 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
   return {
     kind: HERDR,
     run: (paneId, command) => runInPane(pi, paneId, command),
+    // The agent surface, not pane-level typing: herdr validates the target is
+    // an agent and every key name before writing any bytes.
+    sendKeys: (paneId, keys) => sendAgentKeys(pi, paneId, keys),
     waitForOutput: (paneId, output, timeoutMs) =>
       waitForPaneOutput(pi, paneId, output, timeoutMs),
   };

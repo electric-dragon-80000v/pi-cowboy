@@ -32,6 +32,7 @@ beforeEach(() => {
     buildArgs: () => [],
     teardown: async () => {},
     listModels: async () => ({ kind: "listed", entries: [] }),
+    stop: async () => {},
     prefetchModels: () => {},
   });
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
@@ -81,6 +82,7 @@ describe("Agent settings — a plugin harness in the default-harness row", () =>
       buildArgs: () => [],
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
+      stop: async () => {},
       prefetchModels: () => {},
       config: {
         scope: "global",

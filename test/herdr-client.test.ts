@@ -11,7 +11,7 @@ import {
   listAgentRecords,
   listWorktrees,
   runHerdr,
-  stopAgentAndWait,
+  waitForAgentGone,
 } from "../src/infrastructure/herdr-client.js";
 import { HerdrClient } from "../src/infrastructure/herdr/herdr-client.js";
 import {
@@ -41,7 +41,6 @@ const FLAT_SURFACE = [
   "runHerdr",
   "sendAgentKeys",
   "startAgent",
-  "stopAgentAndWait",
   "strField",
   "submitAgentPrompt",
 ];
@@ -107,12 +106,9 @@ describe("herdr-client barrel", () => {
     });
 
     await expect(listWorktrees(pi, "/repo")).resolves.toEqual([]);
-    await expect(
-      stopAgentAndWait(pi, "w1:p1", {
-        interruptGraceMs: 0,
-        confirmMs: 0,
-      }),
-    ).resolves.toBe(true);
+    await expect(waitForAgentGone(pi, "w1:p1", { timeoutMs: 0 })).resolves.toBe(
+      true,
+    );
 
     expect(calls.map((c) => c.args)).toEqual([
       ["pane", "current", "--current"],
@@ -129,7 +125,6 @@ describe("herdr-client barrel", () => {
       ],
       ["agent", "list"],
       ["worktree", "list", "--cwd", "/repo"],
-      ["agent", "send-keys", "w1:p1", "ctrl+c"],
       ["agent", "get", "w1:p1"],
     ]);
   });

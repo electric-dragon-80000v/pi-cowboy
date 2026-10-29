@@ -41,6 +41,7 @@ import {
   launchEnvBody,
   type PaneProof,
 } from "../pane-launcher.js";
+import { stopWithKeys } from "../stop-keys.js";
 import { readClaudeSessionRecords } from "./session-export.js";
 import {
   claudeConfigDir,
@@ -342,6 +343,9 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     args.push(...toolArgs(request));
     return args;
   },
+  // claude interrupts on the first ctrl+c and exits on the second; one press
+  // alone would leave the process alive.
+  stop: stopWithKeys(["ctrl+c", "ctrl+c"]),
   // The list is a constant, not a fetch: claude offers no enumeration command,
   // so there is nothing to memoize, nothing to warm, and nothing that can fail.
   listModels: () => Promise.resolve({ kind: "listed", entries: CLAUDE_MODELS }),

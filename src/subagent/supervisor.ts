@@ -12,9 +12,11 @@
  *   first report, so a run that keeps working (or is steered) reports again.
  *   Each later report goes to onFollowUp; only the first one settles.
  * - The watch ends at `stop()`, `detach()`, or `abandon()`.
- * - `stop(graceMs)` is INTERRUPT-ONLY: ctrl+c, then wait — it NEVER closes the
- *   pane, since closing it breaks the worktree removal that runs AFTER stop()
- *   returns. A pending watch always ends `stopped`, even when the process survives.
+ * - `stop(graceMs)` is STOP-KEYS-THEN-WAIT: the harness's own stop sequence
+ *   goes through the active pane first, then the multiplexer is asked to
+ *   confirm the process is gone. It NEVER closes the pane, since closing it
+ *   breaks the worktree removal that runs AFTER stop() returns. A pending watch
+ *   always ends `stopped`, even when the process survives.
  * - `abandon()` is DISPOSAL ONLY for a discarded parent session (`/new`,
  *   `/reload`, `/fork`): polling stops, the pane/process/artifacts survive, and
  *   watch() never settles.
@@ -67,6 +69,13 @@ export interface ProcessSupervisor {
 export interface ProcessSupervisorOptions {
   /** Report poll interval (ms). Default 2000. */
   pollMs?: number;
+  /**
+   * Ask this run's process to exit and confirm it is gone. Production wires the
+   * harness's stop sequence through the active pane, then the multiplexer's
+   * registry check; the default waits on the host alone, for callers with no
+   * harness to ask.
+   */
+  stopProcess?: (ref: AgentHostRef, timeoutMs: number) => Promise<boolean>;
   /** Who stop() represents; the stopped outcome carries it. Default "user". */
   stopInitiator?: StopInitiator;
   /**
@@ -103,6 +112,10 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
   private readonly pollMs: number;
   private readonly stopInitiator: StopInitiator;
   private readonly onFollowUp: ((deliverable: string) => void) | undefined;
+  private readonly stopProcess: (
+    ref: AgentHostRef,
+    timeoutMs: number,
+  ) => Promise<boolean>;
 
   private phase: SupervisorPhase = { kind: "idle" };
   /**
@@ -130,6 +143,9 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
     this.pollMs = options.pollMs ?? DEFAULT_POLL_MS;
     this.stopInitiator = options.stopInitiator ?? "user";
     this.onFollowUp = options.onFollowUp;
+    this.stopProcess =
+      options.stopProcess ??
+      ((ref, timeoutMs) => host.waitUntilGone(ref, { timeoutMs }));
   }
 
   /**
@@ -220,9 +236,11 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
   }
 
   /**
-   * Interrupt-only stop: ctrl+c, then wait graceMs. NEVER closes the pane — the
-   * worktree removal runs AFTER this returns. True when the process is confirmed
-   * gone (including already-gone); always ends a pending watch `stopped`.
+   * Stop this run: send its harness's stop sequence through the active pane,
+   * then wait up to graceMs for the multiplexer to confirm the process is gone.
+   * NEVER closes the pane — the worktree removal runs AFTER this returns. True
+   * when the process is confirmed gone (including already-gone); always ends a
+   * pending watch `stopped`.
    */
   async stop(graceMs: number): Promise<boolean> {
     const phase = this.phase;
@@ -233,14 +251,12 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
     // stays available for a steer, and its later reports arrive as follow-ups.
     if (this.outcome !== null) return false;
     const { ref } = phase;
-    const stopped = await this.host
-      .stop(ref, { interruptGraceMs: graceMs, confirmMs: 0 })
-      .catch((err) => {
-        log.debug("host stop failed", {
-          errorMessage: errorMessage(err),
-        });
-        return false;
+    const stopped = await this.stopProcess(ref, graceMs).catch((err) => {
+      log.debug("stop failed", {
+        errorMessage: errorMessage(err),
       });
+      return false;
+    });
     log.debug("stop requested", {
       paneId: ref.paneId,
       graceMs,

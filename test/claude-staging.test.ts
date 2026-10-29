@@ -88,6 +88,7 @@ const harnessFor = harnesses.require.bind(harnesses);
 const PANE: PaneControl = {
   kind: "herdr",
   run: (paneId, command) => runInPaneMock(PI, paneId, command),
+  sendKeys: async () => {},
   waitForOutput: (paneId, output, timeoutMs) =>
     waitForPaneOutputMock(PI, paneId, output, timeoutMs),
 };
