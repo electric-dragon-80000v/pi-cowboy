@@ -221,6 +221,14 @@ describe("cowboy_agent registration", () => {
   });
 });
 
+describe("production tool registration", () => {
+  it("does not register the dev-only handover tool", () => {
+    expect(captureTools().map((tool) => tool.name)).not.toContain(
+      "handover_cowboy_agent",
+    );
+  });
+});
+
 describe("removed guidance-generation tools", () => {
   it("registers neither GenerateAgentGuidance nor DiscardGeneratedAgentGuidance", () => {
     const names = captureTools().map((tool) => tool.name);
