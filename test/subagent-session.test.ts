@@ -66,12 +66,14 @@ const {
   getPiInstanceMock,
   getStoreMock,
   buildLaunchPlanMock,
+  resolveMainCheckoutMock,
   harnessForMock,
   registry,
 } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(() => ({})),
   getStoreMock: vi.fn(() => ({ agent: {} })),
   buildLaunchPlanMock: vi.fn(),
+  resolveMainCheckoutMock: vi.fn(),
   harnessForMock: vi.fn(),
   // The registry's own `require`, for a suite that stands a stub harness in.
   registry: {
@@ -104,6 +106,14 @@ vi.mock("../src/agents/agent-runner.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agents/agent-runner.js")>();
   return { ...actual, buildLaunchPlan: buildLaunchPlanMock };
+});
+
+vi.mock("../src/infrastructure/git-client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/infrastructure/git-client.js")
+    >();
+  return { ...actual, resolveMainCheckout: resolveMainCheckoutMock };
 });
 
 // The resolved harness: the launch reads it off the registry, so the harness
@@ -355,6 +365,7 @@ beforeEach(() => {
   resultDir = fs.mkdtempSync(path.join(os.tmpdir(), "cowboy-session-"));
   getPiInstanceMock.mockReset().mockReturnValue({});
   getStoreMock.mockReset().mockReturnValue({ agent: {} });
+  resolveMainCheckoutMock.mockReset();
   stubPlan = {
     cwd: "/repo",
     piArgs: ["--system-prompt", "/tmp/system.md", "--approve", "@task.md"],
@@ -2055,6 +2066,7 @@ describe("handover", () => {
     await driveRun(DRIVE_COMPLETED_MS);
     expect(fake.hostAtCalls).toEqual([]);
 
+    resolveMainCheckoutMock.mockResolvedValue("/repo");
     registry.overrides.set(
       "pi",
       exportingPi(async () => ({
@@ -2072,12 +2084,17 @@ describe("handover", () => {
       registry.overrides.delete("pi");
     }
 
-    // The next run's pane is requested under the same worktree name; the
-    // launch plan (stubbed here) decides the cwd the pane opens in.
+    // The next run opens its own pane, but adopts the same checkout so Herdr
+    // keeps the tab associated with the worktree's workspace.
     expect(fake.hostAtCalls).toHaveLength(1);
     expect(fake.hostAtCalls[0]).toMatchObject({
       cwd: "/repo",
       name: "cow-fix-x",
+      checkout: {
+        path: "/repo/wt",
+        repoCwd: "/repo",
+        branch: "cow-fix-x",
+      },
     });
     // The ended run is archived at the checkout it actually ran in.
     expect(run.session.spawn.execution.history[0]).toMatchObject({

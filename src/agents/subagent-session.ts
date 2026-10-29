@@ -8,7 +8,10 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { createLogger } from "../logger.js";
-import { worktreeRetentionReason } from "../infrastructure/git-client.js";
+import {
+  resolveMainCheckout,
+  worktreeRetentionReason,
+} from "../infrastructure/git-client.js";
 import {
   getAgentSpawns,
   getHarnessRegistry,
@@ -690,14 +693,24 @@ export class SubagentSession {
       launchCwd = plan.cwd;
       const harnesses = getHarnessRegistry();
       const harness = harnesses.require(plan.harness);
-      ref =
-        ref ??
-        (await host.hostAt({
+      if (!ref) {
+        const worktree = options.worktree;
+        ref = await host.hostAt({
           unit: "pane",
           cwd: plan.cwd,
           label: options.taskSlug ?? type,
           name: agentName,
-        }));
+          ...(worktree === undefined
+            ? {}
+            : {
+                checkout: {
+                  path: worktree.path,
+                  repoCwd: await resolveMainCheckout(pi, worktree.path),
+                  branch: worktree.branch,
+                },
+              }),
+        });
+      }
       placement = { kind: "held", host, ref };
       if (!this.isLaunching()) return;
       placeExecution(this.spawn.execution, ref);

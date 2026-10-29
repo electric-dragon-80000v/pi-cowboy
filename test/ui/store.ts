@@ -8,8 +8,8 @@ import {
   type RawConfig,
 } from "../../src/config/config-store.js";
 import type { LoadedConfig } from "../../src/config/config-io.js";
-import { setStore } from "./shell-mock.js";
 import { loadedStore } from "../helpers/loaded-store.js";
+import { setStore } from "./shell-mock.js";
 
 export interface MemoryStoreOptions {
   global?: RawConfig;
