@@ -86,6 +86,7 @@ vi.mock("../src/ui/menu/menu-worktree-command.js", () => worktreeCommand);
 const {
   COWBOY_TOOLS,
   COWBOY_TOOL_NAMES,
+  REGISTERED_TOOL_NAMES,
   activateExtension,
   deactivateExtension,
   registerTools,
@@ -201,7 +202,7 @@ describe("COWBOY_TOOL_NAMES", () => {
 
     registerTools(registrationPi);
 
-    expect(names).toEqual([...COWBOY_TOOL_NAMES]);
+    expect(names).toEqual([...REGISTERED_TOOL_NAMES]);
   });
 });
 
@@ -300,7 +301,7 @@ describe("activateExtension", () => {
       "read",
       "cowboy_agent",
       "bash",
-      ...COWBOY_TOOL_NAMES.slice(1),
+      ...REGISTERED_TOOL_NAMES.slice(1),
     ]);
     expect(new Set(shell.active).size).toBe(shell.active.length);
     expect(markers).toHaveLength(2);
@@ -381,7 +382,7 @@ describe("setExtensionEnabled", () => {
     expect(savedGlobal.at(-1)?.agent?.extensionEnabled).toBe(true);
     expect(isExtensionEnabled()).toBe(true);
     expect(shell.registeredTools).toEqual([COWBOY_TOOLS.agent]);
-    expect(shell.active).toEqual(["read", "bash", ...COWBOY_TOOL_NAMES]);
+    expect(shell.active).toEqual(["read", "bash", ...REGISTERED_TOOL_NAMES]);
     expect(markers).toHaveLength(2);
     expect(markers[0]!.hidden()).toBe(false);
   });
@@ -446,7 +447,7 @@ describe("/cowboy dispatch", () => {
     await captureCommand().handler("enable", ctx);
 
     expect(isExtensionEnabled()).toBe(true);
-    expect(shell.active).toEqual(["read", "bash", ...COWBOY_TOOL_NAMES]);
+    expect(shell.active).toEqual(["read", "bash", ...REGISTERED_TOOL_NAMES]);
     expect(notify).toHaveBeenCalledWith("pi-cowboy enabled", "info");
     expect(ctx.markers).toHaveLength(2);
     expect(ctx.markers[0]!.options?.overlay).toBe(true);

@@ -94,7 +94,7 @@ vi.mock("../src/orchestrators/orchestrator-types.js", () => ({
   registerOrchestrators: vi.fn(),
 }));
 const { setupEventListeners } = await import("../src/events.js");
-const { COWBOY_TOOLS, COWBOY_TOOL_NAMES } =
+const { COWBOY_TOOLS, COWBOY_TOOL_NAMES, REGISTERED_TOOL_NAMES } =
   await import("../src/registration.js");
 
 /**
@@ -204,7 +204,7 @@ describe("session_start while the extension is enabled", () => {
     await sessionHandler("session_start")({}, ctx);
 
     expect(shell.registeredTools).toEqual([COWBOY_TOOLS.agent]);
-    expect(shell.active).toEqual([...COWBOY_TOOL_NAMES]);
+    expect(shell.active).toEqual([...REGISTERED_TOOL_NAMES]);
     expect(notify).not.toHaveBeenCalled();
     expect(ctx.markers).toHaveLength(2);
     expect(ctx.markers[0]!.options?.overlay).toBe(true);

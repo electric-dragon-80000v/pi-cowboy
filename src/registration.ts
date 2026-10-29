@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { DEV_MODE } from "./dev-mode.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -38,6 +39,11 @@ import { NO_HOST_REASON } from "./host-multiplexer.js";
 import type { HarnessModelOptions } from "./agents/harness/harness-registry.js";
 
 export { COWBOY_TOOLS, COWBOY_TOOL_NAMES };
+
+/** Tools this package entrypoint registers and may activate. */
+export const REGISTERED_TOOL_NAMES: readonly string[] = DEV_MODE
+  ? COWBOY_TOOL_NAMES
+  : COWBOY_TOOL_NAMES.filter((name) => name !== COWBOY_TOOLS.handoverAgent);
 
 // The /cowboy UI is imported lazily so none of it runs at boot.
 
@@ -117,7 +123,7 @@ export function activateExtension(ui: ExtensionUIContext): void {
   const pi = getPiInstance();
   registerAgentTool(pi);
   pi.setActiveTools([
-    ...new Set([...pi.getActiveTools(), ...COWBOY_TOOL_NAMES]),
+    ...new Set([...pi.getActiveTools(), ...REGISTERED_TOOL_NAMES]),
   ]);
   syncExtensionIndicator(ui);
 }
@@ -142,7 +148,7 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool(withCowboyRenderer(stopAgentTool));
   pi.registerTool(withCowboyRenderer(mergeBranchTool));
   pi.registerTool(withCowboyRenderer(steerAgentTool));
-  pi.registerTool(withCowboyRenderer(handoverAgentTool));
+  if (DEV_MODE) pi.registerTool(withCowboyRenderer(handoverAgentTool));
   pi.registerTool(withCowboyRenderer(cleanupAgentTool));
 
   pi.registerMessageRenderer("subagent-result", (message, _options, theme) => {
