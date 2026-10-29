@@ -1,3 +1,29 @@
+# [0.23.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.2...v0.23.0) (2026-10-29)
+
+
+### Bug Fixes
+
+* adopt all the harnesses to the new line based api ([4570023](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4570023a129c312b2a895a7847c0942b854dd717))
+* claude staging test failing with multi thread pool ([2b50449](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2b504496de4cfeff246e6edaae526c7706812523))
+* **claude:** pin session id and link session store to the claude home ([4611bf1](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4611bf1eb09f4e59c8be71d49628b4467d1af776))
+* integrtion test ([4f82983](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4f8298397678583ed096c737906323fe1de9e4a8))
+* lint ([b58d2dc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b58d2dcd56da28dba84854ef6ecb4ccf969eaea5))
+
+
+### Features
+
+* add dev mode flag ([f862f23](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f862f235c3276eb45f2e07f77948cacbe9338787))
+* **agent:** add claude session export for handover ([5123b22](https://github.com/electric-dragon-80000v/pi-cowboy/commit/5123b22415e1060f4194026dac01b69a09c04f92))
+* **agent:** add handover_cowboy_agent to transfer settled runs across harnesses ([0c94be2](https://github.com/electric-dragon-80000v/pi-cowboy/commit/0c94be2192388a50da30aabfe0913d35e2f2dbd3))
+* **agents:** track full handover chain with session markers ([804a2a1](https://github.com/electric-dragon-80000v/pi-cowboy/commit/804a2a1495da5d28506ab20a248c93ee82b61bf9))
+* **codex:** drop backward compatibility for session ([43c8485](https://github.com/electric-dragon-80000v/pi-cowboy/commit/43c848547725513406e3b23e277fdd65bf77ba01))
+* **codex:** more lenience to avoid one bad line failing the export ([00ba5fb](https://github.com/electric-dragon-80000v/pi-cowboy/commit/00ba5fbb842d19f2029e1fe35ec79772f50efb95))
+* **harness:** export codex session for handover ([54176f7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/54176f79f0fe9952148fcd3f378fe7ef859fe936))
+* **harness:** pi-family handover support ([f3576c6](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f3576c605dd65899d0f8f5d2da5a5dbd7e85d809))
+* **harness:** share session export types ([f850599](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f8505993d9ea872e2980d4dc8946494ba84b8bd1))
+* inherit a harness's own store variables into its launch ([08015ac](https://github.com/electric-dragon-80000v/pi-cowboy/commit/08015aca13687a10d070ab4aad447d4f28bfcbb9))
+* opencode session export ([25ed9fe](https://github.com/electric-dragon-80000v/pi-cowboy/commit/25ed9fed1560837578f864538d1bf6e582bb87a9))
+
 ## [0.22.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.22.1...v0.22.2) (2026-10-25)
 
 
