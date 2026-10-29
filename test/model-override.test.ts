@@ -30,6 +30,7 @@ import {
 } from "../src/agents/tool-execution.js";
 import type { CowboyAgents } from "../src/agents/schemas/cowboy-agents.schema.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 const {
   resolveMainCheckoutMock,
@@ -388,7 +389,7 @@ describe("cowboy_agent — the harness default at the global default's position"
 
   /** A store over one in-memory global layer, with no project target. */
   function realStore(agent: RawConfig["agent"]): ConfigStore {
-    return new ConfigStore({
+    return loadedStore({
       load: () => ({
         global: { agent },
         project: null,

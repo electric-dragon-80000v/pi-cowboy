@@ -3,8 +3,8 @@
  * Reads return defaults baked in. Each persisted mutation persists with its
  * side effect, so a side effect cannot be forgotten. Effective config
  * resolves session overrides → project file → global file → built-in
- * defaults. Per-session lifecycle: `reload()` at session_start, `dispose()`
- * at session_shutdown.
+ * defaults. Per-session lifecycle: constructed unloaded, `reload()` at the
+ * session_start that first reads the files, `dispose()` at session_shutdown.
  */
 
 import type {
@@ -243,7 +243,10 @@ export class ConfigStore {
     this.layers.setProjectDir(projectDir);
   }
 
-  /** A write creates an absent project file; only an untrusted or malformed one is refused. */
+  /**
+   * A write creates an absent project file; only an untrusted or malformed one
+   * is refused, and nothing is writable before the session's first load.
+   */
   get isProjectWritable(): boolean {
     return this.layers.isProjectWritable;
   }

@@ -11,8 +11,8 @@ import {
   type LoadedConfig,
   type RawConfig,
 } from "../src/config/config-io.js";
-import { ConfigStore } from "../src/config/config-store.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -60,8 +60,8 @@ describe("handoverMaxExcludedRatio", () => {
     expect(DEFAULT_MAX_EXCLUDED_RATIO).toBe(0.5);
     expect(mergeDefaults({}).agent.handoverMaxExcludedRatio).toBe(0.5);
     expect(
-      new ConfigStore(memoryIO({ agent: { handoverMaxExcludedRatio: 0.2 } }))
-        .agent.handoverMaxExcludedRatio,
+      loadedStore(memoryIO({ agent: { handoverMaxExcludedRatio: 0.2 } })).agent
+        .handoverMaxExcludedRatio,
     ).toBe(0.2);
     expect(isProjectAllowedAgentKey("handoverMaxExcludedRatio")).toBe(false);
   });

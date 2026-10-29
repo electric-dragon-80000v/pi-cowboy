@@ -5,6 +5,11 @@
  * Every change routes through `mutate` or `clear`, so persistence and target
  * resolution happen the same way for each slice of the file, and the project
  * layer is only ever created by a write.
+ *
+ * Construction reads nothing. The session's project directory is chosen only
+ * after the store exists, so the first load waits for `reload()` (see
+ * events.ts); until then the layers are the built-in defaults and no write is
+ * allowed, since an unread file is not one a write may replace.
  */
 
 import type { SubagentsConfig } from "../models/model-precedence.js";
@@ -42,16 +47,27 @@ function projectLayerFrom(loaded: LoadedConfig): ProjectLayer {
   return { kind: "creatable" };
 }
 
+/** The layers as the last load left them. */
+interface FileLayers {
+  globalRaw: RawConfig;
+  projectLayer: ProjectLayer;
+}
+
+function projectRawOf(layer: ProjectLayer): RawConfig | null {
+  return layer.kind === "present" ? layer.raw : null;
+}
+
+/** A write before the first load would replace a file nothing has read. */
+const UNLOADED_WRITE_WARNING =
+  "[subagents] Refusing to write config before the first load; change not saved";
+
 export class LayeredConfig {
   private io: ConfigIO;
-  private globalRaw: RawConfig;
-  private projectLayer: ProjectLayer;
+  /** Null until the first load: no file has been read, so only defaults exist. */
+  private files: FileLayers | null = null;
 
   constructor(io: ConfigIO = fileConfigIO) {
     this.io = io;
-    const loaded = io.load();
-    this.globalRaw = loaded.global;
-    this.projectLayer = projectLayerFrom(loaded);
   }
 
   /** The files the current layers came from, for warnings formatted after load. */
@@ -59,28 +75,45 @@ export class LayeredConfig {
     return this.io.paths();
   }
 
-  /** Project file over global file over the built-in defaults. */
+  /**
+   * Project file over global file over the built-in defaults — the defaults
+   * alone until the first load.
+   */
   get effective(): SubagentsConfig {
-    return mergeDefaults(mergeLayers(this.globalRaw, this.project));
+    const files = this.files;
+    return files === null
+      ? mergeDefaults({})
+      : mergeDefaults(
+          mergeLayers(files.globalRaw, projectRawOf(files.projectLayer)),
+        );
   }
 
+  /** Empty until the first load. */
   get global(): RawConfig {
-    return this.globalRaw;
+    return this.files?.globalRaw ?? {};
   }
 
-  /** Null when no project layer exists. */
+  /** Null when no project layer exists, and before the first load. */
   get project(): RawConfig | null {
-    return this.projectLayer.kind === "present" ? this.projectLayer.raw : null;
+    const files = this.files;
+    return files === null ? null : projectRawOf(files.projectLayer);
   }
 
-  /** A write creates an absent project file; only an untrusted or malformed one is refused. */
+  /**
+   * A write creates an absent project file; only an untrusted or malformed one
+   * is refused, and before the first load nothing is writable.
+   */
   get isProjectWritable(): boolean {
-    return this.projectLayer.kind !== "refused";
+    const files = this.files;
+    return files !== null && files.projectLayer.kind !== "refused";
   }
 
-  /** A global file the loader could not parse is never written over. */
+  /**
+   * A global file the loader could not parse is never written over, and until
+   * the first load the file has not been read at all.
+   */
   get isGlobalWritable(): boolean {
-    return this.io.isGlobalWritable();
+    return this.files !== null && this.io.isGlobalWritable();
   }
 
   /** Does not reload; session_start follows with reload(). */
@@ -88,36 +121,45 @@ export class LayeredConfig {
     this.io = createConfigIO(projectDir);
   }
 
-  /** Re-reads both files. */
+  /** The first load, and every later re-read of both files. */
   reload(): void {
     const loaded = this.io.load();
-    this.globalRaw = loaded.global;
-    this.projectLayer = projectLayerFrom(loaded);
+    this.files = {
+      globalRaw: loaded.global,
+      projectLayer: projectLayerFrom(loaded),
+    };
   }
 
   /**
    * Applies `update` to one raw layer and persists it. A write creates an
-   * absent project layer; when the project target is unavailable the change is
-   * refused with a warning. False means nothing was written.
+   * absent project layer; when the project target is unavailable, or nothing
+   * has been loaded yet, the change is refused with a warning. False means
+   * nothing was written.
    */
   mutate(
     target: "global" | "project",
     update: (raw: RawConfig) => void,
   ): boolean {
-    if (target === "global" && !this.globalWritableOrWarn()) return false;
-    const layer =
-      target === "global" ? this.global : this.projectLayerToWrite();
+    const files = this.loadedOrWarn();
+    if (files === null) return false;
+    if (target === "global") {
+      if (!this.globalWritableOrWarn()) return false;
+      update(files.globalRaw);
+      this.io.saveGlobal(files.globalRaw);
+      return true;
+    }
+    const layer = projectLayerToWrite(files);
     if (layer === null) return false;
     update(layer);
-    if (target === "global") this.io.saveGlobal(layer);
-    else this.io.saveProject(layer);
+    this.io.saveProject(layer);
     return true;
   }
 
   /**
    * Applies `update` to the raw layer(s) a target names, and `clearSession` to
    * the caller's session layer. Only layers that exist change: a clear never
-   * creates a project file.
+   * creates a project file, and before the first load it writes no file at
+   * all.
    */
   clear(
     target: ConfigTarget | "all",
@@ -125,17 +167,28 @@ export class LayeredConfig {
     clearSession: () => void,
   ): void {
     if (target === "session" || target === "all") clearSession();
+    // The session layer is the only one a clear can reach with no file read.
+    if (target === "session") return;
+    const files = this.loadedOrWarn();
+    if (files === null) return;
     if (target === "global" || target === "all") {
       if (this.globalWritableOrWarn()) {
-        update(this.globalRaw);
-        this.io.saveGlobal(this.globalRaw);
+        update(files.globalRaw);
+        this.io.saveGlobal(files.globalRaw);
       }
     }
-    const project = this.project;
+    const project = projectRawOf(files.projectLayer);
     if (project && (target === "project" || target === "all")) {
       update(project);
       this.io.saveProject(project);
     }
+  }
+
+  /** The layers a write may touch, or null after warning when nothing has loaded. */
+  private loadedOrWarn(): FileLayers | null {
+    if (this.files !== null) return this.files;
+    console.warn(UNLOADED_WRITE_WARNING);
+    return null;
   }
 
   /** True when a global write may replace the file on disk. */
@@ -146,19 +199,19 @@ export class LayeredConfig {
     );
     return false;
   }
+}
 
-  /** The project layer a write may touch, creating the file when it is absent. */
-  private projectLayerToWrite(): RawConfig | null {
-    const project = this.projectLayer;
-    if (project.kind === "present") return project.raw;
-    if (project.kind === "refused") {
-      console.warn(
-        `[subagents] Project config target unavailable (${project.status}); change ignored`,
-      );
-      return null;
-    }
-    const raw: RawConfig = {};
-    this.projectLayer = { kind: "present", raw };
-    return raw;
+/** The project layer a write may touch, creating the file when it is absent. */
+function projectLayerToWrite(files: FileLayers): RawConfig | null {
+  const layer = files.projectLayer;
+  if (layer.kind === "present") return layer.raw;
+  if (layer.kind === "refused") {
+    console.warn(
+      `[subagents] Project config target unavailable (${layer.status}); change ignored`,
+    );
+    return null;
   }
+  const raw: RawConfig = {};
+  files.projectLayer = { kind: "present", raw };
+  return raw;
 }

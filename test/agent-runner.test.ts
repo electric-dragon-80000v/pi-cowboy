@@ -38,6 +38,7 @@ import {
   installSessionRegistries,
   setSessionTemplates,
 } from "../src/shell.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 /**
  * The shell store is a process-wide singleton bound to the real config file.
@@ -112,7 +113,7 @@ function setup(
 
 /** Swap in a store whose global layer carries this agent section. */
 function setGlobalAgentSettings(agent: RawConfig["agent"]): void {
-  storeRef.current = new ConfigStore(memoryIO({ agent }));
+  storeRef.current = loadedStore(memoryIO({ agent }));
 }
 
 async function launch(
@@ -157,7 +158,7 @@ async function launch(
 
 beforeEach(() => {
   setSessionTemplates(createSessionTemplates());
-  storeRef.current = new ConfigStore(memoryIO());
+  storeRef.current = loadedStore(memoryIO());
 });
 
 afterEach(() => {
@@ -1176,7 +1177,7 @@ describe("buildLaunchPlan — env overrides", () => {
         },
       }),
     );
-    storeRef.current = new ConfigStore(
+    storeRef.current = loadedStore(
       memoryIO({
         harness: {
           codex: {
@@ -1229,7 +1230,7 @@ describe("buildLaunchPlan — env overrides", () => {
       reservedEnvVars: () => ["PLUGIN_OWNED"],
     } as PluginHarness);
     const { cwd, notify } = setup(makeAgent({ harnessType: "env-plugin" }));
-    storeRef.current = new ConfigStore(
+    storeRef.current = loadedStore(
       memoryIO({
         harness: {
           "env-plugin": {
@@ -1266,7 +1267,7 @@ describe("buildLaunchPlan — env overrides", () => {
       inheritedEnv: () => ({ PLUGIN_STORE: "/var/plugin" }),
     } as PluginHarness);
     const { cwd, notify } = setup(makeAgent({ harnessType: "store-plugin" }));
-    storeRef.current = new ConfigStore(
+    storeRef.current = loadedStore(
       memoryIO({
         harness: { "store-plugin": { env: { PLUGIN_STORE: "/elsewhere" } } },
       }),
@@ -1362,7 +1363,7 @@ describe("buildLaunchPlan — env overrides", () => {
     const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
     delete process.env.PIG_HOME;
     delete process.env.XDG_CONFIG_HOME;
-    storeRef.current = new ConfigStore(
+    storeRef.current = loadedStore(
       memoryIO({
         harness: { pig: { env: { PIG_HOME: "/elsewhere", PIG_KEEP: "1" } } },
       }),

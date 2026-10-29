@@ -5,7 +5,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigStore } from "../src/config/config-store.js";
 import {
   isProjectAllowedAgentKey,
   mergeDefaults,
@@ -17,6 +16,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -119,23 +119,19 @@ describe("harnessType — defaults", () => {
   });
 
   it("resolves the built-in default when the key is absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.harnessType).toBe("pi");
   });
 
   it("honors an explicit pig harness", () => {
-    const store = new ConfigStore(
-      memoryIO({ agent: { harnessType: "pig" } }).io,
-    );
+    const store = loadedStore(memoryIO({ agent: { harnessType: "pig" } }).io);
 
     expect(store.agent.harnessType).toBe("pig");
   });
 
   it("keeps a harness id the built-in vocabulary does not know, for a plugin harness to claim", () => {
-    const store = new ConfigStore(
-      memoryIO({ agent: { harnessType: "cow" } }).io,
-    );
+    const store = loadedStore(memoryIO({ agent: { harnessType: "cow" } }).io);
 
     expect(store.agent.harnessType).toBe("cow");
   });
@@ -144,7 +140,7 @@ describe("harnessType — defaults", () => {
 describe("harnessType — store setter", () => {
   it("persists at the global layer and reads back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessType("pig");
 
@@ -155,7 +151,7 @@ describe("harnessType — store setter", () => {
 
   it("survives clearing all model overrides (it is a non-model key)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessType("pig");
     store.mutate.agent.clearAllModelOverrides("global");

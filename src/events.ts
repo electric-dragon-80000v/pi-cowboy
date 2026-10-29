@@ -149,6 +149,8 @@ async function loadSessionConfig(ctx: ExtensionContext): Promise<void> {
   const projectDir = ctx.isProjectTrusted()
     ? path.join(ctx.cwd, ".pi")
     : undefined;
+  // The session's first read of the config files: the project layer is only
+  // read once the trust gate above has decided which directory it is.
   getStore().setProjectDir(projectDir);
   getStore().reload();
 }

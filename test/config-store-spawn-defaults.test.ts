@@ -6,7 +6,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigStore } from "../src/config/config-store.js";
 import {
   isProjectAllowedAgentKey,
   mergeLayers,
@@ -18,6 +17,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -56,14 +56,14 @@ function memoryIO(
 
 describe("spawn default settings — defaults and persistence", () => {
   it("resolves the built-in defaults when the keys are absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.defaultAgentType).toBe(DEFAULT_AGENT_TYPE);
     expect(store.agent.defaultOrchestrator).toBe(DEFAULT_ORCHESTRATOR_NAME);
   });
 
   it("loads configured values", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           defaultAgentType: "code-reviewer",
@@ -78,7 +78,7 @@ describe("spawn default settings — defaults and persistence", () => {
 
   it("rejects blank values at validation, so the fallback applies", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO(
         validateRawLayer(
           { agent: { defaultAgentType: "  ", defaultOrchestrator: "" } },
@@ -93,7 +93,7 @@ describe("spawn default settings — defaults and persistence", () => {
 
   it("persists a set at the global layer and reads it back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setDefaultAgentType("code-reviewer");
     store.mutate.agent.setDefaultOrchestrator("planner");
@@ -104,14 +104,14 @@ describe("spawn default settings — defaults and persistence", () => {
     // These settings are global-only.
     expect(memory.savedProject).toEqual([]);
 
-    const reloaded = new ConfigStore(memoryIO(saved ?? {}).io);
+    const reloaded = loadedStore(memoryIO(saved ?? {}).io);
     expect(reloaded.agent.defaultAgentType).toBe("code-reviewer");
     expect(reloaded.agent.defaultOrchestrator).toBe("planner");
   });
 
   it("clears a setting back to the built-in fallback when set to undefined", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setDefaultAgentType("code-reviewer");
     store.mutate.agent.setDefaultAgentType(undefined);
@@ -123,7 +123,7 @@ describe("spawn default settings — defaults and persistence", () => {
 
   it("survives clearing all model overrides (they are non-model keys)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setDefaultAgentType("code-reviewer");
     store.mutate.agent.setDefaultOrchestrator("planner");

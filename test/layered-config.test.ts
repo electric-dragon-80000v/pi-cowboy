@@ -30,15 +30,21 @@ interface Memory {
   files: Files;
 }
 
+interface MemoryIO {
+  io: ConfigIO;
+  saves: Save[];
+  files: Files;
+}
+
 /** In-memory ConfigIO: records every save so persistence is assertable. */
-function createMemory(
+function createIO(
   options: {
     global?: RawConfig;
     project?: RawConfig | null;
     projectStatus?: ProjectLayerStatus;
     globalWritable?: boolean;
   } = {},
-): Memory {
+): MemoryIO {
   const files: Files = {
     global: structuredClone(options.global ?? {}),
     project:
@@ -65,7 +71,15 @@ function createMemory(
       saves.push({ layer: "project", config: structuredClone(config) });
     },
   };
-  return { layers: new LayeredConfig(io), saves, files };
+  return { io, saves, files };
+}
+
+/** The layers after a session's first load; a test of the unloaded state builds its own. */
+function createMemory(options: Parameters<typeof createIO>[0] = {}): Memory {
+  const { io, saves, files } = createIO(options);
+  const layers = new LayeredConfig(io);
+  layers.reload();
+  return { layers, saves, files };
 }
 
 afterEach(() => {
@@ -295,5 +309,72 @@ describe("reload and target availability", () => {
     expect(offered("absent")).toBe(true);
     expect(offered("untrusted")).toBe(false);
     expect(offered("malformed")).toBe(false);
+  });
+});
+
+describe("before the first load", () => {
+  it("reads the built-in defaults and offers no layer", () => {
+    const { io } = createIO({
+      global: { agent: { default: "global" } },
+      project: { agent: { default: "project" } },
+    });
+
+    const layers = new LayeredConfig(io);
+
+    expect(layers.effective.agent.default).toBeNull();
+    expect(layers.global).toEqual({});
+    expect(layers.project).toBeNull();
+    expect(layers.isProjectWritable).toBe(false);
+    expect(layers.isGlobalWritable).toBe(false);
+  });
+
+  it("refuses every write, so a file nothing has read is never replaced", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { io, saves } = createIO({
+      global: { agent: { default: "global" } },
+      projectStatus: "absent",
+    });
+    const layers = new LayeredConfig(io);
+    const clearSession = vi.fn();
+
+    expect(
+      layers.mutate("global", () => {
+        throw new Error("the update must not run");
+      }),
+    ).toBe(false);
+    expect(
+      layers.mutate("project", () => {
+        throw new Error("the update must not run");
+      }),
+    ).toBe(false);
+    layers.clear(
+      "all",
+      () => {
+        throw new Error("the update must not run");
+      },
+      clearSession,
+    );
+
+    expect(saves).toEqual([]);
+    // The session layer lives in memory, so clearing it needs no load.
+    expect(clearSession).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      "[subagents] Refusing to write config before the first load; change not saved",
+    );
+  });
+
+  it("writes again once the first load has landed", () => {
+    const { io, saves } = createIO({ projectStatus: "absent" });
+    const layers = new LayeredConfig(io);
+
+    layers.reload();
+    const wrote = layers.mutate("global", (raw) => {
+      raw.agent = { default: "openai/gpt-4o" };
+    });
+
+    expect(wrote).toBe(true);
+    expect(saves).toEqual([
+      { layer: "global", config: { agent: { default: "openai/gpt-4o" } } },
+    ]);
   });
 });

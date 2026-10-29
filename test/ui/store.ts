@@ -9,6 +9,7 @@ import {
 } from "../../src/config/config-store.js";
 import type { LoadedConfig } from "../../src/config/config-io.js";
 import { setStore } from "./shell-mock.js";
+import { loadedStore } from "../helpers/loaded-store.js";
 
 export interface MemoryStoreOptions {
   global?: RawConfig;
@@ -54,7 +55,7 @@ export function createMemoryStore(
     },
   };
 
-  const store = new ConfigStore(io);
+  const store = loadedStore(io);
   return {
     store,
     writes,

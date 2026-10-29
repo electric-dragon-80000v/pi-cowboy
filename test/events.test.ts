@@ -98,9 +98,9 @@ const { COWBOY_TOOLS, COWBOY_TOOL_NAMES, REGISTERED_TOOL_NAMES } =
   await import("../src/registration.js");
 
 /**
- * Points the agent dir at a fresh config file and loads a store from it. The
- * session reload swaps the IO for the real one, so the file — not a fake IO —
- * is what carries the flag.
+ * Points the agent dir at a fresh config file and installs the session's store
+ * over it, unloaded like the shell's. The session reload swaps the IO for the
+ * real one, so the file — not a fake IO — is what carries the flag.
  */
 function installStore(global: RawConfig): void {
   const root = mkdtempSync(join(tmpdir(), "pi-cowboy-events-"));

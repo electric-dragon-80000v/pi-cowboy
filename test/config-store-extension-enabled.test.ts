@@ -21,6 +21,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 interface MemoryIO {
   io: ConfigIO;
@@ -55,13 +56,13 @@ function memoryIO(
 
 describe("extensionEnabled — defaults and persistence", () => {
   it("resolves true when the key is absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.extensionEnabled).toBe(true);
   });
 
   it("loads a disabled extension from the global layer", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { extensionEnabled: false } }).io,
     );
 
@@ -70,7 +71,7 @@ describe("extensionEnabled — defaults and persistence", () => {
 
   it("persists a set at the global layer and reads it back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setExtensionEnabled(false);
 
@@ -79,13 +80,13 @@ describe("extensionEnabled — defaults and persistence", () => {
     // The flag is global-only.
     expect(memory.savedProject).toEqual([]);
 
-    const reloaded = new ConfigStore(memoryIO(saved ?? {}).io);
+    const reloaded = loadedStore(memoryIO(saved ?? {}).io);
     expect(reloaded.agent.extensionEnabled).toBe(false);
   });
 
   it("survives clearing all model overrides (it is a non-model key)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setExtensionEnabled(false);
     store.mutate.agent.clearAllModelOverrides("global");
@@ -125,20 +126,20 @@ describe("extensionEnabled — defaults and persistence", () => {
     expect(effective.agent?.extensionEnabled).toBeUndefined();
     // Dropped, so the default stands.
     expect(
-      new ConfigStore(memoryIO({}, loaded.project).io).agent.extensionEnabled,
+      loadedStore(memoryIO({}, loaded.project).io).agent.extensionEnabled,
     ).toBe(true);
   });
 });
 
 describe("showActiveIndicator — defaults and persistence", () => {
   it("resolves true when the key is absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.showActiveIndicator).toBe(true);
   });
 
   it("loads a hidden indicator from the global layer", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { showActiveIndicator: false } }).io,
     );
 
@@ -147,7 +148,7 @@ describe("showActiveIndicator — defaults and persistence", () => {
 
   it("persists a set at the global layer and reads it back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setShowActiveIndicator(false);
 
@@ -156,13 +157,13 @@ describe("showActiveIndicator — defaults and persistence", () => {
     // The flag is global-only.
     expect(memory.savedProject).toEqual([]);
 
-    const reloaded = new ConfigStore(memoryIO(saved ?? {}).io);
+    const reloaded = loadedStore(memoryIO(saved ?? {}).io);
     expect(reloaded.agent.showActiveIndicator).toBe(false);
   });
 
   it("survives clearing all model overrides (it is a non-model key)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setShowActiveIndicator(false);
     store.mutate.agent.clearAllModelOverrides("global");
@@ -199,31 +200,28 @@ describe("showActiveIndicator — defaults and persistence", () => {
     ).toBeUndefined();
     // Dropped, so the default stands.
     expect(
-      new ConfigStore(
-        memoryIO({}, { agent: { showActiveIndicator: false } }).io,
-      ).agent.showActiveIndicator,
+      loadedStore(memoryIO({}, { agent: { showActiveIndicator: false } }).io)
+        .agent.showActiveIndicator,
     ).toBe(true);
   });
 });
 
 describe("grazingEnabled — defaults and persistence", () => {
   it("resolves true when the key is absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.grazingEnabled).toBe(true);
   });
 
   it("loads a drawn pasture from the global layer", () => {
-    const store = new ConfigStore(
-      memoryIO({ agent: { grazingEnabled: true } }).io,
-    );
+    const store = loadedStore(memoryIO({ agent: { grazingEnabled: true } }).io);
 
     expect(store.agent.grazingEnabled).toBe(true);
   });
 
   it("persists a set at the global layer and reads it back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setGrazingEnabled(true);
 
@@ -232,13 +230,13 @@ describe("grazingEnabled — defaults and persistence", () => {
     // The flag is global-only.
     expect(memory.savedProject).toEqual([]);
 
-    const reloaded = new ConfigStore(memoryIO(saved ?? {}).io);
+    const reloaded = loadedStore(memoryIO(saved ?? {}).io);
     expect(reloaded.agent.grazingEnabled).toBe(true);
   });
 
   it("survives clearing all model overrides (it is a non-model key)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setGrazingEnabled(true);
     store.mutate.agent.clearAllModelOverrides("global");
@@ -267,6 +265,37 @@ describe("grazingEnabled — defaults and persistence", () => {
     expect(cleaned.agent?.includeContextFiles).toBe(true);
   });
 
+  it("warns once per session start, not once per construction and once per load", () => {
+    const root = mkdtempSync(join(tmpdir(), "pi-cowboy-grazing-once-"));
+    const configDir = join(root, "agent", "pi-cowboy");
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, "config.json"),
+      JSON.stringify({ agent: { grazingEnabled: "off" } }),
+    );
+    // The global file resolves at call time; keep the read off the developer's agent dir.
+    vi.stubEnv("PI_CODING_AGENT_DIR", join(root, "agent"));
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    onTestFinished(() => warn.mockRestore());
+
+    // The shell's store exists long before a session does, and reads nothing.
+    const store = new ConfigStore(createConfigIO(undefined));
+    expect(warn).not.toHaveBeenCalled();
+
+    // What session_start does: pick the project directory, then load.
+    store.setProjectDir(undefined);
+    store.reload();
+
+    const grazingWarnings = warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((message) => message.includes("agent.grazingEnabled"));
+    expect(grazingWarnings).toHaveLength(1);
+  });
+
   it("is not a project-layer key, and a project file carrying it is dropped", () => {
     expect(isProjectAllowedAgentKey("grazingEnabled")).toBe(false);
     expect(
@@ -275,8 +304,8 @@ describe("grazingEnabled — defaults and persistence", () => {
     ).toBeUndefined();
     // Dropped, so the default stands.
     expect(
-      new ConfigStore(memoryIO({}, { agent: { grazingEnabled: true } }).io)
-        .agent.grazingEnabled,
+      loadedStore(memoryIO({}, { agent: { grazingEnabled: true } }).io).agent
+        .grazingEnabled,
     ).toBe(true);
   });
 });

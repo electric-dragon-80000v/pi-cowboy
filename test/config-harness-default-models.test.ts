@@ -17,6 +17,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -147,7 +148,7 @@ describe("defaultModelByHarness — layers", () => {
   });
 
   it("bakes no default: an absent map reads as every harness unset", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(mergeDefaults({}).agent.defaultModelByHarness).toBeUndefined();
     expect(store.defaultModelForHarness("opencode")).toBeNull();
@@ -156,7 +157,7 @@ describe("defaultModelByHarness — layers", () => {
 
 describe("defaultModelByHarness — project over global", () => {
   it("resolves the project layer's entry over the global layer's", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO(
         { agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } } },
         {
@@ -173,7 +174,7 @@ describe("defaultModelByHarness — project over global", () => {
   });
 
   it("falls through to the global layer for a harness the project omits", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO(
         { agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } } },
         { agent: { defaultModelByHarness: { pig: "anthropic/claude-3" } } },
@@ -184,7 +185,7 @@ describe("defaultModelByHarness — project over global", () => {
   });
 
   it("reads the pi family's default from the one `default` key", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           default: "openai/gpt-4",
@@ -205,7 +206,7 @@ describe("model resolution — the harness default's position", () => {
 
   /** A store whose global layer carries one configured harness default. */
   function storeWithOpencodeDefault(): ConfigStore {
-    return new ConfigStore(
+    return loadedStore(
       memoryIO({
         agent: { defaultModelByHarness: { opencode: OPENCODE_DEFAULT } },
       }).io,
@@ -221,7 +222,7 @@ describe("model resolution — the harness default's position", () => {
   });
 
   it("leaves a pi spawn alone: pi reads the `default` key, not the harness map", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           default: "anthropic/claude-3",
@@ -296,7 +297,7 @@ describe("model resolution — the harness default's position", () => {
   });
 
   it("never hands pi's session default to a plugin harness", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: { defaultModelByHarness: { "runner-plugin": OPENCODE_DEFAULT } },
       }).io,
@@ -309,7 +310,7 @@ describe("model resolution — the harness default's position", () => {
   });
 
   it("lets the session default win over pi's own configured default", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { default: "anthropic/claude-3" } }).io,
     );
     store.mutate.session.setOverride("default", "session/session-model");
@@ -324,7 +325,7 @@ describe("model resolution — the harness default's position", () => {
   });
 
   it("lets a per-type override win over the harness default", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           auditor: "anthropic/claude-3",
@@ -362,7 +363,7 @@ describe("model resolution — the harness default's position", () => {
   });
 
   it("reads a null entry as no default, falling through to the parent", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           default: "anthropic/claude-3",
@@ -384,7 +385,7 @@ describe("model resolution — the harness default's position", () => {
   it("never hands the parent's pi key to an opencode launch", () => {
     // The parent session runs pi, so its key names pi's catalogue: nothing but
     // a pi-family launch can inherit it, whatever the chain resolved.
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(
       store.modelFor(
@@ -417,7 +418,7 @@ describe("model resolution — the harness default's position", () => {
 describe("defaultModelByHarness — store setters", () => {
   it("persists one harness at the global layer and reads it back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
@@ -436,7 +437,7 @@ describe("defaultModelByHarness — store setters", () => {
     const memory = memoryIO({
       agent: { defaultModelByHarness: { pig: "anthropic/claude-3" } },
     });
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
@@ -452,7 +453,7 @@ describe("defaultModelByHarness — store setters", () => {
 
   it("writes to the project layer when asked, without touching the global file", () => {
     const memory = memoryIO({}, {});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
@@ -470,7 +471,7 @@ describe("defaultModelByHarness — store setters", () => {
 
   it("keeps a session write in memory and out of session overrides' type map", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
@@ -487,7 +488,7 @@ describe("defaultModelByHarness — store setters", () => {
     const memory = memoryIO({
       agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
     });
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
@@ -505,7 +506,7 @@ describe("defaultModelByHarness — store setters", () => {
     const memory = memoryIO({
       agent: { defaultModelByHarness: { opencode: "openai/gpt-4" } },
     });
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.clearHarnessDefaultModel("opencode", "global");
 
@@ -525,7 +526,7 @@ describe("defaultModelByHarness — store setters", () => {
         },
       },
     });
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.clearHarnessDefaultModel("opencode", "global");
 
@@ -536,7 +537,7 @@ describe("defaultModelByHarness — store setters", () => {
 
   it("clears the session's harness defaults with the session's model overrides", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
       "openai/gpt-4o",
@@ -556,7 +557,7 @@ describe("defaultModelByHarness — store setters", () => {
         harnessType: "pig",
       },
     });
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.clearAllModelOverrides("global");
 
@@ -567,7 +568,7 @@ describe("defaultModelByHarness — store setters", () => {
   });
 
   it("drops session harness defaults on reload", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
     store.mutate.agent.setHarnessDefaultModel(
       "opencode",
       "openai/gpt-4o",

@@ -6,7 +6,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigStore } from "../src/config/config-store.js";
 import { mergeLayers } from "../src/config/config-io.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
 import type {
@@ -14,6 +13,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -290,7 +290,7 @@ describe("concurrency keys — store", () => {
     const { io } = memoryIO({
       concurrency: { harnesses: { opencode: 2 } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(store.concurrency.harnesses).toEqual({ opencode: 2 });
 
@@ -305,7 +305,7 @@ describe("concurrency keys — store", () => {
 
   it("persists a harness limit and re-syncs the running config", () => {
     const { io, savedGlobal } = memoryIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.concurrency.setHarness("opencode", 2);
     expect(savedGlobal.at(-1)?.concurrency).toEqual({
@@ -323,7 +323,7 @@ describe("concurrency keys — store", () => {
         },
       },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(store.concurrency.models).toEqual({
       "anthropic/claude-3": 2,
@@ -340,7 +340,7 @@ describe("concurrency keys — store", () => {
     const { io } = memoryIO({
       concurrency: { harnesses: { opencode: 2 } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(store.concurrencySettingsLevels().global).toBe(true);
   });
@@ -350,7 +350,7 @@ describe("concurrency keys — store", () => {
       agent: { extensionEnabled: false },
       concurrency: { harnesses: { opencode: 2 } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.concurrency.clearAll("global");
 
@@ -366,7 +366,7 @@ describe("concurrency keys — store", () => {
     "%s rejects a non-positive-integer limit without persisting",
     (method, args) => {
       const { io, savedGlobal } = memoryIO({});
-      const store = new ConfigStore(io);
+      const store = loadedStore(io);
 
       expect(() => {
         if (method === "setDefault") {
@@ -390,7 +390,7 @@ describe("concurrency keys — store", () => {
 
   it("rejects a session-targeted bad limit without touching the session layer", () => {
     const { io } = memoryIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(() =>
       store.mutate.concurrency.setHarness("pi", 0, "session"),

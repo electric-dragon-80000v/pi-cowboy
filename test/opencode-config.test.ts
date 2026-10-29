@@ -27,6 +27,7 @@ import {
   createHarnessRegistry,
   type HarnessRegistry,
 } from "../src/agents/harness/harness-registry.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -55,7 +56,7 @@ function storeWith(
   global: RawConfig,
   project: RawConfig | null = null,
 ): ConfigStore {
-  return new ConfigStore(memoryIO(global, project));
+  return loadedStore(memoryIO(global, project));
 }
 
 /** A plugin harness carrying only what the registry validates. */

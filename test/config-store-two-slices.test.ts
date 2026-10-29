@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigStore } from "../src/config/config-store.js";
 import { createConfigIO } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 /** A project dir with an agent dir beside it: the two files a store writes. */
 interface Files {
@@ -39,7 +40,7 @@ function createFiles(): Files {
 }
 
 function storeOver(files: Files): ConfigStore {
-  return new ConfigStore(createConfigIO(files.projectDir));
+  return loadedStore(createConfigIO(files.projectDir));
 }
 
 function read(path: string): unknown {

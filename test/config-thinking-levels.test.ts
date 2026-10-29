@@ -10,7 +10,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigStore } from "../src/config/config-store.js";
 import { mergeLayers } from "../src/config/config-io.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
 import type {
@@ -24,6 +23,7 @@ import {
   resolveThinkingSource,
   type SubagentsConfig,
 } from "../src/models/model-precedence.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -281,7 +281,7 @@ describe("harnessDefaultThinking", () => {
 
 describe("ConfigStore — per-type thinking overrides", () => {
   it("resolves the project token over the global one, entry by entry", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO(
         { agent: { thinking: { auditor: "low", reviewer: "max" } } },
         { agent: { thinking: { auditor: "high" } } },
@@ -296,7 +296,7 @@ describe("ConfigStore — per-type thinking overrides", () => {
 
 describe("ConfigStore — per-harness default thinking", () => {
   it("reads the pi family's defaultThinking and every other harness's entry", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({
         agent: {
           defaultThinking: "low",
@@ -311,7 +311,7 @@ describe("ConfigStore — per-harness default thinking", () => {
   });
 
   it("feeds the chain's last step, which the template's own token beats", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { defaultThinking: "low" } }).io,
     );
 
@@ -353,7 +353,7 @@ describe("ConfigStore — per-type thinking writers", () => {
     const { io, savedGlobal } = recordingIO({
       agent: { thinking: { auditor: "low" } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setThinkingOverride("scribe", "high", "global");
 
@@ -368,7 +368,7 @@ describe("ConfigStore — per-type thinking writers", () => {
       { agent: { thinking: { auditor: "low" } } },
       {},
     );
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setThinkingOverride("auditor", null, "project");
 
@@ -384,7 +384,7 @@ describe("ConfigStore — per-type thinking writers", () => {
     const { io, savedGlobal } = recordingIO({
       agent: { thinking: { auditor: "low", scribe: "max" } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.clearThinkingOverride("scribe", "global");
     expect(savedGlobal.at(-1)?.agent?.thinking).toEqual({ auditor: "low" });
@@ -396,7 +396,7 @@ describe("ConfigStore — per-type thinking writers", () => {
 
   it("unpins the session on a null instead of masking it", () => {
     const { io } = recordingIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setThinkingOverride("auditor", "low", "session");
     expect(store.sessionThinkingOverride("auditor")).toBe("low");
@@ -412,7 +412,7 @@ describe("ConfigStore — per-harness default thinking writers", () => {
     const { io, savedGlobal } = recordingIO({
       agent: { defaultThinkingByHarness: { codex: "low" } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setHarnessDefaultThinking("opencode", "max", "global");
     expect(savedGlobal.at(-1)?.agent?.defaultThinkingByHarness).toEqual({
@@ -432,7 +432,7 @@ describe("ConfigStore — per-harness default thinking writers", () => {
 
   it("keeps one session slot for the whole pi family", () => {
     const { io } = recordingIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setHarnessDefaultThinking("pi", "high", "session");
 
@@ -446,7 +446,7 @@ describe("ConfigStore — per-harness default thinking writers", () => {
 
   it("reads a session null as no session entry, leaving the files to answer", () => {
     const { io } = recordingIO({ agent: { defaultThinking: "low" } });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setHarnessDefaultThinking("pi", null, "session");
 
@@ -464,7 +464,7 @@ describe("ConfigStore — per-harness default thinking writers", () => {
       },
       { agent: { defaultThinkingByHarness: { opencode: "high" } } },
     );
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(store.harnessDefaultThinkingLevels("pi")).toEqual({
       session: false,
@@ -485,7 +485,7 @@ describe("ConfigStore — Clear-all covers thinking alone", () => {
     const { io, savedGlobal } = recordingIO({
       agent: { thinking: { auditor: "low" } },
     });
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(store.modelSettingsLevels().global).toBe(true);
     expect(store.modelSettingsLevels().project).toBe(false);
@@ -498,7 +498,7 @@ describe("ConfigStore — Clear-all covers thinking alone", () => {
 
   it("does not offer a session level for an unpinned thinking default", () => {
     const { io } = recordingIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     store.mutate.agent.setHarnessDefaultThinking("pi", null, "session");
 
@@ -509,7 +509,7 @@ describe("ConfigStore — Clear-all covers thinking alone", () => {
 describe("ConfigStore — the pi family's file default is the scalar", () => {
   it("writes agent.defaultThinking for a pi-family id, never its table entry", () => {
     const { io, savedGlobal } = recordingIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     // pig shares pi's slot and pi's scalar: a table entry here would persist a
     // key no launch ever reads.
@@ -525,7 +525,7 @@ describe("ConfigStore — the pi family's file default is the scalar", () => {
 
   it("refuses a token the scalar's own level list does not name", () => {
     const { io } = recordingIO({});
-    const store = new ConfigStore(io);
+    const store = loadedStore(io);
 
     expect(() =>
       store.mutate.agent.setHarnessDefaultThinking("pi", "absolute", "global"),

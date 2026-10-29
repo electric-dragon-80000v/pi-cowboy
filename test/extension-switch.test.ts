@@ -14,11 +14,7 @@ import type {
   ExtensionAPI,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  ConfigStore,
-  type ConfigIO,
-  type RawConfig,
-} from "../src/config/config-store.js";
+import { type ConfigIO, type RawConfig } from "../src/config/config-store.js";
 import type { LoadedConfig } from "../src/config/config-io.js";
 import type { HarnessModelOptions } from "../src/agents/harness/harness-registry.js";
 import { modelKeysOf } from "../src/agents/harness/harness-registry.js";
@@ -35,6 +31,7 @@ import {
   type OverlayCallOptions,
   type OverlayMount,
 } from "./helpers/overlay-mounts.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 /** The shell the switch reads: a store and a pi, replaced per test. */
 const shell = vi.hoisted(() => ({
@@ -125,7 +122,7 @@ function memoryIO(global: RawConfig): {
 /** Installs a store over the given global layer. */
 function install(global: RawConfig): RawConfig[] {
   const memory = memoryIO(global);
-  shell.store = new ConfigStore(memory.io);
+  shell.store = loadedStore(memory.io);
   return memory.savedGlobal;
 }
 

@@ -5,7 +5,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfigStore } from "../src/config/config-store.js";
 import {
   isProjectAllowedAgentKey,
   mergeDefaults,
@@ -17,6 +16,7 @@ import type {
   LoadedConfig,
   RawConfig,
 } from "../src/config/config-io.js";
+import { loadedStore } from "./helpers/loaded-store.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -80,13 +80,13 @@ describe("worktreeCheckoutType — defaults", () => {
   });
 
   it("resolves the built-in default when the key is absent", () => {
-    const store = new ConfigStore(memoryIO({}).io);
+    const store = loadedStore(memoryIO({}).io);
 
     expect(store.agent.worktreeCheckoutType).toBe("clean");
   });
 
   it("resolves a configured clean policy", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { worktreeCheckoutType: "clean" } }).io,
     );
 
@@ -94,7 +94,7 @@ describe("worktreeCheckoutType — defaults", () => {
   });
 
   it("honors an explicit dirty policy", () => {
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO({ agent: { worktreeCheckoutType: "dirty" } }).io,
     );
 
@@ -105,7 +105,7 @@ describe("worktreeCheckoutType — defaults", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     // The loader validates before a layer reaches the store, so the policy
     // below never arrives and the read applies the built-in default.
-    const store = new ConfigStore(
+    const store = loadedStore(
       memoryIO(
         validateRawLayer(
           { agent: { worktreeCheckoutType: "nonsense" } },
@@ -123,7 +123,7 @@ describe("worktreeCheckoutType — defaults", () => {
 describe("worktreeCheckoutType — store setter", () => {
   it("persists at the global layer and reads back", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setWorktreeCheckoutType("clean");
 
@@ -136,7 +136,7 @@ describe("worktreeCheckoutType — store setter", () => {
 
   it("survives clearing all model overrides (it is a non-model key)", () => {
     const memory = memoryIO({});
-    const store = new ConfigStore(memory.io);
+    const store = loadedStore(memory.io);
 
     store.mutate.agent.setWorktreeCheckoutType("clean");
     store.mutate.agent.clearAllModelOverrides("global");
