@@ -1,13 +1,17 @@
 ---
 name: harness-integration-analysis
-description: How a new harness type is evaluated before it is implemented. Fixed report structure, the probe envelope, and the contract angles read off the harness interface. Use when a CLI or a herdr agent kind is proposed as a new pi-cowboy harness, or when a harness evaluation report is written or reviewed.
+description: How a new harness type is evaluated before it is implemented. Fixed report structure, the probe envelope, contract angles read off the harness interface, and session handover evaluation. Use when a CLI or a herdr agent kind is proposed as a new pi-cowboy harness, or when a harness evaluation report is written or reviewed.
 ---
 
 # Harness integration analysis
 
 Applies when someone proposes a CLI, or a herdr agent kind, as a new pi-cowboy harness, and when an existing evaluation report is reviewed. The output is a findings report on one harness. It is not the harness code.
 
-The evaluation answers one question: for every angle in the contract, what does this CLI give a spawn, and what would the seam have to do to carry the rest? The answer to the last part is the report's seam section.
+The evaluation answers two primary questions:
+1. For every angle in the contract, what does this CLI give a spawn, and what would the seam have to do to carry the rest?
+2. Can this harness participate in **session handover** (`handover_cowboy_agent`), both as a source (exporting its session transcript and cleanly exiting its process) and as a target (resuming an ongoing task in the same worktree)?
+
+The answer to the seam changes is the report's seam section.
 
 ## Before you start
 
@@ -61,12 +65,13 @@ The report then ends at the seam: the members and template keys this family woul
 - **Disclose every deviation.** A probe that leaves the envelope is authorized by the human first and named in the report's appendix.
 - **Cross-angle checks.** One probe runs the whole CLI, so no angle is settled alone. A sandbox that forbids writes outside the worktree also forbids the result file (`<tmpdir>/pi-cowboy/<id>/result.md`); the report says so, and shows the allowance that fixes it, rather than marking sandbox and result file green in isolation.
 - **Ambient environment and side effects.** An agent typically relies on ambient environment setup: authentication (keychains, credential files, environment variables), custom inference endpoints (third-party providers, base URLs), and tools (MCP servers, local scripts). Whatever mechanism is used to isolate or configure the spawn (CLI flags, environment variables, staged files, agent profiles, or shims), evaluate its side effects: does it preserve, override, or inadvertently disconnect any of these ambient capabilities?
+- **Session storage and durability.** Inspect where the CLI writes its sessions, transcripts, and telemetry. If a temporary config directory or scratch location is used, evaluate whether session files survive teardown or whether transcripts can be directed to a durable location.
 
 ## The contract angles
 
 The angles are read off this repo's harness contract, not invented. When a contract member or obligation has no angle, one is added; when an angle's contract member is removed, the angle goes with it. The source column names where the angle comes from, so the list can be rebuilt when the contract moves.
 
-The angles fall into four domains and are numbered straight through them, so each domain holds consecutive numbers. This list is the definition of the report's verdict table. The report reproduces it, one row per angle, and never states the angles anywhere else.
+The angles fall into five domains and are numbered straight through them, so each domain holds consecutive numbers. This list is the definition of the report's verdict table. The report reproduces it, one row per angle, and never states the angles anywhere else.
 
 The closing domain, **Pi-Native / Extended Capabilities**, is pi-family only. Its angles describe the pi extension mechanism, the pi session files, and the pi-native identity token, so it is evaluated only when the harness under test is a pi-family member (`pi`, `pig`, `pi-bolt`). A foreign harness has no such domain, and its report omits it outright rather than carrying rows that answer N/A.
 
@@ -95,7 +100,7 @@ Check where and how authentication resolves, and note any platform-specific diff
 | 8   | Context-file suppression                       | `[harness] include_context_files` |
 | 9   | Steering                                       | the host's `deliver`              |
 
-Angle 5 is replacement. The seam compiles one `system.md` (`buildSubagentSystemPrompt`) and the CLI must use it in place of its own base prompt; append is a fallback only for a CLI with no replace path. The append the pi family uses (`--append-system-prompt`) carries the identity token, which is angle 15's concern, not angle 5's.
+Angle 5 is replacement. The seam compiles one `system.md` (`buildSubagentSystemPrompt`) and the CLI must use it in place of its own base prompt; append is a fallback only for a CLI with no replace path. The append the pi family uses (`--append-system-prompt`) carries the identity token, which is angle 18's concern, not angle 5's.
 
 The evaluation must determine the scope and side effects of the replacement mechanism. Does setting the prompt leave the rest of the agent's environment untouched, or does it require overriding broader configuration layers (such as custom configuration directories, environment variables, or agent profiles)? If the mechanism requires staging or transforming configuration, document what needs to be filtered out (like personal prompts or conflicting instructions) and what needs to be retained (like custom provider definitions or credentials).
 
@@ -106,7 +111,7 @@ The evaluation must determine the scope and side effects of the replacement mech
 | 10  | Model selection and catalogue       | `modelKey`, `Harness.listModels`, `Harness.prefetchModels`, `defaultModelByHarness` |
 | 11  | Approval / sandbox                  | `projectTrusted`, family request                                                    |
 | 12  | Availability probe and version gate | `Harness.availability`, `HarnessAvailability.notice`                                |
-| 13  | Thinking / reasoning effort         | `PiLaunchInputs.thinkingLevel`, `OpencodeLaunchInputs.variant`                      |
+| 13  | Thinking / reasoning effort         | `SubagentLaunchInputs.thinking`                                                     |
 | 14  | Tool selection                      | `SubagentLaunchInputs.toolSelection`                                                |
 
 Angle 10's evidence states the catalogue's cold-start cost: whether enumeration spawns a child process, needs the network or a credential, or is instant and offline, and how the family warms it at startup (`prefetchModels` — a real warm-up, or a no-op — and whether the result is memoized). A catalogue that blocks the menu is as much a finding as one that cannot be listed. The evaluation must verify whether the spawn's runtime environment actually has access to the models listed in the catalogue—especially when custom endpoints, third-party providers, or non-default base URLs are defined in the user's environment.
@@ -115,14 +120,39 @@ Angle 14 is satisfied natively only by a CLI that can filter tools by name — a
 
 Angle 12's probe runs synchronously at boot, before the first menu can open, so it must answer locally and within a bounded timeout (the opencode read allows 5 s), with no network. A CLI whose `--version` dials out for an update check holds the whole boot; claude is the precedent, and its harness reads `command -v` for exactly that reason. A version command that reaches the network is itself a finding.
 
+### Session Handover
+
+| #   | Angle                                              | Contract source                                                                           |
+| --- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 15  | Process termination & clean TUI exit               | `Harness.stop`, `HarnessStopRequest`, `PaneControl.sendKeys`                              |
+| 16  | Session store durability & environment alignment   | `Harness.inheritedEnv`, `Harness.reservedEnvVars`, `Harness.teardown`, staging isolation   |
+| 17  | Transcript extraction & turn classification        | `Harness.readHandoverRecords`, `HandoverRecordSource`, `HandoverRecord`, `SessionExportError` |
+
+Handover (`handover_cowboy_agent`) transfers an in-flight task from a settled agent to another harness within the same worktree and staging directory. Rather than starting over, the extension exports the source run's session transcript, stops its process cleanly, archives the run into history, and launches the next harness with the previous transcript and provenance chain quoted in its task.
+
+Angle 15 requires a clean, non-destructive exit of the interactive agent process. The exit must be triggered via keystrokes sent to the TUI (`pane.sendKeys`). Exiting must terminate the process, but must **never close the multiplexer pane or kill the hosting shell**. The pane and checkout must remain addressable for multi-run cleanup and subsequent runs.
+
+The evidence is the exit and what survives it: the agent process ends, and the pane and its hosting shell are still alive and addressable. The transcript is not this angle's evidence: handover reads the session while the process is still alive and stops the run only after that read succeeds, so a stop cannot cut off a session already exported.
+
+Angle 16 reconciles configuration staging with session durability. Spawns often require disposable staging trees (`/tmp/pi-cowboy/<id>/...`) to suppress onboarding prompts and bypass permission checks. However, `harness.teardown` deletes that tree. The evaluation must prove:
+1. Session transcripts do not land inside a directory that `teardown` deletes, or the transcript subtree is symlinked out to a durable location (the bridge pattern used by Claude).
+2. The child process and parent process agree on the store location. If environment variables control the store (e.g. `CODEX_HOME`, `PI_CODING_AGENT_SESSION_DIR`), the parent must export them via `inheritedEnv`, and they must be protected against user override via `reservedEnvVars`.
+
+Angle 17 evaluates whether the CLI's native session history can be located, read, and classified into the shared handover vocabulary:
+1. **Lookup & Disambiguation:** Can the session corresponding to this specific run be found unambiguously? (By pinned UUID, e.g. Claude's `--session-id`; by agent name, e.g. Pi's `--name`; or by matching CWD in metadata, e.g. Codex rollouts). Can successor sessions (from `/clear` or fork) be detected so the export refuses (`ambiguous-session`) rather than returning an abandoned transcript?
+2. **Turn Extraction & Classification:** Every complete entry the reader can enumerate yields exactly one record: `export` (a turn with role `User` | `Assistant` and clean prose), `dont-export` (a readable entry carrying no transferable prose — thinking tokens, tool payloads, metadata, synthetic messages), or `unparseable` (an entry the reader cannot classify: corrupt JSON, an unreadable line, or a known record whose schema fails). A record type the reader does not know is a decision the report states and proves: every shipped reader calls it `dont-export`, so a reader that calls it `unparseable` says which unknown types it treats as prose, and neither may silently under-export a store it only partly understands. A store whose format or version is unsupported is a refusal (`unsupported-version`), not loss; an unterminated final line is a write still in progress rather than a record, so it is neither read nor reported.
+3. **Scaffolding and Envelope Stripping:** Injected framework text (`<environment_context>`, `<system-reminder>`, slash-command wrappers, local bash stdout envelopes) and previous handover marker lines (`<<pi-cowboy-handover [...]>>`) must be stripped from user prose to avoid recursive context inflation.
+4. **Extraction Seam:** Can records be read offline from disk, or must they be extracted via an online CLI command (e.g. `opencode session export`) while the process is alive? If online, does the command need a subshell sourcing `env.sh` to see the spawn's custom store?
+5. **Loss Policy:** Only `unparseable` records count as loss against `agent.handoverMaxExcludedRatio` (default 0.5); a `dont-export` record stays in the denominator and is never loss, and a refused export is a fault the report names rather than a ratio it absorbs.
+
 ### Pi-Native / Extended Capabilities (pi-family only)
 
 | #   | Angle                 | Contract source                  |
 | --- | --------------------- | -------------------------------- |
-| 15  | Identity token        | `subagentTokenFor`               |
-| 16  | Extensions            | `PiLaunchInputs.extensions`      |
-| 17  | Skills                | `PiLaunchInputs.skills`          |
-| 18  | Session fork / resume | `PiLaunchInputs.forkSessionFile` |
+| 18  | Identity token        | `subagentTokenFor`               |
+| 19  | Extensions            | `PiLaunchInputs.extensions`      |
+| 20  | Skills                | `PiLaunchInputs.skills`          |
+| 21  | Session fork / resume | `PiLaunchInputs.forkSessionFile` |
 
 ## The feasibility squares
 
@@ -160,7 +190,7 @@ The structure is fixed. The verdict table reproduces The contract angles in the 
 
 ### Shape A — <name> (<native kind | pane shim | ...>)
 
-<The launch command, argv, rationale, and environmental interaction: what ambient state this shape relies on (credentials, provider settings, tools), what it suppresses or isolates, and how any missing capabilities are supplied or bridged.>
+<The launch command, argv, rationale, and environmental interaction: what ambient state this shape relies on (credentials, provider settings, tools), what it suppresses or isolates, how any missing capabilities are supplied or bridged, and how session transcripts are preserved across teardown.>
 
 ### Shape B — <name>   (only when a second shape is real)
 
@@ -170,7 +200,7 @@ The structure is fixed. The verdict table reproduces The contract angles in the 
 
 ## 3. Verdict table (<N> contract items)
 
-<The domain headings, each followed by one table: | # | Item | Verdict | Detail |, the Verdict cell opening with the angle's square and naming each shape's verdict where the shapes differ. A pi-family harness's report adds the Pi-Native / Extended Capabilities domain; a foreign harness's stops after Configuration & Environment.>
+<The domain headings, each followed by one table: | # | Item | Verdict | Detail |, the Verdict cell opening with the angle's square and naming each shape's verdict where the shapes differ. A pi-family harness's report adds the Pi-Native / Extended Capabilities domain; a foreign harness's stops after Session Handover.>
 
 ## 4. Item-by-item evidence
 
@@ -200,7 +230,7 @@ The structure is fixed. The verdict table reproduces The contract angles in the 
 
 ## 7. Appendix — exact commands, sources, pane hygiene
 
-<The commands, the source read, the pane and tab hygiene, any authorized test inference and the model it used, and any steering the run received>
+<The commands, the source read, the pane and tab hygiene, any authorized test inference and the model it used, and any steering or handover operations exercised>
 ```
 
 The headline opens with the feasibility squares, states the verdict before the evidence, and closes with the facts that decide it. The verdict table is the index a reader scans, grouped into the domains; the evidence section repeats that grouping, keeps the angles in numeric order, and opens each item heading with the angle's square, so a row's number is the way to reach its proof. Section 6 separates the questions evidence would settle from the choices only a human settles, so a product decision is never filed as an inference gap. The seam section is the only place implementation is discussed, and the appendix is the only place commands are listed.
@@ -212,8 +242,10 @@ The headline opens with the feasibility squares, states the verdict before the e
 - [ ] The headline opens with the feasibility squares, one line per domain labelled with the domain name, every verdict row opens with its matching square, and each evidence heading opens with that square too.
 - [ ] Every contract angle is present, grouped into the domains and numbered straight through, each carrying its verdict (one per viable shape where the shapes differ); the Pi-Native / Extended Capabilities domain is present only when the harness is `pi`, `pig`, or `pi-bolt`.
 - [ ] Each verdict names its mechanism, and the evidence section backs it or marks it unverified.
-- [ ] Each launch shape describes its environmental interactions: what ambient configuration/credentials it relies on, what it isolates, and how any required capabilities are maintained.
-- [ ] Where a shape isolates configuration or environment, the evidence proves credentials, providers, and tools still resolve there, with a command that reaches no model, on the platform named.
+- [ ] Each launch shape describes its environmental interactions: what ambient configuration/credentials it relies on, what it isolates, how session transcripts are preserved against staging teardown, and how required capabilities are maintained.
+- [ ] Where a shape isolates configuration or environment, the evidence proves credentials, providers, tools, and session stores still resolve there, with a command that reaches no model, on the platform named.
+- [ ] Process termination (`Harness.stop`) is verified to stop the agent process cleanly via keystrokes while leaving the host pane and shell open.
+- [ ] Session storage format, location, and turn classification rules for handover export (`readHandoverRecords`) are verified against real sample transcripts or code schemas.
 - [ ] The headline, the launch-shape section, the seam changes, the open questions and product decisions, and the appendix are all present.
 - [ ] Any real turn ran on the authorized model alone and is recorded; absent an authorization, no prompt-bearing invocation happened. The pane and directory hygiene is recorded either way.
 - [ ] The appendix lists the exact commands and the source read.
@@ -223,7 +255,7 @@ The headline opens with the feasibility squares, states the verdict before the e
 
 The example below is the Codex report. Codex is a foreign harness, so its report carries fourteen angles — the original twelve except the pi-native identity token, plus availability, thinking, and tool selection — with pane preparation folded into launch and the model catalogue into model selection; the Pi-Native domain is absent.
 
-It is the model for structure, ordering, table shape, evidence style, and appendix contents, and it is a snapshot of everything it read: this repo's API, herdr, and the CLI as they stood when it was written, not as they stand now. Two members are the clearest cases: the report squares angle 1 yellow because `AgentHost.start` then took only `{name, piArgs}` and hard-coded `--kind pi`, while the contract now carries `agentMuxKind` end to end, so that angle squares green today; and its angle 10 predates `Harness.prefetchModels`, so it is silent on catalogue warm-up, which a report today must weigh. An angle marked unverified there stays unverified until a probe settles it. Read the example for its form, and check every API and version claim against the current source before repeating it.
+It is the model for structure, ordering, table shape, evidence style, and appendix contents, and it is a snapshot of everything it read: this repo's API, herdr, and the CLI as they stood when it was written, not as they stand now. Two members are the clearest cases: the report squares angle 1 yellow because `AgentHost.start` then took only `{name, piArgs}` and hard-coded `--kind pi`, while the contract now carries `agentMuxKind` end to end, so that angle squares green today; and its angle 10 predates `Harness.prefetchModels`, so it is silent on catalogue warm-up, which a report today must weigh. It also predates the addition of the **Session Handover** domain (angles 15–17: process termination, store durability, and transcript extraction), which was introduced with `handover_cowboy_agent`. An angle marked unverified there stays unverified until a probe settles it. Read the example for its form, and check every API and version claim against the current source before repeating it.
 
 The Codex report illustrates one end of the configuration spectrum: because Codex exposes granular command-line overrides (`-c model_instructions_file`, `-c project_doc_max_bytes`), it can replace the base prompt and suppress project context while running directly against the user's ambient configuration. This preserves credentials and provider settings without custom staging, but leaves user settings (such as notification hooks) active unless explicitly neutralized. Other harnesses may use different mechanisms (such as dedicated config directories, profiles, or environment variables), which introduce different trade-offs between prompt isolation and credential/capability retention.
 
