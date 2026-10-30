@@ -1,3 +1,15 @@
+# [0.26.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.25.0...v0.26.0) (2026-10-30)
+
+
+### Bug Fixes
+
+* **test:** include handover cowboy agent in menu tests ([5222175](https://github.com/electric-dragon-80000v/pi-cowboy/commit/52221759a2c6f64ffcb3be4e24172918ada4e770))
+
+
+### Features
+
+* enable handover agent in production ([16b031f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/16b031f201aa6e0045233106f61eb7806fbf6aee))
+
 # [0.25.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.24.0...v0.25.0) (2026-10-30)
 
 
