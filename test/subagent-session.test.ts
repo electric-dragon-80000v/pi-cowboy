@@ -2280,4 +2280,161 @@ describe("handover", () => {
     }
     expect(run.session.spawn.execution.history).toHaveLength(1);
   });
+
+  describe("exportHandover", () => {
+    it("prepares the artifact without stopping, archiving, or relaunching", async () => {
+      const run = await settledRun();
+      registry.overrides.set(
+        "pi",
+        exportingPi(async () => ({
+          sessionId: "ses_1",
+          records: [
+            { kind: "export", turn: { role: "User", text: "fix it" } },
+            { kind: "export", turn: { role: "Assistant", text: "fixed" } },
+          ],
+        })),
+      );
+
+      let outcome: Awaited<ReturnType<typeof run.session.exportHandover>>;
+      try {
+        outcome = await run.session.exportHandover();
+      } finally {
+        registry.overrides.delete("pi");
+      }
+
+      expect(outcome).toMatchObject({
+        kind: "prepared",
+        path: `/tmp/cowboy-handover_main-${run.session.spawn.id}_pi_ses_1.md`,
+        sessionId: "ses_1",
+      });
+      const text = outcome.kind === "prepared" ? outcome.text : "";
+      expect(text).toContain(
+        "This task was previously handled by another agent harness (Pi).",
+      );
+      expect(text).toContain('The previous run\'s session id is "ses_1".');
+      expect(text).toContain("## User\n\nfix it\n\n## Assistant\n\nfixed\n");
+
+      // An export is read-only: nothing is stopped, archived, released, or launched.
+      expect(run.stopCalls).toEqual([]);
+      expect(run.startCalls).toHaveLength(1);
+      expect(run.reacquired).toEqual([]);
+      expect(run.session.spawn.execution.history).toEqual([]);
+      expect(run.session.isSettled()).toBe(true);
+    });
+
+    it("names the worktree's branch when the run had one", async () => {
+      const fake = makeFakeHost({ observeState: "done" });
+      const run = makeSession({
+        host: fake.host,
+        deliverable: new ScriptedDeliverable({ deliverable: "done" }),
+        worktree: { kind: "owned", path: "/repo/wt", branch: "cow-fix-x" },
+        hostRef: fake.ref,
+      });
+      resolveMainCheckoutMock.mockResolvedValue("/repo");
+      run.session.start(makeReservation());
+      await driveRun(DRIVE_COMPLETED_MS);
+      registry.overrides.set(
+        "pi",
+        exportingPi(async () => ({
+          sessionId: "ses_1",
+          records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
+        })),
+      );
+
+      try {
+        await expect(run.session.exportHandover()).resolves.toMatchObject({
+          kind: "prepared",
+          path: "/tmp/cowboy-handover_cow-fix-x_pi_ses_1.md",
+        });
+      } finally {
+        registry.overrides.delete("pi");
+      }
+    });
+
+    it("refuses a run that has not settled, without reading a session", async () => {
+      const readHandoverRecords = vi.fn(async () => ({
+        sessionId: "ses_1",
+        records: [
+          {
+            kind: "export" as const,
+            turn: { role: "User" as const, text: "go on" },
+          },
+        ],
+      }));
+      registry.overrides.set("pi", exportingPi(readHandoverRecords));
+
+      try {
+        const fake = makeFakeHost({ observeState: "working" });
+        const run = makeSession({
+          host: fake.host,
+          deliverable: new ScriptedDeliverable(),
+          hostRef: fake.ref,
+        });
+        run.session.start(makeReservation());
+        await driveRun(0);
+
+        await expect(run.session.exportHandover()).resolves.toEqual({
+          kind: "faulted",
+          fault: { kind: "agent-not-settled", status: "spawned" },
+        });
+        expect(readHandoverRecords).not.toHaveBeenCalled();
+      } finally {
+        registry.overrides.delete("pi");
+      }
+    });
+
+    it("reports a run stopped before it started as never started", async () => {
+      const fake = makeFakeHost();
+      const run = makeSession({
+        host: fake.host,
+        deliverable: new ScriptedDeliverable(),
+      });
+      await run.session.abort("agent");
+      await run.session.promise;
+
+      await expect(run.session.exportHandover()).resolves.toEqual({
+        kind: "faulted",
+        fault: { kind: "never-started" },
+      });
+    });
+
+    it("reports a source harness that cannot export its session", async () => {
+      const run = await settledRun();
+      const withoutExport = {
+        ...exportingPi(async () => ({ sessionId: "unused", records: [] })),
+      };
+      delete withoutExport.readHandoverRecords;
+      registry.overrides.set("pi", withoutExport);
+
+      try {
+        await expect(run.session.exportHandover()).resolves.toEqual({
+          kind: "faulted",
+          fault: { kind: "harness-cannot-export-session", harness: "pi" },
+        });
+      } finally {
+        registry.overrides.delete("pi");
+      }
+      expect(run.session.spawn.execution.history).toEqual([]);
+    });
+
+    it("faults an empty session instead of writing an empty artifact", async () => {
+      const run = await settledRun();
+      registry.overrides.set(
+        "pi",
+        exportingPi(async () => ({
+          sessionId: "ses_1",
+          records: [{ kind: "dont-export", content: "empty" }],
+        })),
+      );
+
+      try {
+        await expect(run.session.exportHandover()).resolves.toEqual({
+          kind: "faulted",
+          fault: { kind: "session-empty", harness: "pi" },
+        });
+      } finally {
+        registry.overrides.delete("pi");
+      }
+    });
+  });
 });

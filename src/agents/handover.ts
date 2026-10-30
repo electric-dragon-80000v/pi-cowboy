@@ -41,8 +41,11 @@ export interface SessionExportPolicy {
 /** By default, up to half a session's complete native records may be lost before handover is refused. */
 export const DEFAULT_MAX_EXCLUDED_RATIO = 0.5;
 
-/** Why a handover did not happen. Data, never a throw: a caller reports it. */
-export type HandoverFault =
+/**
+ * Why a settled run has no session to carry forward: the answers a source read
+ * can give, before anything is stopped, archived, or written.
+ */
+export type HandoverSourceFault =
   | { readonly kind: "agent-unknown" }
   /** A run still doing its own work has no finished session to hand over. */
   | { readonly kind: "agent-not-settled"; readonly status: AgentStatus }
@@ -53,15 +56,19 @@ export type HandoverFault =
     }
   /** A run that never started engaged no harness and no placement, so there is nothing to export. */
   | { readonly kind: "never-started" }
-  /** The old process could not be stopped; the checkout is not handed over under it. */
-  | { readonly kind: "stop-failed"; readonly detail: string }
   | { readonly kind: "session-empty"; readonly harness: AnyHarnessId }
   | {
       readonly kind: "session-export-failed";
       readonly harness: AnyHarnessId;
       readonly detail: string;
       readonly exportFault?: SessionExportFault;
-    }
+    };
+
+/** Why a handover did not happen. Data, never a throw: a caller reports it. */
+export type HandoverFault =
+  | HandoverSourceFault
+  /** The old process could not be stopped; the checkout is not handed over under it. */
+  | { readonly kind: "stop-failed"; readonly detail: string }
   /** The request itself was refused before anything was touched (harness, model). */
   | { readonly kind: "request-refused"; readonly detail: string }
   | { readonly kind: "launch-failed"; readonly detail: string };
@@ -76,6 +83,14 @@ export type HandoverOutcome =
       readonly loss?: HarnessExportLoss;
     }
   | { readonly kind: "faulted"; readonly fault: HandoverFault };
+
+/**
+ * The clause a handover or an export appends when the shared read had to omit
+ * complete native records: the same count, worded once.
+ */
+export function handoverLossClause(loss: HarnessExportLoss): string {
+  return ` ${loss.excluded} of ${loss.total} session records could not be read and were omitted from the transcript.`;
+}
 
 /**
  * How a handover outcome reads: a completed handover is the success. A run
@@ -112,7 +127,7 @@ export type RunSession =
       /** Countable source records the shared export had to omit. */
       readonly loss?: HarnessExportLoss;
     }
-  | { readonly kind: "faulted"; readonly fault: HandoverFault };
+  | { readonly kind: "faulted"; readonly fault: HandoverSourceFault };
 
 /** The whole-number percentage the human-facing loss report prints. */
 function percentOf(ratio: number): number {

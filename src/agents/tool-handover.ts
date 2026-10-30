@@ -10,7 +10,6 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { isAvailable, selectable } from "../availability.js";
 import { COWBOY_TOOLS, CONSTRAINED_SAMPLING } from "../cowboy-tools.js";
 import {
   modelChoiceFor,
@@ -33,10 +32,12 @@ import {
   type AnyHarnessId,
 } from "./harness.js";
 import {
+  handoverLossClause,
   handoverSeverity,
   type HandoverFault,
   type HandoverOutcome,
 } from "./handover.js";
+import { resolveHandoverTarget } from "./handover-target.js";
 import {
   HandoverAgentSchema,
   type HandoverAgentParams,
@@ -53,47 +54,6 @@ type HandoverIntent =
   | { readonly kind: "faulted"; readonly fault: HandoverFault };
 
 /**
- * The target harness, held to a handover's own rule: required, registered
- * here, and launchable on this machine — never a fallback. A spawn's refusal
- * text offers the template and configured default, which a handover does not
- * have, so its messages are its own.
- */
-function resolveTargetHarness(raw: string): HandoverIntent {
-  const value = raw.trim();
-  if (value === "") {
-    return {
-      kind: "faulted",
-      fault: {
-        kind: "request-refused",
-        detail:
-          "`harness_type` is required — name the harness that runs the next run. Nothing was changed.",
-      },
-    };
-  }
-  const harnesses = getHarnessRegistry();
-  if (harnesses.get(value) === undefined) {
-    return {
-      kind: "faulted",
-      fault: {
-        kind: "request-refused",
-        detail: `Unknown harness_type "${value}": this session registered ${harnesses.ids().join(", ")}. Nothing was changed — name a registered harness that runs the next run.`,
-      },
-    };
-  }
-  const availability = getHarnessAvailability();
-  if (!isAvailable(value, availability)) {
-    return {
-      kind: "faulted",
-      fault: {
-        kind: "request-refused",
-        detail: `Harness "${value}" cannot be launched on this machine — this machine can launch ${selectable(harnesses.ids(), availability).join(", ")}. Nothing was changed.`,
-      },
-    };
-  }
-  return { kind: "ready", harness: value };
-}
-
-/**
  * Validate the target harness and resolve the model against it, before any
  * state changes. A model key belongs to the harness that will run it, so both
  * answers come from the same harness.
@@ -102,8 +62,13 @@ async function resolveIntent(
   params: HandoverAgentParams,
   ctx: ExtensionContext,
 ): Promise<HandoverIntent> {
-  const target = resolveTargetHarness(params.harness_type);
-  if (target.kind === "faulted") return target;
+  const target = resolveHandoverTarget(
+    params.harness_type,
+    getHarnessRegistry(),
+    getHarnessAvailability(),
+  );
+  if (target.kind === "faulted")
+    return { kind: "faulted", fault: target.fault };
   const harness = target.harness;
 
   try {
@@ -157,9 +122,7 @@ export function renderHandoverOutcome(
 function handoverReport(outcome: HandoverOutcome): string {
   if (outcome.kind === "handed-over") {
     const loss =
-      outcome.loss === undefined
-        ? ""
-        : ` ${outcome.loss.excluded} of ${outcome.loss.total} session records could not be read and were omitted from the transcript.`;
+      outcome.loss === undefined ? "" : handoverLossClause(outcome.loss);
     return `handed over from "${outcome.from}" to "${outcome.to}".${loss} The ended run is archived; the next one runs in the same checkout and reports when it settles.`;
   }
   switch (outcome.fault.kind) {

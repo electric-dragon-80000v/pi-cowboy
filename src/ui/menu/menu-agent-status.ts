@@ -36,6 +36,7 @@ import { getManagerOrNull, getRuntime } from "../../shell.js";
 import type { Theme } from "../types.js";
 import { ScreenHost, SwappableView, asListFields } from "./screen-host.js";
 import { createStatusCleanup } from "./menu-agent-status-cleanup.js";
+import { createStatusHandover } from "./menu-agent-handover.js";
 import {
   SEPARATOR_ID,
   actionReport,
@@ -241,6 +242,7 @@ function stopAgentsOffMenu(
  * @param done — return to the parent agent list.
  * @param onClose — close the entire menu.
  * @param beginCleanup — start the two-phase cleanup flow over these ids.
+ * @param beginHandover — open the handover sub-flow for this agent.
  */
 export function buildAgentActionsList(
   ctx: ExtensionCommandContext,
@@ -249,6 +251,7 @@ export function buildAgentActionsList(
   done: () => void,
   onClose: () => void,
   beginCleanup: (ids: readonly string[]) => void,
+  beginHandover: (spawn: AgentSpawn) => void,
 ): SelectList {
   const items: SelectItem[] = [];
   // Spawn id is the full handle — printed whole, never sliced.
@@ -280,6 +283,16 @@ export function buildAgentActionsList(
   if (activeSpawn) {
     items.push({ value: "stop", label: "Stop" });
   } else {
+    // Only a settled run that started has a session to hand over; a
+    // never-started one settled without one.
+    if (spawn.lifecycle.phase === "settled") {
+      items.push({
+        value: "handover",
+        label: "Handover",
+        description:
+          "Hand this run's session to another harness, or export it to /tmp",
+      });
+    }
     items.push({
       value: "cleanup",
       label: "Clean up",
@@ -311,6 +324,10 @@ export function buildAgentActionsList(
       // The flow keeps the menu open for the force decision, then hands the
       // teardown back to run off-menu; it reports every outcome itself.
       beginCleanup([spawn.id]);
+    } else if (item.value === "handover") {
+      // The sub-flow keeps the menu open through the target choice and the
+      // overwrite confirmation; a target closes it before anything moves.
+      beginHandover(spawn);
     }
   };
   list.onCancel = () => done();
@@ -427,6 +444,13 @@ export async function showAgentStatusMenu(
       close,
       requestRender,
     });
+    const beginHandover = createStatusHandover({
+      ctx,
+      theme,
+      view,
+      close,
+      requestRender,
+    });
 
     agentList.onSelect = async (item) => {
       if (item.value === "__stop-all") {
@@ -457,6 +481,7 @@ export async function showAgentStatusMenu(
             () => refresh(spawn.id),
             () => close(),
             beginCleanup,
+            beginHandover,
           ),
         );
       }

@@ -126,6 +126,7 @@ Lists every spawned, queued, and settled agent from the session. Selecting an ag
 | `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                         |
 | `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                               |
 | `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                           |
+| `Handover`    | Hands a settled agent's session to another harness, or exports it to a file instead. Shown for every agent that settled; a harness that cannot export its own session is reported when you pick it. See [Handing over and exporting](#handing-over-and-exporting). |
 | `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                      |
 | `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below). |
 
@@ -138,6 +139,26 @@ Below the individual agents, the list displays bulk actions when applicable:
 | `Clean up N completed agent(s)` | Cleans up only agents that completed without errors. Shown when at least one completed agent is present. |
 
 If a cleanup keeps a worktree (for example, because of uncommitted changes), the reason is recorded on that agent's entry in the status list.
+
+### Handing over and exporting
+
+`Handover` opens a submenu of target harnesses: every harness this machine can launch, except the one that ran the agent's session. Choosing one runs `handover_cowboy_agent` at that harness's default model. The menu never picks a model.
+
+`Export`, the submenu's final row, writes the handover task (`renderHandoverTask`) to `/tmp` instead. Nothing is stopped, archived, or relaunched, and the agent keeps its current state.
+
+#### Export path
+
+```text
+/tmp/cowboy-handover_<worktree>_<harness>_<session id>.md
+```
+
+- `<worktree>`: the agent's branch, or `main-<agent id>` for an agent that ran in the parent working directory.
+- `<harness>`: the harness that ran the session.
+- `<session id>`: the id that harness gave the session.
+
+Each field has every character outside `A-Za-z0-9._-` replaced with `-`, so a branch such as `feat/login` appears as `feat-login`. The file's contents keep every id verbatim.
+
+Exporting the same run twice targets the same path; the menu asks before replacing a file that is already there.
 
 ### Forcing cleanup
 

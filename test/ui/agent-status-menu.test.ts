@@ -2,9 +2,16 @@
  * agent-status-menu.test.ts — agent-status menu rows and the calls it makes.
  * Manager/runtime are structural fakes (listAgents, abort, cleanup, view.focus).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawn } from "../../src/types.js";
+import { probed } from "../../src/availability.js";
+import type { PluginHarness } from "../../src/agents/harness.js";
+import type { HandoverExportOutcome } from "../../src/agents/handover-export.js";
+import type { HandoverOutcome } from "../../src/agents/handover.js";
 import type {
   CleanupOptions,
   CleanupReport,
@@ -15,7 +22,13 @@ import {
   forcedTeardown,
   fullTeardown,
 } from "./cleanup-fixtures.js";
-import { resetShell, setCoordinator, setPi, shellState } from "./shell-mock.js";
+import {
+  resetShell,
+  setCoordinator,
+  setHarnessAvailability,
+  setPi,
+  shellState,
+} from "./shell-mock.js";
 
 vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
 
@@ -38,6 +51,7 @@ function baseSpawn(overrides: {
   description?: string;
   host?: boolean;
   worktree?: boolean;
+  harness?: string;
 }): AgentSpawn {
   return {
     id: overrides.id,
@@ -58,6 +72,7 @@ function baseSpawn(overrides: {
     execution: {
       promise: Promise.resolve(""),
       history: [],
+      harness: overrides.harness ?? "pi",
       ...(overrides.host === true ? { host: HOST } : {}),
     },
   } as unknown as AgentSpawn;
@@ -104,12 +119,51 @@ function errorSpawn(id: string, error = "boom"): AgentSpawn {
   });
 }
 
+/** Settled without ever launching: an outcome, but no run to hand over. */
+function neverStartedSpawn(id: string): AgentSpawn {
+  return baseSpawn({
+    id,
+    lifecycle: {
+      phase: "never-started",
+      queuedAt: Date.now(),
+      status: "stopped",
+      stop: { initiator: "user" },
+      completedAt: Date.now(),
+    },
+  });
+}
+
 const aborted: string[] = [];
 const cleanedUp: string[] = [];
 const cleanupOpts: Array<{ id: string; force: boolean }> = [];
 const focused: string[] = [];
+const handedOver: Array<{ id: string; harness: string }> = [];
+const exported: string[] = [];
+/** A directory each case owns, so an export writes a real file and nothing else. */
+let exportDir: string;
 /** Next abort verdict, per id (stopped unless set). */
 let abortImpl: (id: string) => Promise<boolean> = () => Promise.resolve(true);
+/** Next handover outcome (a completed handover unless set). */
+let handoverImpl: (id: string, harness: string) => Promise<HandoverOutcome> = (
+  _id,
+  harness,
+) => Promise.resolve({ kind: "handed-over", from: "pi", to: harness });
+/** Next export outcome (the artifact for a settled run unless set). */
+let exportImpl: (id: string) => Promise<HandoverExportOutcome> = (id) =>
+  Promise.resolve(preparedExport(id));
+
+/** The artifact an export of `id` produces, in this case's own directory. */
+function preparedExport(
+  id: string,
+  sessionId = "ses_1",
+): HandoverExportOutcome {
+  return {
+    kind: "prepared",
+    path: path.join(exportDir, `cowboy-handover_main-${id}_pi_${sessionId}.md`),
+    text: `TASK FOR ${id}`,
+    sessionId,
+  };
+}
 
 /** Next cleanup report (a full teardown unless set), keyed on the force flag. */
 let cleanupImpl: (id: string, force: boolean) => Promise<CleanupReport> = (
@@ -129,7 +183,24 @@ function installManager(agents: AgentSpawn[]): void {
       cleanupOpts.push({ id, force });
       return cleanupImpl(id, force);
     },
+    handover: (id: string, request: { harness: string }) => {
+      handedOver.push({ id, harness: request.harness });
+      return handoverImpl(id, request.harness);
+    },
+    exportHandover: (id: string) => {
+      exported.push(id);
+      return exportImpl(id);
+    },
   };
+}
+
+/** A plugin harness the registry knows but that cannot export a session. */
+function registerPluginWithoutReader(id: string): void {
+  shellState.harnesses.register({
+    id,
+    displayName: `Plugin ${id}`,
+    listModels: async () => ({ kind: "unavailable", notice: "test" }),
+  } as unknown as PluginHarness);
 }
 
 function openAgentStatus(width = 160): MenuSession {
@@ -145,8 +216,14 @@ beforeEach(() => {
   cleanedUp.length = 0;
   cleanupOpts.length = 0;
   focused.length = 0;
+  handedOver.length = 0;
+  exported.length = 0;
+  exportDir = fs.mkdtempSync(path.join(os.tmpdir(), "cowboy-handover-menu-"));
   abortImpl = () => Promise.resolve(true);
   cleanupImpl = (id) => Promise.resolve(fullTeardown(id));
+  handoverImpl = (_id, harness) =>
+    Promise.resolve({ kind: "handed-over", from: "pi", to: harness });
+  exportImpl = (id) => Promise.resolve(preparedExport(id));
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
   setCoordinator(null);
   shellState.runtime = {
@@ -157,6 +234,10 @@ beforeEach(() => {
       },
     },
   };
+});
+
+afterEach(() => {
+  fs.rmSync(exportDir, { recursive: true, force: true });
 });
 
 describe("Agent status — empty states", () => {
@@ -328,7 +409,12 @@ describe("Agent status — the per-agent actions list", () => {
     session.open("✓ beef5678-completed");
 
     const labels = session.walkRows().map((row) => row.label);
-    expect(labels).toEqual(["View shell", "View result", "Clean up"]);
+    expect(labels).toEqual([
+      "View shell",
+      "View result",
+      "Handover",
+      "Clean up",
+    ]);
     session.focus("Clean up");
     expect(session.text()).toContain(
       "Close its pane and remove its worktree and merged branch",
@@ -344,6 +430,7 @@ describe("Agent status — the per-agent actions list", () => {
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
       "View error",
+      "Handover",
       "Clean up",
     ]);
   });
@@ -535,6 +622,188 @@ describe("Agent status — the per-agent actions list", () => {
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✗ Failed to focus agent abcd1234-spawned-id's herdr pane: tab closed",
+      kind: "error",
+    });
+  });
+});
+
+describe("Agent status — handover", () => {
+  it("offers no handover for an agent that never started", () => {
+    installManager([neverStartedSpawn("dead0000-queued")]);
+    const session = openAgentStatus();
+
+    session.open(/dead0000-queued/);
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain(
+      "Handover",
+    );
+  });
+
+  it("lists the launchable harnesses without the source, then Export", () => {
+    setHarnessAvailability(probed(["pi", "claude"]));
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Hand over to Claude",
+      "Export",
+    ]);
+  });
+
+  it("offers Export alone when only the source harness is launchable", () => {
+    setHarnessAvailability(probed(["pi"]));
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+
+    expect(session.walkRows().map((row) => row.label)).toEqual(["Export"]);
+  });
+
+  it("reports a source harness that cannot export, without opening the submenu", async () => {
+    registerPluginWithoutReader("reg-no-export");
+    installManager([
+      baseSpawn({
+        id: "face1234-plugin",
+        lifecycle: {
+          phase: "settled",
+          startedAt: Date.now(),
+          status: "completed",
+          result: "done",
+          completedAt: Date.now(),
+        },
+        harness: "reg-no-export",
+      }),
+    ]);
+    const session = openAgentStatus();
+
+    session.open("✓ face1234-plugin");
+    session.open("Handover");
+    await session.settle();
+
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        '✓ Agent face1234-plugin was not exported: harness "reg-no-export" cannot export its own session, so there is nothing to write.',
+      kind: "warning",
+    });
+  });
+
+  it("hands the agent over to the picked harness and closes the menu", async () => {
+    setHarnessAvailability(probed(["pi", "claude"]));
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+    session.open("Hand over to Claude");
+    await session.settle();
+
+    expect(handedOver).toEqual([
+      { id: "beef5678-completed", harness: "claude" },
+    ]);
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.map((n) => n.message)).toEqual([
+      "Handing agent beef5678-completed over to claude …",
+      '✓ Agent beef5678-completed handed over from "pi" to "claude". The ended run is archived; the next one runs in the same checkout and reports when it settles.',
+    ]);
+  });
+
+  it("exports the artifact and reports its path without touching the agent", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+    session.open("Export");
+    await session.settle();
+
+    const prepared = preparedExport("beef5678-completed") as {
+      path: string;
+      text: string;
+    };
+    expect(fs.readFileSync(prepared.path, "utf8")).toBe(prepared.text);
+    expect(exported).toEqual(["beef5678-completed"]);
+    expect(handedOver).toEqual([]);
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message: `✓ Exported handover for agent beef5678-completed to ${prepared.path}.`,
+      kind: "info",
+    });
+  });
+
+  it("keeps the existing file when the overwrite is declined", async () => {
+    const prepared = preparedExport("beef5678-completed") as { path: string };
+    fs.writeFileSync(prepared.path, "OLD");
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+    session.open("Export");
+    await session.settle();
+
+    expect(session.text()).toContain(`Overwrite ${prepared.path}?`);
+    session.press(KEY.escape);
+    await session.settle();
+
+    expect(fs.readFileSync(prepared.path, "utf8")).toBe("OLD");
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message: `✓ Did not export agent beef5678-completed: kept the existing file at ${prepared.path}`,
+      kind: "warning",
+    });
+  });
+
+  it("replaces an existing export on Y", async () => {
+    const prepared = preparedExport("beef5678-completed") as {
+      path: string;
+      text: string;
+    };
+    fs.writeFileSync(prepared.path, "OLD");
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+    session.open("Export");
+    await session.settle();
+    session.press("y");
+    await session.settle();
+
+    expect(fs.readFileSync(prepared.path, "utf8")).toBe(prepared.text);
+    expect(session.notifications.at(-1)).toEqual({
+      message: `✓ Exported handover for agent beef5678-completed to ${prepared.path}.`,
+      kind: "info",
+    });
+  });
+
+  it("reports an export the harness could not produce", async () => {
+    exportImpl = () =>
+      Promise.resolve({
+        kind: "faulted",
+        fault: {
+          kind: "session-export-failed",
+          harness: "pi",
+          detail: "no session file",
+        },
+      });
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+    session.open("Handover");
+    session.open("Export");
+    await session.settle();
+
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        '✗ Agent beef5678-completed was not exported: harness "pi" could not export its session (no session file).',
       kind: "error",
     });
   });

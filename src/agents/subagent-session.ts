@@ -48,11 +48,8 @@ import type {
 import { lifecycleResult, lifecycleStatus } from "../types.js";
 import { errorMessage, modelChoiceKey } from "../utils.js";
 import {
-  buildWorktreeBranch,
-  slugifyWorktreeType,
-} from "../spawn/worktree-policy.js";
-import {
   provisionOwnedCheckout,
+  spawnAgentName,
   type OwnedCheckout,
 } from "../spawn/sandbox.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
@@ -67,7 +64,13 @@ import {
   renderHandoverTask,
   type HandoverFault,
   type HandoverOutcome,
+  type HandoverSourceFault,
+  type RunSession,
 } from "./handover.js";
+import {
+  handoverExportArtifact,
+  type HandoverExportOutcome,
+} from "./handover-export.js";
 import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
@@ -220,10 +223,28 @@ export interface SessionHandoverRequest {
   readonly modelChoice?: ModelChoice;
 }
 
-/** The one shape a handover that did not happen takes. */
-function faulted(fault: HandoverFault): HandoverOutcome {
+/** The one shape a handover or an export that did not happen takes. */
+function faulted<F extends HandoverFault>(
+  fault: F,
+): { kind: "faulted"; fault: F } {
   return { kind: "faulted", fault };
 }
+
+/** A settled run as a handover reads it: the harness that ran it, its pane, and where its checkout is. */
+interface HandoverSource {
+  readonly from: AnyHarnessId;
+  readonly ref: AgentHostRef;
+  readonly cwd: string;
+  /** The run that was read, so a revive during the read is noticed. */
+  readonly settled: RunState;
+  /** When that run started: a settled run that started always has one. */
+  readonly startedAt: number;
+}
+
+/** Whether there is a session to read, and at what address. */
+type HandoverSourceRead =
+  | ({ readonly kind: "ready" } & HandoverSource)
+  | { readonly kind: "faulted"; readonly fault: HandoverSourceFault };
 
 /**
  * Per-run lifecycle. State moves only through commit, which projects the
@@ -455,13 +476,10 @@ export class SubagentSession {
   }
 
   /**
-   * Hand the environment to the next run of the same spawn, under another
-   * harness. Gated on a settled run — a handover reads a finished session and
-   * then replaces the run that produced it — and refused as a capability gap
-   * when the source harness cannot export its own session. The next run is an
-   * ordinary launch: the same checkout, the same staging directory, a new pane.
+   * The run a handover would read, or the fault saying there is nothing to
+   * read: only a settled run that started and holds an address has a session.
    */
-  async handover(request: SessionHandoverRequest): Promise<HandoverOutcome> {
+  private handoverSource(): HandoverSourceRead {
     const settled = this.run;
     // A run settled before it started (stopped or failed while queued) never
     // engaged an environment, so the check below is what reports it.
@@ -478,21 +496,74 @@ export class SubagentSession {
     if (from === undefined || ref === undefined || !settled.process.started) {
       return faulted({ kind: "never-started" });
     }
-    const cwd = this.args.options.worktree?.path ?? this.args.ctx.cwd;
-
-    // Export before stopping: a harness that cannot export its session must
-    // change nothing at all, so the capability is the first question asked.
-    const exported = await exportRunSession(
-      getHarnessRegistry(),
+    return {
+      kind: "ready",
       from,
+      ref,
+      cwd: this.args.options.worktree?.path ?? this.args.ctx.cwd,
+      settled,
+      startedAt: settled.process.startedAt,
+    };
+  }
+
+  /**
+   * Read one settled run's session through the harness that ran it, applying
+   * the configured loss policy. Nothing is stopped or written.
+   */
+  private async exportSettledSession(
+    source: HandoverSource,
+  ): Promise<RunSession> {
+    return await exportRunSession(
+      getHarnessRegistry(),
+      source.from,
       {
         pi: this.args.pi,
         subagentId: this.id,
-        paneId: ref.paneId,
-        cwd,
+        paneId: source.ref.paneId,
+        cwd: source.cwd,
       },
       { maxExcludedRatio: getStore().agent.handoverMaxExcludedRatio },
     );
+  }
+
+  /**
+   * The task a handover hands forward — launched into the next run or written
+   * to a file: the ended run's session, quoted, with the chain that led to it.
+   */
+  private handoverTask(
+    source: HandoverSource,
+    sessionId: string,
+    session: string,
+  ): string {
+    return renderHandoverTask({
+      taskSlug: this.spawn.display.taskSlug,
+      sourceName: getHarnessRegistry().displayName(source.from),
+      previous: this.spawn.execution.history.map(
+        ({ harness, sessionId: previous }) => ({
+          harness,
+          sessionId: previous,
+        }),
+      ),
+      current: { harness: source.from, sessionId },
+      session,
+    });
+  }
+
+  /**
+   * Hand the environment to the next run of the same spawn, under another
+   * harness. Gated on a settled run — a handover reads a finished session and
+   * then replaces the run that produced it — and refused as a capability gap
+   * when the source harness cannot export its own session. The next run is an
+   * ordinary launch: the same checkout, the same staging directory, a new pane.
+   */
+  async handover(request: SessionHandoverRequest): Promise<HandoverOutcome> {
+    const source = this.handoverSource();
+    if (source.kind === "faulted") return source;
+    const { from, ref, cwd, settled } = source;
+
+    // Export before stopping: a harness that cannot export its session must
+    // change nothing at all, so the capability is the first question asked.
+    const exported = await this.exportSettledSession(source);
     if (exported.kind === "faulted") return exported;
     // A steer may have revived the run while its session was exported; that
     // session is no longer finished, so this handover no longer applies.
@@ -525,23 +596,18 @@ export class SubagentSession {
     // The ended run's report is still on disk; the next run must settle on its
     // own (a revive resets the same file for the same reason).
     removeResultFile(this.resultFilePath());
-    const task = renderHandoverTask({
-      taskSlug: this.spawn.display.taskSlug,
-      sourceName: getHarnessRegistry().displayName(from),
-      previous: this.spawn.execution.history.map(({ harness, sessionId }) => ({
-        harness,
-        sessionId,
-      })),
-      current: { harness: from, sessionId: exported.sessionId },
-      session: exported.session,
-    });
+    const task = this.handoverTask(
+      source,
+      exported.sessionId,
+      exported.session,
+    );
 
     endExecutionRun(this.spawn.execution, {
       harness: from,
       host: ref,
       cwd,
       sessionId: exported.sessionId,
-      startedAt: settled.process.startedAt,
+      startedAt: source.startedAt,
       endedAt: Date.now(),
     });
     this.args.prompt = task;
@@ -576,6 +642,33 @@ export class SubagentSession {
       to: request.harness,
       ...(exported.loss === undefined ? {} : { loss: exported.loss }),
     };
+  }
+
+  /**
+   * The handover artifact for this run without handing it over: the session is
+   * read and the next run's task rendered, and nothing is stopped, archived,
+   * or launched. Writing it to disk belongs to the caller.
+   */
+  async exportHandover(): Promise<HandoverExportOutcome> {
+    const source = this.handoverSource();
+    if (source.kind === "faulted") return source;
+    const exported = await this.exportSettledSession(source);
+    if (exported.kind === "faulted") return exported;
+    // A steer may have revived the run while its session was exported; that
+    // session is no longer finished, so this export no longer applies.
+    if (this.run !== source.settled) {
+      return faulted({
+        kind: "agent-not-settled",
+        status: lifecycleStatus(this.spawn.lifecycle),
+      });
+    }
+    return handoverExportArtifact({
+      worktree: this.spawn.display.worktree?.branch ?? `main-${this.spawn.id}`,
+      harness: source.from,
+      sessionId: exported.sessionId,
+      text: this.handoverTask(source, exported.sessionId, exported.session),
+      ...(exported.loss === undefined ? {} : { loss: exported.loss }),
+    });
   }
 
   /**
@@ -660,14 +753,16 @@ export class SubagentSession {
         this.spawn.display.worktree = options.worktree;
         ref = checkout.kind === "owned" ? checkout.hostRef : undefined;
       }
-      // The herdr agent name: the worktree's branch for a worktree run,
-      // else the pinned `cow-<task>-<id>` the sandbox was allocated under.
-      const agentName =
-        options.worktree?.branch ??
-        buildWorktreeBranch(
-          options.taskSlug ?? slugifyWorktreeType(type),
-          this.id,
-        );
+      const agentName = spawnAgentName(
+        options.worktree === undefined
+          ? {
+              kind: "parent-cwd",
+              type,
+              taskSlug: options.taskSlug,
+              id: this.id,
+            }
+          : { kind: "checkout", branch: options.worktree.branch },
+      );
       const plan: SubagentLaunchPlan = await buildLaunchPlan(
         pi,
         ctx,

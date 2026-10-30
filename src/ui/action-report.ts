@@ -32,6 +32,11 @@ export interface ActionReport {
   succeeded(message: string, kind?: "info" | "warning"): void;
   /** Terminal failure: `✗ <message>: <reason>`, where `reason` may be a thrown value. */
   failed(message: string, reason: unknown): void;
+  /**
+   * Terminal report of a verdict whose own sentence already says what
+   * happened: success and warning land with ✓, error with ✗.
+   */
+  outcome(severity: "success" | "warning" | "error", message: string): void;
 }
 
 /** Bind the three stages to a UI context. */
@@ -44,5 +49,12 @@ export function actionReport(target: ActionTarget): ActionReport {
       target.notify(`${check} ${message}`, kind),
     failed: (message, reason) =>
       target.notify(`${cross} ${message}: ${errorMessage(reason)}`, "error"),
+    outcome: (severity, message) =>
+      severity === "error"
+        ? target.notify(`${cross} ${message}`, "error")
+        : target.notify(
+            `${check} ${message}`,
+            severity === "warning" ? "warning" : "info",
+          ),
   };
 }

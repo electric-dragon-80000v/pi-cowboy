@@ -43,6 +43,7 @@ import {
   type LocateResult,
 } from "./agent-assets.js";
 import type { CleanupOptions, CleanupReport } from "./cleanup-policy.js";
+import type { HandoverExportOutcome } from "./handover-export.js";
 import type { HandoverOutcome } from "./handover.js";
 import {
   DISPOSE_QUEUED_MESSAGE,
@@ -321,6 +322,29 @@ export class AgentManager {
       // Only the newest handover clears the id.
       if (this.handovers.get(id) === run) this.handovers.delete(id);
     }
+  }
+
+  /**
+   * Read one settled agent's handover artifact without handing it over:
+   * nothing is stopped, archived, or launched. Refused while a handover owns
+   * the id, because that run's session is on its way out from under the read.
+   */
+  async exportHandover(id: string): Promise<HandoverExportOutcome> {
+    if (this.handovers.has(id)) {
+      return {
+        kind: "faulted",
+        fault: {
+          kind: "handover-in-progress",
+          detail:
+            "a handover is already in progress — wait for it to finish before exporting it.",
+        },
+      };
+    }
+    const session = this.sessions.get(id);
+    if (!session) {
+      return { kind: "faulted", fault: { kind: "agent-unknown" } };
+    }
+    return session.exportHandover();
   }
 
   /** One spawn by id, unfiltered, so cleanup reaches settled spawns too. */

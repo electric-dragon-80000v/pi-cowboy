@@ -39,6 +39,7 @@ import { getRepoLock } from "../shell.js";
 import {
   buildWorktreeBranch,
   resolveWorktreeRoot,
+  slugifyWorktreeType,
   type WorktreeCheckoutType,
   type WorktreeMaterialization,
 } from "./worktree-policy.js";
@@ -57,6 +58,32 @@ import {
 export type SandboxNaming =
   | { kind: "generated"; taskSlug: string; id: string }
   | { kind: "explicit"; branch: string };
+
+/**
+ * What a run is called by, given what it has: its checkout's branch when it
+ * has one, or the spawn's own pinned name when it runs in the parent cwd.
+ */
+export type SpawnAgentName =
+  | { readonly kind: "checkout"; readonly branch: string }
+  | {
+      readonly kind: "parent-cwd";
+      readonly type: string;
+      readonly taskSlug: string | undefined;
+      readonly id: string;
+    };
+
+/**
+ * The herdr agent name a run launches under. Parent-cwd runs have no branch, so
+ * the `cow-<task>-<id>` the sandbox was allocated under is the only name they
+ * have.
+ */
+export function spawnAgentName(name: SpawnAgentName): string {
+  if (name.kind === "checkout") return name.branch;
+  return buildWorktreeBranch(
+    name.taskSlug ?? slugifyWorktreeType(name.type),
+    name.id,
+  );
+}
 
 /** Everything `AgentSandbox.allocate` needs; shell-free — the caller passes shell values in. */
 export interface SandboxRequest {
