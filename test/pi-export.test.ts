@@ -761,17 +761,16 @@ describe("the family's export", () => {
       );
       vi.stubEnv(storeCase.sessionDirEnv, dir);
 
-      await expect(
-        readHandoverRecordsOf(storeCase.store)(exportRequest("spawn-abc")),
-      ).resolves.toEqual({
-        sessionId: HEADER.id,
-        records: [
-          { kind: "dont-export", content: record(HEADER) },
-          { kind: "dont-export", content: sessionInfo("spawn-abc") },
-          { kind: "export", turn: { role: "User", text: "hand this on" } },
-          { kind: "export", turn: { role: "Assistant", text: "done" } },
-        ],
-      });
+      const source = await readHandoverRecordsOf(storeCase.store)(
+        exportRequest("spawn-abc"),
+      );
+      expect(source.sessionId).toBe(HEADER.id);
+      expect([...source.records]).toEqual([
+        { kind: "dont-export", content: record(HEADER) },
+        { kind: "dont-export", content: sessionInfo("spawn-abc") },
+        { kind: "export", turn: { role: "User", text: "hand this on" } },
+        { kind: "export", turn: { role: "Assistant", text: "done" } },
+      ]);
     },
   );
 

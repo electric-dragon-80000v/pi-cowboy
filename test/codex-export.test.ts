@@ -155,21 +155,21 @@ function lineOf(record: Record<string, unknown>): string {
 
 /** The turns a read produced, in order. */
 function turns(
-  records: readonly HandoverRecord[],
+  records: Iterable<HandoverRecord>,
 ): readonly SessionExportTurn[] {
-  return records.flatMap((record) =>
+  return [...records].flatMap((record) =>
     record.kind === "export" ? [record.turn] : [],
   );
 }
 
 /** The kinds a read produced, in order. */
-function kinds(records: readonly HandoverRecord[]): readonly string[] {
-  return records.map((record) => record.kind);
+function kinds(records: Iterable<HandoverRecord>): readonly string[] {
+  return [...records].map((record) => record.kind);
 }
 
 /** Every native line the reader could not parse. */
-function keptLines(records: readonly HandoverRecord[]): readonly string[] {
-  return records.flatMap((record) =>
+function keptLines(records: Iterable<HandoverRecord>): readonly string[] {
+  return [...records].flatMap((record) =>
     record.kind === "unparseable" ? [record.content] : [],
   );
 }
@@ -180,7 +180,7 @@ function readFixture(
 ): readonly HandoverRecord[] {
   const { dir } = fixtureHome();
   const file = writeRollout(dir, { records });
-  return readCodexSession(file);
+  return [...readCodexSession(file)];
 }
 
 /** The fault a refused read carries; a test that expects a refusal uses it. */
@@ -195,7 +195,7 @@ function faultOf(run: () => unknown): SessionExportFault {
 }
 
 /** Transferable turns never contain native traffic. */
-function leaks(records: readonly HandoverRecord[], markers: readonly string[]) {
+function leaks(records: Iterable<HandoverRecord>, markers: readonly string[]) {
   const text = JSON.stringify(turns(records));
   return markers.filter((marker) => text.includes(marker));
 }
@@ -388,7 +388,7 @@ describe("readCodexSession", () => {
       userMessage("real"),
     ]);
 
-    expect(records).toEqual([
+    expect([...records]).toEqual([
       {
         kind: "dont-export",
         content: lineOf(sessionMeta("/worktree", id(1))),
@@ -423,7 +423,7 @@ describe("readCodexSession", () => {
       ].join("\n"),
     });
 
-    const records = readCodexSession(file);
+    const records = [...readCodexSession(file)];
 
     expect(kinds(records)).toEqual([
       "dont-export",
@@ -445,7 +445,7 @@ describe("readCodexSession", () => {
     };
     const records = readFixture([sessionMeta("/worktree", id(1)), odd]);
 
-    expect(records).toEqual([
+    expect([...records]).toEqual([
       {
         kind: "dont-export",
         content: lineOf(sessionMeta("/worktree", id(1))),
@@ -468,7 +468,7 @@ describe("readCodexSession", () => {
       raw: `${complete}\n{"timestamp":"2026-10-23T08:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"unfinished`,
     });
 
-    const records = readCodexSession(file);
+    const records = [...readCodexSession(file)];
 
     // The interrupted write is not a record yet: it is neither read nor
     // reported, and the turn before it is not duplicated.
@@ -484,7 +484,9 @@ describe("readCodexSession", () => {
     const meta = sessionMeta("/worktree", id(1));
     const records = readFixture([meta]);
 
-    expect(records).toEqual([{ kind: "dont-export", content: lineOf(meta) }]);
+    expect([...records]).toEqual([
+      { kind: "dont-export", content: lineOf(meta) },
+    ]);
   });
 
   it("leaves the pre-0.162 event_msg turn form unread", () => {
@@ -498,7 +500,7 @@ describe("readCodexSession", () => {
 
     // Only the `response_item` form is transferable prose; older event forms
     // remain readable native entries and therefore count as omissions.
-    expect(records).toEqual([
+    expect([...records]).toEqual([
       {
         kind: "dont-export",
         content: lineOf(sessionMeta("/worktree", id(1))),
@@ -662,16 +664,14 @@ describe("findCodexSession", () => {
       cwd: "/worktree",
     });
 
-    expect(read).toEqual({
-      sessionId: id(7),
-      records: [
-        {
-          kind: "dont-export",
-          content: lineOf(sessionMeta("/worktree", id(7))),
-        },
-        { kind: "export", turn: { role: "User", text: "hello" } },
-      ],
-    });
+    expect(read.sessionId).toBe(id(7));
+    expect([...read.records]).toEqual([
+      {
+        kind: "dont-export",
+        content: lineOf(sessionMeta("/worktree", id(7))),
+      },
+      { kind: "export", turn: { role: "User", text: "hello" } },
+    ]);
   });
 });
 

@@ -212,10 +212,11 @@ async function readLatestSessionName(
 }
 
 /**
- * Read one session file into countable native records. Every complete entry is
- * returned as transferable prose, a deliberate omission, or an unreadable
- * record; shared handover code renders the surviving turns and applies loss
- * policy.
+ * Read one session file into countable native records, yielding each one as
+ * the shared export consumes it. The file, its header, and its format version
+ * are validated before the source is returned; every complete entry after the
+ * header becomes transferable prose, a deliberate omission, or an unreadable
+ * record.
  */
 export async function readSessionFile(
   filePath: string,
@@ -227,9 +228,23 @@ export async function readSessionFile(
   // unterminated final element is the record the binary is still appending.
   if (!partialTail) lines.pop();
 
-  let header: SessionHeader | undefined;
-  const records: HandoverRecord[] = [];
+  const header = findSessionHeader(lines, partialTail, filePath);
+  return {
+    sessionId: header.header.id,
+    records: sessionRecords(lines, header.index, partialTail),
+  };
+}
 
+/**
+ * The session header record, found and validated before any record is yielded.
+ * A malformed line before it is fatal, and a partial trailing line is the write
+ * the binary has not finished rather than a record.
+ */
+function findSessionHeader(
+  lines: readonly string[],
+  partialTail: boolean,
+  filePath: string,
+): { readonly index: number; readonly header: SessionHeader } {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!;
     if (line.trim() === "") continue;
@@ -239,42 +254,57 @@ export async function readSessionFile(
       parsed = JSON.parse(line);
     } catch {
       if (partialTail && index === lines.length - 1) break;
-      if (header !== undefined) {
-        records.push({ kind: "unparseable", content: line });
-        continue;
-      }
       throw new SessionExportError(
         "malformed-record",
         `malformed session record in ${filePath} at line ${index + 1}`,
       );
     }
     if (!isRecord(parsed)) {
-      if (header !== undefined) {
-        records.push({ kind: "unparseable", content: line });
-        continue;
-      }
       throw new SessionExportError(
         "malformed-record",
         `malformed session record in ${filePath} at line ${index + 1}`,
       );
     }
 
-    if (header === undefined) {
-      header = readHeader(parsed, filePath);
-      records.push({ kind: "dont-export", content: line });
+    return { index, header: readHeader(parsed, filePath) };
+  }
+
+  throw new SessionExportError(
+    "malformed-record",
+    `session record ${filePath} has no session header`,
+  );
+}
+
+/** Every complete entry, in file order, starting with the header's omission. */
+function* sessionRecords(
+  lines: readonly string[],
+  headerIndex: number,
+  partialTail: boolean,
+): Iterable<HandoverRecord> {
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!;
+    if (line.trim() === "") continue;
+
+    if (index === headerIndex) {
+      yield { kind: "dont-export", content: line };
       continue;
     }
 
-    records.push(readTurn(parsed, line));
-  }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      if (partialTail && index === lines.length - 1) break;
+      yield { kind: "unparseable", content: line };
+      continue;
+    }
+    if (!isRecord(parsed)) {
+      yield { kind: "unparseable", content: line };
+      continue;
+    }
 
-  if (header === undefined) {
-    throw new SessionExportError(
-      "malformed-record",
-      `session record ${filePath} has no session header`,
-    );
+    yield readTurn(parsed, line);
   }
-  return { sessionId: header.id, records };
 }
 
 async function readSessionFileContent(filePath: string): Promise<string> {

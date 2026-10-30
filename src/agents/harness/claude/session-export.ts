@@ -240,7 +240,9 @@ export function readClaudeSession(
   }
   return {
     sessionId,
-    records: lines.map((line) => classifyRecord(line, sessionId)),
+    records: (function* () {
+      for (const line of lines) yield classifyRecord(line, sessionId);
+    })(),
   };
 }
 

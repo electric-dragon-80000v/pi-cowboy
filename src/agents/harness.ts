@@ -542,7 +542,14 @@ export type HandoverRecord =
 export interface HandoverRecordSource {
   /** The source harness's resume id for this run, not a display id. */
   readonly sessionId: string;
-  readonly records: readonly HandoverRecord[];
+  /**
+   * Classified records in native order, produced as they are consumed. A
+   * reader yields them lazily; shared handover code reads the iterable once,
+   * rendering each record before the next is produced. Discovery, file reads,
+   * and validation belong before the source is returned: a fault raised while
+   * iterating would bypass the shared export's fault mapping.
+   */
+  readonly records: Iterable<HandoverRecord>;
 }
 
 /** What shared handover code had to omit from a record source. */

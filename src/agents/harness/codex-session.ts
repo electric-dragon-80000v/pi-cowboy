@@ -119,7 +119,7 @@ export interface CodexSessionExportRequest {
 
 /** A session as this harness reads it, with the record it came from. */
 export interface CodexSessionExport extends CodexSessionRecord {
-  readonly records: readonly HandoverRecord[];
+  readonly records: Iterable<HandoverRecord>;
 }
 
 /**
@@ -213,7 +213,7 @@ export function exportCodexSession(
  * to hand over. An unterminated final line is a write interrupted mid-record —
  * not a record at all, so it is neither read nor reported.
  */
-export function readCodexSession(file: string): readonly HandoverRecord[] {
+export function readCodexSession(file: string): Iterable<HandoverRecord> {
   let text: string;
   try {
     text = readFileSync(file, "utf8");
@@ -239,27 +239,32 @@ export function readCodexSession(file: string): readonly HandoverRecord[] {
     }
   }
 
-  const kept: RolloutLine[] = [];
+  return classifyRolloutLines(lines, torn);
+}
+
+/** Every complete rollout line, classified in file order as it is consumed. */
+function* classifyRolloutLines(
+  lines: readonly string[],
+  torn: number,
+): Iterable<HandoverRecord> {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
     if (line.trim() === "") continue;
+
     let value: unknown;
     try {
       value = JSON.parse(line.trim());
     } catch {
       if (index === torn) continue;
-      kept.push({ kind: "unreadable", content: line });
+      yield { kind: "unparseable", content: line };
       continue;
     }
-    const record = RolloutLineSchema.safeParse(value);
-    kept.push(
-      record.success
-        ? { kind: "record", content: line, record: record.data }
-        : { kind: "unreadable", content: line },
-    );
-  }
 
-  return kept.map(classifyLine);
+    const record = RolloutLineSchema.safeParse(value);
+    yield record.success
+      ? classifyLine({ kind: "record", content: line, record: record.data })
+      : { kind: "unparseable", content: line };
+  }
 }
 
 /** One complete rollout line in the shared vocabulary. */

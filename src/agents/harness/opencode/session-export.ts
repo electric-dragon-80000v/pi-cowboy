@@ -204,10 +204,10 @@ function parseJson(text: string): unknown {
 }
 
 /** Classify every complete native message, preserving its raw payload. */
-export function classifyOpencodeMessages(
+export function* classifyOpencodeMessages(
   messages: readonly unknown[],
-): readonly HandoverRecord[] {
-  return messages.map(readOpencodeMessage);
+): Iterable<HandoverRecord> {
+  for (const message of messages) yield readOpencodeMessage(message);
 }
 
 /** Classify one native message, preserving its raw payload only when it is lost. */

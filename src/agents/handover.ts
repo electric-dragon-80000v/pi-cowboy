@@ -26,7 +26,6 @@ import {
   type HarnessExportLoss,
   type HarnessExportRequest,
   type SessionExportFault,
-  type SessionExportTurn,
 } from "./harness.js";
 
 const HandoverSessionChainSchema = z
@@ -156,7 +155,7 @@ function lossDetail(
 export function completeHandoverExport(
   source: HandoverRecordSource,
 ): HarnessExport {
-  let sections: HandoverSection[] = [];
+  let session = "";
   let total = 0;
   let excluded = 0;
 
@@ -164,7 +163,7 @@ export function completeHandoverExport(
     if (record.kind === "compaction") {
       // A compaction replaces every record before it, so the transcript and the
       // loss counts it carries start over here; only the latest one survives.
-      sections = [{ heading: "Compaction", text: record.summary }];
+      session = `## Compaction\n\n${escapeContentHeadings(record.summary)}`;
       total = 1;
       excluded = 0;
       continue;
@@ -172,7 +171,7 @@ export function completeHandoverExport(
     total += 1;
     switch (record.kind) {
       case "export":
-        sections.push({ heading: record.turn.role, text: record.turn.text });
+        session += `${session === "" ? "" : "\n\n"}## ${record.turn.role}\n\n${escapeContentHeadings(record.turn.text)}`;
         break;
       case "dont-export":
         break;
@@ -185,28 +184,9 @@ export function completeHandoverExport(
   const loss = excluded === 0 ? undefined : { excluded, total };
   return {
     sessionId: source.sessionId,
-    session: renderHandoverTranscript(sections),
+    session: session === "" ? "" : `${session}\n`,
     ...(loss === undefined ? {} : { loss }),
   };
-}
-
-/** One heading and the prose under it in the task artifact. */
-interface HandoverSection {
-  readonly heading: "Compaction" | SessionExportTurn["role"];
-  readonly text: string;
-}
-
-/** The task artifact: only role headings and prose, separated by one blank line. */
-function renderHandoverTranscript(
-  sections: readonly HandoverSection[],
-): string {
-  if (sections.length === 0) return "";
-  return `${sections
-    .map(
-      (section) =>
-        `## ${section.heading}\n\n${escapeContentHeadings(section.text)}`,
-    )
-    .join("\n\n")}\n`;
 }
 
 /**

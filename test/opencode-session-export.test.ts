@@ -213,15 +213,18 @@ describe("classifyOpencodeMessages", () => {
         assistant(text("third")),
       ]),
     );
-    const records = classifyOpencodeMessages(parsed?.messages ?? []);
+    const messages = parsed?.messages ?? [];
 
-    expect(records).toEqual([
+    expect([...classifyOpencodeMessages(messages)]).toEqual([
       { kind: "export", turn: { role: "User", text: "first" } },
       { kind: "export", turn: { role: "Assistant", text: "second" } },
       { kind: "export", turn: { role: "Assistant", text: "third" } },
     ]);
     expect(
-      completeHandoverExport({ sessionId: "ses_1", records }).session,
+      completeHandoverExport({
+        sessionId: "ses_1",
+        records: classifyOpencodeMessages(messages),
+      }).session,
     ).toBe(
       [
         "## User",
@@ -253,7 +256,7 @@ describe("classifyOpencodeMessages", () => {
       { type: "assistant", content: [tool()] },
     ];
 
-    expect(classifyOpencodeMessages(messages)).toEqual(
+    expect([...classifyOpencodeMessages(messages)]).toEqual(
       messages.map((message) => ({
         kind: "dont-export",
         content: JSON.stringify(message),
@@ -262,7 +265,7 @@ describe("classifyOpencodeMessages", () => {
   });
 
   it("reports native messages it cannot classify as unparseable", () => {
-    expect(classifyOpencodeMessages([null])).toEqual([
+    expect([...classifyOpencodeMessages([null])]).toEqual([
       { kind: "unparseable", content: "null" },
     ]);
   });

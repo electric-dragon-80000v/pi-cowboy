@@ -18,6 +18,7 @@ import type { HarnessRegistry } from "../src/agents/harness/harness-registry.js"
 import {
   SessionExportError,
   type AnyHarnessId,
+  type HandoverRecord,
   type HandoverRecordSource,
   type ReadHandoverRecords,
 } from "../src/agents/harness.js";
@@ -114,6 +115,55 @@ describe("completeHandoverExport", () => {
       sessionId: "ses_1",
       session: "## User\n\nfirst\n\n## Assistant\n\nsecond\n",
       loss: { excluded: 1, total: 4 },
+    });
+  });
+
+  it("renders each record before the next is produced, in one pass", () => {
+    const readOrder: string[] = [];
+    const pulls: number[] = [];
+    let nextCalls = 0;
+    const texts = ["first", "second", "third"];
+
+    function* streamed(): Generator<HandoverRecord> {
+      for (let index = 0; index < texts.length; index += 1) {
+        const text = texts[index]!;
+        const role: "User" | "Assistant" = index === 0 ? "User" : "Assistant";
+        pulls.push(readOrder.length);
+        yield {
+          kind: "export",
+          turn: {
+            role,
+            get text() {
+              readOrder.push(text);
+              return text;
+            },
+          },
+        };
+      }
+    }
+
+    function* counted(): Generator<HandoverRecord> {
+      const inner = streamed();
+      for (;;) {
+        nextCalls += 1;
+        const step = inner.next();
+        if (step.done) return;
+        yield step.value;
+      }
+    }
+
+    const exported = completeHandoverExport({
+      sessionId: "ses_1",
+      records: counted(),
+    });
+
+    expect(nextCalls).toBe(texts.length + 1);
+    expect(pulls).toEqual([0, 1, 2]);
+    expect(readOrder).toEqual(texts);
+    expect(exported).toEqual({
+      sessionId: "ses_1",
+      session:
+        "## User\n\nfirst\n\n## Assistant\n\nsecond\n\n## Assistant\n\nthird\n",
     });
   });
 
