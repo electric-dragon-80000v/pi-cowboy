@@ -1,3 +1,14 @@
+# [0.25.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.24.0...v0.25.0) (2026-10-30)
+
+
+### Features
+
+* **agents:** support compaction records in agent handover exports ([bd90b8e](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bd90b8e6724001304e4be7a0b64d2fa07d2f8941))
+* **handover:** support claude session compaction summaries in exports ([dfe73d1](https://github.com/electric-dragon-80000v/pi-cowboy/commit/dfe73d12b9a6f752c20572d3f042843e455f60b5))
+* **handover:** support native compacted session records in codex harness ([2811373](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2811373ef7c5b4f092cfb9d1fad2fd8fc1f8e2dd))
+* **handover:** support opencode native session compaction records ([1075651](https://github.com/electric-dragon-80000v/pi-cowboy/commit/10756514d2c3af7952aeee6923ff12bfcfc3a91c))
+* **session:** support native compaction records in transcripts ([18666fa](https://github.com/electric-dragon-80000v/pi-cowboy/commit/18666fab12920ea95d3d7ccbd2cbff2ef9d680b8))
+
 # [0.24.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.3...v0.24.0) (2026-10-30)
 
 
