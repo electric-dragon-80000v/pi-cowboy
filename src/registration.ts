@@ -5,7 +5,6 @@ import type {
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { DEV_MODE } from "./dev-mode.js";
 import {
   CowboyAgentsSchema,
   type CowboyAgentParams,
@@ -41,9 +40,7 @@ import type { HarnessModelOptions } from "./agents/harness/harness-registry.js";
 export { COWBOY_TOOLS, COWBOY_TOOL_NAMES };
 
 /** Tools this package entrypoint registers and may activate. */
-export const REGISTERED_TOOL_NAMES: readonly string[] = DEV_MODE
-  ? COWBOY_TOOL_NAMES
-  : COWBOY_TOOL_NAMES.filter((name) => name !== COWBOY_TOOLS.handoverAgent);
+export const REGISTERED_TOOL_NAMES: readonly string[] = COWBOY_TOOL_NAMES;
 
 // The /cowboy UI is imported lazily so none of it runs at boot.
 
@@ -148,7 +145,7 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool(withCowboyRenderer(stopAgentTool));
   pi.registerTool(withCowboyRenderer(mergeBranchTool));
   pi.registerTool(withCowboyRenderer(steerAgentTool));
-  if (DEV_MODE) pi.registerTool(withCowboyRenderer(handoverAgentTool));
+  pi.registerTool(withCowboyRenderer(handoverAgentTool));
   pi.registerTool(withCowboyRenderer(cleanupAgentTool));
 
   pi.registerMessageRenderer("subagent-result", (message, _options, theme) => {

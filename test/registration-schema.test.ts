@@ -222,8 +222,8 @@ describe("cowboy_agent registration", () => {
 });
 
 describe("production tool registration", () => {
-  it("does not register the dev-only handover tool", () => {
-    expect(captureTools().map((tool) => tool.name)).not.toContain(
+  it("registers the handover tool", () => {
+    expect(captureTools().map((tool) => tool.name)).toContain(
       "handover_cowboy_agent",
     );
   });
