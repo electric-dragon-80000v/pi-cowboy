@@ -142,9 +142,9 @@ If a cleanup keeps a worktree (for example, because of uncommitted changes), the
 
 ### Handing over and exporting
 
-`Handover` opens a submenu of target harnesses: every harness this machine can launch, except the one that ran the agent's session. Choosing one runs `handover_cowboy_agent` at that harness's default model. The menu never picks a model.
+`Handover` opens a submenu of target harnesses. You will see a list of every harness that you can hand-over an agent's session to.
 
-`Export`, the submenu's final row, writes the handover task (`renderHandoverTask`) to `/tmp` instead. Nothing is stopped, archived, or relaunched, and the agent keeps its current state.
+`Export` writes the handover export to  a file under the temporary directory. `Export` does not interact with the agents, it's purely an export that you can inspect or use elsewhere. 
 
 #### Export path
 

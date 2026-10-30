@@ -8,6 +8,9 @@
 
 **License:** MIT
 
+**✨ NEW FEATURE - Cross-harness handover: pi-cowboy can now handover sessions between harnesses automatically. Ask pi to hand over a cowboy agent from one harness to another, or [use the menu](docs/Menu.md#handing-over-and-exporting).**
+
+`
 `pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and consolidate them when they finish.
 
 Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is finished, `pi-cowboy` cleans up the leftovers for you.
