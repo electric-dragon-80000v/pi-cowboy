@@ -1,3 +1,11 @@
+## [0.23.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.2...v0.23.3) (2026-10-30)
+
+
+### Bug Fixes
+
+* **host-multiplexer:** fix syntax error in no host reason constant ([4be84e3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4be84e389df6c72ffde7f52ff5193caad2a5ce6c))
+* **host:** shorten and improve no-host warning message ([58b38a7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/58b38a7f5ac896d8d50a102529a7e9ca3a0f3f0a))
+
 ## [0.23.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.1...v0.23.2) (2026-10-29)
 
 
