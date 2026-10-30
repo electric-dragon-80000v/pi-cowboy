@@ -144,6 +144,82 @@ describe("completeHandoverExport", () => {
     expect(exported.session).toBe("");
     expect(exported.loss).toEqual({ excluded: 1, total: 2 });
   });
+
+  it("renders every record when the source has no compaction", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "export", turn: { role: "User", text: "first" } },
+        { kind: "dont-export", content: "tool result" },
+        { kind: "export", turn: { role: "Assistant", text: "second" } },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## User\n\nfirst\n\n## Assistant\n\nsecond\n",
+    );
+    expect(exported.loss).toBeUndefined();
+  });
+
+  it("starts the transcript at the one compaction summary", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "export", turn: { role: "User", text: "old" } },
+        { kind: "unparseable", content: "{broken" },
+        { kind: "compaction", summary: "summary A" },
+        { kind: "export", turn: { role: "Assistant", text: "after A" } },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## Compaction\n\nsummary A\n\n## Assistant\n\nafter A\n",
+    );
+    expect(exported.loss).toBeUndefined();
+  });
+
+  it("keeps only the latest compaction summary and what follows it", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "export", turn: { role: "User", text: "old" } },
+        { kind: "unparseable", content: "{broken" },
+        { kind: "compaction", summary: "summary A" },
+        { kind: "export", turn: { role: "Assistant", text: "after A" } },
+        { kind: "dont-export", content: "tool result" },
+        { kind: "compaction", summary: "summary B" },
+        { kind: "export", turn: { role: "User", text: "after B" } },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## Compaction\n\nsummary B\n\n## User\n\nafter B\n",
+    );
+    expect(exported.loss).toBeUndefined();
+  });
+
+  it("counts only retained records toward loss", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "unparseable", content: "{broken older" },
+        { kind: "dont-export", content: "older tool result" },
+        { kind: "compaction", summary: "summary" },
+        { kind: "unparseable", content: "{broken retained" },
+        { kind: "export", turn: { role: "Assistant", text: "after" } },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## Compaction\n\nsummary\n\n## Assistant\n\nafter\n",
+    );
+    expect(exported.loss).toEqual({ excluded: 1, total: 3 });
+  });
+
+  it("escapes headings inside a compaction summary", () => {
+    const exported = completeHandoverExport(
+      source([{ kind: "compaction", summary: "# not a user turn" }]),
+    );
+
+    expect(exported.session).toBe("## Compaction\n\n\\# not a user turn\n");
+    expect(exported.loss).toBeUndefined();
+  });
 });
 
 describe("handoverSeverity", () => {

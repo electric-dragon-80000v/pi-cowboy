@@ -148,22 +148,31 @@ function lossDetail(
 
 /**
  * Complete one harness's classified native records into the handover artifact.
- * Every yielded record is a complete native session entry. A readable entry
- * with no transferable prose still counts in the denominator; an unparseable
- * entry also counts as loss.
+ * Every retained record is a complete native session entry, so a readable entry
+ * with no transferable prose still counts in the denominator and an unparseable
+ * entry also counts as loss. Records before the last compaction are discarded
+ * with the history that compaction replaced, and count toward neither.
  */
 export function completeHandoverExport(
   source: HandoverRecordSource,
 ): HarnessExport {
-  const turns: SessionExportTurn[] = [];
+  let sections: HandoverSection[] = [];
   let total = 0;
   let excluded = 0;
 
   for (const record of source.records) {
+    if (record.kind === "compaction") {
+      // A compaction replaces every record before it, so the transcript and the
+      // loss counts it carries start over here; only the latest one survives.
+      sections = [{ heading: "Compaction", text: record.summary }];
+      total = 1;
+      excluded = 0;
+      continue;
+    }
     total += 1;
     switch (record.kind) {
       case "export":
-        turns.push(record.turn);
+        sections.push({ heading: record.turn.role, text: record.turn.text });
         break;
       case "dont-export":
         break;
@@ -176,16 +185,27 @@ export function completeHandoverExport(
   const loss = excluded === 0 ? undefined : { excluded, total };
   return {
     sessionId: source.sessionId,
-    session: renderHandoverTranscript(turns),
+    session: renderHandoverTranscript(sections),
     ...(loss === undefined ? {} : { loss }),
   };
 }
 
+/** One heading and the prose under it in the task artifact. */
+interface HandoverSection {
+  readonly heading: "Compaction" | SessionExportTurn["role"];
+  readonly text: string;
+}
+
 /** The task artifact: only role headings and prose, separated by one blank line. */
-function renderHandoverTranscript(turns: readonly SessionExportTurn[]): string {
-  if (turns.length === 0) return "";
-  return `${turns
-    .map((turn) => `## ${turn.role}\n\n${escapeContentHeadings(turn.text)}`)
+function renderHandoverTranscript(
+  sections: readonly HandoverSection[],
+): string {
+  if (sections.length === 0) return "";
+  return `${sections
+    .map(
+      (section) =>
+        `## ${section.heading}\n\n${escapeContentHeadings(section.text)}`,
+    )
     .join("\n\n")}\n`;
 }
 

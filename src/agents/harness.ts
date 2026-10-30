@@ -521,11 +521,18 @@ export interface HarnessExportRequest {
  * classify are `unparseable`. `content` is retained only where no turn
  * survives, for reader diagnostics and tests; shared handover code never puts
  * it in the task it gives the next run.
+ *
+ * `compaction` is a native summary the harness wrote as it condensed the
+ * session so far. It is not a turn of either role, and the records before it
+ * are the history it replaces: shared handover code starts the transcript at
+ * the last one, so an earlier compaction's summary and the turns it covered
+ * never reach the next run.
  */
 export type HandoverRecord =
   | { readonly kind: "export"; readonly turn: SessionExportTurn }
   | { readonly kind: "dont-export"; readonly content: string }
-  | { readonly kind: "unparseable"; readonly content: string };
+  | { readonly kind: "unparseable"; readonly content: string }
+  | { readonly kind: "compaction"; readonly summary: string };
 
 /**
  * What a harness finds at one run's session address. The harness owns native
