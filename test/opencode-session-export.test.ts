@@ -88,6 +88,37 @@ const reasoning = (value: string): Part => ({
 });
 const tool = (): Part => ({ type: "tool", text: "tool output" });
 
+/**
+ * A completed compaction as opencode's own export writes it: a session-level
+ * message whose summary is the text that replaces the history before it.
+ */
+function completedCompaction(summary: string): unknown {
+  return {
+    id: "msg_comp",
+    time: { created: 1002 },
+    type: "compaction",
+    status: "completed",
+    reason: "auto",
+    summary,
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  };
+}
+
+/** A failed compaction: opencode keeps it in the session, but it has no summary. */
+function failedCompaction(): unknown {
+  return {
+    id: "msg_comp",
+    time: { created: 1002 },
+    type: "compaction",
+    status: "failed",
+    reason: "auto",
+    error: { type: "compaction.failed", message: "provider refused" },
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  };
+}
+
 describe("opencodeSessionListPath", () => {
   it("scopes the list to the run's directory", () => {
     expect(opencodeSessionListPath("/repo/wt")).toBe(
@@ -249,7 +280,6 @@ describe("classifyOpencodeMessages", () => {
       { type: "model-switched" },
       { type: "system", text: "tools changed" },
       { type: "synthetic", text: "server restarted" },
-      { type: "compaction", text: "summary of earlier work" },
       { type: "shell", text: "echo hi" },
       { type: "idle" },
       { type: "assistant", content: [reasoning("thinking")] },
@@ -262,6 +292,58 @@ describe("classifyOpencodeMessages", () => {
         content: JSON.stringify(message),
       })),
     );
+  });
+
+  it("classifies a completed compaction as the shared compaction boundary", () => {
+    const messages = [
+      user("before"),
+      completedCompaction("earlier work condensed"),
+      user("after"),
+    ];
+
+    expect([...classifyOpencodeMessages(messages)]).toEqual([
+      { kind: "export", turn: { role: "User", text: "before" } },
+      { kind: "compaction", summary: "earlier work condensed" },
+      { kind: "export", turn: { role: "User", text: "after" } },
+    ]);
+  });
+
+  it("starts the artifact at the compaction's summary", () => {
+    expect(
+      renderRecords([
+        user("before"),
+        completedCompaction("earlier work condensed"),
+        user("after"),
+      ]),
+    ).toBe("## Compaction\n\nearlier work condensed\n\n## User\n\nafter\n");
+  });
+
+  it("omits a compaction that produced no summary", () => {
+    const failed = failedCompaction();
+
+    expect([...classifyOpencodeMessages([failed])]).toEqual([
+      { kind: "dont-export", content: JSON.stringify(failed) },
+    ]);
+    expect(renderRecords([user("before"), failed, user("after")])).toBe(
+      "## User\n\nbefore\n\n## User\n\nafter\n",
+    );
+  });
+
+  it("does not read a provider compaction part as a session compaction", () => {
+    const providerState = {
+      type: "compaction",
+      text: "encrypted provider state",
+    };
+
+    expect([...classifyOpencodeMessages([assistant(providerState)])]).toEqual([
+      {
+        kind: "dont-export",
+        content: JSON.stringify(assistant(providerState)),
+      },
+    ]);
+    expect(
+      renderRecords([assistant(providerState, text("visible answer"))]),
+    ).toBe("## Assistant\n\nvisible answer\n");
   });
 
   it("reports native messages it cannot classify as unparseable", () => {

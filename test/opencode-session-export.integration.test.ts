@@ -56,6 +56,8 @@ const opencodeMissing = commandPath("opencode") === undefined;
 
 /** Text only the run's transcript may contain, and text it must not. */
 const USER_TEXT = "Summarize the failing test.";
+const COMPACTION_SUMMARY = "SECRET-COMPACTION-SUMMARY: earlier work condensed";
+const HIDDEN_BEFORE_COMPACTION = "SECRET-BEFORE-COMPACTION";
 const ASSISTANT_TEXT = "The suite passes after the fix.";
 const REASONING_TEXT = "SECRET-REASONING-MARKER";
 const TOOL_TEXT = "SECRET-TOOL-MARKER";
@@ -217,6 +219,23 @@ function assistantMessage(
   };
 }
 
+/**
+ * A completed compaction as opencode's own export writes one: the summary it
+ * carries replaces every message before it.
+ */
+function compactionMessage(id: string, summary: string): unknown {
+  return {
+    id,
+    time: { created: 1002 },
+    type: "compaction",
+    status: "completed",
+    reason: "auto",
+    summary,
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  };
+}
+
 /** Import one crafted session through the real CLI, under `--directory project`. */
 async function importSession(
   input: {
@@ -323,6 +342,29 @@ describe.skipIf(opencodeMissing)(
       expect(exported.session).not.toContain(REASONING_TEXT);
       expect(exported.session).not.toContain(TOOL_TEXT);
       expect(exported.session).not.toContain(PROOF_TEXT);
+    });
+
+    it("hands over the native compaction's summary, not the history it replaced", async () => {
+      const id = "ses_comp0001";
+      await importSession({
+        id,
+        model: { id: "test-model", providerID: "test-provider" },
+        messages: [
+          userMessage("msg_before", HIDDEN_BEFORE_COMPACTION),
+          compactionMessage("msg_comp", COMPACTION_SUMMARY),
+          userMessage("msg_after", "continue after the compaction"),
+        ],
+      });
+
+      const exported = completeHandoverExport(
+        await opencodeHarness.readHandoverRecords!(request()),
+      );
+
+      expect(exported.sessionId).toBe(id);
+      expect(exported.session).toBe(
+        `## Compaction\n\n${COMPACTION_SUMMARY}\n\n## User\n\ncontinue after the compaction\n`,
+      );
+      expect(exported.session).not.toContain(HIDDEN_BEFORE_COMPACTION);
     });
 
     it("reports a run that wrote no session", async () => {

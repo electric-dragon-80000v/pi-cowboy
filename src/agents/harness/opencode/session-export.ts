@@ -9,8 +9,9 @@
  *
  * The reader classifies native messages into the shared handover vocabulary.
  * Every complete native message becomes a turn, a deliberate omission, or an
- * unparseable record; shared handover code renders the surviving turns and
- * applies the loss policy.
+ * unparseable record, and a completed compaction becomes the shared compaction
+ * marker carrying its summary; shared handover code renders the surviving
+ * turns and applies the loss policy.
  */
 
 import { existsSync } from "node:fs";
@@ -74,11 +75,17 @@ const OpencodePartSchema = z.object({
   text: z.string().optional(),
 });
 
-/** One message; the types this renderer does not read carry no `text`. */
+/**
+ * One message; the types this renderer does not read carry no `text`. A
+ * session-level compaction is its own record type: `status` says whether it
+ * finished, and only the `completed` arm carries the `summary` it produced.
+ */
 const OpencodeMessageSchema = z.object({
   type: z.string(),
   text: z.string().optional(),
   content: z.array(OpencodePartSchema).optional(),
+  status: z.string().optional(),
+  summary: z.string().optional(),
 });
 
 /** opencode's transfer JSON: the session, and its messages in order. */
@@ -217,6 +224,9 @@ function readOpencodeMessage(message: unknown): HandoverRecord {
     return { kind: "unparseable", content: JSON.stringify(message) };
   }
 
+  if (parsed.data.type === "compaction") {
+    return readCompaction(parsed.data, message);
+  }
   if (parsed.data.type === "user") {
     const text = normalizeText(parsed.data.text);
     return text === undefined
@@ -237,6 +247,25 @@ function readOpencodeMessage(message: unknown): HandoverRecord {
         kind: "export",
         turn: { role: "Assistant", text: parts.join("\n\n") },
       };
+}
+
+/**
+ * A session-level compaction, which replaced the history before it with the
+ * summary it carries. Only a completed compaction is such a boundary: it is the
+ * one arm with a summary to hand over (a running one carries an empty string, a
+ * failed one none at all), and a `compaction` part nested in an assistant
+ * message is provider state rather than a session boundary, so it never reaches
+ * here.
+ */
+function readCompaction(
+  message: { readonly status?: string; readonly summary?: string },
+  raw: unknown,
+): HandoverRecord {
+  const summary =
+    message.status === "completed" ? normalizeText(message.summary) : undefined;
+  return summary === undefined
+    ? { kind: "dont-export", content: JSON.stringify(raw) }
+    : { kind: "compaction", summary };
 }
 
 /**
