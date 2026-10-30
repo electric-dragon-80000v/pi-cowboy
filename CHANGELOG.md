@@ -1,3 +1,10 @@
+# [0.24.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.3...v0.24.0) (2026-10-30)
+
+
+### Features
+
+* **ui:** add agent session export to handover menu ([304e6ea](https://github.com/electric-dragon-80000v/pi-cowboy/commit/304e6eac2b6d6c5f4f4d2882fb3948513594bc98))
+
 ## [0.23.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.23.2...v0.23.3) (2026-10-30)
 
 
