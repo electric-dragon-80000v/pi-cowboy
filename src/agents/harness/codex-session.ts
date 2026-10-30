@@ -33,9 +33,11 @@
  * Every complete rollout line is represented in the shared vocabulary. A
  * conversation record whose prose survived codex's own filtering is a turn;
  * one codex emptied or injected — an image-only message or injected user-role
- * envelope — is deliberately not exported. Metadata, reasoning, tool calls,
- * their results, token counts, and turn state are likewise readable but not
- * transferable. A line the reader cannot interpret is reported as such.
+ * envelope — is deliberately not exported. A `compacted` record is the summary
+ * codex wrote in place of the history it condensed, and is handed over as the
+ * shared compaction record. Metadata, reasoning, tool calls, their results,
+ * token counts, and turn state are likewise readable but not transferable. A
+ * line the reader cannot interpret is reported as such.
  */
 
 import {
@@ -206,7 +208,11 @@ export function exportCodexSession(
  * Classify the conversation records of a rollout into the shared handover
  * vocabulary, in file order.
  *
- * `response_item` message records are the conversation.
+ * `response_item` message records are the conversation, and a `compacted`
+ * record is the summary that replaced the history before it. A compaction with
+ * no plaintext summary — the model-backed form keeps it encrypted — is a
+ * readable record with nothing to hand over, not a compaction of the exported
+ * transcript.
  *
  * A line this reader cannot interpret is reported, never fatal on its own: the
  * reader returns, and the shared layer decides whether the loss is too large
@@ -276,6 +282,10 @@ function classifyLine(line: RolloutLine): HandoverRecord {
   switch (record.kind) {
     case "traffic":
       return { kind: "dont-export", content: line.content };
+    case "compacted":
+      return record.summary.trim() === ""
+        ? { kind: "dont-export", content: line.content }
+        : { kind: "compaction", summary: record.summary };
     case "turn":
       return responseItemTurn(record, line.content);
   }

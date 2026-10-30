@@ -3,8 +3,9 @@
  * one zod schema per thing a reader has to tell apart.
  *
  * This module is the only authority on what a rollout line is. A line that
- * validates as a turn carries the prose the handover exports; a line that
- * validates as store traffic — session metadata, reasoning, tool calls and
+ * validates as a turn carries the prose the handover exports; a `compacted`
+ * line carries the summary codex wrote when it condensed the session; a line
+ * that validates as store traffic — session metadata, reasoning, tool calls and
  * their results, token counts, turn state — was never the conversation and
  * yields no record; a line no arm accepts is a record the reader could not
  * read, which the shared handover layer counts as loss.
@@ -14,9 +15,10 @@
  *
  * Which names are enumerated and which are left open follows the store rather
  * than the CLI's source. Record types, payload types and part types are codex's
- * to add, so an unread one is traffic, never a loss — while the two sets this
- * reader interprets for itself are pinned: the roles whose message is the
- * conversation, and the part types a turn's prose is written as.
+ * to add, so an unread one is traffic, never a loss — while the shapes this
+ * reader interprets for itself are pinned: the `compacted` record, the roles
+ * whose message is the conversation, and the part types a turn's prose is
+ * written as.
  *
  * The arms of the line union exclude one another, so a record of an interpreted
  * shape that does not hold up — a message whose content is not parts, a turn
@@ -41,8 +43,15 @@ const PROSE_PART_TYPES = ["input_text", "output_text"] as const;
 /** The payload type of the `response_item` that is a message. */
 const MESSAGE_PAYLOAD = "message";
 
-/** The record type whose payloads this reader interprets at all. */
-const INTERPRETED_RECORD_TYPE = "response_item";
+/** The `response_item` record type whose payloads this reader interprets. */
+const RESPONSE_ITEM_RECORD_TYPE = "response_item";
+
+/**
+ * The record codex writes when it replaces the history so far with a summary.
+ * Its payload's `message` is that summary. The `context_compacted` event is a
+ * notification that a compaction happened, not the compaction itself.
+ */
+const COMPACTED_RECORD_TYPE = "compacted";
 
 /**
  * A string that is not one of the values an arm above already claims.
@@ -138,28 +147,48 @@ const ResponseItemTrafficSchema = z
   .transform(() => ({ kind: "traffic" as const }));
 
 /**
+ * A `compacted` record: the summary codex wrote in place of the history it
+ * condensed. `message` is the summary text; a compaction codex performed
+ * without a plaintext summary (the model-backed form stores it encrypted)
+ * still carries the field, empty.
+ */
+const CompactedSchema = z
+  .object({
+    type: z.literal(COMPACTED_RECORD_TYPE),
+    payload: z.object({ message: z.string() }),
+  })
+  .transform((record) => ({
+    kind: "compacted" as const,
+    summary: record.payload.message,
+  }));
+
+/**
  * Any other record codex writes: session metadata, turn context, world state,
- * the `event_msg` traffic of token counts, task state and compaction.
+ * the `event_msg` traffic of token counts and task state.
  */
 const OtherLineSchema = z
-  .object({ type: otherThan([INTERPRETED_RECORD_TYPE]) })
+  .object({
+    type: otherThan([RESPONSE_ITEM_RECORD_TYPE, COMPACTED_RECORD_TYPE]),
+  })
   .transform(() => ({ kind: "traffic" as const }));
 
 /**
- * One rollout line, as this reader reads it: a turn, or store traffic that was
- * never the conversation.
+ * One rollout line, as this reader reads it: a turn, a compaction summary, or
+ * store traffic that was never the conversation.
  *
  * The arms claim the shapes this reader interprets, so a record of one of those
- * shapes that does not hold up — a message whose content is not parts, a turn
- * whose prose is not a string, a line that is not a record at all — is accepted
- * by no arm, and the shared layer counts it as loss rather than reading it as
- * traffic. The record types and payload types this reader does not claim are
- * codex's own, added over time: none of them is conversation, so an unread one
- * is traffic rather than a record the reader failed to read.
+ * shapes that does not hold up — a compaction whose summary is not a string, a
+ * message whose content is not parts, a turn whose prose is not a string, a
+ * line that is not a record at all — is accepted by no arm, and the shared
+ * layer counts it as loss rather than reading it as traffic. The record types
+ * and payload types this reader does not claim are codex's own, added over
+ * time: none of them is conversation, so an unread one is traffic rather than a
+ * record the reader failed to read.
  */
 export const RolloutLineSchema = z.union([
   ResponseItemTurnSchema,
   ResponseItemTrafficSchema,
+  CompactedSchema,
   OtherLineSchema,
 ]);
 

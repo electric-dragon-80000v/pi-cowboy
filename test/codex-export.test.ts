@@ -120,6 +120,18 @@ function eventMessage(
   return { type: "event_msg", payload: { type, ...payload } };
 }
 
+/**
+ * One native `compacted` record, the summary codex wrote in `payload.message`.
+ * `replacement_history` is carried by real records but is not the summary.
+ */
+function compactedRecord(message: string): Record<string, unknown> {
+  return {
+    timestamp: "2026-10-23T08:00:02.000Z",
+    type: "compacted",
+    payload: { message, replacement_history: [] },
+  };
+}
+
 /** Write a rollout and return its path. */
 function writeRollout(
   directory: string,
@@ -409,6 +421,81 @@ describe("readCodexSession", () => {
       { role: "User", text: "line one\nline two" },
     ]);
     expect(turns(records)[0]!.text).not.toMatch(/[ \t]+$/m);
+  });
+
+  it("classifies a native compaction summary as the shared compaction record, in order", () => {
+    const compaction = compactedRecord("what happened before the compaction");
+    const records = readFixture([
+      sessionMeta("/worktree", id(1)),
+      userMessage("before"),
+      compaction,
+      assistantMessage("after"),
+    ]);
+
+    expect(kinds(records)).toEqual([
+      "dont-export",
+      "export",
+      "compaction",
+      "export",
+    ]);
+    expect(records[2]).toEqual({
+      kind: "compaction",
+      summary: "what happened before the compaction",
+    });
+    expect(turns(records)).toEqual([
+      { role: "User", text: "before" },
+      { role: "Assistant", text: "after" },
+    ]);
+  });
+
+  it("does not mistake the context_compacted notification for the compaction summary", () => {
+    const notification = eventMessage("context_compacted", {});
+    const records = readFixture([
+      sessionMeta("/worktree", id(1)),
+      notification,
+      compactedRecord("the summary"),
+    ]);
+
+    expect(records[1]).toEqual({
+      kind: "dont-export",
+      content: lineOf(notification),
+    });
+    expect(records[2]).toEqual({ kind: "compaction", summary: "the summary" });
+  });
+
+  it("keeps a compaction with no plaintext summary as a readable omission", () => {
+    // Model-backed compaction stores its summary encrypted, leaving `message`
+    // empty; the record is still native history, but carries nothing to hand
+    // over and must not discard the transcript before it.
+    const encrypted = compactedRecord("");
+    const records = readFixture([
+      sessionMeta("/worktree", id(1)),
+      userMessage("before"),
+      encrypted,
+      assistantMessage("after"),
+    ]);
+
+    expect(records[2]).toEqual({
+      kind: "dont-export",
+      content: lineOf(encrypted),
+    });
+    expect(turns(records)).toEqual([
+      { role: "User", text: "before" },
+      { role: "Assistant", text: "after" },
+    ]);
+  });
+
+  it("reports a compaction whose summary is not a string as unparseable", () => {
+    const malformed = {
+      type: "compacted",
+      payload: { message: { text: "not a string" } },
+    };
+    const records = readFixture([sessionMeta("/worktree", id(1)), malformed]);
+
+    expect(records[1]).toEqual({
+      kind: "unparseable",
+      content: lineOf(malformed),
+    });
   });
 
   it("reports a line it cannot parse alongside the records around it", () => {
