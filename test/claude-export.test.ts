@@ -258,7 +258,7 @@ describe("readClaudeSessionRecords", () => {
     expect(session.match(/^## /gm)).toHaveLength(2);
   });
 
-  it("drops system, attachment, compaction, and API-error records", () => {
+  it("drops system, attachment, legacy session-summary, and API-error records", () => {
     writeSession([
       user("the question"),
       {
@@ -275,7 +275,15 @@ describe("readClaudeSessionRecords", () => {
       {
         type: "summary",
         sessionId: SESSION_ID,
-        summary: "COMPACTION-SECRET",
+        leafUuid: "u1",
+        summary: "SESSION-TITLE-SECRET",
+      },
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        sessionId: SESSION_ID,
+        content: "Conversation compacted",
+        compactMetadata: { trigger: "auto", preTokens: 167219 },
       },
       assistant(
         { type: "text", text: "ERROR-SECRET" },
@@ -304,11 +312,63 @@ describe("readClaudeSessionRecords", () => {
       [
         "SYSTEM-SECRET",
         "ATTACHMENT-SECRET",
-        "COMPACTION-SECRET",
+        "SESSION-TITLE-SECRET",
+        "Conversation compacted",
         "ERROR-SECRET",
         "SYNTHETIC-SECRET",
       ].filter((secret) => session.includes(secret)),
     ).toEqual([]);
+  });
+
+  it("emits claude's compact-summary record as the shared compaction, not a turn", () => {
+    writeSession([
+      user("the history compaction replaced"),
+      assistant({ type: "text", text: "the replaced answer" }),
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        sessionId: SESSION_ID,
+        content: "Conversation compacted",
+        compactMetadata: { trigger: "auto", preTokens: 167219 },
+      },
+      {
+        type: "user",
+        uuid: "c1",
+        sessionId: SESSION_ID,
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        message: {
+          role: "user",
+          content:
+            "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.\n\n## Analysis\n\nSUMMARY-PROSE",
+        },
+      },
+      assistant({ type: "text", text: "the answer after compaction" }),
+    ]);
+
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session:
+        "## Compaction\n\nThis session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.\n\n\\## Analysis\n\nSUMMARY-PROSE\n\n## Assistant\n\nthe answer after compaction\n",
+    });
+  });
+
+  it("keeps only the latest compact summary and the turns after it", () => {
+    writeSession([
+      user("before the first compaction"),
+      user("FIRST-SUMMARY", { isCompactSummary: true }),
+      user("between the compactions"),
+      user("SECOND-SUMMARY", { isCompactSummary: true }),
+      assistant({ type: "text", text: "after the second compaction" }),
+    ]);
+
+    const { session } = exportFixture();
+
+    expect(session).toBe(
+      "## Compaction\n\nSECOND-SUMMARY\n\n## Assistant\n\nafter the second compaction\n",
+    );
+    expect(session).not.toContain("FIRST-SUMMARY");
+    expect(session).not.toContain("between the compactions");
   });
 
   it("drops meta, local-command, and sidechain records", () => {

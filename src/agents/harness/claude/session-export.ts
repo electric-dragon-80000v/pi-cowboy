@@ -26,6 +26,13 @@
  * entry becomes a turn, a deliberate omission, or an unparseable record.
  * Shared handover code alone renders the transcript and applies the loss
  * policy.
+ *
+ * A compaction is the synthetic `user` record claude writes with
+ * `isCompactSummary: true`; its message content is the summary that replaced
+ * the earlier history. The `system`/`compact_boundary` record that precedes it
+ * carries only `compactMetadata` (trigger and token counts), and a
+ * `type: "summary"` record with `leafUuid` is the legacy session title, so
+ * neither is a compaction summary.
  */
 
 import * as fs from "node:fs";
@@ -316,11 +323,17 @@ function classifyRecord(line: ClaudeLine, sessionId: string): HandoverRecord {
   }
 
   if (record.type === "user") {
-    if (
-      record.isMeta === true ||
-      record.isCompactSummary === true ||
-      record.isVisibleInTranscriptOnly === true
-    ) {
+    if (record.isCompactSummary === true) {
+      const message = messageOf(record.message);
+      if (message === undefined) {
+        return { kind: "unparseable", content: line.content };
+      }
+      const summary = cleanText(message.text);
+      return summary === ""
+        ? { kind: "dont-export", content: line.content }
+        : { kind: "compaction", summary };
+    }
+    if (record.isMeta === true || record.isVisibleInTranscriptOnly === true) {
       return { kind: "dont-export", content: line.content };
     }
     const message = messageOf(record.message);
