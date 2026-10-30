@@ -347,18 +347,9 @@ describe("session records", () => {
         data: "CUSTOM-STATE-MUST-GO",
       }),
       record({
-        type: "compaction",
-        id: "m1",
-        parentId: "c2",
-        timestamp: "2026-10-23T00:11:06.000Z",
-        summary: "COMPACTION-MUST-GO",
-        firstKeptEntryId: "u1",
-        tokensBefore: 1,
-      }),
-      record({
         type: "branch_summary",
         id: "m2",
-        parentId: "m1",
+        parentId: "c2",
         timestamp: "2026-10-23T00:11:07.000Z",
         summary: "BRANCH-SUMMARY-MUST-GO",
         fromId: "u1",
@@ -380,10 +371,120 @@ describe("session records", () => {
       "BASH-MUST-GO",
       "CUSTOM-MESSAGE-MUST-GO",
       "CUSTOM-STATE-MUST-GO",
-      "COMPACTION-MUST-GO",
       "BRANCH-SUMMARY-MUST-GO",
     ].filter((dropped) => exported.session.includes(dropped));
     expect(leaked).toEqual([]);
+  });
+
+  it("emits a native compaction entry as the shared compaction kind with its summary", async () => {
+    const file = await writeLines([
+      record(HEADER),
+      user("before compaction"),
+      assistant([text("before answer")]),
+      record({
+        type: "compaction",
+        id: "m1",
+        parentId: "a1",
+        timestamp: "2026-10-23T00:11:06.000Z",
+        summary: "User discussed X, Y, Z.",
+        firstKeptEntryId: "u1",
+        tokensBefore: 50000,
+      }),
+      user("after compaction"),
+    ]);
+
+    expect([...(await readSessionRecords(file)).records]).toEqual([
+      { kind: "dont-export", content: record(HEADER) },
+      { kind: "export", turn: { role: "User", text: "before compaction" } },
+      { kind: "export", turn: { role: "Assistant", text: "before answer" } },
+      { kind: "compaction", summary: "User discussed X, Y, Z." },
+      { kind: "export", turn: { role: "User", text: "after compaction" } },
+    ]);
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session:
+        "## Compaction\n\nUser discussed X, Y, Z.\n\n## User\n\nafter compaction\n",
+    });
+  });
+
+  it("keeps the latest compaction in native order and leaves branch summaries out", async () => {
+    const file = await writeLines([
+      record(HEADER),
+      user("first"),
+      record({
+        type: "compaction",
+        id: "m1",
+        parentId: "u1",
+        timestamp: "2026-10-23T00:11:06.000Z",
+        summary: "summary A",
+        firstKeptEntryId: "m1",
+        tokensBefore: 1,
+      }),
+      assistant([text("after A")]),
+      record({
+        type: "branch_summary",
+        id: "m2",
+        parentId: "a1",
+        timestamp: "2026-10-23T00:11:07.000Z",
+        summary: "abandoned branch",
+        fromId: "u1",
+      }),
+      record({
+        type: "compaction",
+        id: "m3",
+        parentId: "m2",
+        timestamp: "2026-10-23T00:11:08.000Z",
+        summary: "summary B",
+        firstKeptEntryId: "m3",
+        tokensBefore: 2,
+      }),
+      user("after B"),
+    ]);
+
+    expect([...(await readSessionRecords(file)).records]).toEqual([
+      { kind: "dont-export", content: record(HEADER) },
+      { kind: "export", turn: { role: "User", text: "first" } },
+      { kind: "compaction", summary: "summary A" },
+      { kind: "export", turn: { role: "Assistant", text: "after A" } },
+      {
+        kind: "dont-export",
+        content: record({
+          type: "branch_summary",
+          id: "m2",
+          parentId: "a1",
+          timestamp: "2026-10-23T00:11:07.000Z",
+          summary: "abandoned branch",
+          fromId: "u1",
+        }),
+      },
+      { kind: "compaction", summary: "summary B" },
+      { kind: "export", turn: { role: "User", text: "after B" } },
+    ]);
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "## Compaction\n\nsummary B\n\n## User\n\nafter B\n",
+    });
+  });
+
+  it("counts a compaction entry without a summary as unreadable", async () => {
+    const file = await writeLines([
+      record(HEADER),
+      record({
+        type: "compaction",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-10-23T00:11:06.000Z",
+        firstKeptEntryId: "m1",
+        tokensBefore: 1,
+      }),
+      user("after"),
+    ]);
+
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "## User\n\nafter\n",
+      loss: { excluded: 1, total: 3 },
+    });
   });
 
   it("emits no heading for empty and tool-only turns", async () => {

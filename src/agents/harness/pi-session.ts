@@ -13,10 +13,11 @@
  * The format is one implementation; only the store differs (see pi-store.ts and
  * pig-store.ts), so a new binary in the family adds a store and no reader.
  *
- * Every complete record becomes transferable prose, a deliberate omission, or
- * an unparseable record. Thinking, tool calls, tool results, system content,
- * images, compaction, and extension entries are readable omissions; shared
- * handover code alone renders the transcript and applies loss policy.
+ * Every complete record becomes transferable prose, a compaction summary, a
+ * deliberate omission, or an unparseable record. Thinking, tool calls, tool
+ * results, system content, images, branch summaries, and extension entries are
+ * readable omissions; shared handover code alone renders the transcript and
+ * applies loss policy.
  */
 
 import { readFile, readdir } from "node:fs/promises";
@@ -363,6 +364,9 @@ function readTurn(
   record: Record<string, unknown>,
   content: string,
 ): HandoverRecord {
+  if (record.type === "compaction") {
+    return readCompaction(record, content);
+  }
   if (record.type !== "message") {
     return { kind: "dont-export", content };
   }
@@ -385,6 +389,26 @@ function readTurn(
         kind: "export",
         turn: { role: role === "user" ? "User" : "Assistant", text },
       };
+}
+
+/**
+ * A native compaction entry's summary. The entry is the boundary shared
+ * handover starts the transcript at, so it is the one non-message record that
+ * carries prose. A `branch_summary` also has a `summary` field but condenses
+ * an abandoned branch rather than the history this context replaced, so it is
+ * not a compaction.
+ */
+function readCompaction(
+  record: Record<string, unknown>,
+  content: string,
+): HandoverRecord {
+  if (typeof record.summary !== "string") {
+    return { kind: "unparseable", content };
+  }
+  const summary = normalizeText(record.summary);
+  return summary === ""
+    ? { kind: "dont-export", content }
+    : { kind: "compaction", summary };
 }
 
 /**
