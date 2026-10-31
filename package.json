@@ -3,7 +3,7 @@
   "version": "0.27.1",
   "type": "module",
   "packageManager": "pnpm@12.9.1",
-  "description": "Agent orchestrator for pi: can manage Codex, Claude Code, OpenCode, pi, pig and pi-bolt as subagents. Runs subagents in background Herdr panes, isolated in copy-on-write Git worktrees.",
+  "description": "🤠 Agent orchestrator for pi. It can manage Codex, Claude Code, OpenCode, pi, pig and pi-bolt as subagents and handover sessions in between them. Runs subagents in background Herdr panes, isolated in copy-on-write Git worktrees.",
   "keywords": [
     "pi-package",
     "pi",
