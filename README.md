@@ -9,7 +9,6 @@
 
 **License:** MIT
 
-
 `
 `pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and consolidate them when they finish.
 
@@ -25,7 +24,7 @@ Give each agent a smaller, isolated subtask. A single task with clear instructio
 
 ### Foreign harness support
 
-`pi-cowboy` can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Do you need support for something else? Create an issue on [GitHub](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new).
+`pi-cowboy` can orchestrate Claude Code, Codex, OpenCode, and more: start work on Pi, continue on Claude Code, finish on OpenCode. Hit the 5 hour limit in the middle of your Claude Code session? Ask pi-cowboy to hand it over to Codex and it will carry over your Claude session automatically. No session dumps, no re-explaining, it just picks up right where you left off Do you need support for another harness? Create an issue on [GitHub](https://github.com/electric-dragon-80000v/pi-cowboy/issues/new), or write your own [plugin](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Plugins.md) for it.
 
 ### Parallel work with minimal disk overhead
 
