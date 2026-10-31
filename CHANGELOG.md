@@ -1,3 +1,10 @@
+## [0.27.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.0...v0.27.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **docs:** fix broken relative link ([b763ef4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/b763ef4dab14bedd8a3e158d9b221667c0cb2dc8))
+
 # [0.27.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.26.0...v0.27.0) (2026-10-31)
 
 
