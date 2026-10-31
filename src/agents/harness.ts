@@ -617,9 +617,12 @@ function unreadableRecord(native: unknown): HandoverRecord {
     return { kind: "unparseable", content: native };
   }
   try {
+    // `JSON.stringify` is typed `string` but returns undefined for values it
+    // cannot represent (undefined, functions, symbols).
+    const json = JSON.stringify(native) as string | undefined;
     return {
       kind: "unparseable",
-      content: JSON.stringify(native) ?? String(native),
+      content: json ?? String(native),
     };
   } catch {
     return { kind: "unparseable", content: String(native) };
