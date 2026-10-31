@@ -1,3 +1,10 @@
+## [0.27.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.2...v0.27.3) (2026-10-31)
+
+
+### Bug Fixes
+
+* **docs:** update readme handover functionality ([d8f2160](https://github.com/electric-dragon-80000v/pi-cowboy/commit/d8f21604ad801abf464837ced98a51d3cd8d66d9))
+
 ## [0.27.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.1...v0.27.2) (2026-10-31)
 
 
