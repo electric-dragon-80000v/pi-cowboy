@@ -1,3 +1,15 @@
+# [0.28.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.3...v0.28.0) (2026-10-31)
+
+
+### Bug Fixes
+
+* **agents:** handle undefined return from JSON.stringify in unreadableRecord ([f6cc64f](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f6cc64f932c59c5e9a77b9e9b0d7c0ed0fc8c83c))
+
+
+### Features
+
+* release ([78dcb6a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/78dcb6a591e106082dab6b7161e4861bf87b60f2))
+
 ## [0.27.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.2...v0.27.3) (2026-10-31)
 
 
