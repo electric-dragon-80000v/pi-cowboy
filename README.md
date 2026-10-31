@@ -1,3 +1,4 @@
+**✨ NEW FEATURE - Cross-harness handover: pi-cowboy can now handover sessions between harnesses automatically. Ask pi to hand over a cowboy agent from one harness to another, or [use the menu](docs/Menu.md#handing-over-and-exporting).**
 <p align="center">
   <img src="https://raw.githubusercontent.com/electric-dragon-80000v/pi-cowboy/main/docs/assets/logo-labeled-readme.png" alt="pi-cowboy">
 </p>
@@ -8,7 +9,6 @@
 
 **License:** MIT
 
-**✨ NEW FEATURE - Cross-harness handover: pi-cowboy can now handover sessions between harnesses automatically. Ask pi to hand over a cowboy agent from one harness to another, or [use the menu](docs/Menu.md#handing-over-and-exporting).**
 
 `
 `pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and consolidate them when they finish.
