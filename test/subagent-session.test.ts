@@ -1987,8 +1987,8 @@ describe("handover", () => {
       exportingPi(async () => ({
         sessionId: "ses_1",
         records: [
-          { kind: "export", turn: { role: "User", text: "fix it" } },
-          { kind: "export", turn: { role: "Assistant", text: "fixed" } },
+          { kind: "user", content: "fix it" },
+          { kind: "assistant", content: "fixed" },
         ],
       })),
     );
@@ -2063,9 +2063,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_2",
-        records: [
-          { kind: "export", turn: { role: "User", text: "still going" } },
-        ],
+        records: [{ kind: "user", content: "still going" }],
       })),
     );
     try {
@@ -2105,7 +2103,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
+        records: [{ kind: "user", content: "go on" }],
       })),
     );
     try {
@@ -2152,7 +2150,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
+        records: [{ kind: "user", content: "go on" }],
       })),
     );
     try {
@@ -2188,8 +2186,8 @@ describe("handover", () => {
       sessionId: "ses_1",
       records: [
         {
-          kind: "export" as const,
-          turn: { role: "User" as const, text: "go on" },
+          kind: "user" as const,
+          content: "go on",
         },
       ],
     }));
@@ -2243,7 +2241,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        records: [{ kind: "dont-export", content: "empty" }],
+        records: [{ kind: "other", unmappedKind: "empty", content: "empty" }],
       })),
     );
     try {
@@ -2264,9 +2262,7 @@ describe("handover", () => {
       "pi",
       exportingPi(async () => ({
         sessionId: "ses_1",
-        records: [
-          { kind: "export", turn: { role: "User", text: "keep going" } },
-        ],
+        records: [{ kind: "user", content: "keep going" }],
       })),
     );
     buildLaunchPlanMock.mockRejectedValueOnce(new Error("boom"));
@@ -2289,8 +2285,8 @@ describe("handover", () => {
         exportingPi(async () => ({
           sessionId: "ses_1",
           records: [
-            { kind: "export", turn: { role: "User", text: "fix it" } },
-            { kind: "export", turn: { role: "Assistant", text: "fixed" } },
+            { kind: "user", content: "fix it" },
+            { kind: "assistant", content: "fixed" },
           ],
         })),
       );
@@ -2337,7 +2333,7 @@ describe("handover", () => {
         "pi",
         exportingPi(async () => ({
           sessionId: "ses_1",
-          records: [{ kind: "export", turn: { role: "User", text: "go on" } }],
+          records: [{ kind: "user", content: "go on" }],
         })),
       );
 
@@ -2356,8 +2352,8 @@ describe("handover", () => {
         sessionId: "ses_1",
         records: [
           {
-            kind: "export" as const,
-            turn: { role: "User" as const, text: "go on" },
+            kind: "user" as const,
+            content: "go on",
           },
         ],
       }));
@@ -2423,7 +2419,7 @@ describe("handover", () => {
         "pi",
         exportingPi(async () => ({
           sessionId: "ses_1",
-          records: [{ kind: "dont-export", content: "empty" }],
+          records: [{ kind: "other", unmappedKind: "empty", content: "empty" }],
         })),
       );
 

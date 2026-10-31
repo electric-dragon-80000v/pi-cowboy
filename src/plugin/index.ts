@@ -43,7 +43,6 @@ export type {
   ModelEntry,
   ModelList,
   ReadHandoverRecords,
-  SessionExportTurn,
   SubagentLaunchInputs,
   ThinkingLevels,
   ToolSelection,
@@ -52,6 +51,10 @@ export type {
 // The reads over a `ModelList` answer, so a plugin's own helper reads one
 // without reaching into its arms.
 export { modelListEntries, modelListNotice } from "../agents/harness.js";
+
+// The constructor for a parsed record with no canonical kind, so every reader's
+// `other` arm names the native type the same way.
+export { otherRecord } from "../agents/harness.js";
 
 // The pane-side launcher's env: a plugin's body sources the staged file the
 // launch carries rather than interpolating values into the typed command, and

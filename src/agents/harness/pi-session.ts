@@ -13,11 +13,13 @@
  * The format is one implementation; only the store differs (see pi-store.ts and
  * pig-store.ts), so a new binary in the family adds a store and no reader.
  *
- * Every complete record becomes transferable prose, a compaction summary, a
- * deliberate omission, or an unparseable record. Thinking, tool calls, tool
- * results, system content, images, branch summaries, and extension entries are
- * readable omissions; shared handover code alone renders the transcript and
- * applies loss policy.
+ * Every complete record is classified into the shared vocabulary: a user or
+ * assistant message that carries prose, a thinking part, a tool call or its
+ * result, a compaction summary, another native type, or an unparseable record.
+ * System content, images, branch summaries, and extension entries are `other`,
+ * named by the native type that distinguishes them — the entry's `type`, or a
+ * message's `role`; shared handover code alone decides which kinds enter the
+ * transcript and applies loss policy.
  */
 
 import { readFile, readdir } from "node:fs/promises";
@@ -28,6 +30,7 @@ import { isRecord, nonEmpty } from "../../predicates.js";
 import { errorMessage } from "../../utils.js";
 import {
   SessionExportError,
+  otherRecord,
   type HandoverRecord,
   type HandoverRecordSource,
   type ReadHandoverRecords,
@@ -82,18 +85,20 @@ export interface SessionStore {
 }
 
 /**
- * One content part. Only a `text` part carries conversation prose; every other
- * type (thinking, tool call, image) is structure the artifact does not keep.
+ * One content part. A `text` part carries conversation prose and a `thinking`
+ * part the model's reasoning; every other type (tool call, image) is structure
+ * the artifact does not keep.
  */
 const ContentPartSchema = z.object({
   type: z.string(),
   text: z.string().optional(),
+  thinking: z.string().optional(),
 });
 
 /**
  * The content of a message: its typed parts. The role is checked separately,
- * because a message that is not user or assistant contributes nothing whatever
- * its content holds.
+ * because a user, assistant or tool-result message is the only kind whose
+ * content holds anything the shared vocabulary can name.
  */
 const MessageContentSchema = z.array(z.unknown());
 
@@ -216,8 +221,7 @@ async function readLatestSessionName(
  * Read one session file into countable native records, yielding each one as
  * the shared export consumes it. The file, its header, and its format version
  * are validated before the source is returned; every complete entry after the
- * header becomes transferable prose, a deliberate omission, or an unreadable
- * record.
+ * header is classified into the shared vocabulary.
  */
 export async function readSessionFile(
   filePath: string,
@@ -287,7 +291,7 @@ function* sessionRecords(
     if (line.trim() === "") continue;
 
     if (index === headerIndex) {
-      yield { kind: "dont-export", content: line };
+      yield otherRecord("session", line);
       continue;
     }
 
@@ -368,35 +372,45 @@ function readTurn(
     return readCompaction(record, content);
   }
   if (record.type !== "message") {
-    return { kind: "dont-export", content };
+    return otherRecord(record.type, content);
   }
   if (!isRecord(record.message)) {
     return { kind: "unparseable", content };
   }
 
   const role = record.message.role;
-  if (role !== "user" && role !== "assistant") {
-    return { kind: "dont-export", content };
+  if (role !== "user" && role !== "assistant" && role !== "toolResult") {
+    return otherRecord(role, content);
   }
 
   const parts = MessageContentSchema.safeParse(record.message.content);
   if (!parts.success) return { kind: "unparseable", content };
 
-  const text = messageText(parts.data);
-  return text === ""
-    ? { kind: "dont-export", content }
-    : {
-        kind: "export",
-        turn: { role: role === "user" ? "User" : "Assistant", text },
-      };
+  if (role === "toolResult") {
+    return { kind: "tool-call", content: JSON.stringify(parts.data) };
+  }
+
+  const text = partsText(parts.data, "text");
+  if (text !== "") return { kind: role, content: text };
+
+  const thinking = partsText(parts.data, "thinking");
+  if (thinking !== "") return { kind: "thinking", content: thinking };
+
+  const calls = partsOfType(parts.data, "toolCall");
+  if (calls.length > 0) {
+    return { kind: "tool-call", content: JSON.stringify(calls) };
+  }
+
+  return otherRecord(role, content);
 }
 
 /**
  * A native compaction entry's summary. The entry is the boundary shared
  * handover starts the transcript at, so it is the one non-message record that
- * carries prose. A `branch_summary` also has a `summary` field but condenses
- * an abandoned branch rather than the history this context replaced, so it is
- * not a compaction.
+ * carries prose; a blank summary is still a compaction, with nothing to
+ * render. A `branch_summary` also has a `summary` field but condenses an
+ * abandoned branch rather than the history this context replaced, so it is not
+ * a compaction.
  */
 function readCompaction(
   record: Record<string, unknown>,
@@ -405,29 +419,39 @@ function readCompaction(
   if (typeof record.summary !== "string") {
     return { kind: "unparseable", content };
   }
-  const summary = normalizeText(record.summary);
-  return summary === ""
-    ? { kind: "dont-export", content }
-    : { kind: "compaction", summary };
+  return { kind: "compaction", content: normalizeText(record.summary) };
 }
 
 /**
- * The text parts of one message as prose. A part that is not a `text` part, or
- * a `text` part with no string to read, contributes nothing; multiple text
- * parts are joined with a blank line.
+ * The text one part type carries, joined across the message. A `text` part's
+ * prose is its `text`; a `thinking` part's is its `thinking`, with `text` read
+ * as a fallback. Multiple parts are joined with a blank line.
  */
-function messageText(content: readonly unknown[]): string {
-  const parts: string[] = [];
-  for (const candidate of content) {
+function partsText(parts: readonly unknown[], type: string): string {
+  const kept: string[] = [];
+  for (const candidate of parts) {
     const part = ContentPartSchema.safeParse(candidate);
-    if (!part.success) continue;
-    if (part.data.type !== "text" || part.data.text === undefined) continue;
-    const text = normalizeText(part.data.text);
-    if (text !== "") parts.push(text);
+    if (!part.success || part.data.type !== type) continue;
+    const raw =
+      type === "thinking"
+        ? (part.data.thinking ?? part.data.text)
+        : part.data.text;
+    if (raw === undefined) continue;
+    const text = normalizeText(raw);
+    if (text !== "") kept.push(text);
   }
-  if (parts.length === 0) return "";
+  return kept.join("\n\n");
+}
 
-  return parts.join("\n\n");
+/** Every part of one native type, kept whole for a tool payload's rendering. */
+function partsOfType(
+  parts: readonly unknown[],
+  type: string,
+): readonly unknown[] {
+  return parts.filter((candidate) => {
+    const part = ContentPartSchema.safeParse(candidate);
+    return part.success && part.data.type === type;
+  });
 }
 
 /** Consistent newlines, no trailing whitespace, no blank margin. */

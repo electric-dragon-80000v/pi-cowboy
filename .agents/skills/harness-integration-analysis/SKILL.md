@@ -8,6 +8,7 @@ description: How a new harness type is evaluated before it is implemented. Fixed
 Applies when someone proposes a CLI, or a herdr agent kind, as a new pi-cowboy harness, and when an existing evaluation report is reviewed. The output is a findings report on one harness. It is not the harness code.
 
 The evaluation answers two primary questions:
+
 1. For every angle in the contract, what does this CLI give a spawn, and what would the seam have to do to carry the rest?
 2. Can this harness participate in **session handover** (`handover_cowboy_agent`), both as a source (exporting its session transcript and cleanly exiting its process) and as a target (resuming an ongoing task in the same worktree)?
 
@@ -122,11 +123,11 @@ Angle 12's probe runs synchronously at boot, before the first menu can open, so 
 
 ### Session Handover
 
-| #   | Angle                                              | Contract source                                                                           |
-| --- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 15  | Process termination & clean TUI exit               | `Harness.stop`, `HarnessStopRequest`, `PaneControl.sendKeys`                              |
-| 16  | Session store durability & environment alignment   | `Harness.inheritedEnv`, `Harness.reservedEnvVars`, `Harness.teardown`, staging isolation   |
-| 17  | Transcript extraction & turn classification        | `Harness.readHandoverRecords`, `HandoverRecordSource`, `HandoverRecord`, `SessionExportError` |
+| #   | Angle                                            | Contract source                                                                               |
+| --- | ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 15  | Process termination & clean TUI exit             | `Harness.stop`, `HarnessStopRequest`, `PaneControl.sendKeys`                                  |
+| 16  | Session store durability & environment alignment | `Harness.inheritedEnv`, `Harness.reservedEnvVars`, `Harness.teardown`, staging isolation      |
+| 17  | Transcript extraction & turn classification      | `Harness.readHandoverRecords`, `HandoverRecordSource`, `HandoverRecord`, `SessionExportError` |
 
 Handover (`handover_cowboy_agent`) transfers an in-flight task from a settled agent to another harness within the same worktree and staging directory. Rather than starting over, the extension exports the source run's session transcript, stops its process cleanly, archives the run into history, and launches the next harness with the previous transcript and provenance chain quoted in its task.
 
@@ -135,15 +136,17 @@ Angle 15 requires a clean, non-destructive exit of the interactive agent process
 The evidence is the exit and what survives it: the agent process ends, and the pane and its hosting shell are still alive and addressable. The transcript is not this angle's evidence: handover reads the session while the process is still alive and stops the run only after that read succeeds, so a stop cannot cut off a session already exported.
 
 Angle 16 reconciles configuration staging with session durability. Spawns often require disposable staging trees (`/tmp/pi-cowboy/<id>/...`) to suppress onboarding prompts and bypass permission checks. However, `harness.teardown` deletes that tree. The evaluation must prove:
+
 1. Session transcripts do not land inside a directory that `teardown` deletes, or the transcript subtree is symlinked out to a durable location (the bridge pattern used by Claude).
 2. The child process and parent process agree on the store location. If environment variables control the store (e.g. `CODEX_HOME`, `PI_CODING_AGENT_SESSION_DIR`), the parent must export them via `inheritedEnv`, and they must be protected against user override via `reservedEnvVars`.
 
 Angle 17 evaluates whether the CLI's native session history can be located, read, and classified into the shared handover vocabulary:
+
 1. **Lookup & Disambiguation:** Can the session corresponding to this specific run be found unambiguously? (By pinned UUID, e.g. Claude's `--session-id`; by agent name, e.g. Pi's `--name`; or by matching CWD in metadata, e.g. Codex rollouts). Can successor sessions (from `/clear` or fork) be detected so the export refuses (`ambiguous-session`) rather than returning an abandoned transcript?
-2. **Turn Extraction & Classification:** Every complete entry the reader can enumerate yields exactly one record: `export` (a turn with role `User` | `Assistant` and clean prose), `dont-export` (a readable entry carrying no transferable prose — thinking tokens, tool payloads, metadata, synthetic messages), or `unparseable` (an entry the reader cannot classify: corrupt JSON, an unreadable line, or a known record whose schema fails). A record type the reader does not know is a decision the report states and proves: every shipped reader calls it `dont-export`, so a reader that calls it `unparseable` says which unknown types it treats as prose, and neither may silently under-export a store it only partly understands. A store whose format or version is unsupported is a refusal (`unsupported-version`), not loss; an unterminated final line is a write still in progress rather than a record, so it is neither read nor reported.
+2. **Turn Extraction & Classification:** Every complete entry the reader can enumerate yields exactly one record, tagged with what it is: `user` or `assistant` (a turn's clean prose in `content`), `thinking` (the model's clean reasoning), `tool-call` (a tool call or its result, its native parts carried whole as JSON), `compaction` (the clean summary that replaced the history before it; the last one that carries prose is the transcript's boundary, a blank one is not), `other` (a parsed entry with no canonical kind — metadata, system prompts, synthetic messages — carrying the native entry's text and naming the native type in `unmappedKind`), or `unparseable` (an entry the reader cannot parse: corrupt JSON, an unreadable line, or a known record whose schema fails; its native text is carried and it is the only kind counted as loss). Shared handover code alone decides which kinds enter the transcript. A record type the reader does not know is `other`, never `unparseable`: a reader may not silently under-export a store it only partly understands. A store whose format or version is unsupported is a refusal (`unsupported-version`), not loss; an unterminated final line is a write still in progress rather than a record, so it is neither read nor reported.
 3. **Scaffolding and Envelope Stripping:** Injected framework text (`<environment_context>`, `<system-reminder>`, slash-command wrappers, local bash stdout envelopes) and previous handover marker lines (`<<pi-cowboy-handover [...]>>`) must be stripped from user prose to avoid recursive context inflation.
 4. **Extraction Seam:** Can records be read offline from disk, or must they be extracted via an online CLI command (e.g. `opencode session export`) while the process is alive? If online, does the command need a subshell sourcing `env.sh` to see the spawn's custom store?
-5. **Loss Policy:** Only `unparseable` records count as loss against `agent.handoverMaxExcludedRatio` (default 0.5); a `dont-export` record stays in the denominator and is never loss, and a refused export is a fault the report names rather than a ratio it absorbs.
+5. **Loss Policy:** Only `unparseable` records count as loss against `agent.handoverMaxExcludedRatio` (default 0.5); every other kind stays in the denominator and is never loss, and a refused export is a fault the report names rather than a ratio it absorbs.
 
 ### Pi-Native / Extended Capabilities (pi-family only)
 

@@ -30,14 +30,15 @@
  * rollout's first line and each following line are is decided there, and this
  * module reads only what those schemas accepted.
  *
- * Every complete rollout line is represented in the shared vocabulary. A
- * conversation record whose prose survived codex's own filtering is a turn;
- * one codex emptied or injected — an image-only message or injected user-role
- * envelope — is deliberately not exported. A `compacted` record is the summary
- * codex wrote in place of the history it condensed, and is handed over as the
- * shared compaction record. Metadata, reasoning, tool calls, their results,
- * token counts, and turn state are likewise readable but not transferable. A
- * line the reader cannot interpret is reported as such.
+ * Every complete rollout line is classified into the shared vocabulary. A
+ * conversation record whose prose survived codex's own filtering is a `user`
+ * or `assistant` record; one codex emptied or injected — an image-only message
+ * or injected user-role envelope — has no canonical kind and is `other`, named
+ * by its native type. A `compacted` record is the summary codex wrote in place
+ * of the history it condensed, and is handed over as the shared `compaction`.
+ * Reasoning is `thinking`, a tool call or its result is `tool-call`, and
+ * metadata, token counts, and turn state are `other`. A line the reader cannot
+ * interpret is `unparseable`.
  */
 
 import {
@@ -52,7 +53,12 @@ import {
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { canonicalPath, expandTilde } from "../../paths.js";
-import { SessionExportError, type HandoverRecord } from "../harness.js";
+import { isRecord } from "../../predicates.js";
+import {
+  SessionExportError,
+  otherRecord,
+  type HandoverRecord,
+} from "../harness.js";
 import {
   RolloutLineSchema,
   SessionMetaSchema,
@@ -280,18 +286,20 @@ function classifyLine(line: RolloutLine): HandoverRecord {
   }
   const record = line.record;
   switch (record.kind) {
-    case "traffic":
-      return { kind: "dont-export", content: line.content };
+    case "other":
+      return otherRecord(record.nativeType, line.content);
     case "compacted":
-      return record.summary.trim() === ""
-        ? { kind: "dont-export", content: line.content }
-        : { kind: "compaction", summary: record.summary };
+      return { kind: "compaction", content: record.summary };
+    case "reasoning":
+      return { kind: "thinking", content: reasoningText(record.payload) };
+    case "tool":
+      return { kind: "tool-call", content: JSON.stringify(record.payload) };
     case "turn":
       return responseItemTurn(record, line.content);
   }
 }
 
-/** A `response_item` message as a turn: the prose of the parts its role writes. */
+/** A `response_item` message as a user or assistant record, when prose survived. */
 function responseItemTurn(turn: Turn, content: string): HandoverRecord {
   const expected = turn.role === "user" ? "input_text" : "output_text";
   const prose = turn.parts.flatMap((part) =>
@@ -299,18 +307,30 @@ function responseItemTurn(turn: Turn, content: string): HandoverRecord {
   );
   const text =
     turn.role === "user" ? userText(prose) : normalizeText(prose.join("\n\n"));
-  return turnRecord(turn.role === "user" ? "User" : "Assistant", text, content);
+  return text === ""
+    ? otherRecord("message", content)
+    : { kind: turn.role, content: text };
 }
 
-/** A turn when the prose survived, and a deliberate omission when it did not. */
-function turnRecord(
-  role: "User" | "Assistant",
-  text: string,
-  content: string,
-): HandoverRecord {
-  return text === ""
-    ? { kind: "dont-export", content }
-    : { kind: "export", turn: { role, text } };
+/**
+ * The text of one reasoning payload. codex writes the model's summary as a
+ * plain string in older rollouts and as text blocks in newer ones; a payload
+ * that carries neither leaves nothing to hand over.
+ */
+function reasoningText(payload: Record<string, unknown>): string {
+  const summary = textOfBlocks(payload.summary);
+  return summary === "" ? textOfBlocks(payload.content) : summary;
+}
+
+/** The prose of a string-or-blocks value, normalized; "" when it has none. */
+function textOfBlocks(value: unknown): string {
+  if (typeof value === "string") return normalizeText(value);
+  if (!Array.isArray(value)) return "";
+  const parts = value.flatMap((part) => {
+    if (typeof part === "string") return [part];
+    return isRecord(part) && typeof part.text === "string" ? [part.text] : [];
+  });
+  return normalizeText(parts.join("\n\n"));
 }
 
 /** The surviving prose of a user message, with injected material removed. */

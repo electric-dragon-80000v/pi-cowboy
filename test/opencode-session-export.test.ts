@@ -247,9 +247,9 @@ describe("classifyOpencodeMessages", () => {
     const messages = parsed?.messages ?? [];
 
     expect([...classifyOpencodeMessages(messages)]).toEqual([
-      { kind: "export", turn: { role: "User", text: "first" } },
-      { kind: "export", turn: { role: "Assistant", text: "second" } },
-      { kind: "export", turn: { role: "Assistant", text: "third" } },
+      { kind: "user", content: "first" },
+      { kind: "assistant", content: "second" },
+      { kind: "assistant", content: "third" },
     ]);
     expect(
       completeHandoverExport({
@@ -274,7 +274,7 @@ describe("classifyOpencodeMessages", () => {
     );
   });
 
-  it("classifies readable non-transferable messages as deliberate omissions", () => {
+  it("classifies other native messages, thinking, and tool traffic by kind", () => {
     const messages = [
       { type: "agent-switched" },
       { type: "model-switched" },
@@ -286,12 +286,15 @@ describe("classifyOpencodeMessages", () => {
       { type: "assistant", content: [tool()] },
     ];
 
-    expect([...classifyOpencodeMessages(messages)]).toEqual(
-      messages.map((message) => ({
-        kind: "dont-export",
+    expect([...classifyOpencodeMessages(messages)]).toEqual([
+      ...messages.slice(0, 6).map((message) => ({
+        kind: "other",
+        unmappedKind: (message as { type: string }).type,
         content: JSON.stringify(message),
       })),
-    );
+      { kind: "thinking", content: "thinking" },
+      { kind: "tool-call", content: JSON.stringify([tool()]) },
+    ]);
   });
 
   it("classifies a completed compaction as the shared compaction boundary", () => {
@@ -302,9 +305,9 @@ describe("classifyOpencodeMessages", () => {
     ];
 
     expect([...classifyOpencodeMessages(messages)]).toEqual([
-      { kind: "export", turn: { role: "User", text: "before" } },
-      { kind: "compaction", summary: "earlier work condensed" },
-      { kind: "export", turn: { role: "User", text: "after" } },
+      { kind: "user", content: "before" },
+      { kind: "compaction", content: "earlier work condensed" },
+      { kind: "user", content: "after" },
     ]);
   });
 
@@ -318,11 +321,11 @@ describe("classifyOpencodeMessages", () => {
     ).toBe("## Compaction\n\nearlier work condensed\n\n## User\n\nafter\n");
   });
 
-  it("omits a compaction that produced no summary", () => {
+  it("classifies a compaction with no summary as a blank compaction", () => {
     const failed = failedCompaction();
 
     expect([...classifyOpencodeMessages([failed])]).toEqual([
-      { kind: "dont-export", content: JSON.stringify(failed) },
+      { kind: "compaction", content: "" },
     ]);
     expect(renderRecords([user("before"), failed, user("after")])).toBe(
       "## User\n\nbefore\n\n## User\n\nafter\n",
@@ -337,7 +340,8 @@ describe("classifyOpencodeMessages", () => {
 
     expect([...classifyOpencodeMessages([assistant(providerState)])]).toEqual([
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "assistant",
         content: JSON.stringify(assistant(providerState)),
       },
     ]);

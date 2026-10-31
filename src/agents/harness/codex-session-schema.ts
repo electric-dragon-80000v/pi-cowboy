@@ -4,18 +4,19 @@
  *
  * This module is the only authority on what a rollout line is. A line that
  * validates as a turn carries the prose the handover exports; a `compacted`
- * line carries the summary codex wrote when it condensed the session; a line
- * that validates as store traffic — session metadata, reasoning, tool calls and
- * their results, token counts, turn state — was never the conversation and
- * yields no record; a line no arm accepts is a record the reader could not
- * read, which the shared handover layer counts as loss.
+ * line carries the summary codex wrote when it condensed the session; a
+ * reasoning payload is the model's thinking and a tool payload a tool call or
+ * its result; a line that validates as store traffic — session metadata, token
+ * counts, turn state — has no canonical kind and is `other`, named by its
+ * native type; a line no arm accepts is a record the reader could not read,
+ * which the shared handover layer counts as loss.
  *
  * A rollout's first line is read through its own schema, because the cwd lookup
  * must not refuse a whole file over a mark it does not know.
  *
  * Which names are enumerated and which are left open follows the store rather
  * than the CLI's source. Record types, payload types and part types are codex's
- * to add, so an unread one is traffic, never a loss — while the shapes this
+ * to add, so an unread one is `other`, never a loss — while the shapes this
  * reader interprets for itself are pinned: the `compacted` record, the roles
  * whose message is the conversation, and the part types a turn's prose is
  * written as.
@@ -42,6 +43,26 @@ const PROSE_PART_TYPES = ["input_text", "output_text"] as const;
 
 /** The payload type of the `response_item` that is a message. */
 const MESSAGE_PAYLOAD = "message";
+
+/** The payload type of the `response_item` that carries the model's reasoning. */
+const REASONING_PAYLOAD = "reasoning";
+
+/** The payload types of codex's tool calls and their results. */
+const TOOL_PAYLOAD_TYPES = [
+  "function_call",
+  "function_call_output",
+  "custom_tool_call",
+  "custom_tool_call_output",
+  "local_shell_call",
+  "local_shell_call_output",
+] as const;
+
+/** Every payload type an arm below interprets for itself. */
+const CLAIMED_PAYLOAD_TYPES = [
+  MESSAGE_PAYLOAD,
+  REASONING_PAYLOAD,
+  ...TOOL_PAYLOAD_TYPES,
+] as const;
 
 /** The `response_item` record type whose payloads this reader interprets. */
 const RESPONSE_ITEM_RECORD_TYPE = "response_item";
@@ -128,12 +149,49 @@ const ResponseItemTurnSchema = z
   }));
 
 /**
- * A `response_item` this reader does not read as a turn: codex's own payload —
- * reasoning, tool calls and their results, inter-agent messages — or a message
- * in a role it leaves to codex. Payload types are codex's to add, so any type
- * other than a message is traffic.
+ * A `response_item` carrying the model's own reasoning. The text lives in
+ * `summary` (and, when it survives, `content`), which the reader understands
+ * in either the plaintext or the block form codex writes.
  */
-const ResponseItemTrafficSchema = z
+const ReasoningSchema = z
+  .object({
+    type: z.literal("response_item"),
+    payload: z
+      .object({
+        type: z.literal(REASONING_PAYLOAD),
+        summary: z.unknown().optional(),
+        content: z.unknown().optional(),
+      })
+      .passthrough(),
+  })
+  .transform((record) => ({
+    kind: "reasoning" as const,
+    payload: record.payload,
+  }));
+
+/**
+ * A `response_item` carrying a tool call or its result. The payload is kept
+ * whole: its fields are the tool exchange itself, not prose this reader can
+ * pick apart.
+ */
+const ToolCallSchema = z
+  .object({
+    type: z.literal("response_item"),
+    payload: z.object({ type: z.enum(TOOL_PAYLOAD_TYPES) }).passthrough(),
+  })
+  .transform((record) => ({
+    kind: "tool" as const,
+    nativeType: record.payload.type,
+    payload: record.payload,
+  }));
+
+/**
+ * A `response_item` this reader does not read as a turn: codex's own payload —
+ * inter-agent messages, task state — or a message in a role it leaves to
+ * codex. Payload types are codex's to add, so any type no arm above claims is
+ * `other`, named by that native type.
+ */
+const ResponseItemOtherSchema = z
   .object({
     type: z.literal("response_item"),
     payload: z.union([
@@ -141,10 +199,13 @@ const ResponseItemTrafficSchema = z
         type: z.literal(MESSAGE_PAYLOAD),
         role: otherThan(TURN_ROLES),
       }),
-      z.object({ type: otherThan([MESSAGE_PAYLOAD]) }),
+      z.object({ type: otherThan(CLAIMED_PAYLOAD_TYPES) }),
     ]),
   })
-  .transform(() => ({ kind: "traffic" as const }));
+  .transform((record) => ({
+    kind: "other" as const,
+    nativeType: record.payload.type,
+  }));
 
 /**
  * A `compacted` record: the summary codex wrote in place of the history it
@@ -170,24 +231,29 @@ const OtherLineSchema = z
   .object({
     type: otherThan([RESPONSE_ITEM_RECORD_TYPE, COMPACTED_RECORD_TYPE]),
   })
-  .transform(() => ({ kind: "traffic" as const }));
+  .transform((record) => ({
+    kind: "other" as const,
+    nativeType: record.type,
+  }));
 
 /**
- * One rollout line, as this reader reads it: a turn, a compaction summary, or
- * store traffic that was never the conversation.
+ * One rollout line, as this reader reads it: a turn, a compaction summary,
+ * reasoning, a tool payload, or another native record.
  *
  * The arms claim the shapes this reader interprets, so a record of one of those
  * shapes that does not hold up — a compaction whose summary is not a string, a
  * message whose content is not parts, a turn whose prose is not a string, a
  * line that is not a record at all — is accepted by no arm, and the shared
- * layer counts it as loss rather than reading it as traffic. The record types
- * and payload types this reader does not claim are codex's own, added over
- * time: none of them is conversation, so an unread one is traffic rather than a
- * record the reader failed to read.
+ * layer counts it as loss rather than reading it as another native record. The
+ * record types and payload types this reader does not claim are codex's own,
+ * added over time: none of them is conversation, so an unread one is `other`
+ * rather than a record the reader failed to read.
  */
 export const RolloutLineSchema = z.union([
   ResponseItemTurnSchema,
-  ResponseItemTrafficSchema,
+  ReasoningSchema,
+  ToolCallSchema,
+  ResponseItemOtherSchema,
   CompactedSchema,
   OtherLineSchema,
 ]);

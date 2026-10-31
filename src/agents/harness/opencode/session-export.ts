@@ -8,10 +8,10 @@
  * spawn id), and the export is opencode's own transfer JSON for that session.
  *
  * The reader classifies native messages into the shared handover vocabulary.
- * Every complete native message becomes a turn, a deliberate omission, or an
- * unparseable record, and a completed compaction becomes the shared compaction
- * marker carrying its summary; shared handover code renders the surviving
- * turns and applies the loss policy.
+ * Every complete native message becomes a user or assistant record, thinking,
+ * tool traffic, a compaction summary, another native type, or an unparseable
+ * record; shared handover code decides which kinds enter the transcript and
+ * applies the loss policy.
  */
 
 import { existsSync } from "node:fs";
@@ -20,6 +20,7 @@ import { z } from "zod";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   SessionExportError,
+  otherRecord,
   type HandoverRecord,
   type HandoverRecordSource,
 } from "../../harness.js";
@@ -69,11 +70,17 @@ const OpencodeSessionListSchema = z.object({
   data: z.array(OpencodeSessionSummarySchema),
 });
 
-/** One assistant content part; only the `text` arm is conversation. */
-const OpencodePartSchema = z.object({
-  type: z.string(),
-  text: z.string().optional(),
-});
+/**
+ * One content part: `text` is prose, `reasoning` the model's thinking, and
+ * `tool` a tool call. Every other field travels with the part, because a tool
+ * payload's own fields are the call.
+ */
+const OpencodePartSchema = z
+  .object({
+    type: z.string(),
+    text: z.string().optional(),
+  })
+  .passthrough();
 
 /**
  * One message; the types this renderer does not read carry no `text`. A
@@ -217,7 +224,7 @@ export function* classifyOpencodeMessages(
   for (const message of messages) yield readOpencodeMessage(message);
 }
 
-/** Classify one native message, preserving its raw payload only when it is lost. */
+/** Classify one native message, keeping the raw payload for records left out. */
 function readOpencodeMessage(message: unknown): HandoverRecord {
   const parsed = OpencodeMessageSchema.safeParse(message);
   if (!parsed.success) {
@@ -225,47 +232,61 @@ function readOpencodeMessage(message: unknown): HandoverRecord {
   }
 
   if (parsed.data.type === "compaction") {
-    return readCompaction(parsed.data, message);
+    return readCompaction(parsed.data);
   }
   if (parsed.data.type === "user") {
     const text = normalizeText(parsed.data.text);
     return text === undefined
-      ? { kind: "dont-export", content: JSON.stringify(message) }
-      : { kind: "export", turn: { role: "User", text } };
+      ? otherRecord(parsed.data.type, JSON.stringify(message))
+      : { kind: "user", content: text };
   }
   if (parsed.data.type !== "assistant") {
-    return { kind: "dont-export", content: JSON.stringify(message) };
+    return otherRecord(parsed.data.type, JSON.stringify(message));
   }
 
-  const parts = (parsed.data.content ?? [])
-    .filter((part) => part.type === "text")
+  const content = parsed.data.content ?? [];
+  const prose = partTexts(content, "text");
+  if (prose.length > 0) {
+    return { kind: "assistant", content: prose.join("\n\n") };
+  }
+
+  const thinking = partTexts(content, "reasoning");
+  if (thinking.length > 0) {
+    return { kind: "thinking", content: thinking.join("\n\n") };
+  }
+
+  const calls = content.filter((part) => part.type === "tool");
+  return calls.length > 0
+    ? { kind: "tool-call", content: JSON.stringify(calls) }
+    : otherRecord(parsed.data.type, JSON.stringify(message));
+}
+
+/** The non-blank text of every part of one type, in order. */
+function partTexts(
+  parts: readonly { readonly type: string; readonly text?: string }[],
+  type: string,
+): readonly string[] {
+  return parts
+    .filter((part) => part.type === type)
     .map((part) => normalizeText(part.text))
     .filter((part): part is string => part !== undefined);
-  return parts.length === 0
-    ? { kind: "dont-export", content: JSON.stringify(message) }
-    : {
-        kind: "export",
-        turn: { role: "Assistant", text: parts.join("\n\n") },
-      };
 }
 
 /**
  * A session-level compaction, which replaced the history before it with the
- * summary it carries. Only a completed compaction is such a boundary: it is the
- * one arm with a summary to hand over (a running one carries an empty string, a
- * failed one none at all), and a `compaction` part nested in an assistant
+ * summary it carries. Only a completed compaction produced prose: a failed one
+ * carries an error and no summary, so its `content` is blank and shared handover
+ * code starts nothing from it. A `compaction` part nested in an assistant
  * message is provider state rather than a session boundary, so it never reaches
  * here.
  */
-function readCompaction(
-  message: { readonly status?: string; readonly summary?: string },
-  raw: unknown,
-): HandoverRecord {
+function readCompaction(message: {
+  readonly status?: string;
+  readonly summary?: string;
+}): HandoverRecord {
   const summary =
     message.status === "completed" ? normalizeText(message.summary) : undefined;
-  return summary === undefined
-    ? { kind: "dont-export", content: JSON.stringify(raw) }
-    : { kind: "compaction", summary };
+  return { kind: "compaction", content: summary ?? "" };
 }
 
 /**

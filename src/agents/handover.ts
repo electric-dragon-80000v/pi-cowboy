@@ -147,10 +147,15 @@ function lossDetail(
 
 /**
  * Complete one harness's classified native records into the handover artifact.
- * Every retained record is a complete native session entry, so a readable entry
- * with no transferable prose still counts in the denominator and an unparseable
- * entry also counts as loss. Records before the last compaction are discarded
- * with the history that compaction replaced, and count toward neither.
+ * The include/exclude decision lives here, not in a reader: `user` and
+ * `assistant` become turns, `compaction` becomes the summary the transcript
+ * starts from, and `thinking`, `tool-call` and `other` are left out.
+ *
+ * Every record after the last compaction is a complete native session entry, so
+ * one this export deliberately leaves out still counts in the denominator and
+ * an unparseable entry also counts as loss. Records before the last compaction
+ * are discarded with the history that compaction replaced, and count toward
+ * neither.
  */
 export function completeHandoverExport(
   source: HandoverRecordSource,
@@ -163,17 +168,29 @@ export function completeHandoverExport(
     if (record.kind === "compaction") {
       // A compaction replaces every record before it, so the transcript and the
       // loss counts it carries start over here; only the latest one survives.
-      session = `## Compaction\n\n${escapeContentHeadings(record.summary)}`;
+      // A blank summary — a condensation the harness could not read back —
+      // carries no replacement prose, so it starts nothing and the transcript
+      // before it stays.
+      if (record.content.trim() === "") {
+        total += 1;
+        continue;
+      }
+      session = `## Compaction\n\n${escapeContentHeadings(record.content)}`;
       total = 1;
       excluded = 0;
       continue;
     }
     total += 1;
     switch (record.kind) {
-      case "export":
-        session += `${session === "" ? "" : "\n\n"}## ${record.turn.role}\n\n${escapeContentHeadings(record.turn.text)}`;
+      case "user":
+      case "assistant": {
+        const role = record.kind === "user" ? "User" : "Assistant";
+        session += `${session === "" ? "" : "\n\n"}## ${role}\n\n${escapeContentHeadings(record.content)}`;
         break;
-      case "dont-export":
+      }
+      case "thinking":
+      case "tool-call":
+      case "other":
         break;
       case "unparseable":
         excluded += 1;

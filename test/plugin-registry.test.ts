@@ -9,6 +9,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import {
   canReadHandoverRecords,
+  type HandoverRecord,
   type HarnessConfigCodec,
   type HarnessListModelsRequest,
   type ModelEntry,
@@ -84,8 +85,8 @@ describe("the open harness registry", () => {
       sessionId: "ses_1",
       records: [
         {
-          kind: "export" as const,
-          turn: { role: "User" as const, text: "hi" },
+          kind: "user" as const,
+          content: "hi",
         },
       ],
     }));
@@ -101,18 +102,42 @@ describe("the open harness registry", () => {
     expect(canReadHandoverRecords(harnesses.require("reg-no-export"))).toBe(
       false,
     );
-    await expect(
-      entry.readHandoverRecords?.({
-        pi: {} as never,
-        subagentId: "s",
-        paneId: "w1:p1",
-        cwd: "/repo",
-      }),
-    ).resolves.toEqual({
+    const answer = await entry.readHandoverRecords!({
+      pi: {} as never,
+      subagentId: "s",
+      paneId: "w1:p1",
+      cwd: "/repo",
+    });
+    expect({ ...answer, records: [...answer.records] }).toEqual({
       sessionId: "ses_1",
-      records: [{ kind: "export", turn: { role: "User", text: "hi" } }],
+      records: [{ kind: "user", content: "hi" }],
     });
     expect(readHandoverRecords).toHaveBeenCalledOnce();
+  });
+
+  it("reads a record whose kind it does not know as loss rather than passing it through", async () => {
+    // A plugin built before the vocabulary changed ships records the current
+    // contract does not name; what it yields is validated, not trusted.
+    const stale = { kind: "export", turn: { role: "User", text: "hi" } };
+    harnesses.register({
+      ...pluginHarness("reg-stale-export", { status: "available" }),
+      readHandoverRecords: async () => ({
+        sessionId: "ses_1",
+        records: [stale as unknown as HandoverRecord],
+      }),
+    });
+
+    const answer = await harnesses.require("reg-stale-export")
+      .readHandoverRecords!({
+      pi: {} as never,
+      subagentId: "s",
+      paneId: "w1:p1",
+      cwd: "/repo",
+    });
+
+    expect([...answer.records]).toEqual([
+      { kind: "unparseable", content: JSON.stringify(stale) },
+    ]);
   });
 
   it("validates each harness's config with its own codec, built-in or plugin", () => {

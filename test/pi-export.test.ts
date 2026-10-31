@@ -394,16 +394,42 @@ describe("session records", () => {
     ]);
 
     expect([...(await readSessionRecords(file)).records]).toEqual([
-      { kind: "dont-export", content: record(HEADER) },
-      { kind: "export", turn: { role: "User", text: "before compaction" } },
-      { kind: "export", turn: { role: "Assistant", text: "before answer" } },
-      { kind: "compaction", summary: "User discussed X, Y, Z." },
-      { kind: "export", turn: { role: "User", text: "after compaction" } },
+      { kind: "other", unmappedKind: "session", content: record(HEADER) },
+      { kind: "user", content: "before compaction" },
+      { kind: "assistant", content: "before answer" },
+      { kind: "compaction", content: "User discussed X, Y, Z." },
+      { kind: "user", content: "after compaction" },
     ]);
     await expect(readSessionFile(file)).resolves.toEqual({
       sessionId: HEADER.id,
       session:
         "## Compaction\n\nUser discussed X, Y, Z.\n\n## User\n\nafter compaction\n",
+    });
+  });
+
+  it("keeps a compaction whose summary is blank as a compaction the transcript does not start at", async () => {
+    const file = await writeLines([
+      record(HEADER),
+      user("before compaction"),
+      record({
+        type: "compaction",
+        id: "m1",
+        parentId: "u1",
+        timestamp: "2026-10-23T00:11:06.000Z",
+        summary: "   ",
+        firstKeptEntryId: "u1",
+        tokensBefore: 50000,
+      }),
+      user("after compaction"),
+    ]);
+
+    expect([...(await readSessionRecords(file)).records][2]).toEqual({
+      kind: "compaction",
+      content: "",
+    });
+    await expect(readSessionFile(file)).resolves.toEqual({
+      sessionId: HEADER.id,
+      session: "## User\n\nbefore compaction\n\n## User\n\nafter compaction\n",
     });
   });
 
@@ -442,12 +468,13 @@ describe("session records", () => {
     ]);
 
     expect([...(await readSessionRecords(file)).records]).toEqual([
-      { kind: "dont-export", content: record(HEADER) },
-      { kind: "export", turn: { role: "User", text: "first" } },
-      { kind: "compaction", summary: "summary A" },
-      { kind: "export", turn: { role: "Assistant", text: "after A" } },
+      { kind: "other", unmappedKind: "session", content: record(HEADER) },
+      { kind: "user", content: "first" },
+      { kind: "compaction", content: "summary A" },
+      { kind: "assistant", content: "after A" },
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "branch_summary",
         content: record({
           type: "branch_summary",
           id: "m2",
@@ -457,8 +484,8 @@ describe("session records", () => {
           fromId: "u1",
         }),
       },
-      { kind: "compaction", summary: "summary B" },
-      { kind: "export", turn: { role: "User", text: "after B" } },
+      { kind: "compaction", content: "summary B" },
+      { kind: "user", content: "after B" },
     ]);
     await expect(readSessionFile(file)).resolves.toEqual({
       sessionId: HEADER.id,
@@ -485,6 +512,56 @@ describe("session records", () => {
       session: "## User\n\nafter\n",
       loss: { excluded: 1, total: 3 },
     });
+  });
+
+  it("classifies thinking, tool calls, tool results, and other native entries", async () => {
+    const thinkingOnly = assistant(
+      [{ type: "thinking", thinking: "plan only" }],
+      "a1",
+    );
+    const toolOnly = assistant(
+      [{ type: "toolCall", name: "read", arguments: { path: "x" } }],
+      "a2",
+    );
+    const toolResult = record({
+      type: "message",
+      id: "t1",
+      parentId: "a2",
+      timestamp: "2026-10-23T00:11:03.000Z",
+      message: {
+        role: "toolResult",
+        content: [{ type: "text", text: "tool output" }],
+      },
+    });
+    const file = await writeLines([
+      record(HEADER),
+      sessionInfo("spawn-abc"),
+      thinkingOnly,
+      toolOnly,
+      toolResult,
+      user("question"),
+    ]);
+
+    expect([...(await readSessionRecords(file)).records]).toEqual([
+      { kind: "other", unmappedKind: "session", content: record(HEADER) },
+      {
+        kind: "other",
+        unmappedKind: "session_info",
+        content: sessionInfo("spawn-abc"),
+      },
+      { kind: "thinking", content: "plan only" },
+      {
+        kind: "tool-call",
+        content: JSON.stringify([
+          { type: "toolCall", name: "read", arguments: { path: "x" } },
+        ]),
+      },
+      {
+        kind: "tool-call",
+        content: JSON.stringify([{ type: "text", text: "tool output" }]),
+      },
+      { kind: "user", content: "question" },
+    ]);
   });
 
   it("emits no heading for empty and tool-only turns", async () => {
@@ -867,10 +944,14 @@ describe("the family's export", () => {
       );
       expect(source.sessionId).toBe(HEADER.id);
       expect([...source.records]).toEqual([
-        { kind: "dont-export", content: record(HEADER) },
-        { kind: "dont-export", content: sessionInfo("spawn-abc") },
-        { kind: "export", turn: { role: "User", text: "hand this on" } },
-        { kind: "export", turn: { role: "Assistant", text: "done" } },
+        { kind: "other", unmappedKind: "session", content: record(HEADER) },
+        {
+          kind: "other",
+          unmappedKind: "session_info",
+          content: sessionInfo("spawn-abc"),
+        },
+        { kind: "user", content: "hand this on" },
+        { kind: "assistant", content: "done" },
       ]);
     },
   );

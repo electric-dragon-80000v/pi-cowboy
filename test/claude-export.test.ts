@@ -371,6 +371,23 @@ describe("readClaudeSessionRecords", () => {
     expect(session).not.toContain("between the compactions");
   });
 
+  it("keeps a compact-summary record with no prose as a compaction the transcript does not start at", () => {
+    writeSession([
+      user("before the compaction"),
+      user("", { isCompactSummary: true }),
+      assistant({ type: "text", text: "after the compaction" }),
+    ]);
+
+    const records = [...readClaudeSessionRecords({ configDir, cwd }).records];
+
+    expect(records[1]).toEqual({ kind: "compaction", content: "" });
+    expect(exportFixture()).toEqual({
+      sessionId: SESSION_ID,
+      session:
+        "## User\n\nbefore the compaction\n\n## Assistant\n\nafter the compaction\n",
+    });
+  });
+
   it("drops meta, local-command, and sidechain records", () => {
     writeSession([
       user("human words"),
@@ -601,7 +618,66 @@ describe("readClaudeSessionRecords", () => {
     ).toBe("unreadable-record");
   });
 
-  it("returns no turns when every readable record is deliberately omitted", () => {
+  it("classifies thinking, tool traffic, compaction, and other native records", () => {
+    writeSession([
+      user("the prompt"),
+      assistant({ type: "thinking", thinking: "THINKING-SECRET" }),
+      assistant({
+        type: "tool_use",
+        id: "toolu_1",
+        name: "Bash",
+        input: { command: "ls" },
+      }),
+      {
+        type: "user",
+        sessionId: SESSION_ID,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: "TOOL-RESULT-SECRET",
+            },
+          ],
+        },
+      },
+      {
+        type: "system",
+        sessionId: SESSION_ID,
+        subtype: "turn_duration",
+        content: "timing",
+      },
+      user("THE-COMPACT-SUMMARY", { isCompactSummary: true }),
+    ]);
+
+    const records = [...readClaudeSessionRecords({ configDir, cwd }).records];
+
+    expect(records.map((record) => record.kind)).toEqual([
+      "user",
+      "thinking",
+      "tool-call",
+      "tool-call",
+      "other",
+      "compaction",
+    ]);
+    expect(records[1]).toEqual({
+      kind: "thinking",
+      content: "THINKING-SECRET",
+    });
+    expect(records[2]).toMatchObject({ kind: "tool-call" });
+    expect(records[3]).toMatchObject({ kind: "tool-call" });
+    expect(records[4]).toMatchObject({
+      kind: "other",
+      unmappedKind: "system",
+    });
+    expect(records[5]).toEqual({
+      kind: "compaction",
+      content: "THE-COMPACT-SUMMARY",
+    });
+  });
+
+  it("returns no turns when every readable record is not transferable", () => {
     writeSession([
       assistant({ type: "thinking", thinking: "only thinking" }),
       assistant({ type: "tool_use", id: "t", name: "Read", input: {} }),

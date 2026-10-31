@@ -23,9 +23,10 @@
  *
  * The record set carries thinking, tool calls, tool results, system prompts,
  * attachments, command wrappers, and transport errors. Every complete native
- * entry becomes a turn, a deliberate omission, or an unparseable record.
- * Shared handover code alone renders the transcript and applies the loss
- * policy.
+ * entry is classified into the shared vocabulary: a user or assistant turn,
+ * thinking, tool traffic, a compaction summary, another native type, or an
+ * unparseable record. Shared handover code alone decides which kinds enter the
+ * transcript and applies the loss policy.
  *
  * A compaction is the synthetic `user` record claude writes with
  * `isCompactSummary: true`; its message content is the summary that replaced
@@ -40,6 +41,7 @@ import * as path from "node:path";
 import { z } from "zod";
 import {
   SessionExportError,
+  otherRecord,
   type HandoverRecord,
   type HandoverRecordSource,
 } from "../../harness.js";
@@ -68,13 +70,14 @@ const SESSION_ID =
 const HANDOVER_MARKER = "<<pi-cowboy-handover";
 
 /**
- * One content part. Only a `text` part carries conversation prose; every other
- * type (thinking, tool call, tool result, image) is structure the artifact
- * does not keep.
+ * One content part. A `text` part carries conversation prose and a `thinking`
+ * part the model's reasoning; every other type (tool call, tool result, image)
+ * is structure the artifact does not keep.
  */
 const ClaudeContentPartSchema = z.object({
   type: z.string(),
   text: z.string().optional(),
+  thinking: z.string().optional(),
 });
 
 /**
@@ -309,10 +312,10 @@ function classifyRecord(line: ClaudeLine, sessionId: string): HandoverRecord {
 
   const record = line.record;
   if (record.isSidechain === true) {
-    return { kind: "dont-export", content: line.content };
+    return otherRecord(record.type, line.content);
   }
   if (record.type !== "user" && record.type !== "assistant") {
-    return { kind: "dont-export", content: line.content };
+    return otherRecord(record.type, line.content);
   }
   if (
     record.sessionId === undefined ||
@@ -328,48 +331,92 @@ function classifyRecord(line: ClaudeLine, sessionId: string): HandoverRecord {
       if (message === undefined) {
         return { kind: "unparseable", content: line.content };
       }
-      const summary = cleanText(message.text);
-      return summary === ""
-        ? { kind: "dont-export", content: line.content }
-        : { kind: "compaction", summary };
+      return { kind: "compaction", content: cleanText(message.text) };
     }
     if (record.isMeta === true || record.isVisibleInTranscriptOnly === true) {
-      return { kind: "dont-export", content: line.content };
+      return otherRecord(record.type, line.content);
     }
     const message = messageOf(record.message);
     if (message === undefined) {
       return { kind: "unparseable", content: line.content };
     }
     const text = cleanText(message.text);
-    return text === "" || isLocalCommand(text)
-      ? { kind: "dont-export", content: line.content }
-      : { kind: "export", turn: { role: "User", text } };
+    if (text !== "") {
+      return isLocalCommand(text)
+        ? otherRecord(record.type, line.content)
+        : { kind: "user", content: text };
+    }
+    const results = partsOfType(message.parts, "tool_result");
+    return results.length > 0
+      ? { kind: "tool-call", content: JSON.stringify(results) }
+      : otherRecord(record.type, line.content);
   }
 
   if (record.isApiErrorMessage === true) {
-    return { kind: "dont-export", content: line.content };
+    return otherRecord(record.type, line.content);
   }
   const message = messageOf(record.message);
   if (message === undefined) {
     return { kind: "unparseable", content: line.content };
   }
   if (message.model === "<synthetic>") {
-    return { kind: "dont-export", content: line.content };
+    return otherRecord(record.type, line.content);
   }
   const text = cleanText(message.text);
-  return text === ""
-    ? { kind: "dont-export", content: line.content }
-    : { kind: "export", turn: { role: "Assistant", text } };
+  if (text !== "") return { kind: "assistant", content: text };
+
+  const thinking = partsText(message.parts, "thinking");
+  if (thinking !== "") return { kind: "thinking", content: thinking };
+
+  const calls = partsOfType(message.parts, "tool_use");
+  return calls.length > 0
+    ? { kind: "tool-call", content: JSON.stringify(calls) }
+    : otherRecord(record.type, line.content);
 }
 
-/** One message's surviving text and its optional model, when its shape is valid. */
-function messageOf(
-  message: unknown,
-): { readonly text: string; readonly model: string | undefined } | undefined {
+/**
+ * One message's surviving text, the parts it was written as, and its optional
+ * model, when its shape is valid.
+ */
+function messageOf(message: unknown):
+  | {
+      readonly text: string;
+      readonly parts: readonly unknown[];
+      readonly model: string | undefined;
+    }
+  | undefined {
   const body = ClaudeMessageSchema.safeParse(message);
-  return body.success
-    ? { text: textOfContent(body.data.content), model: body.data.model }
-    : undefined;
+  if (!body.success) return undefined;
+  return {
+    text: textOfContent(body.data.content),
+    parts: typeof body.data.content === "string" ? [] : body.data.content,
+    model: body.data.model,
+  };
+}
+
+/** A thinking part's text, joined across the message with a blank line. */
+function partsText(parts: readonly unknown[], type: string): string {
+  const kept: string[] = [];
+  for (const candidate of parts) {
+    const part = ClaudeContentPartSchema.safeParse(candidate);
+    if (!part.success || part.data.type !== type) continue;
+    const raw = part.data.thinking ?? part.data.text;
+    if (raw === undefined) continue;
+    const text = cleanText(raw);
+    if (text !== "") kept.push(text);
+  }
+  return kept.join("\n\n");
+}
+
+/** Every content part of one native type, kept whole for a tool payload. */
+function partsOfType(
+  parts: readonly unknown[],
+  type: string,
+): readonly unknown[] {
+  return parts.filter((candidate) => {
+    const part = ClaudeContentPartSchema.safeParse(candidate);
+    return part.success && part.data.type === type;
+  });
 }
 
 /** The text blocks of a message's content, joined in order. */

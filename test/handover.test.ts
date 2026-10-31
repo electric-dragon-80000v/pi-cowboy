@@ -17,6 +17,7 @@ import {
 import type { HarnessRegistry } from "../src/agents/harness/harness-registry.js";
 import {
   SessionExportError,
+  readHandoverRecord,
   type AnyHarnessId,
   type HandoverRecord,
   type HandoverRecordSource,
@@ -95,20 +96,18 @@ describe("parseHandoverMarker", () => {
 });
 
 describe("completeHandoverExport", () => {
-  it("renders only exported turns and counts every yielded source record", () => {
+  it("renders user and assistant records as turns and counts every yielded source record", () => {
     expect(
       completeHandoverExport(
         source([
+          { kind: "user", content: "first" },
           {
-            kind: "export",
-            turn: { role: "User", text: "first" },
+            kind: "other",
+            unmappedKind: "session_info",
+            content: "a readable native entry",
           },
-          { kind: "dont-export", content: "a valid tool-only assistant turn" },
           { kind: "unparseable", content: "{broken" },
-          {
-            kind: "export",
-            turn: { role: "Assistant", text: "second" },
-          },
+          { kind: "assistant", content: "second" },
         ]),
       ),
     ).toEqual({
@@ -116,6 +115,28 @@ describe("completeHandoverExport", () => {
       session: "## User\n\nfirst\n\n## Assistant\n\nsecond\n",
       loss: { excluded: 1, total: 4 },
     });
+  });
+
+  it("excludes thinking, tool calls, and other native records without counting them as loss", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "user", content: "question" },
+        { kind: "thinking", content: "reasoning that must stay out" },
+        { kind: "tool-call", content: '{"name":"read"}' },
+        {
+          kind: "other",
+          unmappedKind: "branch_summary",
+          content: "native entry that must stay out",
+        },
+        { kind: "assistant", content: "answer" },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## User\n\nquestion\n\n## Assistant\n\nanswer\n",
+    );
+    expect(exported.loss).toBeUndefined();
+    expect(exported.session).not.toContain("must stay out");
   });
 
   it("renders each record before the next is produced, in one pass", () => {
@@ -127,18 +148,24 @@ describe("completeHandoverExport", () => {
     function* streamed(): Generator<HandoverRecord> {
       for (let index = 0; index < texts.length; index += 1) {
         const text = texts[index]!;
-        const role: "User" | "Assistant" = index === 0 ? "User" : "Assistant";
-        pulls.push(readOrder.length);
-        yield {
-          kind: "export",
-          turn: {
-            role,
-            get text() {
-              readOrder.push(text);
-              return text;
-            },
-          },
+        const read = () => {
+          readOrder.push(text);
+          return text;
         };
+        pulls.push(readOrder.length);
+        yield index === 0
+          ? {
+              kind: "user",
+              get content() {
+                return read();
+              },
+            }
+          : {
+              kind: "assistant",
+              get content() {
+                return read();
+              },
+            };
       }
     }
 
@@ -172,21 +199,18 @@ describe("completeHandoverExport", () => {
       completeHandoverExport(
         source([
           {
-            kind: "export",
-            turn: {
-              role: "Assistant",
-              text: "# heading\n```md\n# literal\n```",
-            },
+            kind: "assistant",
+            content: "# heading\n```md\n# literal\n```",
           },
         ]),
       ).session,
     ).toBe("## Assistant\n\n\\# heading\n```md\n# literal\n```\n");
   });
 
-  it("does not expose omitted or unparseable content in the session", () => {
+  it("does not expose excluded or unparseable content in the session", () => {
     const exported = completeHandoverExport(
       source([
-        { kind: "dont-export", content: "private tool result" },
+        { kind: "thinking", content: "private reasoning" },
         { kind: "unparseable", content: "broken private record" },
       ]),
     );
@@ -195,12 +219,12 @@ describe("completeHandoverExport", () => {
     expect(exported.loss).toEqual({ excluded: 1, total: 2 });
   });
 
-  it("renders every record when the source has no compaction", () => {
+  it("renders every turn when the source has no compaction", () => {
     const exported = completeHandoverExport(
       source([
-        { kind: "export", turn: { role: "User", text: "first" } },
-        { kind: "dont-export", content: "tool result" },
-        { kind: "export", turn: { role: "Assistant", text: "second" } },
+        { kind: "user", content: "first" },
+        { kind: "tool-call", content: "tool result" },
+        { kind: "assistant", content: "second" },
       ]),
     );
 
@@ -213,10 +237,10 @@ describe("completeHandoverExport", () => {
   it("starts the transcript at the one compaction summary", () => {
     const exported = completeHandoverExport(
       source([
-        { kind: "export", turn: { role: "User", text: "old" } },
+        { kind: "user", content: "old" },
         { kind: "unparseable", content: "{broken" },
-        { kind: "compaction", summary: "summary A" },
-        { kind: "export", turn: { role: "Assistant", text: "after A" } },
+        { kind: "compaction", content: "summary A" },
+        { kind: "assistant", content: "after A" },
       ]),
     );
 
@@ -229,13 +253,13 @@ describe("completeHandoverExport", () => {
   it("keeps only the latest compaction summary and what follows it", () => {
     const exported = completeHandoverExport(
       source([
-        { kind: "export", turn: { role: "User", text: "old" } },
+        { kind: "user", content: "old" },
         { kind: "unparseable", content: "{broken" },
-        { kind: "compaction", summary: "summary A" },
-        { kind: "export", turn: { role: "Assistant", text: "after A" } },
-        { kind: "dont-export", content: "tool result" },
-        { kind: "compaction", summary: "summary B" },
-        { kind: "export", turn: { role: "User", text: "after B" } },
+        { kind: "compaction", content: "summary A" },
+        { kind: "assistant", content: "after A" },
+        { kind: "tool-call", content: "tool result" },
+        { kind: "compaction", content: "summary B" },
+        { kind: "user", content: "after B" },
       ]),
     );
 
@@ -249,10 +273,14 @@ describe("completeHandoverExport", () => {
     const exported = completeHandoverExport(
       source([
         { kind: "unparseable", content: "{broken older" },
-        { kind: "dont-export", content: "older tool result" },
-        { kind: "compaction", summary: "summary" },
+        {
+          kind: "other",
+          unmappedKind: "session_info",
+          content: "older tool result",
+        },
+        { kind: "compaction", content: "summary" },
         { kind: "unparseable", content: "{broken retained" },
-        { kind: "export", turn: { role: "Assistant", text: "after" } },
+        { kind: "assistant", content: "after" },
       ]),
     );
 
@@ -262,13 +290,58 @@ describe("completeHandoverExport", () => {
     expect(exported.loss).toEqual({ excluded: 1, total: 3 });
   });
 
+  it("does not start the transcript at a compaction with a blank summary", () => {
+    const exported = completeHandoverExport(
+      source([
+        { kind: "user", content: "before" },
+        { kind: "compaction", content: "   " },
+        { kind: "assistant", content: "after" },
+      ]),
+    );
+
+    expect(exported.session).toBe(
+      "## User\n\nbefore\n\n## Assistant\n\nafter\n",
+    );
+    expect(exported.loss).toBeUndefined();
+  });
+
   it("escapes headings inside a compaction summary", () => {
     const exported = completeHandoverExport(
-      source([{ kind: "compaction", summary: "# not a user turn" }]),
+      source([{ kind: "compaction", content: "# not a user turn" }]),
     );
 
     expect(exported.session).toBe("## Compaction\n\n\\# not a user turn\n");
     expect(exported.loss).toBeUndefined();
+  });
+});
+
+describe("readHandoverRecord", () => {
+  it("keeps a record the vocabulary knows as it is", () => {
+    const record: HandoverRecord = {
+      kind: "other",
+      unmappedKind: "session_meta",
+      content: "{}",
+    };
+
+    expect(readHandoverRecord(record)).toEqual(record);
+  });
+
+  it("counts a record whose kind it does not know as loss", () => {
+    const stale = { kind: "export", content: "hi" };
+
+    expect(readHandoverRecord(stale)).toEqual({
+      kind: "unparseable",
+      content: JSON.stringify(stale),
+    });
+  });
+
+  it("counts an other record with no native type as loss", () => {
+    const malformed = { kind: "other", content: "hi" };
+
+    expect(readHandoverRecord(malformed)).toEqual({
+      kind: "unparseable",
+      content: JSON.stringify(malformed),
+    });
   });
 });
 
@@ -331,7 +404,7 @@ describe("exportRunSession", () => {
         registryWith({
           id: "claude",
           readHandoverRecords: async () =>
-            source([{ kind: "export", turn: { role: "User", text: "hi" } }]),
+            source([{ kind: "user", content: "hi" }]),
         }),
         "claude",
         request,
@@ -388,7 +461,11 @@ describe("exportRunSession", () => {
             source([
               { kind: "unparseable", content: "bad one" },
               { kind: "unparseable", content: "bad two" },
-              { kind: "dont-export", content: "valid but omitted" },
+              {
+                kind: "other",
+                unmappedKind: "session_info",
+                content: "valid but omitted",
+              },
             ]),
         }),
         "codex",
@@ -412,7 +489,7 @@ describe("exportRunSession", () => {
           id: "codex",
           readHandoverRecords: async () =>
             source([
-              { kind: "export", turn: { role: "User", text: "keep" } },
+              { kind: "user", content: "keep" },
               { kind: "unparseable", content: "bad" },
             ]),
         }),
@@ -428,13 +505,13 @@ describe("exportRunSession", () => {
     });
   });
 
-  it("treats only deliberately omitted records as an empty session", async () => {
+  it("treats a source with nothing exportable as an empty session", async () => {
     await expect(
       exportRunSession(
         registryWith({
           id: "codex",
           readHandoverRecords: async () =>
-            source([{ kind: "dont-export", content: "tool-only message" }]),
+            source([{ kind: "tool-call", content: "tool-only message" }]),
         }),
         "codex",
         request,

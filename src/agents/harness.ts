@@ -56,6 +56,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../predicates.js";
 import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
 
 /**
@@ -516,28 +517,120 @@ export interface HarnessExportRequest {
 
 /**
  * One complete native session record after a harness has read its store. A
- * reader emits exactly one for every complete entry it can enumerate: readable
- * entries with no transferable prose are `dont-export`, and entries it cannot
- * classify are `unparseable`. `content` is retained only where no turn
- * survives, for reader diagnostics and tests; shared handover code never puts
- * it in the task it gives the next run.
+ * reader emits exactly one for every complete entry it can enumerate, tagging
+ * it with what the entry is rather than with whether it is exported: the
+ * reader owns native discovery and content extraction, shared handover code
+ * alone decides which kinds enter the transcript.
  *
- * `compaction` is a native summary the harness wrote as it condensed the
- * session so far. It is not a turn of either role, and the records before it
- * are the history it replaces: shared handover code starts the transcript at
- * the last one, so an earlier compaction's summary and the turns it covered
- * never reach the next run.
+ * `user` and `assistant` carry a turn's prose, `thinking` the model's own
+ * reasoning, `tool-call` the payload of a tool invocation or its result, and
+ * `compaction` the summary a harness wrote in place of the history it
+ * condensed. A record the reader parsed but has no canonical kind for is
+ * `other`, naming the harness's own type in `unmappedKind`; `unparseable` is
+ * reserved for a complete record the reader cannot parse at all, and is the
+ * only kind shared handover counts as loss.
+ *
+ * What `content` holds follows the kind: `user`, `assistant` and `thinking`
+ * carry cleaned prose — the reader's own envelope stripping applied, trailing
+ * whitespace and blank margins removed — and `compaction` a cleaned summary. A
+ * `tool-call` carries the native tool part or parts as JSON, whole, because
+ * each harness shapes a call and its result its own way; `other` and
+ * `unparseable` carry the native entry's own text, unedited.
+ *
+ * `compaction` is not a turn of either role, and the records before it are the
+ * history it replaces: shared handover code starts the transcript at the last
+ * one that carries a summary, so an earlier compaction's summary and the turns
+ * it covered never reach the next run. A compaction whose summary is blank —
+ * one the harness could not read back — replaced no history with prose, so the
+ * transcript before it survives and only the record itself is left out.
  */
 export type HandoverRecord =
-  | { readonly kind: "export"; readonly turn: SessionExportTurn }
-  | { readonly kind: "dont-export"; readonly content: string }
-  | { readonly kind: "unparseable"; readonly content: string }
-  | { readonly kind: "compaction"; readonly summary: string };
+  | { readonly kind: "user"; readonly content: string }
+  | { readonly kind: "assistant"; readonly content: string }
+  | { readonly kind: "thinking"; readonly content: string }
+  | { readonly kind: "tool-call"; readonly content: string }
+  | { readonly kind: "compaction"; readonly content: string }
+  | {
+      readonly kind: "other";
+      /** The record's native type, as the source store wrote it. */
+      readonly unmappedKind: string;
+      readonly content: string;
+    }
+  | { readonly kind: "unparseable"; readonly content: string };
+
+/**
+ * A parsed native record with no canonical kind, named by the native type that
+ * distinguishes it. A type a store left empty, or that is not a string, is
+ * named `unknown`, so `unmappedKind` always says what to look for.
+ */
+export function otherRecord(
+  unmappedKind: unknown,
+  content: string,
+): HandoverRecord {
+  return {
+    kind: "other",
+    unmappedKind:
+      typeof unmappedKind === "string" && unmappedKind !== ""
+        ? unmappedKind
+        : "unknown",
+    content,
+  };
+}
+
+/**
+ * One record a reader yielded, read back where it is consumed. The vocabulary is
+ * a compile-time promise only to a reader built against this version: an
+ * installed plugin's shipped build may predate it, and a reader written in plain
+ * JavaScript never saw the types at all. A value whose kind or required fields
+ * are not in the vocabulary is a complete entry this layer cannot read, so it
+ * becomes the `unparseable` record whose count is loss, rather than passing
+ * through and being dropped without a trace. It never throws: a fault raised
+ * while consuming records bypasses the export's own fault mapping.
+ */
+export function readHandoverRecord(value: unknown): HandoverRecord {
+  if (!isRecord(value) || typeof value.content !== "string") {
+    return unreadableRecord(value);
+  }
+
+  const kind = value.kind;
+  if (typeof kind !== "string") return unreadableRecord(value);
+  switch (kind) {
+    case "user":
+    case "assistant":
+    case "thinking":
+    case "tool-call":
+    case "compaction":
+    case "unparseable":
+      return { kind, content: value.content };
+    case "other":
+      return typeof value.unmappedKind === "string"
+        ? { kind, unmappedKind: value.unmappedKind, content: value.content }
+        : unreadableRecord(value);
+    default:
+      return unreadableRecord(value);
+  }
+}
+
+/** A native value this layer cannot read, kept as its own text and counted as loss. */
+function unreadableRecord(native: unknown): HandoverRecord {
+  if (typeof native === "string") {
+    return { kind: "unparseable", content: native };
+  }
+  try {
+    return {
+      kind: "unparseable",
+      content: JSON.stringify(native) ?? String(native),
+    };
+  } catch {
+    return { kind: "unparseable", content: String(native) };
+  }
+}
 
 /**
  * What a harness finds at one run's session address. The harness owns native
- * discovery and per-record classification; shared handover code owns counting,
- * rendering, loss policy, and the completed export.
+ * discovery, content extraction, and per-record classification; shared handover
+ * code owns the include/exclude decision, counting, rendering, loss policy, and
+ * the completed export.
  */
 export interface HandoverRecordSource {
   /** The source harness's resume id for this run, not a display id. */
@@ -598,12 +691,6 @@ export class SessionExportError extends Error {
     this.name = "SessionExportError";
     this.fault = fault;
   }
-}
-
-/** One surviving turn of a conversation, in the order the record holds it. */
-export interface SessionExportTurn {
-  readonly role: "User" | "Assistant";
-  readonly text: string;
 }
 
 /**

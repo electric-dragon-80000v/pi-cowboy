@@ -33,6 +33,7 @@ import {
   isPiFamilyHarness,
   modelListEntries,
   modelListNotice,
+  readHandoverRecord,
   parseHarnessId,
   type AnyHarnessId,
   type BuiltinLaunchRequest,
@@ -41,8 +42,10 @@ import {
   type HarnessFamily,
   type HarnessId,
   type HarnessLaunch,
+  type HandoverRecord,
   type HarnessListModelsRequest,
   type LaunchRequestFor,
+  type ReadHandoverRecords,
   type ModelEntry,
   type ModelList,
   type PluginHarness,
@@ -199,8 +202,47 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
     // adapter must not supply a record reader the implementation never wrote.
     ...(harness.readHandoverRecords === undefined
       ? {}
-      : { readHandoverRecords: harness.readHandoverRecords.bind(harness) }),
+      : {
+          readHandoverRecords: withRecordGuard(
+            harness.readHandoverRecords.bind(harness),
+          ),
+        }),
   };
+}
+
+/** A plugin harness whose reader delivers its records under the guard. */
+function withGuardedReader(harness: PluginHarness): PluginHarness {
+  return harness.readHandoverRecords === undefined
+    ? harness
+    : {
+        ...harness,
+        readHandoverRecords: withRecordGuard(
+          harness.readHandoverRecords.bind(harness),
+        ),
+      };
+}
+
+/**
+ * One reader's answer with every record read back at the boundary it crosses.
+ * The records are validated as the export consumes them, not at registration:
+ * a reader's iterable produces them per run, and what ships is the plugin's own
+ * build rather than the contract it was written against.
+ */
+function withRecordGuard(read: ReadHandoverRecords): ReadHandoverRecords {
+  return async (request) => {
+    const source = await read(request);
+    return {
+      sessionId: source.sessionId,
+      records: readRecords(source.records),
+    };
+  };
+}
+
+/** Every record of one source in the shared vocabulary, an unknown kind as loss. */
+function* readRecords(
+  records: Iterable<HandoverRecord>,
+): Iterable<HandoverRecord> {
+  for (const record of records) yield readHandoverRecord(record);
 }
 
 /**
@@ -349,7 +391,7 @@ export function createHarnessRegistry(): HarnessRegistry {
         );
         return false;
       }
-      registered.set(harness.id, withOneLevelShape(harness));
+      registered.set(harness.id, withOneLevelShape(withGuardedReader(harness)));
       owned.add(harness.id);
       return true;
     },

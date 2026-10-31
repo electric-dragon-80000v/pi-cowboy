@@ -37,7 +37,6 @@ import {
   SessionExportError,
   type HandoverRecord,
   type SessionExportFault,
-  type SessionExportTurn,
 } from "../src/agents/harness.js";
 
 const roots: string[] = [];
@@ -165,13 +164,20 @@ function lineOf(record: Record<string, unknown>): string {
   return JSON.stringify(record);
 }
 
-/** The turns a read produced, in order. */
-function turns(
-  records: Iterable<HandoverRecord>,
-): readonly SessionExportTurn[] {
-  return [...records].flatMap((record) =>
-    record.kind === "export" ? [record.turn] : [],
-  );
+/** The user and assistant turns a read produced, in order. */
+function turns(records: Iterable<HandoverRecord>): readonly {
+  readonly role: "User" | "Assistant";
+  readonly text: string;
+}[] {
+  const kept: { role: "User" | "Assistant"; text: string }[] = [];
+  for (const record of records) {
+    if (record.kind === "user") {
+      kept.push({ role: "User", text: record.content });
+    } else if (record.kind === "assistant") {
+      kept.push({ role: "Assistant", text: record.content });
+    }
+  }
+  return kept;
 }
 
 /** The kinds a read produced, in order. */
@@ -226,12 +232,7 @@ describe("readCodexSession", () => {
       { role: "Assistant", text: "second" },
       { role: "User", text: "third" },
     ]);
-    expect(kinds(records)).toEqual([
-      "dont-export",
-      "export",
-      "export",
-      "export",
-    ]);
+    expect(kinds(records)).toEqual(["other", "user", "assistant", "user"]);
   });
 
   it("keeps assistant prose that starts with a plan envelope", () => {
@@ -276,19 +277,40 @@ describe("readCodexSession", () => {
     ]);
 
     expect(kinds(records)).toEqual([
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "dont-export",
-      "export",
-      "export",
+      "other",
+      "other",
+      "thinking",
+      "tool-call",
+      "tool-call",
+      "tool-call",
+      "tool-call",
+      "other",
+      "other",
+      "other",
+      "user",
+      "assistant",
     ]);
+    expect(records[0]).toMatchObject({
+      kind: "other",
+      unmappedKind: "session_meta",
+    });
+    expect(records[1]).toMatchObject({
+      kind: "other",
+      unmappedKind: "message",
+    });
+    expect(records[2]).toEqual({
+      kind: "thinking",
+      content: "REASONING_SECRET",
+    });
+    expect(records[3]).toMatchObject({ kind: "tool-call" });
+    expect(records[7]).toMatchObject({
+      kind: "other",
+      unmappedKind: "agent_message",
+    });
+    expect(records[8]).toMatchObject({
+      kind: "other",
+      unmappedKind: "event_msg",
+    });
     expect(turns(records)).toEqual([
       { role: "User", text: "the real question" },
       { role: "Assistant", text: "the real answer" },
@@ -382,7 +404,8 @@ describe("readCodexSession", () => {
     // The message is still a record of the conversation, so it is reported
     // rather than dropped; it simply carries no turn.
     expect(records[3]).toEqual({
-      kind: "dont-export",
+      kind: "other",
+      unmappedKind: "message",
       content: lineOf(onlyAnImage),
     });
     // The omission keeps the native line for diagnostics, so the marker only
@@ -402,12 +425,17 @@ describe("readCodexSession", () => {
 
     expect([...records]).toEqual([
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "session_meta",
         content: lineOf(sessionMeta("/worktree", id(1))),
       },
-      { kind: "dont-export", content: lineOf(empty) },
-      { kind: "dont-export", content: lineOf(whitespace) },
-      { kind: "export", turn: { role: "User", text: "real" } },
+      { kind: "other", unmappedKind: "message", content: lineOf(empty) },
+      {
+        kind: "other",
+        unmappedKind: "message",
+        content: lineOf(whitespace),
+      },
+      { kind: "user", content: "real" },
     ]);
   });
 
@@ -433,14 +461,14 @@ describe("readCodexSession", () => {
     ]);
 
     expect(kinds(records)).toEqual([
-      "dont-export",
-      "export",
+      "other",
+      "user",
       "compaction",
-      "export",
+      "assistant",
     ]);
     expect(records[2]).toEqual({
       kind: "compaction",
-      summary: "what happened before the compaction",
+      content: "what happened before the compaction",
     });
     expect(turns(records)).toEqual([
       { role: "User", text: "before" },
@@ -457,16 +485,20 @@ describe("readCodexSession", () => {
     ]);
 
     expect(records[1]).toEqual({
-      kind: "dont-export",
+      kind: "other",
+      unmappedKind: "event_msg",
       content: lineOf(notification),
     });
-    expect(records[2]).toEqual({ kind: "compaction", summary: "the summary" });
+    expect(records[2]).toEqual({
+      kind: "compaction",
+      content: "the summary",
+    });
   });
 
-  it("keeps a compaction with no plaintext summary as a readable omission", () => {
+  it("still classifies a compaction with no plaintext summary as a compaction", () => {
     // Model-backed compaction stores its summary encrypted, leaving `message`
-    // empty; the record is still native history, but carries nothing to hand
-    // over and must not discard the transcript before it.
+    // empty; the record is a compaction with nothing to render, so the
+    // transcript before it stays.
     const encrypted = compactedRecord("");
     const records = readFixture([
       sessionMeta("/worktree", id(1)),
@@ -475,10 +507,7 @@ describe("readCodexSession", () => {
       assistantMessage("after"),
     ]);
 
-    expect(records[2]).toEqual({
-      kind: "dont-export",
-      content: lineOf(encrypted),
-    });
+    expect(records[2]).toEqual({ kind: "compaction", content: "" });
     expect(turns(records)).toEqual([
       { role: "User", text: "before" },
       { role: "Assistant", text: "after" },
@@ -513,10 +542,10 @@ describe("readCodexSession", () => {
     const records = [...readCodexSession(file)];
 
     expect(kinds(records)).toEqual([
-      "dont-export",
-      "export",
+      "other",
+      "user",
       "unparseable",
-      "export",
+      "assistant",
     ]);
     expect(turns(records)).toEqual([
       { role: "User", text: "hello" },
@@ -534,7 +563,8 @@ describe("readCodexSession", () => {
 
     expect([...records]).toEqual([
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "session_meta",
         content: lineOf(sessionMeta("/worktree", id(1))),
       },
       { kind: "unparseable", content: lineOf(odd) },
@@ -559,7 +589,7 @@ describe("readCodexSession", () => {
 
     // The interrupted write is not a record yet: it is neither read nor
     // reported, and the turn before it is not duplicated.
-    expect(kinds(records)).toEqual(["dont-export", "export", "export"]);
+    expect(kinds(records)).toEqual(["other", "user", "assistant"]);
     expect(turns(records)).toEqual([
       { role: "User", text: "hello" },
       { role: "Assistant", text: "hi" },
@@ -572,7 +602,7 @@ describe("readCodexSession", () => {
     const records = readFixture([meta]);
 
     expect([...records]).toEqual([
-      { kind: "dont-export", content: lineOf(meta) },
+      { kind: "other", unmappedKind: "session_meta", content: lineOf(meta) },
     ]);
   });
 
@@ -589,23 +619,26 @@ describe("readCodexSession", () => {
     // remain readable native entries and therefore count as omissions.
     expect([...records]).toEqual([
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "session_meta",
         content: lineOf(sessionMeta("/worktree", id(1))),
       },
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "event_msg",
         content: lineOf(
           eventMessage("user_message", { message: "older question" }),
         ),
       },
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "event_msg",
         content: lineOf(
           eventMessage("agent_message", { message: "older answer" }),
         ),
       },
-      { kind: "export", turn: { role: "User", text: "hello" } },
-      { kind: "export", turn: { role: "Assistant", text: "hi" } },
+      { kind: "user", content: "hello" },
+      { kind: "assistant", content: "hi" },
     ]);
   });
 
@@ -754,10 +787,11 @@ describe("findCodexSession", () => {
     expect(read.sessionId).toBe(id(7));
     expect([...read.records]).toEqual([
       {
-        kind: "dont-export",
+        kind: "other",
+        unmappedKind: "session_meta",
         content: lineOf(sessionMeta("/worktree", id(7))),
       },
-      { kind: "export", turn: { role: "User", text: "hello" } },
+      { kind: "user", content: "hello" },
     ]);
   });
 });
