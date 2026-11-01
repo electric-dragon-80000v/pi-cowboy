@@ -642,6 +642,43 @@ describe("SubagentSession harness seam", () => {
     expect(prepareCalls[0]!.launch).toBe(stubPlan.launch);
   });
 
+  it("runs postStart only after the host accepts launch", async () => {
+    const { fake, session } = stubbedRun();
+    stubHarness();
+    const harness = harnessForMock();
+    const postStart = vi.fn(async () => {
+      expect(fake.startCalls).toHaveLength(1);
+    });
+    harness.postStart = postStart;
+    session.start();
+    await driveRun(DRIVE_COMPLETED_MS);
+    expect(postStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pane: TEST_PANE,
+        paneId: fake.ref.paneId,
+        launch: stubPlan.launch,
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("stops and tears down when postStart fails", async () => {
+    const { fake, session } = stubbedRun();
+    stubHarness();
+    harnessForMock().postStart = async () => {
+      throw new Error("delivery failed");
+    };
+    session.start();
+    await driveRun(DRIVE_FAILED_MS);
+    expect(fake.stopCalls).toHaveLength(1);
+    expect(teardownCalls).toHaveLength(1);
+    expect(session.spawn.lifecycle).toMatchObject({
+      phase: "settled",
+      status: "error",
+      error: "delivery failed",
+    });
+  });
+
   it("hands prepare the session transport's own pane surface", async () => {
     const { session } = stubbedRun();
     stubHarness();

@@ -70,6 +70,78 @@ const REF: AgentHostRef = {
   paneCreated: true,
 };
 
+describe("guarded pane submission", () => {
+  it("refuses to type when the expected process is not foreground", async () => {
+    runHerdrMock.mockResolvedValue({
+      process_info: { foreground_processes: [{ pid: 12 }] },
+    });
+    const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+    await expect(
+      pane.submitText!("w1:p2", "hello", 13, new AbortController().signal),
+    ).rejects.toThrow(/not in pane/);
+    expect(runHerdrMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("submits only after checking the expected foreground twice", async () => {
+    vi.useFakeTimers();
+    try {
+      runHerdrMock
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined);
+      const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+      const result = pane.submitText!(
+        "w1:p2",
+        "hello",
+        13,
+        new AbortController().signal,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await result;
+      expect(runHerdrMock.mock.calls.map((call) => call[1])).toEqual([
+        ["pane", "process-info", "--pane", "w1:p2"],
+        ["pane", "send-text", "w1:p2", "hello"],
+        ["pane", "process-info", "--pane", "w1:p2"],
+        ["pane", "send-keys", "w1:p2", "enter"],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not press enter if the foreground changed after typing", async () => {
+    vi.useFakeTimers();
+    try {
+      runHerdrMock
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ process_info: { foreground_processes: [] } });
+      const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+      const result = pane.submitText!(
+        "w1:p2",
+        "hello",
+        13,
+        new AbortController().signal,
+      );
+      const assertion = expect(result).rejects.toThrow(/not in pane/);
+      await vi.advanceTimersByTimeAsync(1000);
+      await assertion;
+      expect(runHerdrMock.mock.calls.map((call) => call[1])).not.toContainEqual(
+        ["pane", "send-keys", "w1:p2", "enter"],
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("createHerdrRuntime view", () => {
   it("focuses the ref's tab", async () => {
     const pi = {} as unknown as ExtensionAPI;

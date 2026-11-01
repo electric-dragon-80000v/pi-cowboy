@@ -85,6 +85,10 @@ export interface AgentView {
 export interface PaneControl {
   /** How the pane is addressed; the multiplexer's own vocabulary (herdr for the built-in multiplexer). */
   readonly kind: string;
+  /** Environment needed by a custom launcher for the requested agent kind. */
+  launchEnvironment?(
+    agentKind: AgentMultiplexerKind,
+  ): Readonly<Record<string, string>>;
   /**
    * Type one command into the pane. Fire-and-forget by contract: a multiplexer
    * returns before the shell has evaluated the line, so a caller proves what it
@@ -99,6 +103,23 @@ export interface PaneControl {
    * uses this for its TUI's own keybindings, never to run a command.
    */
   sendKeys(paneId: string, keys: readonly string[]): Promise<void>;
+  /**
+   * Submit literal text and Enter only while `pid` is among the pane's foreground
+   * processes. Reject if the foreground cannot be verified. This is a best-effort
+   * guard, not an atomic guarantee against a process change between checks and input.
+   */
+  submitText?(
+    paneId: string,
+    text: string,
+    pid: number,
+    signal: AbortSignal,
+  ): Promise<void>;
+  /** Wait for text in the currently visible pane, not historical scrollback. */
+  waitForVisibleOutput?(
+    paneId: string,
+    output: string,
+    timeoutMs: number,
+  ): Promise<void>;
   /** Resolve once the pane's output comes to contain `output`, or reject when the budget elapses. */
   waitForOutput(
     paneId: string,

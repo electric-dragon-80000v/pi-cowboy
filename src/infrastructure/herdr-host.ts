@@ -244,10 +244,78 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
 function createHerdrPane(pi: ExtensionAPI): PaneControl {
   return {
     kind: HERDR,
+    launchEnvironment: (agentKind) => ({ HERDR_AGENT: agentKind }),
     run: (paneId, command) => runInPane(pi, paneId, command),
     // The agent surface, not pane-level typing: herdr validates the target is
     // an agent and every key name before writing any bytes.
     sendKeys: (paneId, keys) => sendAgentKeys(pi, paneId, keys),
+    waitForVisibleOutput: async (paneId, output, timeoutMs) => {
+      await runHerdr(
+        pi,
+        [
+          "pane",
+          "wait-output",
+          "--source",
+          "visible",
+          "--match",
+          output,
+          "--timeout",
+          String(timeoutMs),
+          paneId,
+        ],
+        { timeoutMs: timeoutMs + 15_000 },
+      );
+    },
+    submitText: async (paneId, text, pid, signal) => {
+      if (
+        !Number.isSafeInteger(pid) ||
+        pid <= 0 ||
+        Array.from(text).some((character) => {
+          const code = character.charCodeAt(0);
+          return code < 32 || code === 127;
+        })
+      ) {
+        throw new Error(
+          "Cannot submit pane text with an invalid process id or control characters",
+        );
+      }
+      const verify = async () => {
+        const info = objectField(
+          await runHerdr(pi, ["pane", "process-info", "--pane", paneId], {
+            timeoutMs: 15_000,
+          }),
+          "process_info",
+        );
+        const processes: unknown = info?.foreground_processes;
+        if (
+          !Array.isArray(processes) ||
+          !processes.some(
+            (process: unknown) =>
+              typeof process === "object" &&
+              process !== null &&
+              "pid" in process &&
+              process.pid === pid,
+          )
+        ) {
+          throw new Error(
+            `Expected process ${pid} is not in pane ${paneId}'s foreground`,
+          );
+        }
+      };
+      signal.throwIfAborted();
+      await verify();
+      signal.throwIfAborted();
+      await runHerdr(pi, ["pane", "send-text", paneId, text], {
+        timeoutMs: 15_000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      signal.throwIfAborted();
+      await verify();
+      signal.throwIfAborted();
+      await runHerdr(pi, ["pane", "send-keys", paneId, "enter"], {
+        timeoutMs: 15_000,
+      });
+    },
     waitForOutput: (paneId, output, timeoutMs) =>
       waitForPaneOutput(pi, paneId, output, timeoutMs),
   };

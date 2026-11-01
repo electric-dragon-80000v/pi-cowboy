@@ -199,7 +199,12 @@ Those variables are the launch's own, so the reserved set does not filter them; 
 The `prepare` hook receives a request whose `pane` member is a `PaneControl` handle alongside `paneId`, while `teardown` receives `paneId` without a `pane` handle:
 
 - `pane.run(paneId: string, command: string)`: Sends a command string to the pane.
-- `pane.waitForOutput(paneId: string, pattern: string \| RegExp, timeoutMs: number)`: Waits for matching terminal output.
+- `pane.waitForOutput(paneId: string, text: string, timeoutMs: number)`: Waits for literal terminal output.
+- `pane.launchEnvironment?.(kind)`: Returns environment variables the multiplexer needs to detect a custom launcher.
+- `pane.waitForVisibleOutput?.(paneId, text, timeoutMs)`: Waits for literal text in the visible viewport.
+- `pane.submitText?.(paneId, text, pid, signal)`: Submits a single-line message only after checking the expected foreground process. The check is best-effort, not atomic with terminal input.
+
+A harness can define optional `postStart(request)` to wait for readiness and submit its initial task after the multiplexer accepts startup. It receives the same inputs as `prepare` plus an abort signal. Startup acceptance alone does not establish readiness. Multiplexers that cannot offer guarded submission omit these optional methods; a harness requiring them must refuse to launch rather than type into an unverified pane.
 
 The built-in `herdr` multiplexer directly launches only the CLI kinds it recognizes (`pi`, `claude`, `codex`, and `opencode`). To launch an unrecognized binary inside `herdr`:
 

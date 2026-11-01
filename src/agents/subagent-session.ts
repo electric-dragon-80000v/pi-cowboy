@@ -593,6 +593,20 @@ export class SubagentSession {
     this.supervisor?.detach();
     this.supervisor = undefined;
 
+    try {
+      await getHarnessRegistry().require(from).teardown({
+        pi: this.args.pi,
+        paneId: ref.paneId,
+        cwd,
+        subagentId: this.id,
+      });
+    } catch (error) {
+      return faulted({
+        kind: "launch-failed",
+        detail: `source harness teardown failed: ${errorMessage(error)}`,
+      });
+    }
+
     // The ended run's report is still on disk; the next run must settle on its
     // own (a revive resets the same file for the same reason).
     removeResultFile(this.resultFilePath());
@@ -706,6 +720,7 @@ export class SubagentSession {
   ): Promise<void> {
     let placement: LaunchPlacement = { kind: "none" };
     let failure: LaunchFailure = { kind: "none" };
+    const teardownSafety = { confirmed: true };
     // The cwd a harness teardown needs if the launch fails past the plan; a
     // failure before the plan leaves it undefined, and no harness is recorded.
     let launchCwd: string | undefined;
@@ -835,8 +850,28 @@ export class SubagentSession {
         },
         ref,
       );
+      if (!this.isLaunching() || this.launchAborted()) return;
+      if (harness.postStart) {
+        try {
+          await harness.postStart({
+            pi,
+            pane,
+            paneId: ref.paneId,
+            cwd: plan.cwd,
+            launch: plan.launch,
+            config: harnesses.config(plan.harness),
+            signal: this.spawn.execution.abortController.signal,
+          });
+        } catch (error) {
+          if (!this.launchAborted()) {
+            teardownSafety.confirmed = await supervisor.stop(2_000);
+            if (!teardownSafety.confirmed) placement = { kind: "committed" };
+          }
+          throw error;
+        }
+      }
       placement = { kind: "committed" };
-      if (!this.isLaunching()) return;
+      if (!this.isLaunching() || this.launchAborted()) return;
       this.commit(activateRun(this.run));
       void supervisor
         .watch()
@@ -853,7 +888,7 @@ export class SubagentSession {
       // Best-effort: a failed teardown is logged, never allowed to mask the
       // launch error that caused it.
       const harnessId = this.spawn.execution.harness;
-      if (harnessId !== undefined) {
+      if (harnessId !== undefined && teardownSafety.confirmed) {
         try {
           await getHarnessRegistry()
             .require(harnessId)
@@ -880,6 +915,10 @@ export class SubagentSession {
       );
       await this.settle();
     }
+  }
+
+  private launchAborted(): boolean {
+    return this.spawn.execution.abortController.signal.aborted;
   }
 
   /** Report-only: poll for the report; no liveness or turn policy. */

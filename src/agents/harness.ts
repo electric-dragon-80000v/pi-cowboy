@@ -471,6 +471,15 @@ export interface HarnessPrepareRequest<
   readonly launch: L;
 }
 
+/** The launch request after the multiplexer has accepted process startup. */
+export interface HarnessPostStartRequest<
+  L extends SubagentLaunchInputs = HarnessLaunch,
+  C = unknown,
+> extends HarnessPrepareRequest<L, C> {
+  /** Aborted when the spawn is stopped. */
+  readonly signal: AbortSignal;
+}
+
 /** What a harness is handed to ask its process to exit. */
 export interface HarnessStopRequest {
   readonly pi: ExtensionAPI;
@@ -854,6 +863,11 @@ export interface Harness<
    * be established.
    */
   prepare(request: HarnessPrepareRequest<L, C>): Promise<void>;
+  /**
+   * Run after start is accepted, before the run becomes active. The hook must
+   * establish its own readiness; acceptance does not mean the TUI is ready.
+   */
+  postStart?(request: HarnessPostStartRequest<L, C>): Promise<void>;
   /**
    * Ask this run's process to exit through its own TUI keybindings. The
    * sequence is the harness's: pi, PiG, Pi-Bolt and codex exit on ctrl+d, while
