@@ -1,3 +1,10 @@
+# [0.29.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.28.0...v0.29.0) (2026-11-01)
+
+
+### Features
+
+* **agents:** add post-start harness hook and guarded pane submission ([09cf59d](https://github.com/electric-dragon-80000v/pi-cowboy/commit/09cf59d57edf783098dd1bd2da5f1e49eb5445b7))
+
 # [0.28.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.27.3...v0.28.0) (2026-10-31)
 
 
