@@ -1,3 +1,10 @@
+## [0.29.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.29.0...v0.29.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **harness:** pin opencode session id at staging and launch ([35f18e7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/35f18e7da7f0ca3074b16838642d4bdab7bccbd3))
+
 # [0.29.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.28.0...v0.29.0) (2026-11-01)
 
 
