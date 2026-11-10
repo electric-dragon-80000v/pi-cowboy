@@ -112,9 +112,15 @@ const MODEL_FAILURE = "Model unavailable";
  * always unset. Update checks are off: nobody can answer an update prompt in a
  * background pane, and an install would replace the binary the parent session
  * is running.
+ *
+ * `--session` is the id staging recorded, so the run writes one session whose
+ * id the export already knows. The store is shared with the user's own
+ * sessions, so a session found by scanning it would be a guess. It rides after
+ * `"$@"` because it is `mini`'s flag rather than the binary's.
  */
 function launcherBody(
   configDir: string,
+  sessionId: string,
   taskFile: string,
   explicitConfigFile: string | undefined,
   envFile: string | null,
@@ -129,7 +135,7 @@ function launcherBody(
     "export OPENCODE_DISABLE_AUTOUPDATE=1",
     launchEnvBody(
       envFile,
-      `command opencode "$@" < ${singleQuoteShellWord(taskFile)}`,
+      `command opencode "$@" --session ${singleQuoteShellWord(sessionId)} < ${singleQuoteShellWord(taskFile)}`,
     ),
   ].join("; ");
 }
@@ -354,7 +360,7 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
     OpencodeLaunchRequest,
     OpencodeConfig
   >): Promise<void> {
-    const { configDir, explicitConfigFile } = writeOpencodeStaging({
+    const { configDir, explicitConfigFile, sessionId } = writeOpencodeStaging({
       subagentId: launch.subagentId,
       systemPromptFile: launch.systemPromptFile,
       toolSelection: launch.toolSelection,
@@ -364,6 +370,7 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
       commandName: OPENCODE_COMMAND,
       body: launcherBody(
         configDir,
+        sessionId,
         launch.taskFile,
         explicitConfigFile,
         launch.envFile,
@@ -397,15 +404,14 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
   },
   /**
    * The session this run wrote, exported while the run's process is still
-   * alive. The run's directory and the staged definition's name identify it;
-   * the definition proof's session is not a run and is skipped by its model.
+   * alive. The config directory comes from the spawn id and the session id from
+   * the record staging pinned on the launcher, so the export is a lookup in a
+   * store the user's own sessions share rather than a search of it.
    */
   readHandoverRecords(request: HarnessExportRequest) {
     return readOpencodeSessionRecords({
       pi: request.pi,
       subagentId: request.subagentId,
-      cwd: request.cwd,
-      proofModel: PROOF_MODEL,
     });
   },
   // opencode interrupts on the first ctrl+c and exits on the second; one press

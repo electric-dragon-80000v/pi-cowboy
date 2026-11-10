@@ -335,7 +335,11 @@ describe.skipIf(opencodeMissing)(
       // definition, with no user config to copy. A dependency manifest or a
       // `node_modules` here would mean the staging pays for an install check
       // opencode does not perform.
-      expect(tree(configDir)).toEqual(["agent/", `agent/${SUBAGENT_ID}.md`]);
+      expect(tree(configDir)).toEqual([
+        "agent/",
+        `agent/${SUBAGENT_ID}.md`,
+        "session.json",
+      ]);
     });
 
     it("carries the parent's custom provider into the spawn", async () => {
@@ -419,18 +423,24 @@ describe.skipIf(opencodeMissing)(
     });
 
     it("builds an interactive invocation the CLI accepts", async () => {
-      const configDir = stage({ kind: "default" });
-      const args = opencodeHarness.buildArgs({
-        family: "opencode",
-        subagentId: SUBAGENT_ID,
-        systemPromptFile: tempFile("system.md", PROMPT),
-        taskFile: tempFile("task.md", "do the task"),
-        resultFile: path.join(home, "result.md"),
-        modelKey: PROBE_MODEL,
-        toolSelection: { kind: "default" },
-        thinking: VARIANT,
-        envFile: null,
-      });
+      const { configDir, sessionId } = stageTree({ kind: "default" });
+      const args = [
+        ...opencodeHarness.buildArgs({
+          family: "opencode",
+          subagentId: SUBAGENT_ID,
+          systemPromptFile: tempFile("system.md", PROMPT),
+          taskFile: tempFile("task.md", "do the task"),
+          resultFile: path.join(home, "result.md"),
+          modelKey: PROBE_MODEL,
+          toolSelection: { kind: "default" },
+          thinking: VARIANT,
+          envFile: null,
+        }),
+        // The launcher appends the pinned id after `"$@"`, because `--session`
+        // is `mini`'s flag rather than the binary's.
+        "--session",
+        sessionId,
+      ];
 
       // The private server is what makes the staged definition the one this
       // launch reads; the shared server answers from whatever config directory

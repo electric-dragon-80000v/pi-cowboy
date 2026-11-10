@@ -9,6 +9,7 @@ import { opencodeAgentMarkdown } from "../src/agents/harness/opencode/definition
 import { opencodePermissions } from "../src/agents/harness/opencode/permissions.js";
 import {
   opencodeConfigDir,
+  opencodeSessionRecordFile,
   removeOpencodeStaging,
   writeOpencodeStaging,
   type OpencodeStaging,
@@ -25,6 +26,18 @@ const FRONTMATTER_START = "---\n";
 
 /** The line that closes the frontmatter; the body follows a blank separator. */
 const FRONTMATTER_END = "\n---\n";
+
+/**
+ * The instant an opencode session id encodes. Its twelve hex characters are the
+ * complement of `timestamp * 4096 + counter` in 48 bits, so undoing them takes
+ * the complement back and drops the counter's twelve bits. Only the low 36 bits
+ * of the timestamp survive the packing, hence the modular comparison below.
+ */
+function mintedAt(sessionId: string): number {
+  const hex = sessionId.slice("ses_".length, "ses_".length + 12);
+  const packed = 0xffffffffffffn ^ BigInt(`0x${hex}`);
+  return Number(packed >> 12n);
+}
 
 /** The real TMPDIR, put back after every test that redirects it. */
 let realTmpdir: string | undefined;
@@ -259,7 +272,7 @@ describe("writeOpencodeStaging", () => {
     });
 
     expect(dir).toBe(opencodeConfigDir(SUBAGENT_ID));
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent"]);
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "session.json"]);
     expect(fs.readdirSync(join(dir, "agent"))).toEqual([`${SUBAGENT_ID}.md`]);
     expect(
       fs.readFileSync(join(dir, "agent", `${SUBAGENT_ID}.md`), "utf-8"),
@@ -270,6 +283,55 @@ describe("writeOpencodeStaging", () => {
         toolSelection: { kind: "include", names: ["read", "edit"] },
       }),
     );
+  });
+
+  it("mints the session id its launcher pins and records it for the export", () => {
+    const { configDir: dir, sessionId } = writeOpencodeStaging({
+      subagentId: SUBAGENT_ID,
+      systemPromptFile: stagePrompt(PROMPT),
+      toolSelection: { kind: "default" },
+      configInclude: [],
+    });
+
+    // opencode refuses a create under any id that does not start with `ses`,
+    // and files its own sessions as twelve hex characters of packed time plus
+    // fourteen base62 characters of tail.
+    expect(sessionId).toMatch(/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    const record = opencodeSessionRecordFile(dir);
+    expect(fs.readFileSync(record, "utf-8")).toBe(
+      `${JSON.stringify({ sessionId }, null, 2)}\n`,
+    );
+    expect(fs.statSync(record).mode & 0o777).toBe(0o600);
+  });
+
+  it("packs the mint instant into the id the way opencode does", () => {
+    const before = Date.now();
+    const { sessionId } = writeOpencodeStaging({
+      subagentId: SUBAGENT_ID,
+      systemPromptFile: stagePrompt(PROMPT),
+      toolSelection: { kind: "default" },
+      configInclude: [],
+    });
+    const after = Date.now();
+
+    // The packing keeps only the timestamp's low 36 bits, so the instant reads
+    // back modulo that window: a staleness of days would land there too.
+    const modulus = 2 ** 36;
+    const behind =
+      (((mintedAt(sessionId) - before) % modulus) + modulus) % modulus;
+    expect(behind).toBeLessThan(after - before + 1);
+  });
+
+  it("mints a different id for each staging", () => {
+    const stage = () =>
+      writeOpencodeStaging({
+        subagentId: SUBAGENT_ID,
+        systemPromptFile: stagePrompt(PROMPT),
+        toolSelection: { kind: "default" },
+        configInclude: [],
+      }).sessionId;
+
+    expect(stage()).not.toBe(stage());
   });
 
   it("replaces a definition the staging tree already holds", () => {
@@ -365,7 +427,11 @@ describe("writeOpencodeStaging — the parent's user config", () => {
     // A copy, not a link: the parent's file is never written through.
     const copied = join(dir, "opencode.json");
     expect(fs.lstatSync(copied).isSymbolicLink()).toBe(false);
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
+    expect(fs.readdirSync(dir).sort()).toEqual([
+      "agent",
+      "opencode.json",
+      "session.json",
+    ]);
     const config = stagedConfig(dir) as Record<string, unknown>;
     expect(config.provider).toEqual({
       anthropic: {
@@ -398,7 +464,11 @@ describe("writeOpencodeStaging — the parent's user config", () => {
 
     const dir = stage();
 
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.jsonc"]);
+    expect(fs.readdirSync(dir).sort()).toEqual([
+      "agent",
+      "opencode.jsonc",
+      "session.json",
+    ]);
     expect(stagedConfig(dir, "opencode.jsonc")).toEqual({
       provider: { anthropic: {} },
       model: "anthropic/claude-opus-4",
@@ -408,7 +478,7 @@ describe("writeOpencodeStaging — the parent's user config", () => {
   it("writes no config file when the parent has none", () => {
     const dir = stage();
 
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent"]);
+    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "session.json"]);
   });
 
   it("copies only the user config, never the rest of the parent's directory", () => {
@@ -419,7 +489,11 @@ describe("writeOpencodeStaging — the parent's user config", () => {
 
     const dir = stage();
 
-    expect(fs.readdirSync(dir).sort()).toEqual(["agent", "opencode.json"]);
+    expect(fs.readdirSync(dir).sort()).toEqual([
+      "agent",
+      "opencode.json",
+      "session.json",
+    ]);
     expect(fs.readdirSync(join(dir, "agent"))).toEqual([`${SUBAGENT_ID}.md`]);
     expect(fs.existsSync(join(dir, "auth.json"))).toBe(false);
   });

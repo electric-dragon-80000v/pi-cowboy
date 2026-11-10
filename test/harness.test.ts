@@ -490,11 +490,16 @@ describe("prepare: opencode", () => {
     await prepareOpencode();
 
     const configDir = opencodeConfigDir("esp02hpw");
+    // The id staging recorded is the one the launcher pins, so the run writes
+    // one session whose id the export already knows.
+    const { sessionId } = JSON.parse(
+      readFileSync(join(configDir, "session.json"), "utf-8"),
+    ) as { sessionId: string };
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       1,
       PI,
       "w1:p9",
-      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" < '${taskFile}'; }`,
+      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" --session '${sessionId}' < '${taskFile}'; }`,
     );
     expect(runInPaneMock).toHaveBeenNthCalledWith(
       2,
@@ -528,9 +533,15 @@ describe("prepare: opencode", () => {
       config: { configInclude: [] },
     });
 
+    const { sessionId } = JSON.parse(
+      readFileSync(
+        join(opencodeConfigDir("esp02hpw"), "session.json"),
+        "utf-8",
+      ),
+    ) as { sessionId: string };
     // The values stay in the file; only its path is typed into the pane.
     expect(runInPaneMock.mock.calls[0]![2]).toContain(
-      `( . '${ENV_FILE}' && { command opencode "$@" < '${taskFile}'; } )`,
+      `( . '${ENV_FILE}' && { command opencode "$@" --session '${sessionId}' < '${taskFile}'; } )`,
     );
     expect(runInPaneMock.mock.calls[0]![2]).not.toContain("REVIEW_MODE");
   });

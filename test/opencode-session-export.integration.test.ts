@@ -2,10 +2,10 @@
  * opencode-session-export.integration.test.ts — handover record reads against
  * the real opencode binary.
  *
- * The unit tests pin selection and record classification against fixtures this
- * repo invented; this file proves the two things only the real CLI can answer: that
- * `opencode api GET /api/session` reports a session the harness can find, and
- * that `opencode session export` returns the transfer JSON the parser reads.
+ * The unit tests pin record classification against fixtures this repo invented;
+ * this file proves the two things only the real CLI can answer: that the id
+ * staging mints is one `opencode session export` resolves, and that its answer
+ * is the transfer JSON the parser reads.
  * Both reads travel through `pi.exec`, so the fake here is only the process
  * boundary: it spawns the installed binary with the same environment a spawn
  * gets.
@@ -19,8 +19,8 @@
  *
  * A definition proof opens a session under the same agent name in the same
  * directory, and its model is the sentinel this harness launches only for the
- * proof. The proof is imported last, so it is the newest session the list
- * reports; selecting the run anyway is the behavior this test exists to pin.
+ * proof. The proof is imported last, so it is the newest session in the store;
+ * exporting the run's pinned id anyway is the behavior this test exists to pin.
  *
  * A machine without opencode skips this file. CI sets
  * `PI_COWBOY_REQUIRE_OPENCODE=1`, which turns the missing binary into a failing
@@ -37,6 +37,10 @@ import type { HarnessExportRequest } from "../src/agents/harness.js";
 import { completeHandoverExport } from "../src/agents/handover.js";
 import { opencodeHarness } from "../src/agents/harness/opencode/index.js";
 import { subagentEnvFileFor } from "../src/paths.js";
+import {
+  opencodeConfigDir,
+  opencodeSessionRecordFile,
+} from "../src/agents/harness/opencode/staging.js";
 import { commandPath } from "../src/infrastructure/exec-path.js";
 
 /** The agent name a spawn stages; the run's session is filed under it. */
@@ -76,6 +80,9 @@ const madeRoots: string[] = [];
 /** The temp root this test made. */
 let root: string;
 
+/** The real TMPDIR, put back after every test. */
+let previousTmpdir: string | undefined;
+
 /** The isolated HOME for the current test. */
 let home: string;
 
@@ -83,8 +90,10 @@ let home: string;
 let project: string;
 
 beforeEach(() => {
+  previousTmpdir = process.env.TMPDIR;
   root = fs.mkdtempSync(path.join(tmpdir(), "cowboy-opencode-export-"));
   madeRoots.push(root);
+  process.env.TMPDIR = root;
   home = path.join(root, "home");
   project = path.join(root, "project");
   fs.mkdirSync(path.join(home, ".config"), { recursive: true });
@@ -93,6 +102,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  if (previousTmpdir === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = previousTmpdir;
   for (const root of madeRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -187,6 +198,17 @@ function request(): HarnessExportRequest {
     paneId: "w1:p1",
     cwd: project,
   };
+}
+
+/**
+ * The run record a launch's staging writes: the id the launcher pinned. The
+ * exporter resolves the spawn's config directory from `subagentId` under the
+ * staging root this test set as TMPDIR.
+ */
+function stageSessionRecord(sessionId: string): void {
+  const file = opencodeSessionRecordFile(opencodeConfigDir(SUBAGENT_ID));
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ sessionId }, null, 2)}\n`);
 }
 
 /** A message opencode's importer accepts: user turns carry text, nothing else. */
@@ -327,9 +349,10 @@ async function importProof(): Promise<void> {
 describe.skipIf(opencodeMissing)(
   "opencode session export against the real CLI",
   () => {
-    it("exports the run's session and skips the newer definition proof", async () => {
+    it("exports the session its record pins, not the newer definition proof", async () => {
       const runId = await importRun();
       await importProof();
+      stageSessionRecord(runId);
 
       const exported = completeHandoverExport(
         await opencodeHarness.readHandoverRecords!(request()),
@@ -355,6 +378,7 @@ describe.skipIf(opencodeMissing)(
           userMessage("msg_after", "continue after the compaction"),
         ],
       });
+      stageSessionRecord(id);
 
       const exported = completeHandoverExport(
         await opencodeHarness.readHandoverRecords!(request()),
@@ -367,14 +391,12 @@ describe.skipIf(opencodeMissing)(
       expect(exported.session).not.toContain(HIDDEN_BEFORE_COMPACTION);
     });
 
-    it("reports a run that wrote no session", async () => {
+    it("reports a spawn that pinned no session id", async () => {
       await importProof();
 
       await expect(
         opencodeHarness.readHandoverRecords!(request()),
-      ).rejects.toThrow(
-        `no opencode session for agent ${SUBAGENT_ID} in ${project}`,
-      );
+      ).rejects.toThrow("no opencode run record under");
     });
 
     it("reads the store the run's staged environment selects", async () => {
@@ -384,35 +406,31 @@ describe.skipIf(opencodeMissing)(
       const runStore = path.join(root, "run-store");
       fs.mkdirSync(runStore, { recursive: true });
       const runId = await importRun({ ...cliEnv(), XDG_DATA_HOME: runStore });
+      stageSessionRecord(runId);
 
-      // The staging root is this test's, so the exporter resolves the spawn's
-      // env file under it rather than under the machine's temp directory.
-      const previousTmpdir = process.env.TMPDIR;
-      process.env.TMPDIR = root;
-      try {
-        const envFile = subagentEnvFileFor(SUBAGENT_ID);
-        fs.mkdirSync(path.dirname(envFile), { recursive: true });
-        fs.writeFileSync(envFile, `export XDG_DATA_HOME='${runStore}'\n`);
+      // The staging root is this test's TMPDIR, so the exporter resolves the
+      // spawn's env file beside the record rather than under the machine's
+      // temp directory.
+      const envFile = subagentEnvFileFor(SUBAGENT_ID);
+      fs.mkdirSync(path.dirname(envFile), { recursive: true });
+      fs.writeFileSync(envFile, `export XDG_DATA_HOME='${runStore}'\n`);
 
-        const exported = completeHandoverExport(
-          await opencodeHarness.readHandoverRecords!(request()),
-        );
+      const exported = completeHandoverExport(
+        await opencodeHarness.readHandoverRecords!(request()),
+      );
 
-        expect(exported.sessionId).toBe(runId);
-        expect(exported.session).toBe(
-          `## User\n\n${USER_TEXT}\n\n## Assistant\n\n${ASSISTANT_TEXT}\n`,
-        );
+      expect(exported.sessionId).toBe(runId);
+      expect(exported.session).toBe(
+        `## User\n\n${USER_TEXT}\n\n## Assistant\n\n${ASSISTANT_TEXT}\n`,
+      );
 
-        // Without the staged file the read is the parent's environment, which
-        // selects the store the run never wrote to.
-        fs.rmSync(envFile, { force: true });
-        await expect(
-          opencodeHarness.readHandoverRecords!(request()),
-        ).rejects.toThrow(`no opencode session for agent ${SUBAGENT_ID}`);
-      } finally {
-        if (previousTmpdir === undefined) delete process.env.TMPDIR;
-        else process.env.TMPDIR = previousTmpdir;
-      }
+      // Without the staged file the read is the parent's environment, which
+      // selects the store the run never wrote to, so the pinned id resolves
+      // nothing there.
+      fs.rmSync(envFile, { force: true });
+      await expect(
+        opencodeHarness.readHandoverRecords!(request()),
+      ).rejects.toThrow(`could not export opencode session ${runId}`);
     });
   },
 );
