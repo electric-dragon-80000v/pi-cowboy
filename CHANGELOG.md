@@ -1,3 +1,10 @@
+# [0.31.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.30.0...v0.31.0) (2026-11-11)
+
+
+### Features
+
+* **agent:** add optional worktree parameter to cowboy agent tool ([26ee4e0](https://github.com/electric-dragon-80000v/pi-cowboy/commit/26ee4e068c3d5bb5b65537dcb427e6775c8e1cf9))
+
 # [0.30.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.29.1...v0.30.0) (2026-11-11)
 
 
