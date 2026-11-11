@@ -121,7 +121,7 @@ function errorSpawn(id: string, error = "boom"): AgentSpawn {
 
 /** Settled without ever launching: an outcome, but no run to hand over. */
 function neverStartedSpawn(id: string): AgentSpawn {
-  return baseSpawn({
+  const spawn = baseSpawn({
     id,
     lifecycle: {
       phase: "never-started",
@@ -131,6 +131,20 @@ function neverStartedSpawn(id: string): AgentSpawn {
       completedAt: Date.now(),
     },
   });
+  // A run that never launched never engaged a harness.
+  spawn.execution.harness = undefined;
+  return spawn;
+}
+
+/** The lifecycle a stop leaves behind: the same run, settled and stopped. */
+function settleStopped(spawn: AgentSpawn): void {
+  spawn.lifecycle = {
+    phase: "settled",
+    startedAt: Date.now(),
+    status: "stopped",
+    stop: { initiator: "user" },
+    completedAt: Date.now(),
+  };
 }
 
 const aborted: string[] = [];
@@ -399,6 +413,7 @@ describe("Agent status — the per-agent actions list", () => {
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
       "Stop",
+      "Handover",
     ]);
   });
 
@@ -628,15 +643,115 @@ describe("Agent status — the per-agent actions list", () => {
 });
 
 describe("Agent status — handover", () => {
-  it("offers no handover for an agent that never started", () => {
+  it("offers handover for an agent that never started, refusing it with the reason", async () => {
     installManager([neverStartedSpawn("dead0000-queued")]);
     const session = openAgentStatus();
 
     session.open(/dead0000-queued/);
+    expect(session.walkRows().map((row) => row.label)).toContain("Handover");
 
-    expect(session.walkRows().map((row) => row.label)).not.toContain(
-      "Handover",
+    session.open("Handover");
+    await session.settle();
+
+    expect(aborted).toEqual([]);
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✓ Agent dead0000-queued was not exported: it never started, so there is no session to export.",
+      kind: "warning",
+    });
+  });
+
+  it("asks before stopping a running agent, and leaves it running when declined", async () => {
+    installManager([spawnedSpawn()]);
+    const session = openAgentStatus();
+
+    session.open("◈ abcd1234-spawned-id");
+    session.open("Handover");
+
+    expect(session.text()).toContain(
+      "Agent abcd1234-spawned-id is still running.",
     );
+    expect(session.text()).toContain(
+      "pi-cowboy will need to stop it before it can be handed over. Proceed?",
+    );
+    expect(aborted).toEqual([]);
+
+    session.press("n");
+    await session.settle();
+
+    // The decline returns to the agent's own actions, still running.
+    expect(aborted).toEqual([]);
+    expect(session.closedScreens).toEqual([]);
+    expect(session.walkRows().map((row) => row.label)).toContain("Handover");
+  });
+
+  it("stops the run on Y, then offers the handover targets", async () => {
+    setHarnessAvailability(probed(["pi", "claude"]));
+    const spawn = spawnedSpawn();
+    installManager([spawn]);
+    abortImpl = () => {
+      settleStopped(spawn);
+      return Promise.resolve(true);
+    };
+    const session = openAgentStatus();
+
+    session.open("◈ abcd1234-spawned-id");
+    session.open("Handover");
+    session.press("y");
+    await session.settle();
+
+    expect(aborted).toEqual(["abcd1234-spawned-id"]);
+    expect(session.notifications.map((n) => n.message)).toEqual([
+      "Stopping agent abcd1234-spawned-id …",
+      "✓ Stopped agent abcd1234-spawned-id",
+    ]);
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "Hand over to Claude",
+      "Export",
+    ]);
+
+    session.open("Hand over to Claude");
+    await session.settle();
+
+    expect(handedOver).toEqual([
+      { id: "abcd1234-spawned-id", harness: "claude" },
+    ]);
+  });
+
+  it("reports a stop that failed and opens nothing", async () => {
+    installManager([spawnedSpawn()]);
+    abortImpl = () => Promise.reject(new Error("herdr unreachable"));
+    const session = openAgentStatus();
+
+    session.open("◈ abcd1234-spawned-id");
+    session.open("Handover");
+    session.press("y");
+    await session.settle();
+
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message: "✗ Failed to stop agent abcd1234-spawned-id: herdr unreachable",
+      kind: "error",
+    });
+  });
+
+  it("reports a run the stop left active instead of dangling it", async () => {
+    installManager([spawnedSpawn()]);
+    const session = openAgentStatus();
+
+    session.open("◈ abcd1234-spawned-id");
+    session.open("Handover");
+    session.press("y");
+    await session.settle();
+
+    expect(session.closedScreens).toHaveLength(1);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✗ Failed to stop agent abcd1234-spawned-id: the run is still active, so there is no finished session to hand over yet",
+      kind: "error",
+    });
+    expect(handedOver).toEqual([]);
   });
 
   it("lists the launchable harnesses without the source, then Export", () => {

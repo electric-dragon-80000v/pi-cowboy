@@ -121,14 +121,14 @@ Opens the `System Prompt` screen.
 
 Lists every spawned, queued, and settled agent from the session. Selecting an agent opens the actions available for its current state:
 
-| Action        | What it does                                                                                                                                                                                                                                                       |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                         |
-| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                               |
-| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                           |
-| `Handover`    | Hands a settled agent's session to another harness, or exports it to a file instead. Shown for every agent that settled; a harness that cannot export its own session is reported when you pick it. See [Handing over and exporting](#handing-over-and-exporting). |
-| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                      |
-| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below). |
+| Action        | What it does                                                                                                                                                                                                                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                                                                           |
+| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                                                                                 |
+| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                                                                             |
+| `Handover`    | Hands an agent's session to another harness, or exports it to a file instead. Shown for every agent; a run that is still in flight is stopped first, after a confirmation. A harness that cannot export its own session is reported when you pick it. See [Handing over and exporting](#handing-over-and-exporting). |
+| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                                                                        |
+| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below).                                                   |
 
 Below the individual agents, the list displays bulk actions when applicable:
 
@@ -143,6 +143,8 @@ If a cleanup keeps a worktree (for example, because of uncommitted changes), the
 ### Handing over and exporting
 
 `Handover` opens a submenu of target harnesses. You will see a list of every harness that you can hand-over an agent's session to.
+
+A handover reads a finished session, so an agent that is still running has to end first. Picking `Handover` for one asks before anything happens; confirming stops the run (as `Stop` does) and then opens the target list, and declining leaves the agent running. An agent that is still queued, or ended before it launched, has no session and is reported as such.
 
 `Export` writes the handover export to a file under the temporary directory. `Export` does not interact with the agents, it's purely an export that you can inspect or use elsewhere.
 

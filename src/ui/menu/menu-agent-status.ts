@@ -282,17 +282,16 @@ export function buildAgentActionsList(
   }
   if (activeSpawn) {
     items.push({ value: "stop", label: "Stop" });
-  } else {
-    // Only a settled run that started has a session to hand over; a
-    // never-started one settled without one.
-    if (spawn.lifecycle.phase === "settled") {
-      items.push({
-        value: "handover",
-        label: "Handover",
-        description:
-          "Hand this run's session to another harness, or export it to /tmp",
-      });
-    }
+  }
+  // Handover is offered for every agent: a run still in flight is stopped
+  // first, after the sub-flow's confirmation.
+  items.push({
+    value: "handover",
+    label: "Handover",
+    description:
+      "Hand this run's session to another harness, or export it to /tmp",
+  });
+  if (!activeSpawn) {
     items.push({
       value: "cleanup",
       label: "Clean up",
@@ -444,12 +443,29 @@ export async function showAgentStatusMenu(
       close,
       requestRender,
     });
+
+    /** The per-agent actions list, rebuilt from the spawn's current phase. */
+    const openAgentActions = (spawn: AgentSpawn): void => {
+      view.activate(
+        buildAgentActionsList(
+          ctx,
+          spawn,
+          theme,
+          () => refresh(spawn.id),
+          () => close(),
+          beginCleanup,
+          beginHandover,
+        ),
+      );
+    };
+
     const beginHandover = createStatusHandover({
       ctx,
       theme,
       view,
       close,
       requestRender,
+      backToActions: openAgentActions,
     });
 
     agentList.onSelect = async (item) => {
@@ -473,17 +489,7 @@ export async function showAgentStatusMenu(
       }
       const spawn = agents.find((r) => r.id === item.value);
       if (spawn) {
-        view.activate(
-          buildAgentActionsList(
-            ctx,
-            spawn,
-            theme,
-            () => refresh(spawn.id),
-            () => close(),
-            beginCleanup,
-            beginHandover,
-          ),
-        );
+        openAgentActions(spawn);
       }
     };
     agentList.onCancel = () => close();

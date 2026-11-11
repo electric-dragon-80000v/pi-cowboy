@@ -1,11 +1,15 @@
 /**
  * menu-agent-handover.ts — the status menu's handover sub-flow.
  *
- * A settled agent's session can be carried to another harness, or written to a
- * file and launched by hand. The submenu only chooses: which targets exist, why
- * a source cannot produce a session, and how an outcome reads are all answered
- * by the same modules `handover_cowboy_agent` uses, so the menu cannot offer a
- * handover the tool would refuse.
+ * An agent's session can be carried to another harness, or written to a file
+ * and launched by hand. A run still in flight has no finished session to read,
+ * so the sub-flow asks before stopping it; only a confirmed stop ends a run it
+ * did not settle on its own.
+ *
+ * The submenu only chooses: which targets exist, why a source cannot produce a
+ * session, and how an outcome reads are all answered by the same modules
+ * `handover_cowboy_agent` uses, so the menu cannot offer a handover the tool
+ * would refuse.
  *
  * Nothing here changes the agent during a listing or an export; only a target
  * selection hands the environment over, and it does so off-menu.
@@ -17,7 +21,7 @@ import {
   type Component,
   type SelectItem,
 } from "@earendil-works/pi-tui";
-import type { AgentSpawn } from "../../types.js";
+import { isActivePhase, type AgentSpawn } from "../../types.js";
 import {
   writeHandoverFile,
   handoverFileExists,
@@ -54,6 +58,8 @@ export interface StatusHandoverDeps {
   close: () => void;
   /** Repaint the screen: a body swapped from an async pass has no keypress to ride. */
   requestRender: () => void;
+  /** Show the agent's actions list again (the stop confirmation's decline path). */
+  backToActions: (spawn: AgentSpawn) => void;
 }
 
 /**
@@ -63,7 +69,7 @@ export interface StatusHandoverDeps {
 export function createStatusHandover(
   deps: StatusHandoverDeps,
 ): (spawn: AgentSpawn) => void {
-  const { ctx, theme, view, close, requestRender } = deps;
+  const { ctx, theme, view, close, requestRender, backToActions } = deps;
   const action = actionReport(ctx.ui);
 
   /** Swap the body and repaint (a swap with no keypress behind it gets no repaint). */
@@ -205,10 +211,61 @@ export function createStatusHandover(
     show(list);
   };
 
+  /**
+   * Confirm ending a run that is still in flight. A handover reads a finished
+   * session, so the run has to end first; declining leaves it running and
+   * returns to its actions.
+   */
+  const askStop = (spawn: AgentSpawn, proceed: () => void): void => {
+    show(
+      createKeyConfirm({
+        theme,
+        message: `Agent ${spawn.id} is still running.`,
+        detail:
+          "pi-cowboy will need to stop it before it can be handed over. Proceed?\n\nY stops the run and opens the handover targets; N or Esc leaves it running.",
+        onNo: () => backToActions(spawn),
+        onYes: () => {
+          const manager = getManagerOrNull();
+          if (!manager) {
+            close();
+            action.failed(
+              `Failed to stop agent ${spawn.id}`,
+              "manager unavailable",
+            );
+            return;
+          }
+          action.pending(`Stopping agent ${spawn.id}`);
+          void (async () => {
+            try {
+              await manager.abort(spawn.id, "user");
+            } catch (error) {
+              close();
+              action.failed(`Failed to stop agent ${spawn.id}`, error);
+              return;
+            }
+            // The stop's own verdict is not enough: what the next step needs is
+            // a run that actually settled.
+            if (isActivePhase(spawn.lifecycle.phase)) {
+              close();
+              action.failed(
+                `Failed to stop agent ${spawn.id}`,
+                "the run is still active, so there is no finished session to hand over yet",
+              );
+              return;
+            }
+            action.succeeded(`Stopped agent ${spawn.id}`);
+            proceed();
+          })();
+        },
+      }),
+    );
+  };
+
   return (spawn: AgentSpawn): void => {
     const from = spawn.execution.harness;
-    // A settled run that never engaged a harness has no session and no target
-    // vocabulary; the shared fault is the honest answer.
+    // A run that never engaged a harness (still queued, or ended before it
+    // launched) has no session and no target vocabulary; the shared fault is
+    // the honest answer.
     if (from === undefined) {
       refuse(spawn, handoverExportFaultReason({ kind: "never-started" }));
       return;
@@ -224,6 +281,12 @@ export function createStatusHandover(
           harness: from,
         }),
       );
+      return;
+    }
+    // A run still in flight has no finished session: stopping it is the one
+    // change this flow makes on its own, and it needs a confirmed stop.
+    if (isActivePhase(spawn.lifecycle.phase)) {
+      askStop(spawn, () => openSubmenu(spawn, from));
       return;
     }
     openSubmenu(spawn, from);
