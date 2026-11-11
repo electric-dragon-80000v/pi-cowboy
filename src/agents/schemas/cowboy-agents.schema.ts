@@ -28,10 +28,13 @@ const MODEL_DESCRIPTION =
 
 const HARNESS_TYPE_DESCRIPTION = `Optional harness that launches THIS agent, overriding the agent template's harness_type and the configured default harness. Available: the built-in harnesses (${HARNESS_IDS.join(", ")}) and any harness a plugin registered in this session. Omit it, or pass null, to leave it unset and use the agent template's harness_type, then the configured default — never pass a harness the user did not ask for. A harness this session did not register, or this machine cannot launch, fails the call before anything is spawned — unlike the configured default, an explicit request never falls back to pi.`;
 
+const WORKTREE_DESCRIPTION =
+  'Optional worktree for THIS agent. Omit it, or pass null, for "new": an isolated cow-<task>-<id> worktree, the default. Pass "inherit" to run in the parent session cwd with no worktree of its own, or {"path":"/absolute/checkout"} to run inside an existing worktree of this repository; that checkout is never removed by cleanup. Never pick a target the user did not ask for — omit the parameter to keep the default.';
+
 /**
  * One spawn's parameters: prompt + task_name required; agent_type/model/
- * harness_type optional, where null means the same as omitting them. Strict
- * constrained sampling rewrites each optional property into a required
+ * harness_type/worktree optional, where null means the same as omitting them.
+ * Strict constrained sampling rewrites each optional property into a required
  * `X | null`, so null is the only way to send "unset" there.
  */
 const CowboyAgentParamsSchema = Type.Object(
@@ -48,6 +51,25 @@ const CowboyAgentParamsSchema = Type.Object(
       Type.Union([Type.String(), Type.Null()], {
         description: HARNESS_TYPE_DESCRIPTION,
       }),
+    ),
+    worktree: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("new"),
+          Type.Literal("inherit"),
+          Type.Object(
+            {
+              path: Type.String({
+                description:
+                  "Absolute path of an existing git worktree of this repository.",
+              }),
+            },
+            { additionalProperties: false },
+          ),
+          Type.Null(),
+        ],
+        { description: WORKTREE_DESCRIPTION },
+      ),
     ),
   },
   { additionalProperties: false, required: ["prompt", "task_name"] },

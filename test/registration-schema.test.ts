@@ -153,6 +153,36 @@ describe("cowboy_agent registration", () => {
     expect(agentTypeParam()).toContain("Available: general-purpose,Explore");
   });
 
+  it("exposes `worktree` as an optional nullable target, never required", () => {
+    const tool = captureAgentTool();
+    const worktree = itemProperties(tool)?.worktree;
+    expect(isRecord(worktree) && Array.isArray(worktree.anyOf)).toBe(true);
+    expect(
+      (worktree as { anyOf: unknown[] }).anyOf.some(
+        (variant) => isRecord(variant) && variant.type === "object",
+      ),
+    ).toBe(true);
+    expect(itemRequired(tool) ?? []).not.toContain("worktree");
+  });
+
+  it("documents `worktree` as new by default, with inherit and an existing path", () => {
+    const tool = captureAgentTool();
+    const description =
+      (itemProperties(tool)?.worktree as { description?: string } | undefined)
+        ?.description ?? "";
+    expect(description).toMatch(/^Optional\b/);
+    expect(description).toContain('"new"');
+    expect(description).toContain('"inherit"');
+    expect(description).toContain("path");
+    expect(description).toContain("default");
+  });
+
+  it("tells the caller to assume defaults unless the user asked otherwise", () => {
+    expect(captureAgentTool().description).toContain(
+      "Always omit optional parameters the user did not explicitly ask for",
+    );
+  });
+
   it("documents `harness_type` as the override, listing the harnesses and the no-fallback rule", () => {
     const tool = captureAgentTool();
     const description =

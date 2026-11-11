@@ -20,6 +20,7 @@ import {
 } from "../../shell.js";
 
 import { AgentSandbox, formatLaunchCleanupNote } from "../../spawn/sandbox.js";
+import type { ResolvedWorktree } from "../../spawn/worktree-policy.js";
 import { actionReport } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
 import { choiceInvocation } from "./spawn-choice.js";
@@ -32,10 +33,7 @@ import {
 } from "./menu-spawn-options.js";
 
 /** The run's worktree, resolved once the name field has answered for a `new` choice. */
-type WorktreeTarget =
-  | { kind: "inherit" }
-  | { kind: "picked"; path: string; branch: string }
-  | { kind: "new"; branch: string };
+type WorktreeTarget = ResolvedWorktree;
 
 /** How much of the prompt a derived description keeps. */
 const DERIVED_DESCRIPTION_MAX_LENGTH = 50;

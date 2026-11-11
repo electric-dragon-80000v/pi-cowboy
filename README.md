@@ -243,6 +243,7 @@ Each item in `agents[]` takes:
 | `agent_type`   | no       | Agent template to use. Defaults to the type selected at `/cowboy` > `Agent`.                                                                                                                                                                                                                                                           |
 | `model`        | no       | Model for this agent as `"provider/model-id"`. Resolved according to [Model resolution](#model-resolution).                                                                                                                                                                                                                            |
 | `harness_type` | no       | Harness that launches this agent: `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, `claude`, or a harness a plugin registered in this session. Overrides the agent template's `harness_type` and the `agent.harnessType` setting. If the harness is not registered here, or this machine cannot launch it, the call fails before spawning. |
+| `worktree`     | no       | Where the run executes. Omit it (or pass `"new"`) for a new isolated `cow-<task>-<id>` worktree. Pass `"inherit"` to run in the parent session's cwd with no worktree of its own, or `{"path": "/absolute/checkout"}` to run inside an existing worktree of this repository; a picked checkout is never removed by cleanup.            |
 
 ### `steer_cowboy_agent`
 

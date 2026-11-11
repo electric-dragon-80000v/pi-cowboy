@@ -66,6 +66,7 @@ function cowboyAgentsSchemaWithTypes(
       model: CowboyAgentsSchema.properties.agents.items.properties.model,
       harness_type:
         CowboyAgentsSchema.properties.agents.items.properties.harness_type,
+      worktree: CowboyAgentsSchema.properties.agents.items.properties.worktree,
     },
     { additionalProperties: false, required: ["prompt", "task_name"] },
   );
@@ -87,7 +88,7 @@ export function registerAgentTool(pi: ExtensionAPI): void {
     name: COWBOY_TOOLS.agent,
     label: COWBOY_TOOLS.agent,
     description:
-      "Delegate one or more tasks to agents. Each agent gets an isolated worktree and a fresh pi process — pass a single-item `agents` array to delegate one task, or several to launch them in one call. Every item in `agents` requires its own short `task_name`; a name used twice in one call is rejected before anything spawns. Each agent is instructed to write its complete final response to a report file when it finishes — do not repeat reporting instructions in the `prompt`. Delegation is NON-BLOCKING by default: the call returns immediately with one agent id per item, and each result is delivered to you as a message when that agent settles — do not poll, do not re-delegate the task, do not duplicate the work. Pass `run_in_background: false` ONLY when `agents` has exactly one item AND you need that result inline in the same turn; a non-background call with multiple items is rejected before anything spawns. When an agent settles, the completion message names its `cow-` branch and says whether the worktree is kept and why. Merge the settled branch with merge_cowboy_branch when the work is good (or reject it), then call cleanup_cowboy_agent to remove it.",
+      "Delegate one or more tasks to agents. Each agent gets a fresh pi process and, by default, an isolated worktree — pass a single-item `agents` array to delegate one task, or several to launch them in one call. Every item in `agents` requires its own short `task_name`; a name used twice in one call is rejected before anything spawns. Each agent is instructed to write its complete final response to a report file when it finishes — do not repeat reporting instructions in the `prompt`. Delegation is NON-BLOCKING by default: the call returns immediately with one agent id per item, and each result is delivered to you as a message when that agent settles — do not poll, do not re-delegate the task, do not duplicate the work. Pass `run_in_background: false` ONLY when `agents` has exactly one item AND you need that result inline in the same turn; a non-background call with multiple items is rejected before anything spawns. Always omit optional parameters the user did not explicitly ask for — `agent_type`, `model`, `harness_type`, and `worktree` each take this session's configured default when unset, so never guess or fill them in on the user's behalf. When an agent settles, the completion message names its branch when it has one and says whether the worktree is kept and why. Merge the settled branch with merge_cowboy_branch when the work is good (or reject it), then call cleanup_cowboy_agent to remove it.",
     parameters: params,
     execute: executeAgentTool,
     constrainedSampling: CONSTRAINED_SAMPLING,

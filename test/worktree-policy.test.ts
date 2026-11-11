@@ -20,8 +20,10 @@ import {
   isWorktreeMaterialization,
   parseWorktreeCheckoutType,
   parseWorktreeMaterialization,
+  parseWorktreeRequest,
   resolveWorktreeRoot,
   slugifyWorktreeType,
+  worktreeBranchOf,
   VALID_WORKTREE_CHECKOUT_TYPES,
   VALID_WORKTREE_MATERIALIZATIONS,
 } from "../src/spawn/worktree-policy.js";
@@ -201,6 +203,38 @@ describe("worktree materialization", () => {
       expect(parseWorktreeMaterialization(value)).toBeUndefined();
     },
   );
+});
+
+describe("worktree target request", () => {
+  it("defaults an omitted or null target to a new worktree", () => {
+    expect(parseWorktreeRequest(undefined)).toEqual({ kind: "new" });
+    expect(parseWorktreeRequest(null)).toEqual({ kind: "new" });
+    expect(parseWorktreeRequest("new")).toEqual({ kind: "new" });
+  });
+
+  it("accepts the parent cwd and a named existing checkout", () => {
+    expect(parseWorktreeRequest("inherit")).toEqual({ kind: "inherit" });
+    expect(parseWorktreeRequest({ path: " /repo/other " })).toEqual({
+      kind: "picked",
+      path: "/repo/other",
+    });
+  });
+
+  it.each(["", "parent", { path: "" }, { path: 42 }, [], {}, true])(
+    "rejects the unusable target %o",
+    (value) => {
+      expect(() => parseWorktreeRequest(value)).toThrow(/Invalid `worktree`/);
+    },
+  );
+});
+
+describe("worktree branch naming", () => {
+  it("uses the attached branch, or the directory for a detached checkout", () => {
+    expect(worktreeBranchOf({ path: "/repo/wt", branch: "feature" })).toBe(
+      "feature",
+    );
+    expect(worktreeBranchOf({ path: "/repo/wt", branch: null })).toBe("wt");
+  });
 });
 
 describe("worktree dirty-checkout policy", () => {

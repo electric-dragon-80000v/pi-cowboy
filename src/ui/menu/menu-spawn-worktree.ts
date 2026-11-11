@@ -9,7 +9,6 @@
  * of the options rows rather than opening a screen of its own.
  */
 
-import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SettingItem } from "@earendil-works/pi-tui";
 import type { Theme } from "../types.js";
@@ -18,6 +17,10 @@ import {
   listGitWorktrees,
   type GitWorktreeEntry,
 } from "../../infrastructure/git-client.js";
+import {
+  worktreeBranchOf,
+  type WorktreeSelection,
+} from "../../spawn/worktree-policy.js";
 import { truncatePath } from "../format.js";
 import { createSearchableSelect, type Notify } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
@@ -31,16 +34,11 @@ const CREATE_NEW_WORKTREE_VALUE = "__create_new_worktree__";
 /** Real paths are shown by this much of their tail; the row still carries the whole path. */
 const WORKTREE_PATH_TRUNCATE_LEN = 60;
 
-/** The Worktree row's choice: `new` has no name yet, because the name field comes after Spawn. */
-export type WorktreePick =
-  | { kind: "inherit" }
-  | { kind: "picked"; path: string; branch: string }
-  | { kind: "new" };
-
-/** The branch a run in this worktree lands on; a detached checkout is named by its directory. */
-function worktreeBranch(entry: GitWorktreeEntry): string {
-  return entry.branch ?? path.basename(entry.path);
-}
+/**
+ * The Worktree row's choice: the same vocabulary the cowboy_agent tool
+ * accepts. `new` has no name yet, because the name field comes after Spawn.
+ */
+export type WorktreePick = WorktreeSelection;
 
 /** The Worktree row's summary for a pick. */
 function pickLabel(pick: WorktreePick): string {
@@ -122,7 +120,7 @@ export function buildWorktreeRow(
               record({
                 kind: "picked",
                 path: entry.path,
-                branch: worktreeBranch(entry),
+                branch: worktreeBranchOf(entry),
               });
             }
           },

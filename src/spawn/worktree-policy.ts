@@ -95,6 +95,60 @@ export function isWorktreeCheckoutType(
   return parseWorktreeCheckoutType(value) !== undefined;
 }
 
+/**
+ * A caller's worktree target before its facts are resolved.
+ *  - "new": a fresh `cow-<task>-<id>` worktree, provisioned when the run launches.
+ *  - "inherit": the parent session cwd; the run has no worktree of its own.
+ *  - "picked": an existing checkout named by path; the run works inside it but
+ *    never owns it.
+ * The cowboy_agent tool accepts exactly this shape, so a tool spawn and the
+ * spawn menu offer one vocabulary rather than two.
+ */
+export type WorktreeRequest =
+  { kind: "new" } | { kind: "inherit" } | { kind: "picked"; path: string };
+
+/**
+ * A worktree target with its facts resolved: a picked checkout carries the
+ * branch git reports for it, never a branch a caller supplied.
+ */
+export type WorktreeSelection =
+  | { kind: "new" }
+  | { kind: "inherit" }
+  | { kind: "picked"; path: string; branch: string };
+
+/** The target once the run has named a new worktree; every arm is launch-ready. */
+export type ResolvedWorktree =
+  { kind: "new"; branch: string } | Exclude<WorktreeSelection, { kind: "new" }>;
+
+/** The branch a run in this worktree lands on; a detached checkout is named by its directory. */
+export function worktreeBranchOf(entry: {
+  path: string;
+  branch: string | null;
+}): string {
+  return entry.branch ?? path.basename(entry.path);
+}
+
+/**
+ * Parse the tool's `worktree` input: omitted/null is `new`, `"inherit"` runs in
+ * the parent cwd, and `{ path }` names an existing checkout whose branch the
+ * caller resolves against git. Every other shape throws before anything spawns.
+ */
+export function parseWorktreeRequest(value: unknown): WorktreeRequest {
+  if (value === undefined || value === null) return { kind: "new" };
+  if (value === "new" || value === "inherit") return { kind: value };
+  if (
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { path?: unknown }).path === "string"
+  ) {
+    const picked = (value as { path: string }).path.trim();
+    if (picked !== "") return { kind: "picked", path: picked };
+  }
+  throw new Error(
+    'Invalid `worktree`: pass "new", "inherit", or { "path": "/absolute/checkout" }. Nothing was spawned.',
+  );
+}
+
 /** Max words in a task slug (fits small UI elements). */
 const TASK_SLUG_MAX_WORDS = 3;
 

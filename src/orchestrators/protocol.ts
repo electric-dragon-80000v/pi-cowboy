@@ -21,6 +21,7 @@ import type {
   AgentLifecycleState,
   AgentPhase,
   AgentSpawn,
+  AgentWorktree,
   ModelChoice,
 } from "../types.js";
 import {
@@ -40,12 +41,17 @@ import {
   buildTaskSlug,
   buildWorktreeBranch,
   buildWorktreePath,
+  parseWorktreeRequest,
   resolveWorktreeRoot,
+  worktreeBranchOf,
+  type WorktreeSelection,
 } from "../spawn/worktree-policy.js";
 import {
   formatRetentionClause,
+  listGitWorktrees,
   resolveMainCheckout,
 } from "../infrastructure/git-client.js";
+import { canonicalPath } from "../paths.js";
 import {
   getAgentConfig,
   resolveTypeOrDiscover,
@@ -109,6 +115,8 @@ interface DelegationIntent {
   modelChoice?: ModelChoice;
   /** The caller's validated `harness_type`; absent means the agent template's `harness_type` and the config setting resolve it. */
   requestedHarness?: AnyHarnessId;
+  /** Where the run executes: a new tree, the parent cwd, or an existing checkout. */
+  worktree: WorktreeSelection;
   isBackground: boolean;
 }
 
@@ -267,6 +275,34 @@ type PerItemParams = CowboyAgentParams & {
   _configuredModel?: string;
 };
 
+/**
+ * Resolve the caller's `worktree` input into the selection the turn carries.
+ * `new` and `inherit` pass through; a picked path must name an existing
+ * checkout of this repository, and its branch is read from git rather than
+ * trusted from the caller, so details and cues cannot disagree with the tree.
+ */
+async function resolveWorktreeRequest(
+  raw: unknown,
+  ctx: ExtensionContext,
+): Promise<WorktreeSelection> {
+  const request = parseWorktreeRequest(raw);
+  if (request.kind !== "picked") return request;
+  const canonical = canonicalPath(request.path);
+  const entries =
+    canonical === undefined
+      ? null
+      : await listGitWorktrees(getPiInstance(), ctx.cwd);
+  const entry = entries?.find(
+    (candidate) => canonicalPath(candidate.path) === canonical,
+  );
+  if (entry === undefined) {
+    throw new Error(
+      `Worktree "${request.path}" is not an existing checkout of this repository — nothing was spawned. Pass an absolute path from \`git worktree list\`, or "new"/"inherit".`,
+    );
+  }
+  return { kind: "picked", path: entry.path, branch: worktreeBranchOf(entry) };
+}
+
 /** One delegation turn, bound to its validated intent. */
 export class DelegationProtocol {
   /** The validated intent — fixed at parse time. */
@@ -356,6 +392,10 @@ export class DelegationProtocol {
     // a warning, and the launch proceeds with the level as written.
     for (const notice of requested.notices) ctx.ui.notify(notice, "warning");
 
+    // The worktree target is resolved before anything spawns: a picked path
+    // must exist in this repository, and its branch comes from git.
+    const worktree = await resolveWorktreeRequest(params.worktree, ctx);
+
     // Background is the default — delegation never blocks the orchestrator's turn. Only an explicit run_in_background: false opts into foreground.
     const isBackground = params.run_in_background !== false;
 
@@ -371,6 +411,7 @@ export class DelegationProtocol {
       fork: getAgentConfig(agentType)?.fork ?? false,
       modelChoice: modelChoiceFor(requested.resolved),
       requestedHarness,
+      worktree,
       isBackground,
     });
   }
@@ -382,8 +423,8 @@ export class DelegationProtocol {
 
     // One id per spawn names the worktree branch AND the herdr agent. Minted through the manager, so it is unique against every retained spawn.
     const spawnId = getManager().mintSpawnId();
-    // The checkout the launch will create, named by the same policy the sandbox uses, so the cue can name the branch the orchestrator merges without the worktree existing yet.
-    const worktree = await this.expectedWorktree(pi, spawnId);
+    // The checkout the launch will use, named by the same policy the sandbox uses, so the cue can name the branch the orchestrator merges without the worktree existing yet. `inherit` has none; `picked` passes through.
+    const worktree = await this.resolveWorktree(pi, spawnId);
 
     // The level rides the choice, resolved together with the model it belongs
     // to, so nothing here re-derives one.
@@ -471,6 +512,27 @@ export class DelegationProtocol {
   }
 
   /**
+   * The worktree the launch will use for `spawnId`: the caller's target with
+   * the spawn id applied. `new` keeps the sandbox's naming policy, `inherit`
+   * has none, and `picked` passes through untouched — the run works there
+   * without owning it.
+   */
+  private async resolveWorktree(
+    pi: ExtensionAPI,
+    spawnId: string,
+  ): Promise<AgentWorktree | undefined> {
+    const selection = this.intent.worktree;
+    switch (selection.kind) {
+      case "inherit":
+        return undefined;
+      case "picked":
+        return selection;
+      case "new":
+        return this.expectedWorktree(pi, spawnId);
+    }
+  }
+
+  /**
    * The worktree the launch will create for `spawnId`, or undefined outside a
    * repository. Pure naming: it applies the sandbox's own root resolution and
    * branch policy so the cue names the exact path the checkout will land on,
@@ -499,9 +561,9 @@ export class DelegationProtocol {
  * The single-item blocking guard lives here, not in the schema: a
  * non-background call must have exactly one item, and the check fires before
  * any item parses or any side effect runs. Every item parses — task name,
- * model and agent type — before any item runs, so a bad item fails the whole
- * call with no worktree, pane or spawn behind it. Two items sharing a task
- * name are refused for the same reason.
+ * model, agent type and worktree — before any item runs, so a bad item fails
+ * the whole call with no worktree, pane or spawn behind it. Two items sharing
+ * a task name are refused for the same reason.
  *
  * Spawns run in parallel; the coordinator's registry caps concurrency and
  * queues overflow, so a 10-item batch against a 4-slot cap still fans out
