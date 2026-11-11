@@ -1,3 +1,15 @@
+# [0.30.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.29.1...v0.30.0) (2026-11-11)
+
+
+### Bug Fixes
+
+* **harness:** adjust steering to be more flexible ([2d34cfa](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2d34cfa100f076df801f190bb64b0a5b7fcb8ed0))
+
+
+### Features
+
+* **ui:** allow handover of running agents by prompting to stop first ([e8bd6a3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/e8bd6a3f01afdbc0e582c32a47a951703c0e324d))
+
 ## [0.29.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.29.0...v0.29.1) (2026-11-10)
 
 
