@@ -1,12 +1,12 @@
 /**
  * agent-host.ts — execution-multiplexer contracts (types only).
- * AgentHost: hostAt/start/observe/waitUntilGone/release/isAttached/findAttempts/deliver.
+ * AgentHost: hostAt/start/observe/waitUntilGone/release/isAttached/findAttempts.
  * AgentView: placement presentation (focus).
- * PaneControl: the pane-side surface a harness prepares and stops through.
+ * PaneControl: the pane-side surface a harness prepares, stops and steers through.
  * PlacementCatalog: the multiplexer's own view of the placements it owns (discovery,
  * observation, path spelling) — the multiplexer vocabulary cleanup and status read.
  * HerdrHostRef/AgentHostRef: host address. CheckoutBinding/ViewRequest: placement input.
- * DeliverOutcome: what a pane submit attempt did. HostObservation: live agent state.
+ * DeliverOutcome: what a prompt submission did. HostObservation: live agent state.
  * LiveAttempt: conflict identity for dedup. ExecutionRuntime: host + view + pane +
  * placements for one parent session.
  */
@@ -36,7 +36,7 @@ interface HerdrHostRef {
 /** What the domain types against; only the herdr impl names the variant. */
 export type AgentHostRef = HerdrHostRef;
 
-/** What a submit to an agent did. `submitted` is the only state a steer acts on. */
+/** What a submit to a run's agent did. `submitted` is the only state a steer acts on. */
 export type DeliverOutcome =
   /** The text and the submission keypress both reached the agent. */
   | { kind: "submitted" }
@@ -104,11 +104,28 @@ export interface PaneControl {
    */
   sendKeys(paneId: string, keys: readonly string[]): Promise<void>;
   /**
-   * Submit literal text and Enter only while `pid` is among the pane's foreground
-   * processes. Reject if the foreground cannot be verified. This is a best-effort
-   * guard, not an atomic guarantee against a process change between checks and input.
+   * Submit a message to the agent the multiplexer recognizes in this pane. The
+   * agent surface, not the pane surface: a target that hosts no agent, or one
+   * waiting on an approval, is refused rather than typed at, and the text and
+   * its submission travel as one ordered call. Absent when the multiplexer has
+   * no agent surface to offer, so a harness reports the gap instead of typing
+   * into whatever the pane's foreground happens to be.
    */
-  submitText?(
+  promptAgent?(paneId: string, message: string): Promise<DeliverOutcome>;
+  /**
+   * Submit literal text and Enter into the pane, only while `pid` is among the
+   * pane's foreground processes. The pane surface's one write: the text is bytes,
+   * the Enter is the key that commits them, and the two travel in order, so a
+   * message is never typed into a pane that has already moved on.
+   *
+   * An escape byte is allowed into the text so a harness can report a terminal
+   * sequence first — a TUI that ignores keys until it is told its terminal has
+   * focus needs `\u001b[I`. Every other control character is refused, so one
+   * message cannot smuggle in a second submit or a ctrl key.
+   *
+   * The process check is best-effort, not atomic with the write.
+   */
+  submit?(
     paneId: string,
     text: string,
     pid: number,
@@ -251,13 +268,6 @@ export interface AgentHost {
   ): Promise<boolean>;
   /** Live attempts for a task slug (survives parent reload); a failed probe returns [] so availability never blocks spawning. */
   findAttempts(taskSlug: string): Promise<LiveAttempt[]>;
-  /**
-   * Submit a message to the run's agent. A working agent queues it for its next
-   * model call; a settled one starts another turn. The agent surface refuses a
-   * target that hosts no agent, so there is one way in and no half-delivered
-   * state: `not-submitted` means the message was refused and `detail` says why.
-   */
-  deliver(ref: AgentHostRef, message: string): Promise<DeliverOutcome>;
 }
 
 /** One multiplexer's host + view + pane control + placement catalog, built once per parent session. */

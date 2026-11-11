@@ -13,6 +13,7 @@ import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { readHandoverRecordsOf } from "./pi-session.js";
 import { piStore } from "./pi-store.js";
+import { steerThroughAgentSurface } from "./steer.js";
 import { stopWithKeys } from "./stop-keys.js";
 
 /** Signature the env launcher carries, so verification proves which launcher landed. */
@@ -50,6 +51,7 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
   buildArgs: buildPiLaunchArgs,
   // pi's TUI binds ctrl+d to quit; ctrl+c only clears the editor.
   stop: stopWithKeys(["ctrl+d"]),
+  steer: steerThroughAgentSurface,
   listModels: piFamilyListModels,
   // The catalog is local: nothing to warm.
   prefetchModels: () => {},

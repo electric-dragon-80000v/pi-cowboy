@@ -55,6 +55,7 @@ import {
   splitMarker,
   type PaneProof,
 } from "../pane-launcher.js";
+import { steerThroughAgentSurface } from "../steer.js";
 import { stopWithKeys } from "../stop-keys.js";
 import { opencodeConfigCodec, type OpencodeConfig } from "./config.js";
 import { readOpencodeSessionRecords } from "./session-export.js";
@@ -417,6 +418,7 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
   // opencode interrupts on the first ctrl+c and exits on the second; one press
   // alone would leave the process alive.
   stop: stopWithKeys(["ctrl+c", "ctrl+c"]),
+  steer: steerThroughAgentSurface,
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
   // which this harness does not run. Reads share the memoized fetch, so the
   // boot warm and every menu select ride one CLI run. With no built-in

@@ -24,6 +24,7 @@ import {
 } from "../harness.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { readHandoverRecordsOf, type SessionStore } from "./pi-session.js";
+import { steerThroughAgentSurface } from "./steer.js";
 import { stopWithKeys } from "./stop-keys.js";
 
 /**
@@ -141,6 +142,7 @@ export function createPiCompatibleHarness(
     // pi's TUI binds ctrl+d to quit; ctrl+c only clears the editor and would
     // leave the process running.
     stop: stopWithKeys(["ctrl+d"]),
+    steer: steerThroughAgentSurface,
     listModels: piFamilyListModels,
     // The catalog is local: nothing to warm.
     prefetchModels: () => {},

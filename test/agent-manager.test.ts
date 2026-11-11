@@ -803,17 +803,20 @@ describe("AgentManager fleet routing", () => {
       workspaceId: "w1",
       paneCreated: true,
     };
-    const deliveries: Array<{ ref: AgentHostRef; message: string }> = [];
+    const deliveries: Array<{ paneId: string; message: string }> = [];
+    const pane = {
+      ...TEST_PANE,
+      promptAgent: async (paneId: string, message: string) => {
+        deliveries.push({ paneId, message });
+        return { kind: "submitted" as const };
+      },
+    };
     const host = {
       hostAt: async () => ref,
       start: async () => {},
       observe: async () => ({ state: "working" }),
       waitUntilGone: async () => true,
       release: async () => true,
-      deliver: async (deliveryRef: AgentHostRef, message: string) => {
-        deliveries.push({ ref: deliveryRef, message });
-        return { kind: "submitted" as const };
-      },
     } as unknown as AgentHost;
     const fake = recordingPools(() => ({
       kind: "start" as const,
@@ -823,7 +826,7 @@ describe("AgentManager fleet routing", () => {
       fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
-        createPane: () => TEST_PANE,
+        createPane: () => pane,
         createPlacements: () => TEST_PLACEMENTS,
         createDeliverable: () => new FleetScriptedDeliverable(),
       },
@@ -842,7 +845,7 @@ describe("AgentManager fleet routing", () => {
     await expect(manager.steer(liveId, "hello")).resolves.toEqual({
       kind: "delivered",
     });
-    expect(deliveries).toEqual([{ ref, message: "hello" }]);
+    expect(deliveries).toEqual([{ paneId: ref.paneId, message: "hello" }]);
     manager.dispose();
   });
 

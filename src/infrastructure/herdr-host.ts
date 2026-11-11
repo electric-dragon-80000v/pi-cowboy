@@ -214,25 +214,6 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
     },
 
     findAttempts: (taskSlug) => findTaskAttempts(pi, taskSlug),
-
-    // The agent surface, never the pane surface. herdr refuses a target that is
-    // not an agent (`agent_not_found`), refuses an approval dialog
-    // (`agent_blocked`), and writes the text and the encoded Enter as one
-    // ordered submission. Typing into the pane instead would put those bytes
-    // wherever the pane's foreground happens to be — a shell prompt runs them
-    // as a command.
-    deliver: async (ref, message): Promise<DeliverOutcome> => {
-      try {
-        await submitAgentPrompt(pi, ref.paneId, message);
-        return { kind: "submitted" };
-      } catch (error) {
-        const code = herdrErrorCode(error);
-        return {
-          kind: "not-submitted",
-          detail: `the agent's pane did not take the message (${code === undefined ? "" : `${code}: `}${errorMessage(error)}); nothing was submitted.`,
-        };
-      }
-    },
   };
 }
 
@@ -249,6 +230,24 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
     // The agent surface, not pane-level typing: herdr validates the target is
     // an agent and every key name before writing any bytes.
     sendKeys: (paneId, keys) => sendAgentKeys(pi, paneId, keys),
+    // The agent surface, never the pane surface. herdr refuses a target that is
+    // not an agent (`agent_not_found`), refuses an approval dialog
+    // (`agent_blocked`), and writes the text and the encoded Enter as one
+    // ordered submission. Typing into the pane instead would put those bytes
+    // wherever the pane's foreground happens to be — a shell prompt runs them
+    // as a command.
+    promptAgent: async (paneId, message): Promise<DeliverOutcome> => {
+      try {
+        await submitAgentPrompt(pi, paneId, message);
+        return { kind: "submitted" };
+      } catch (error) {
+        const code = herdrErrorCode(error);
+        return {
+          kind: "not-submitted",
+          detail: `the agent's pane did not take the message (${code === undefined ? "" : `${code}: `}${errorMessage(error)}); nothing was submitted.`,
+        };
+      }
+    },
     waitForVisibleOutput: async (paneId, output, timeoutMs) => {
       await runHerdr(
         pi,
@@ -266,13 +265,15 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
         { timeoutMs: timeoutMs + 15_000 },
       );
     },
-    submitText: async (paneId, text, pid, signal) => {
+    submit: async (paneId, text, pid, signal) => {
       if (
         !Number.isSafeInteger(pid) ||
         pid <= 0 ||
         Array.from(text).some((character) => {
           const code = character.charCodeAt(0);
-          return code < 32 || code === 127;
+          // ESC is the one control byte a harness may send: a TUI that ignores
+          // input while its terminal is unfocused has to be told it has focus.
+          return (code < 32 && code !== 0x1b) || code === 127;
         })
       ) {
         throw new Error(

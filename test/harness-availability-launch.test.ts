@@ -244,6 +244,7 @@ describe("a harness whose hooks throw", () => {
       teardown: async () => {},
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
+      steer: async () => ({ kind: "submitted" }),
       prefetchModels: () => {
         throw new Error(`${id} exploded`);
       },

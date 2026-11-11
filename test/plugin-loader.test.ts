@@ -83,6 +83,7 @@ export default function (api) {
     teardown: async () => {},
     listModels: async () => [{ key: "fixture/model", label: "Fixture" }],
     stop: async () => {},
+    steer: async () => ({ kind: "submitted" }),
     prefetchModels: () => {},
   });
   api.registerMultiplexer({
@@ -161,6 +162,7 @@ describe("createPluginLoader", () => {
             teardown: async () => {},
             listModels: async () => ({ kind: "listed", entries: [] }),
             stop: async () => {},
+            steer: async () => ({ kind: "submitted" }),
             prefetchModels: () => {},
           });
         };
@@ -270,6 +272,7 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
             teardown: async () => {},
             listModels: async () => ({ kind: "listed", entries: [] }),
             stop: async () => {},
+            steer: async () => ({ kind: "submitted" }),
             prefetchModels: () => {},
           });
           throw new Error("half-built");
@@ -296,6 +299,7 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
         teardown: async () => {},
         listModels: async () => ({ kind: "listed", entries: [] }),
         stop: async () => {},
+        steer: async () => ({ kind: "submitted" }),
         prefetchModels: () => {},
       }),
     ).toBe(true);
@@ -320,6 +324,7 @@ export default (api) => {
     teardown: async () => {},
     listModels: async () => ({ kind: "listed", entries: [] }),
     stop: async () => {},
+    steer: async () => ({ kind: "submitted" }),
     prefetchModels: () => {},
   });
   return () => globalThis.__disposeGate ?? Promise.resolve();

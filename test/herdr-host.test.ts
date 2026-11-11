@@ -77,7 +77,7 @@ describe("guarded pane submission", () => {
     });
     const pane = createHerdrRuntime({} as ExtensionAPI).pane;
     await expect(
-      pane.submitText!("w1:p2", "hello", 13, new AbortController().signal),
+      pane.submit!("w1:p2", "hello", 13, new AbortController().signal),
     ).rejects.toThrow(/not in pane/);
     expect(runHerdrMock).toHaveBeenCalledTimes(1);
   });
@@ -95,7 +95,7 @@ describe("guarded pane submission", () => {
         })
         .mockResolvedValueOnce(undefined);
       const pane = createHerdrRuntime({} as ExtensionAPI).pane;
-      const result = pane.submitText!(
+      const result = pane.submit!(
         "w1:p2",
         "hello",
         13,
@@ -124,7 +124,7 @@ describe("guarded pane submission", () => {
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce({ process_info: { foreground_processes: [] } });
       const pane = createHerdrRuntime({} as ExtensionAPI).pane;
-      const result = pane.submitText!(
+      const result = pane.submit!(
         "w1:p2",
         "hello",
         13,
@@ -139,6 +139,47 @@ describe("guarded pane submission", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("carries the escape sequence a TUI needs before it takes input", async () => {
+    vi.useFakeTimers();
+    try {
+      runHerdrMock
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined);
+      const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+      const result = pane.submit!(
+        "w1:p2",
+        "\u001b[Ihello",
+        13,
+        new AbortController().signal,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await result;
+      expect(runHerdrMock.mock.calls.map((call) => call[1])).toContainEqual([
+        "pane",
+        "send-text",
+        "w1:p2",
+        "\u001b[Ihello",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a submit smuggled into the text", async () => {
+    runHerdrMock.mockResolvedValue(undefined);
+    const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+    await expect(
+      pane.submit!("w1:p2", "hello\rworld", 13, new AbortController().signal),
+    ).rejects.toThrow(/control characters/);
+    expect(runHerdrMock).not.toHaveBeenCalled();
   });
 });
 
@@ -357,12 +398,12 @@ describe("createHerdrRuntime host.findAttempts", () => {
   });
 });
 
-describe("createHerdrRuntime host.deliver", () => {
+describe("createHerdrRuntime pane.promptAgent", () => {
   it("submits the message to the agent in one call", async () => {
     const { pi, calls } = recordingPi([ok(undefined)]);
 
     await expect(
-      createHerdrRuntime(pi).host.deliver(REF, "tighten the loop"),
+      createHerdrRuntime(pi).pane.promptAgent!(REF.paneId, "tighten the loop"),
     ).resolves.toEqual({ kind: "submitted" });
     expect(calls).toEqual([
       {
@@ -377,7 +418,10 @@ describe("createHerdrRuntime host.deliver", () => {
     const { pi, calls } = recordingPi([ok(undefined)]);
 
     await expect(
-      createHerdrRuntime(pi).host.deliver(REF, "line one\nline two"),
+      createHerdrRuntime(pi).pane.promptAgent!(
+        REF.paneId,
+        "line one\nline two",
+      ),
     ).resolves.toEqual({ kind: "submitted" });
     expect(calls[0]?.args).toEqual([
       "agent",
@@ -391,7 +435,7 @@ describe("createHerdrRuntime host.deliver", () => {
     const { pi } = recordingPi([fail("agent_not_found", "gone")]);
 
     await expect(
-      createHerdrRuntime(pi).host.deliver(REF, "hi"),
+      createHerdrRuntime(pi).pane.promptAgent!(REF.paneId, "hi"),
     ).resolves.toEqual({
       kind: "not-submitted",
       detail: expect.stringContaining("agent_not_found"),
@@ -402,7 +446,7 @@ describe("createHerdrRuntime host.deliver", () => {
     const { pi } = recordingPi([fail("agent_blocked", "waiting on you")]);
 
     await expect(
-      createHerdrRuntime(pi).host.deliver(REF, "hi"),
+      createHerdrRuntime(pi).pane.promptAgent!(REF.paneId, "hi"),
     ).resolves.toEqual({
       kind: "not-submitted",
       detail: expect.stringContaining("agent_blocked"),

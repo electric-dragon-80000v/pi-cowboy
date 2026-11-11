@@ -376,11 +376,24 @@ export class SubagentSession {
     }
     // Snapshot settlement up front: the message delivers as the run was.
     const wasSettled = this.isSettled();
+    // The harness owns how its process takes input; this is the only steer
+    // route, so nothing here knows a pane command or a TUI's submit key.
+    const harness = getHarnessRegistry().get(this.args.options.harness);
+    if (!harness) {
+      return {
+        kind: "refused",
+        reason: `agent ${this.id} runs harness "${this.args.options.harness}", which this session has not registered, so there is no route to send a message.`,
+      };
+    }
     let submit: DeliverOutcome;
     try {
-      submit = await this.deps.transport
-        .createHost(getPiInstance())
-        .deliver(ref, message);
+      submit = await harness.steer({
+        pi: this.args.pi,
+        pane: this.deps.transport.createPane(getPiInstance()),
+        paneId: ref.paneId,
+        message,
+        signal: this.spawn.execution.abortController.signal,
+      });
     } catch (error) {
       submit = { kind: "not-submitted", detail: errorMessage(error) };
     }

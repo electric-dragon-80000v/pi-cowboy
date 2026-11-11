@@ -10,11 +10,15 @@ import type {
   PlacementCatalog,
 } from "../../src/agents/agent-host.js";
 
-/** A pane surface that silently accepts every run and never proves output. */
+/**
+ * A pane surface that silently accepts every run, agent prompt, and keypress,
+ * and never proves output.
+ */
 export const TEST_PANE: PaneControl = {
   kind: "test",
   run: async () => {},
   sendKeys: async () => {},
+  promptAgent: async () => ({ kind: "submitted" }),
   waitForOutput: async () => {},
 };
 

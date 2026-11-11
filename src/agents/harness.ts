@@ -57,7 +57,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../predicates.js";
-import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
+import type {
+  AgentMultiplexerKind,
+  DeliverOutcome,
+  PaneControl,
+} from "./agent-host.js";
 
 /**
  * Every built-in harness. `HarnessId` derives from this; a `harness_type` may
@@ -496,6 +500,31 @@ export interface HarnessStopRequest {
 export type HarnessStop = (request: HarnessStopRequest) => Promise<void>;
 
 /**
+ * What a harness is handed to deliver one steering message into a live run's
+ * pane. The harness owns the submission mechanism — the agent surface for the
+ * built-ins, its own TUI composer for a harness the multiplexer does not name as
+ * an agent — and reaches the pane through `pane` alone. `signal` is the run's
+ * own abort signal, so a teardown that cancels the run cancels an in-flight
+ * steer with it.
+ */
+export interface HarnessSteerRequest {
+  readonly pi: ExtensionAPI;
+  readonly pane: PaneControl;
+  readonly paneId: string;
+  readonly message: string;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Deliver one steering message into a live run's pane. The answer is what the
+ * submission did: `submitted` once both the text and its submission keypress
+ * reached the agent, `not-submitted` with the reason otherwise.
+ */
+export type HarnessSteer = (
+  request: HarnessSteerRequest,
+) => Promise<DeliverOutcome>;
+
+/**
  * The run identity and address half of a teardown request. `paneId` is
  * `null` when the pane is already gone; `cwd` is `null` when no directory
  * address is known to the caller (a recovered run with no worktree).
@@ -898,6 +927,15 @@ export interface Harness<
    * `canReadHandoverRecords`. The address is the run's own.
    */
   readHandoverRecords?: ReadHandoverRecords;
+  /**
+   * Deliver one steering message into a live run's pane. Required, and the only
+   * steer path: the session calls this and nothing else, so each harness names
+   * how its own process takes input. A harness the multiplexer recognizes as an
+   * agent forwards to the pane's `promptAgent` (`steerThroughAgentSurface`); a
+   * TUI the multiplexer does not name submits through its own composer, and
+   * reports `not-submitted` when the multiplexer cannot carry it.
+   */
+  steer: HarnessSteer;
   /**
    * The models this harness can run, listed on demand — when a menu opens, and
    * when the spawn wizard opens. The pi family reads its catalog live on

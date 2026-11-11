@@ -216,7 +216,6 @@ function makeFakeHost(options: FakeHostOptions = {}) {
   }> = [];
   const stopCalls: StopCall[] = [];
   const releaseCalls: ReleaseCall[] = [];
-  const deliverCalls: Array<{ ref: AgentHostRef; message: string }> = [];
   let observeState = options.observeState ?? "done";
   let observeCalls = 0;
   const host = {
@@ -251,10 +250,6 @@ function makeFakeHost(options: FakeHostOptions = {}) {
       releaseCalls.push({ ref: releasedRef, scope });
       return true;
     },
-    deliver: async (deliveredRef: AgentHostRef, message: string) => {
-      deliverCalls.push({ ref: deliveredRef, message });
-      return true;
-    },
   } as unknown as AgentHost;
   return {
     host,
@@ -263,7 +258,6 @@ function makeFakeHost(options: FakeHostOptions = {}) {
     startCalls,
     stopCalls,
     releaseCalls,
-    deliverCalls,
     observeCalls: () => observeCalls,
     setObserveState: (state: "done" | "working") => {
       observeState = state;
@@ -286,6 +280,22 @@ interface HarnessOptions {
   /** Reports from a run that already settled, as the manager would hear them. */
   onFollowUpResult?: (spawn: AgentSpawn, deliverable: string) => void;
 }
+
+/** Every steer the default pane surface accepted, in call order. */
+const steerCalls: Array<{ paneId: string; message: string }> = [];
+
+/**
+ * The default pane surface: an agent surface that submits every message, so a
+ * run launched under the real built-in harnesses can be steered. Tests that
+ * need a refusal pass their own pane.
+ */
+const STEER_PANE: PaneControl = {
+  ...TEST_PANE,
+  promptAgent: async (paneId, message) => {
+    steerCalls.push({ paneId, message });
+    return { kind: "submitted" };
+  },
+};
 
 function makeSession(options: HarnessOptions = {}) {
   const releasedSlots: string[] = [];
@@ -313,7 +323,7 @@ function makeSession(options: HarnessOptions = {}) {
   const deps: SubagentSessionDeps = {
     transport: {
       createHost: options.createHost ?? (() => options.host!),
-      createPane: () => options.pane ?? TEST_PANE,
+      createPane: () => options.pane ?? STEER_PANE,
       createPlacements: () => TEST_PLACEMENTS,
       createDeliverable: () => options.deliverable!,
     },
@@ -369,6 +379,7 @@ beforeEach(() => {
   getPiInstanceMock.mockReset().mockReturnValue({});
   getStoreMock.mockReset().mockReturnValue({ agent: {} });
   resolveMainCheckoutMock.mockReset();
+  steerCalls.length = 0;
   stubPlan = {
     cwd: "/repo",
     piArgs: ["--system-prompt", "/tmp/system.md", "--approve", "@task.md"],
@@ -550,6 +561,7 @@ describe("SubagentSession harness seam", () => {
       stop: async (request: HarnessStopRequest) => {
         stopCalls.push(request);
       },
+      steer: async () => ({ kind: "submitted" }),
       buildArgs: (request: never) => request,
       teardown,
     });
@@ -654,7 +666,7 @@ describe("SubagentSession harness seam", () => {
     await driveRun(DRIVE_COMPLETED_MS);
     expect(postStart).toHaveBeenCalledWith(
       expect.objectContaining({
-        pane: TEST_PANE,
+        pane: STEER_PANE,
         paneId: fake.ref.paneId,
         launch: stubPlan.launch,
         signal: expect.any(AbortSignal),
@@ -687,7 +699,7 @@ describe("SubagentSession harness seam", () => {
 
     // The pane a harness prepares through is the one the session's transport
     // mints — the multiplexer's, not a multiplexer picked here.
-    expect(prepareCalls[0]!.pane).toBe(TEST_PANE);
+    expect(prepareCalls[0]!.pane).toBe(STEER_PANE);
   });
 
   it("stops through the recorded harness's pane surface, then waits for the host", async () => {
@@ -1188,7 +1200,7 @@ describe("SubagentSession routing and projection", () => {
       kind: "refused",
       reason: expect.stringContaining("queued"),
     });
-    expect(fake.deliverCalls).toEqual([]);
+    expect(steerCalls).toEqual([]);
 
     harness.session.start();
     await vi.advanceTimersByTimeAsync(0);
@@ -1197,8 +1209,8 @@ describe("SubagentSession routing and projection", () => {
     await expect(harness.session.steer("working message")).resolves.toEqual({
       kind: "delivered",
     });
-    expect(fake.deliverCalls).toEqual([
-      { ref: fake.ref, message: "working message" },
+    expect(steerCalls).toEqual([
+      { paneId: fake.ref.paneId, message: "working message" },
     ]);
     // Spawned steer is delivery only.
     expect(harness.session.isActive()).toBe(true);
@@ -1236,7 +1248,7 @@ describe("SubagentSession routing and projection", () => {
       kind: "refused",
       reason: expect.stringContaining("still starting up"),
     });
-    expect(fake.deliverCalls).toEqual([]);
+    expect(steerCalls).toEqual([]);
   });
 
   it("refuses steer when a settled agent's placement is gone", async () => {
@@ -1252,26 +1264,27 @@ describe("SubagentSession routing and projection", () => {
       reason: expect.stringContaining("has no pane"),
     });
     expect(run.session.isSettled()).toBe(true);
-    expect(run.deliverCalls).toEqual([]);
+    expect(steerCalls).toEqual([]);
   });
 
-  it("refuses steer when the host refuses the delivery", async () => {
+  it("refuses steer when the pane refuses the submission", async () => {
     const fake = makeFakeHost({ observeState: "working" });
     const harness = makeSession({
-      host: {
-        ...fake.host,
-        deliver: async () => ({
+      host: fake.host,
+      pane: {
+        ...TEST_PANE,
+        promptAgent: async () => ({
           kind: "not-submitted",
           detail: "its pane did not accept the message",
         }),
-      } as AgentHost,
+      },
       deliverable: new ScriptedDeliverable(),
       hostRef: fake.ref,
     });
     harness.session.start();
     await driveRun(0);
 
-    // The refusal carries the host's detail, so the caller can tell which half
+    // The refusal carries the pane's detail, so the caller can tell which half
     // failed and whether the text is sitting unsubmitted in the pane.
     await expect(harness.session.steer("hello")).resolves.toEqual({
       kind: "refused",
@@ -1498,8 +1511,8 @@ describe("SubagentSession revive on steer", () => {
     });
 
     // Delivered, then revived off the state snapshotted before the delivery.
-    expect(run.deliverCalls.at(-1)).toEqual({
-      ref: run.ref,
+    expect(steerCalls.at(-1)).toEqual({
+      paneId: run.ref.paneId,
       message: "one more thing",
     });
     // Revived: active again, outcome dropped.
@@ -1573,7 +1586,7 @@ describe("SubagentSession revive on steer", () => {
       resultDirGate.fail = false;
     }
     // The message landed, so the run stays settled and nothing is left watching.
-    expect(run.deliverCalls.at(-1)?.message).toBe("one more thing");
+    expect(steerCalls.at(-1)?.message).toBe("one more thing");
     expect(run.session.isSettled()).toBe(true);
     // A revive that never happened charges nothing: the run is not live.
     expect(run.reacquired).toEqual([]);
@@ -1801,8 +1814,8 @@ describe("SubagentSession steer inside the settle pass", () => {
     });
 
     // Delivered during the settle pass, then revived with a clean slate.
-    expect(run.deliverCalls.at(-1)).toEqual({
-      ref: run.ref,
+    expect(steerCalls.at(-1)).toEqual({
+      paneId: run.ref.paneId,
       message: "one more thing",
     });
     expect(run.session.isActive()).toBe(true);
@@ -1927,6 +1940,7 @@ describe("handover", () => {
       teardown: async () => {},
       listModels: async () => ({ kind: "unavailable", notice: "test" }),
       stop: async () => {},
+      steer: async () => ({ kind: "submitted" }),
       prefetchModels: () => {},
       readHandoverRecords,
     };
