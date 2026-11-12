@@ -265,6 +265,16 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
         { timeoutMs: timeoutMs + 15_000 },
       );
     },
+    // The pane surface's raw writer: literal bytes to the pane's foreground
+    // process, no Enter and no key translation. A harness that must report a
+    // terminal sequence first (a TUI that ignores input until its terminal is
+    // told it has focus) writes it here, on its own, so the following message
+    // is not discarded by the focus transition.
+    sendText: async (paneId, text) => {
+      await runHerdr(pi, ["pane", "send-text", paneId, text], {
+        timeoutMs: 15_000,
+      });
+    },
     submit: async (paneId, text, pid, signal) => {
       if (
         !Number.isSafeInteger(pid) ||

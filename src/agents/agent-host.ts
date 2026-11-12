@@ -113,6 +113,15 @@ export interface PaneControl {
    */
   promptAgent?(paneId: string, message: string): Promise<DeliverOutcome>;
   /**
+   * Write literal text into the pane's foreground process, with no Enter and no
+   * key translation. A caller that must report a terminal sequence first — a
+   * TUI that ignores input until it is told its terminal has focus needs
+   * `\u001b[I` — uses this so the report travels in its own write: fusing it
+   * with the message lets the focus transition discard the message. Bytes are
+   * written verbatim, so the caller owns what it sends and when.
+   */
+  sendText?(paneId: string, text: string): Promise<void>;
+  /**
    * Submit literal text and Enter into the pane, only while `pid` is among the
    * pane's foreground processes. The pane surface's one write: the text is bytes,
    * the Enter is the key that commits them, and the two travel in order, so a
