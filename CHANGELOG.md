@@ -1,3 +1,15 @@
+# [0.32.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.31.0...v0.32.0) (2026-11-12)
+
+
+### Bug Fixes
+
+* rename menu item for Orchestrator selection ([90a3200](https://github.com/electric-dragon-80000v/pi-cowboy/commit/90a3200a206e68737850aae32cbde8063aa272fc))
+
+
+### Features
+
+* **agents:** add sendText to pane control for literal input ([8177b04](https://github.com/electric-dragon-80000v/pi-cowboy/commit/8177b0415ca0063e8e700e96d9aa1d391c132084))
+
 # [0.31.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.30.0...v0.31.0) (2026-11-11)
 
 
