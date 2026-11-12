@@ -21,16 +21,10 @@ import {
   getHarnessAvailability,
   getHarnessRegistry,
   getManager,
-  getPiInstance,
-  piModelCatalog,
 } from "../shell.js";
 import type { ModelChoice } from "../types.js";
 import { errorMessage } from "../utils.js";
-import {
-  modelListEntries,
-  modelListNotice,
-  type AnyHarnessId,
-} from "./harness.js";
+import type { AnyHarnessId } from "./harness.js";
 import {
   handoverLossClause,
   handoverSeverity,
@@ -38,6 +32,7 @@ import {
   type HandoverOutcome,
 } from "./handover.js";
 import { resolveHandoverTarget } from "./handover-target.js";
+import { harnessModelReader } from "./harness/model-list-read.js";
 import {
   HandoverAgentSchema,
   type HandoverAgentParams,
@@ -77,17 +72,7 @@ async function resolveIntent(
       registry: ctx.modelRegistry,
       parent: ctx.model,
       thinking: readThinkingRequest(params),
-      listModels: async (foreign) => {
-        const list = await getHarnessRegistry()
-          .require(foreign)
-          .listModels({
-            pi: getPiInstance(),
-            modelCatalog: piModelCatalog(ctx.modelRegistry),
-          });
-        const notice = modelListNotice(list);
-        if (notice !== undefined && ctx.hasUI) ctx.ui.notify(notice, "warning");
-        return modelListEntries(list);
-      },
+      listModels: harnessModelReader(ctx),
     });
     // Resolution reports, the caller shows: a level outside the vocabulary is
     // a warning, and the next run launches with the level as written.

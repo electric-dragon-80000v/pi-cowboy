@@ -73,7 +73,6 @@ function pluginHarness(id: string, config: HarnessConfigCodec): PluginHarness {
     listModels: async () => ({ kind: "listed", entries: [] }),
     stop: async () => {},
     steer: async () => ({ kind: "submitted" }),
-    prefetchModels: () => {},
   };
 }
 

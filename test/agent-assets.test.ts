@@ -573,7 +573,6 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
     });
     const { host, catalog } = engineProbes();
     const assets = createMultiplexerAgentAssets(
@@ -626,7 +625,6 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
     });
     const { host, catalog } = engineProbes();
     const assets = createMultiplexerAgentAssets(

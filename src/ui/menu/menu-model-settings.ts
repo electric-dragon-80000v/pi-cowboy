@@ -55,7 +55,10 @@ import {
   type SetTarget,
   type TargetChoice,
 } from "./submenus/target-select.js";
-import { createModelThinkingSubmenu } from "./submenus/model-select.js";
+import {
+  createModelThinkingSubmenu,
+  deferredModelList,
+} from "./submenus/model-select.js";
 import { pairedRow, thinkingOfferingForModel } from "./model-pairing.js";
 import {
   SEPARATOR_ID,
@@ -143,8 +146,10 @@ interface ModelSettingsScreenOptions {
   ctx: ExtensionCommandContext;
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  /** Each harness's own list, read once when the menu tree opened. */
+  /** Each harness's own list that has settled so far. */
   harnessModelOptions: HarnessModelOptions;
+  /** Repaint after a deferred model list reaches its picker. */
+  requestRender: () => void;
   /** pi's default thinking level, resolved by the hosting menu (this screen's factory is synchronous). */
   piDefaultThinking: ThinkingLevel | undefined;
   /** Close back to the hosting menu (the host row's submenu `done`). */
@@ -183,8 +188,15 @@ function buildModelSettingsList(
   options: ModelSettingsScreenOptions,
   harnessIds: readonly string[],
 ): Component {
-  const { ctx, store, theme, harnessModelOptions, piDefaultThinking, close } =
-    options;
+  const {
+    ctx,
+    store,
+    theme,
+    harnessModelOptions,
+    requestRender,
+    piDefaultThinking,
+    close,
+  } = options;
   let rebuild: ((items: SettingItem[]) => void) | undefined;
 
   const buildItems = (theme: Theme): SettingItem[] => {
@@ -232,6 +244,12 @@ function buildModelSettingsList(
       };
       return createModelThinkingSubmenu({
         modelOptions: args.modelOptions,
+        ...deferredModelList(
+          args.harnessId,
+          args.modelOptions,
+          requestRender,
+          notify,
+        ),
         mergedModels: args.mergedModels,
         projectOffered,
         theme,
@@ -562,8 +580,10 @@ interface ModelOverridesRowOptions {
   ctx: ExtensionCommandContext;
   store: ReturnType<typeof getStore>;
   theme: Theme;
-  /** Each harness's own list, read once when the menu tree opened. */
+  /** Each harness's own list that has settled so far. */
   harnessModelOptions: HarnessModelOptions;
+  /** Repaint after a deferred model list reaches its picker. */
+  requestRender: () => void;
   /** pi's default thinking level, resolved once when the topmost menu opens. */
   piDefaultThinking: ThinkingLevel | undefined;
 }
@@ -572,7 +592,14 @@ interface ModelOverridesRowOptions {
 export function buildModelOverridesRow(
   options: ModelOverridesRowOptions,
 ): SettingItem {
-  const { ctx, store, theme, harnessModelOptions, piDefaultThinking } = options;
+  const {
+    ctx,
+    store,
+    theme,
+    harnessModelOptions,
+    requestRender,
+    piDefaultThinking,
+  } = options;
   const defaultDisplay = (): string => {
     const levels = store.modelOverrideLevels("default");
     const thinkingLevels = store.harnessDefaultThinkingLevels("pi");
@@ -597,6 +624,7 @@ export function buildModelOverridesRow(
         store,
         theme,
         harnessModelOptions,
+        requestRender,
         piDefaultThinking,
         // Forward the fresh value so the row repaints without reopening the command.
         close: () => done(defaultDisplay()),

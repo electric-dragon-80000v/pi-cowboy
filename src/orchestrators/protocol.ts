@@ -70,20 +70,15 @@ import {
 } from "../models/model-request.js";
 import {
   getCoordinator,
-  getHarnessRegistry,
   getManager,
   getPiInstance,
   getSessionCtx,
   getStore,
-  piModelCatalog,
 } from "../shell.js";
+import { harnessModelReader } from "../agents/harness/model-list-read.js";
 import { BUILTIN_MULTIPLEXER } from "../agents/multiplexer-registry.js";
 import { assertNever, modelChoiceName } from "../utils.js";
-import {
-  modelListEntries,
-  modelListNotice,
-  type AnyHarnessId,
-} from "../agents/harness.js";
+import type { AnyHarnessId } from "../agents/harness.js";
 import type { OrchestratorConfig } from "./types.js";
 import {
   queuedCueContext,
@@ -375,17 +370,7 @@ export class DelegationProtocol {
       registry: ctx.modelRegistry,
       parent: ctx.model,
       thinking,
-      listModels: async (foreign) => {
-        const list = await getHarnessRegistry()
-          .require(foreign)
-          .listModels({
-            pi: getPiInstance(),
-            modelCatalog: piModelCatalog(ctx.modelRegistry),
-          });
-        const notice = modelListNotice(list);
-        if (notice !== undefined && ctx.hasUI) ctx.ui.notify(notice, "warning");
-        return modelListEntries(list);
-      },
+      listModels: harnessModelReader(ctx),
     });
 
     // Resolution reports, the caller shows: a level outside the vocabulary is

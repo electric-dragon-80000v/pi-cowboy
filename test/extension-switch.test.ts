@@ -20,11 +20,16 @@ import type { HarnessModelOptions } from "../src/agents/harness/harness-registry
 import { modelKeysOf } from "../src/agents/harness/harness-registry.js";
 import { probed, unprobed } from "../src/availability.js";
 import {
+  getHarnessAvailability,
+  getHarnessRegistry,
   getStore,
+  installSessionRegistries,
   setHarnessAvailability,
+  setHarnessModelCatalog,
   setRuntime,
   setSessionCtx,
 } from "../src/shell.js";
+import { createHarnessModelCatalog } from "../src/agents/harness/model-list-catalog.js";
 import { NO_HOST_REASON } from "../src/host-multiplexer.js";
 import {
   recordOverlayMount,
@@ -511,11 +516,9 @@ describe("/cowboy dispatch", () => {
         menus.showAgentsActionMenu.mock.calls[0]!;
       expect(ctxArg).toBe(ctx);
       expect(subcommandArg).toBe(subcommand);
-      expect(listedKeys(received)).toEqual([
-        ["pi", ["anthropic/claude"]],
-        ["pig", ["anthropic/claude"]],
-        ["pi-bolt", ["anthropic/claude"]],
-      ]);
+      // No session catalog is installed here, so the screen opens on no list at
+      // all rather than waiting for one.
+      expect(listedKeys(received)).toEqual([]);
       expect(menus.showAgentsMainMenu).not.toHaveBeenCalled();
       expect(notify).not.toHaveBeenCalled();
     },
@@ -661,7 +664,7 @@ describe("/cowboy dispatch", () => {
     );
   });
 
-  it("opens the main menu on the registry's models when no argument is given", async () => {
+  it("opens the main menu without listing a harness's models first", async () => {
     install({});
     const notify = vi.fn();
     const ctx = {
@@ -676,11 +679,7 @@ describe("/cowboy dispatch", () => {
     expect(menus.showAgentsMainMenu).toHaveBeenCalledTimes(1);
     const [mainCtx, mainOptions] = menus.showAgentsMainMenu.mock.calls[0]!;
     expect(mainCtx).toBe(ctx);
-    expect(listedKeys(mainOptions)).toEqual([
-      ["pi", ["openai/gpt"]],
-      ["pig", ["openai/gpt"]],
-      ["pi-bolt", ["openai/gpt"]],
-    ]);
+    expect(listedKeys(mainOptions)).toEqual([]);
     expect(menus.showAgentsActionMenu).not.toHaveBeenCalled();
   });
 
@@ -785,14 +784,30 @@ describe("the /cowboy model listing", () => {
   }
 
   afterEach(() => {
-    // The probe answer is shell state this file otherwise never touches: hand
-    // it back at its default so no case outlives itself. The opencode fetch
-    // needs no reset — the harness memoizes by pi instance, and every case
-    // news up its own.
+    // The probe answer and the session catalog are shell state this file
+    // otherwise never touches: hand both back at their defaults so no case
+    // outlives itself.
     setHarnessAvailability(unprobed());
+    installSessionRegistries();
   });
 
-  it("joins the boot warm, so two menu opens run the opencode model API once", async () => {
+  /** The catalog a booted session installs, over this case's pi and registry. */
+  function sessionCatalog(exec: unknown) {
+    return createHarnessModelCatalog({
+      registry: getHarnessRegistry(),
+      availability: getHarnessAvailability(),
+      request: {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: {
+          getAvailable: () => [
+            { provider: "openai", id: "gpt", thinkingLevels: ["off"] },
+          ],
+        },
+      },
+    });
+  }
+
+  it("opens the menu on what a picker has already read, listing nothing itself", async () => {
     install({});
     setHarnessAvailability(probed(["pi", "opencode"]));
     const exec = vi.fn(async () => ({
@@ -802,6 +817,9 @@ describe("the /cowboy model listing", () => {
       }),
       stderr: "",
     }));
+    const catalog = sessionCatalog(exec);
+    setHarnessModelCatalog(catalog);
+    await catalog.loadOptions("opencode");
     const { handler } = handlerWithOpencode(exec);
     const ctx = {
       ...commandContext(vi.fn()),
@@ -809,29 +827,23 @@ describe("the /cowboy model listing", () => {
         getAvailable: () => [{ provider: "openai", id: "gpt" }],
       },
     };
-    await handler("", ctx);
-    // The second open reads the fetch the first one started, not a new run.
+
     await handler("", ctx);
 
+    // The listing ran once, for the picker that asked — opening the menu waits for none.
     expect(exec).toHaveBeenCalledTimes(1);
-    const expected: Array<[string, string[]]> = [
-      ["pi", ["openai/gpt"]],
-      ["pig", ["openai/gpt"]],
-      ["pi-bolt", ["openai/gpt"]],
+    const [mainCtx, mainOptions] = menus.showAgentsMainMenu.mock.calls[0]!;
+    expect(mainCtx).toBe(ctx);
+    expect(listedKeys(mainOptions)).toEqual([
       ["opencode", ["anthropic/claude-opus-4"]],
-    ];
-    const calls = menus.showAgentsMainMenu.mock.calls;
-    expect(calls).toHaveLength(2);
-    expect(calls[0]![0]).toBe(ctx);
-    expect(listedKeys(calls[0]![1])).toEqual(expected);
-    expect(calls[1]![0]).toBe(ctx);
-    expect(listedKeys(calls[1]![1])).toEqual(expected);
+    ]);
   });
 
-  it("shows a failed opencode list as a warning on the command's UI", async () => {
+  it("opens at once, listing no harness on the way", async () => {
     install({});
     setHarnessAvailability(probed(["pi", "opencode"]));
-    const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
+    const exec = vi.fn(() => new Promise(() => {}));
+    setHarnessModelCatalog(sessionCatalog(exec));
     const { handler } = handlerWithOpencode(exec);
     const notify = vi.fn();
     const ctx = {
@@ -843,10 +855,9 @@ describe("the /cowboy model listing", () => {
 
     await handler("", ctx);
 
-    // The reason the row is empty reaches the human, not only the log.
-    expect(notify).toHaveBeenCalledWith(
-      expect.stringContaining("Could not list the opencode models"),
-      "warning",
-    );
+    const [, mainOptions] = menus.showAgentsMainMenu.mock.calls[0]!;
+    expect(listedKeys(mainOptions)).toEqual([]);
+    expect(exec).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
   });
 });

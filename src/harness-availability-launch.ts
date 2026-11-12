@@ -17,14 +17,9 @@
  * drops it.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AnyHarnessId, HarnessAvailability } from "./agents/harness.js";
 import { probed, type Availability } from "./availability.js";
-import {
-  getHarnessAvailability,
-  getHarnessRegistry,
-  setHarnessAvailability,
-} from "./shell.js";
+import { getHarnessRegistry, setHarnessAvailability } from "./shell.js";
 import { errorMessage } from "./utils.js";
 
 /** One pass over the vocabulary: the verdicts, and the lines those verdicts carry. */
@@ -76,23 +71,4 @@ export function startHarnessAvailabilityProbe(): HarnessProbe {
   const probe = probeHarnessAvailability();
   setHarnessAvailability(probe.availability);
   return probe;
-}
-
-/**
- * Warm every runnable harness's slow model list, without naming any harness.
- * A harness without an expensive list no-ops its hook; a harness with one
- * memoizes the fetch every later `listModels` joins. A hook that throws is a
- * cold list, not a broken session: warming is an optimization, so the throw is
- * swallowed and every other harness still warms.
- */
-export function prefetchHarnessModels(pi: ExtensionAPI): void {
-  const availability = getHarnessAvailability();
-  const harnesses = getHarnessRegistry();
-  for (const id of harnesses.runnable(availability)) {
-    try {
-      harnesses.require(id).prefetchModels(pi);
-    } catch {
-      // Cold, not fatal — see above.
-    }
-  }
 }

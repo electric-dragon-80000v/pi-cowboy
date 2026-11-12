@@ -1941,7 +1941,6 @@ describe("handover", () => {
       listModels: async () => ({ kind: "unavailable", notice: "test" }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
       readHandoverRecords,
     };
   }

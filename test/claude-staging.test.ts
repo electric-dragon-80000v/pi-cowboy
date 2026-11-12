@@ -765,10 +765,6 @@ describe("listModels", () => {
       ],
     });
   });
-
-  it("warms nothing: the list is a constant, not a fetch", () => {
-    expect(() => harnessFor("claude").prefetchModels(PI)).not.toThrow();
-  });
 });
 
 describe("teardown", () => {

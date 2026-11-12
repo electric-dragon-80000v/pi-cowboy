@@ -420,13 +420,9 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
   stop: stopWithKeys(["ctrl+c", "ctrl+c"]),
   steer: steerThroughAgentSurface,
   // opencode reads its own catalog; the injected pi catalog is the pi family's,
-  // which this harness does not run. Reads share the memoized fetch, so the
-  // boot warm and every menu select ride one CLI run. With no built-in
-  // catalogue, an answer that could not be read offers nothing and says why.
+  // which this harness does not run. The session catalog shares this answer
+  // between its boot warm and all later consumers.
   listModels: ({ pi }) => fetchModels(pi),
-  prefetchModels: (pi) => {
-    void fetchModels(pi);
-  },
   // Best effort and idempotent: the staged tree is this harness's only
   // filesystem state, and a launch that failed before prepare staged nothing.
   teardown: async ({ subagentId }) => {

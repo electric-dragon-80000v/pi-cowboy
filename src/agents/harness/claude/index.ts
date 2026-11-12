@@ -26,7 +26,6 @@
 
 import { homedir } from "node:os";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { commandPath } from "../../../infrastructure/exec-path.js";
 import { expandTilde, subagentTokenFor } from "../../../paths.js";
 import type {
@@ -348,10 +347,8 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
   // alone would leave the process alive.
   stop: stopWithKeys(["ctrl+c", "ctrl+c"]),
   steer: steerThroughAgentSurface,
-  // The list is a constant, not a fetch: claude offers no enumeration command,
-  // so there is nothing to memoize, nothing to warm, and nothing that can fail.
+  // The list is a constant: Claude offers no enumeration command.
   listModels: () => Promise.resolve({ kind: "listed", entries: CLAUDE_MODELS }),
-  prefetchModels: (_pi: ExtensionAPI) => {},
   // Best effort and idempotent: the staged tree is this harness's only
   // filesystem state, and a launch that failed before prepare staged nothing.
   teardown: async ({ subagentId }) => {

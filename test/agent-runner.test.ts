@@ -1082,7 +1082,6 @@ describe("buildLaunchPlan — a plugin harness", () => {
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
     };
   }
 
@@ -1230,7 +1229,6 @@ describe("buildLaunchPlan — env overrides", () => {
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
       reservedEnvVars: () => ["PLUGIN_OWNED"],
     } as PluginHarness);
     const { cwd, notify } = setup(makeAgent({ harnessType: "env-plugin" }));
@@ -1266,7 +1264,6 @@ describe("buildLaunchPlan — env overrides", () => {
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
       // The name is reserved because the launch owns it, so the reservation
       // must not drop the very value the launch is supplying.
       reservedEnvVars: () => ["PLUGIN_STORE"],
@@ -1301,7 +1298,6 @@ describe("buildLaunchPlan — env overrides", () => {
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
       inheritedEnv: () => ({ "BAD NAME": "/var/plugin" }),
     } as PluginHarness);
     const { cwd, notify } = setup(

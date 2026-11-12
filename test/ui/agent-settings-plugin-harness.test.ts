@@ -34,7 +34,6 @@ beforeEach(() => {
     listModels: async () => ({ kind: "listed", entries: [] }),
     stop: async () => {},
     steer: async () => ({ kind: "submitted" }),
-    prefetchModels: () => {},
   });
   setPi({ exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
   memory = createMemoryStore({ projectStatus: "absent" });
@@ -85,7 +84,6 @@ describe("Agent settings — a plugin harness in the default-harness row", () =>
       listModels: async () => ({ kind: "listed", entries: [] }),
       stop: async () => {},
       steer: async () => ({ kind: "submitted" }),
-      prefetchModels: () => {},
       config: {
         scope: "global",
         parse: () => {

@@ -36,8 +36,9 @@ import {
 } from "../src/agents/harness.js";
 import {
   createHarnessRegistry,
-  mergeHarnessModelOptions,
+  type HarnessModelOptions,
 } from "../src/agents/harness/harness-registry.js";
+import { createHarnessModelCatalog } from "../src/agents/harness/model-list-catalog.js";
 import {
   opencodeConfigDir,
   removeOpencodeStaging,
@@ -51,7 +52,6 @@ const harnesses = createHarnessRegistry();
 const harnessFor = harnesses.require.bind(harnesses);
 const resolveHarness = harnesses.resolve.bind(harnesses);
 const runnableHarnessIds = harnesses.runnable.bind(harnesses);
-const listHarnessModelOptions = harnesses.listModelOptions.bind(harnesses);
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
   runInPaneMock: vi.fn(),
@@ -1504,7 +1504,7 @@ function keysOf(entries: readonly ModelEntry[] | undefined): string[] {
   return (entries ?? []).map((entry) => entry.key);
 }
 
-describe("listHarnessModelOptions", () => {
+describe("the session model catalog", () => {
   /** A pi registry: the catalog the pi family's list reads. */
   const CATALOG = {
     getAvailable: () => [
@@ -1525,8 +1525,149 @@ describe("listHarnessModelOptions", () => {
     }));
   }
 
+  /** Every runnable harness's list, as a menu reads them once they settle. */
+  async function listsOf(
+    request: { pi: ExtensionAPI; modelCatalog: { getAvailable(): unknown[] } },
+    availability: ReturnType<typeof probed>,
+  ): Promise<{
+    options: HarnessModelOptions;
+    notices: readonly string[];
+  }> {
+    const catalog = createHarnessModelCatalog({
+      registry: harnesses,
+      availability,
+      request: request as Parameters<
+        typeof createHarnessModelCatalog
+      >[0]["request"],
+    });
+    for (const id of harnesses.runnable(availability)) {
+      await catalog.loadOptions(id);
+    }
+    return { options: catalog.options, notices: catalog.notices() };
+  }
+
+  it("warms on a later turn: the call returns before any harness is read", () => {
+    const exec = opencodeExec();
+    const catalog = createHarnessModelCatalog({
+      registry: harnesses,
+      availability: probed(["pi", "opencode"]),
+      request: {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+    });
+
+    catalog.warm();
+
+    // Warming is scheduled, not started: whatever calls it keeps the turn.
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("warms one harness at a time, never a burst of CLIs", async () => {
+    let inFlight = 0;
+    let mostAtOnce = 0;
+    const exec = vi.fn(async () => {
+      inFlight += 1;
+      mostAtOnce = Math.max(mostAtOnce, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return {
+        code: 0,
+        stdout: opencodeModels([
+          { providerID: "anthropic", id: "claude-opus-4" },
+        ]),
+        stderr: "",
+      };
+    });
+    const catalog = createHarnessModelCatalog({
+      registry: harnesses,
+      availability: probed(["pi", "opencode", "codex"]),
+      request: {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+    });
+
+    catalog.warm();
+    for (let i = 0; i < 40 && catalog.options.size === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await vi.waitFor(() => expect(catalog.options.has("codex")).toBe(true));
+
+    // Every cold harness was read, and no two reads overlapped.
+    expect(mostAtOnce).toBe(1);
+  });
+
+  it("reports a harness that answers by blocking the event loop", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    harnesses.register({
+      id: "blocking-harness",
+      displayName: "Blocking",
+      agentMultiplexerKind: "blocking",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      stop: async () => {},
+      steer: async () => ({ kind: "submitted" }),
+      listModels: () => {
+        // A synchronous shell-out: the shape the catalog must call out.
+        const until = performance.now() + 150;
+        while (performance.now() < until) {
+          // hold the loop
+        }
+        return Promise.resolve({ kind: "listed", entries: [] });
+      },
+    });
+    const catalog = createHarnessModelCatalog({
+      registry: harnesses,
+      availability: probed(["pi", "blocking-harness"]),
+      request: {
+        pi: { exec: vi.fn() } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+    });
+
+    await catalog.loadOptions("blocking-harness");
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'the "blocking-harness" harness held the event loop',
+      ),
+    );
+    warn.mockRestore();
+  });
+
+  it("reads nothing until a picker asks, then reads that harness once", async () => {
+    const exec = opencodeExec();
+    const catalog = createHarnessModelCatalog({
+      registry: harnesses,
+      availability: probed(["pi", "opencode"]),
+      request: {
+        pi: { exec } as unknown as ExtensionAPI,
+        modelCatalog: CATALOG,
+      } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+    });
+
+    // Building the catalog costs nothing: no harness's CLI runs at startup.
+    expect(exec).not.toHaveBeenCalled();
+
+    const [, second] = await Promise.all([
+      catalog.loadOptions("opencode"),
+      catalog.loadOptions("opencode"),
+    ]);
+
+    // The second picker joins the first read instead of starting another.
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(keysOf(second)).toEqual([
+      "anthropic/claude-opus-4",
+      "openai/gpt-4o",
+    ]);
+    expect(catalog.options.has("pi")).toBe(false);
+  });
+
   it("keeps one list per runnable harness, each key under its own harness", async () => {
-    const { options: lists, notices } = await listHarnessModelOptions(
+    const { options: lists, notices } = await listsOf(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1573,7 +1714,7 @@ describe("listHarnessModelOptions", () => {
       };
     });
 
-    const { options: lists, notices } = await listHarnessModelOptions(
+    const { options: lists, notices } = await listsOf(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1592,26 +1733,10 @@ describe("listHarnessModelOptions", () => {
     expect(keysOf(lists.get("codex"))).toEqual(["openai/gpt-6-sol"]);
   });
 
-  it("merges the per-harness lists once per key, in vocabulary order", async () => {
-    const { options: lists } = await listHarnessModelOptions(
-      {
-        pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
-        modelCatalog: CATALOG,
-      },
-      probed(["pi", "opencode"]),
-    );
-
-    expect(mergeHarnessModelOptions(lists)).toEqual([
-      "anthropic/claude-3",
-      "openai/gpt-4o",
-      "anthropic/claude-opus-4",
-    ]);
-  });
-
   it("asks only the harnesses this machine can run", async () => {
     const exec = opencodeExec();
 
-    const { options: lists } = await listHarnessModelOptions(
+    const { options: lists } = await listsOf(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1626,7 +1751,7 @@ describe("listHarnessModelOptions", () => {
   it("answers from pi before any probe has landed", async () => {
     const exec = opencodeExec();
 
-    const { options: lists } = await listHarnessModelOptions(
+    const { options: lists } = await listsOf(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1648,7 +1773,7 @@ describe("listHarnessModelOptions", () => {
       },
     };
 
-    const { options: lists, notices } = await listHarnessModelOptions(
+    const { options: lists, notices } = await listsOf(
       {
         pi: { exec: opencodeExec() } as unknown as ExtensionAPI,
         modelCatalog: throwing,
@@ -1668,10 +1793,11 @@ describe("listHarnessModelOptions", () => {
       notices.every((notice) => notice.includes("catalog unavailable")),
     ).toBe(true);
   });
+
   it("gives a harness whose CLI fails an empty list of its own, and its reason", async () => {
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
 
-    const { options: lists, notices } = await listHarnessModelOptions(
+    const { options: lists, notices } = await listsOf(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
@@ -1693,7 +1819,7 @@ describe("listHarnessModelOptions", () => {
   it("keeps codex's built-in catalogue when its CLI fails, and its reason", async () => {
     const exec = vi.fn(async () => ({ code: 1, stdout: "", stderr: "boom" }));
 
-    const { options: lists, notices } = await listHarnessModelOptions(
+    const { options: lists, notices } = await listsOf(
       {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,

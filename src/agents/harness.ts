@@ -5,7 +5,7 @@
  * (`agentMultiplexerKind`), bringing its host pane into the state it launches in
  * (`prepare`), the argv the pane runs (`buildArgs`), asking its process to exit
  * (`stop`), undoing any state it left on the filesystem (`teardown`), and
- * warming a slow model list at boot (`prefetchModels`). One `Harness<L>`
+ * listing the models it can run (`listModels`). One `Harness<L>`
  * contract serves a built-in and a plugin; `L` is the launch type the
  * implementation reads. What every harness has in
  * common lives here as `SubagentLaunchInputs`; what one built-in family alone
@@ -937,22 +937,14 @@ export interface Harness<
    */
   steer: HarnessSteer;
   /**
-   * The models this harness can run, listed on demand — when a menu opens, and
-   * when the spawn wizard opens. The pi family reads its catalog live on
-   * every call. opencode and codex answer from their memoized fetches, so the
-   * boot warm and every menu select share one CLI run; an empty answer is
-   * never retained, so a failed list retries on the next read instead of
-   * pinning an empty row. A harness that cannot produce its own list answers
-   * with its fallback, if it has one, and carries the reason either way.
+   * The models this harness can run. The session-level model catalog owns
+   * warming, deduplication, and deferred awaiting for every harness alike, and
+   * it calls this from the event loop: start the work (a child process, a
+   * fetch) and return its promise. Holding the loop while the answer is
+   * produced delays whatever the human is looking at, and the catalog reports
+   * it.
    */
   listModels(request: HarnessListModelsRequest): Promise<ModelList>;
-  /**
-   * Warm the model list in the background at boot. Required, with an explicit
-   * no-op for a harness whose list is cheap — a harness that needs warming
-   * but forgets this compiles loudly missing, never silently cold.
-   * Fire-and-forget, so a slow channel never blocks the launch.
-   */
-  prefetchModels(pi: ExtensionAPI): void;
 }
 
 /**

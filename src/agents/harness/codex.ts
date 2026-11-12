@@ -415,13 +415,9 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   stop: stopWithKeys(["ctrl+d"]),
   steer: steerThroughAgentSurface,
   // codex reads its own catalog; the injected pi catalog is the pi family's,
-  // which this harness does not run. Reads share the memoized fetch, so the
-  // boot warm and every menu select ride one CLI run. The answer carries its
-  // reason when it is the fallback's, so every reader sees why.
+  // which this harness does not run. The session catalog shares this answer
+  // between its boot warm and all later consumers.
   listModels: ({ pi }) => fetchModels(pi),
-  prefetchModels: (pi) => {
-    void fetchModels(pi);
-  },
   // Best effort and idempotent: this harness stages no filesystem state — the
   // system prompt and task files belong to the result-dir artifacts the
   // session owns — and the launcher dies with the pane.

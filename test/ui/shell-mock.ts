@@ -20,6 +20,8 @@ import {
 import { unprobed, type Availability } from "../../src/availability.js";
 import { RepoLock } from "../../src/spawn/repo-lock.js";
 import type { PresenceMarker } from "../../src/ui/indicator.js";
+import type { ModelList } from "../../src/agents/harness.js";
+import type { HarnessModelCatalog } from "../../src/agents/harness/model-list-catalog.js";
 
 /** Empty template registries — the state a fresh shell starts from. */
 function emptyTemplates(): SessionTemplates {
@@ -50,6 +52,8 @@ export const shellState = {
   cowAvailability: unprobed() as Availability<WorktreeMaterialization>,
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed() as Availability<string>,
+  /** Lists a deferred picker resolves through; unset reads as "no models". */
+  harnessModelLists: new Map<string, ModelList | Promise<ModelList>>(),
   harnesses: createHarnessRegistry(),
   uiFlowClaim: 0,
   uiFlows: new WeakMap<object, number>(),
@@ -95,6 +99,7 @@ export function resetShell(): void {
   shellState.cowAvailabilityClaim += 1;
   shellState.cowAvailability = unprobed();
   shellState.harnessAvailability = unprobed();
+  shellState.harnessModelLists = new Map();
   // A new session's vocabulary starts at the built-ins, so nothing a previous
   // case registered is still answerable.
   shellState.harnesses = createHarnessRegistry();
@@ -154,6 +159,23 @@ export const getHarnessType = (): string =>
     shellState.store.agent.harnessType,
     shellState.harnessAvailability,
   );
+export const getHarnessModelCatalog = (): HarnessModelCatalog => {
+  const answer = async (harness: string): Promise<ModelList> =>
+    (await shellState.harnessModelLists.get(harness)) ?? {
+      kind: "unavailable",
+      notice: `Could not list the ${harness} models (no list in this test).`,
+    };
+  return {
+    options: new Map(),
+    notices: () => [],
+    list: answer,
+    warm: () => {},
+    loadOptions: async (harness) => {
+      const list = await answer(harness);
+      return list.kind === "listed" ? list.entries : [];
+    },
+  };
+};
 export const beginUiFlow = (ctx: object): void => {
   shellState.uiFlowClaim += 1;
   shellState.uiFlows.set(ctx, shellState.uiFlowClaim);

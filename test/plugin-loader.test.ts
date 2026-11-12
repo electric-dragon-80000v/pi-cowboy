@@ -84,7 +84,6 @@ export default function (api) {
     listModels: async () => [{ key: "fixture/model", label: "Fixture" }],
     stop: async () => {},
     steer: async () => ({ kind: "submitted" }),
-    prefetchModels: () => {},
   });
   api.registerMultiplexer({
     id: "fixture-multiplexer",
@@ -163,7 +162,6 @@ describe("createPluginLoader", () => {
             listModels: async () => ({ kind: "listed", entries: [] }),
             stop: async () => {},
             steer: async () => ({ kind: "submitted" }),
-            prefetchModels: () => {},
           });
         };
         `,
@@ -273,7 +271,6 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
             listModels: async () => ({ kind: "listed", entries: [] }),
             stop: async () => {},
             steer: async () => ({ kind: "submitted" }),
-            prefetchModels: () => {},
           });
           throw new Error("half-built");
         };
@@ -300,7 +297,6 @@ describe("createPluginLoader — concurrent and reload-safe", () => {
         listModels: async () => ({ kind: "listed", entries: [] }),
         stop: async () => {},
         steer: async () => ({ kind: "submitted" }),
-        prefetchModels: () => {},
       }),
     ).toBe(true);
     expect(notify).toHaveBeenCalledWith(
@@ -325,7 +321,6 @@ export default (api) => {
     listModels: async () => ({ kind: "listed", entries: [] }),
     stop: async () => {},
     steer: async () => ({ kind: "submitted" }),
-    prefetchModels: () => {},
   });
   return () => globalThis.__disposeGate ?? Promise.resolve();
 }

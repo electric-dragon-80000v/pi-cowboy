@@ -5,6 +5,9 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { ThinkingOffering } from "../../../models/thinking-offering.js";
 import type { Theme } from "../../types.js";
 import { SearchableSelectDialog } from "../../../ui/searchable-select.js";
+import type { AnyHarnessId } from "../../../agents/harness.js";
+import { modelListEntries, modelListNotice } from "../../../agents/harness.js";
+import { getHarnessModelCatalog } from "../../../shell.js";
 import { SwappableView } from "../screen-host.js";
 import { buildModelOptions } from "../helpers.js";
 import { createThinkingValuePicker } from "./thinking-select.js";
@@ -31,6 +34,10 @@ interface ModelSelectSubmenuBase {
   theme: Theme;
   /** Effective model for pre-selecting the current value in the picker. */
   currentModel?: string | null;
+  /** Deferred source for a foreign harness's model list, awaited only after a layer is picked. */
+  loadModelOptions?: () => Promise<readonly string[]>;
+  /** Repaint after an async model-list read swaps the picker into view. */
+  requestRender?: () => void;
   /** Opt-in availability for the nested clear picker; see target-select. */
   availableLevels?: AvailableLevels;
   onSet: (
@@ -55,6 +62,50 @@ type ModelSelectClearOptions =
 type ModelSelectSubmenuOptions = ModelSelectSubmenuBase &
   ModelSelectClearOptions;
 
+type DeferredModelList = {
+  loadModelOptions?: () => Promise<readonly string[]>;
+  requestRender?: () => void;
+};
+
+/**
+ * A list already in hand opens its picker at once; one still loading defers to
+ * the session catalog, awaited only once a layer has been picked. A list that
+ * cannot be produced says why on the screen the human is looking at.
+ */
+export function deferredModelList(
+  harnessId: AnyHarnessId,
+  modelOptions: readonly string[],
+  requestRender: () => void,
+  notify?: (message: string, kind: "warning") => void,
+): DeferredModelList {
+  if (modelOptions.length > 0) return {};
+  return {
+    loadModelOptions: async () => {
+      const answer = await getHarnessModelCatalog().list(harnessId);
+      const notice = modelListNotice(answer);
+      if (notice !== undefined) notify?.(notice, "warning");
+      return modelListEntries(answer).map((entry) => entry.key);
+    },
+    requestRender,
+  };
+}
+
+class LoadingModels implements Component {
+  focused = true;
+
+  constructor(private readonly cancel: () => void) {}
+
+  render(): string[] {
+    return ["Loading models…"];
+  }
+
+  invalidate(): void {}
+
+  handleInput(data: string): void {
+    if (data === "\u001b" || data === "\u0003") this.cancel();
+  }
+}
+
 export function createModelSelectSubmenu(
   options: ModelSelectSubmenuOptions,
 ): (currentValue: string, done: (selectedValue?: string) => void) => Component {
@@ -78,25 +129,30 @@ export function createModelSelectSubmenu(
         })("", subDone);
       }
       const target = id as "session" | "global" | "project";
-      return new SearchableSelectDialog(
-        buildModelOptions(
-          options.modelOptions,
+      const select = (modelOptions: readonly string[]): Component =>
+        new SearchableSelectDialog(
+          buildModelOptions(modelOptions, currentModel, options.mergedModels),
           currentModel,
-          options.mergedModels,
-        ),
-        currentModel,
-        {
-          onSelect: (modelValue) => {
-            options.onSet(target, modelValue);
-            // The library forwards only a DEFINED value, so the null (none)
-            // row must complete the level picker explicitly.
-            if (modelValue == null) completePicker();
-            else subDone(modelValue);
+          {
+            onSelect: (modelValue) => {
+              options.onSet(target, modelValue);
+              // The library forwards only a DEFINED value, so the null (none)
+              // row must complete the level picker explicitly.
+              if (modelValue == null) completePicker();
+              else subDone(modelValue);
+            },
+            onCancel: () => subDone(),
           },
-          onCancel: () => subDone(),
-        },
-        options.theme,
-      );
+          options.theme,
+        );
+      if (options.loadModelOptions === undefined)
+        return select(options.modelOptions);
+      const view = new SwappableView(new LoadingModels(subDone));
+      void options.loadModelOptions().then((models) => {
+        view.activate(select(models));
+        options.requestRender?.();
+      });
+      return view;
     },
   });
 }
@@ -111,6 +167,10 @@ export interface ModelThinkingSubmenuOptions {
   ctx: ExtensionCommandContext;
   /** The model in force, pre-selected in the search dialog. */
   currentModel: string | null;
+  /** Deferred source for a foreign harness's model list, awaited only after a layer is picked. */
+  loadModelOptions?: () => Promise<readonly string[]>;
+  /** Repaint after an async model-list read swaps the picker into view. */
+  requestRender?: () => void;
   /** The level in force, pre-selected in the level list. */
   currentThinking: string | null;
   /** Offer the nested "Clear..." flow (removes the model and level at the layer). */
@@ -162,45 +222,50 @@ export function createModelThinkingSubmenu(
 
       const target = id as SetTarget;
       let view: SwappableView;
-      const dialog = new SearchableSelectDialog(
-        buildModelOptions(
-          options.modelOptions,
+      const dialog = (modelOptions: readonly string[]): Component =>
+        new SearchableSelectDialog(
+          buildModelOptions(modelOptions, currentModel, options.mergedModels),
           currentModel,
-          options.mergedModels,
-        ),
-        currentModel,
-        {
-          onSelect: (modelValue) => {
-            if (modelValue == null) {
-              options.onClear(target);
-              completePicker();
-              return;
-            }
-            const offering = options.offeringFor(modelValue);
-            if (offering.kind === "none") {
-              // No level to ask for: the pair is the model alone, and the
-              // picked key completes the layer step so the row repaints.
-              options.onSet(target, modelValue, null);
-              subDone(modelValue);
-              return;
-            }
-            // The pair is written only once the level is picked: the search
-            // dialog is replaced in place by the level list it leads to.
-            view.activate(
-              createThinkingValuePicker({
-                theme: options.theme,
-                ctx: options.ctx,
-                offering,
-                current: options.currentThinking,
-                onPick: (token) => options.onSet(target, modelValue, token),
-              })("", subDone),
-            );
+          {
+            onSelect: (modelValue) => {
+              if (modelValue == null) {
+                options.onClear(target);
+                completePicker();
+                return;
+              }
+              const offering = options.offeringFor(modelValue);
+              if (offering.kind === "none") {
+                // No level to ask for: the pair is the model alone, and the
+                // picked key completes the layer step so the row repaints.
+                options.onSet(target, modelValue, null);
+                subDone(modelValue);
+                return;
+              }
+              // The pair is written only once the level is picked: the search
+              // dialog is replaced in place by the level list it leads to.
+              view.activate(
+                createThinkingValuePicker({
+                  theme: options.theme,
+                  ctx: options.ctx,
+                  offering,
+                  current: options.currentThinking,
+                  onPick: (token) => options.onSet(target, modelValue, token),
+                })("", subDone),
+              );
+            },
+            onCancel: () => subDone(),
           },
-          onCancel: () => subDone(),
-        },
-        options.theme,
-      );
-      view = new SwappableView(dialog);
+          options.theme,
+        );
+      if (options.loadModelOptions === undefined) {
+        view = new SwappableView(dialog(options.modelOptions));
+        return view;
+      }
+      view = new SwappableView(new LoadingModels(subDone));
+      void options.loadModelOptions().then((models) => {
+        view.activate(dialog(models));
+        options.requestRender?.();
+      });
       return view;
     },
   });

@@ -53,7 +53,5 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
   stop: stopWithKeys(["ctrl+d"]),
   steer: steerThroughAgentSurface,
   listModels: piFamilyListModels,
-  // The catalog is local: nothing to warm.
-  prefetchModels: () => {},
   teardown: async () => {},
 };

@@ -175,7 +175,7 @@ async function showAgentsMainList(
   let rebuild: ((items: SettingItem[], focusId?: string) => void) | undefined;
 
   return await new ScreenHost(ctx).open<AgentsMainAction>(
-    ({ theme, close }) => {
+    ({ tui, theme, close }) => {
       const handOff = (action: AgentsMainAction): void => close(action);
       const buildItems = (): SettingItem[] => {
         const store = getStore();
@@ -199,6 +199,7 @@ async function showAgentsMainList(
             store,
             theme,
             harnessModelOptions,
+            requestRender: () => tui.requestRender(),
             piDefaultThinking,
           }),
           buildDefaultOrchestratorRow({ store, theme, notify }),

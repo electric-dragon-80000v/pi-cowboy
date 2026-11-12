@@ -37,7 +37,10 @@ import {
   mergedModelsForHarness,
 } from "./helpers.js";
 import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
-import { createModelSelectSubmenu } from "./submenus/model-select.js";
+import {
+  createModelSelectSubmenu,
+  deferredModelList,
+} from "./submenus/model-select.js";
 import { NO_LEVEL_ID } from "./submenus/thinking-select.js";
 import { spawnChoices, THINKING_LEVEL_ROW_ID } from "./spawn-choice.js";
 import {
@@ -252,6 +255,12 @@ export async function askSpawnConfiguration(
         description: "Override the default model for this agent",
         submenu: createModelSelectSubmenu({
           modelOptions: modelKeysOf(harnessModelOptions, selectedHarness),
+          ...deferredModelList(
+            selectedHarness,
+            modelKeysOf(harnessModelOptions, selectedHarness),
+            () => screenTui.requestRender(),
+            (message, kind) => ctx.ui.notify(message, kind),
+          ),
           mergedModels: mergedModelsForHarness(
             selectedHarness,
             extractConfiguredModels(store.agentConfigSnapshot()),
@@ -315,12 +324,14 @@ export async function askSpawnConfiguration(
   };
 
   let theme: Theme;
+  let screenTui: { requestRender(): void };
   let closeConfig: (result?: SpawnConfiguration) => void;
   let rebuild: ((items: SettingItem[]) => void) | undefined;
 
   return await new ScreenHost(ctx).open<SpawnConfiguration>(
-    ({ theme: screenTheme, close }) => {
+    ({ theme: screenTheme, tui, close }) => {
       theme = screenTheme;
+      screenTui = tui;
       closeConfig = close;
 
       const onChange = (id: string, newValue: string) => {

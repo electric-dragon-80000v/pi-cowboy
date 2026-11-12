@@ -29,6 +29,7 @@ import {
   setPi,
   setRuntime,
   setSession,
+  shellState,
 } from "./shell-mock.js";
 import { createMemoryStore, type MemoryStore } from "./store.js";
 import {
@@ -1019,6 +1020,38 @@ describe("Spawn wizard — the Model row follows the selected type's harness", (
     expect(session.text()).toContain("claude-opus-4 [anthropic]");
     expect(session.text()).toContain("gemini-2 [google]");
     expect(session.text()).not.toContain("claude-3 [anthropic]");
+  });
+
+  it("opens on a foreign harness's list only after a layer is picked", async () => {
+    registerOpencodeType();
+    setHarnessAvailability(probed(["pi", "opencode"]));
+    let answer: (value: {
+      kind: "listed";
+      entries: readonly ModelEntry[];
+    }) => void = () => {};
+    shellState.harnessModelLists.set(
+      "opencode",
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const session = openWizard();
+    await toSpawnOptions(session);
+    await pickType(session, "auditor");
+
+    // The options screen is up while opencode is still listing.
+    expect(session.text()).not.toContain("Loading models");
+
+    session.open("Model");
+    await session.settle();
+    session.open("Session");
+    await session.settle();
+    expect(session.text()).toContain("Loading models");
+
+    answer({ kind: "listed", entries: OPENCODE_MODELS });
+    await session.settle();
+
+    expect(session.text()).toContain("claude-opus-4 [anthropic]");
   });
 
   it("falls back to pi's keys when the type's harness cannot launch", async () => {

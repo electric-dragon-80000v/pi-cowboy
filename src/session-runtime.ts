@@ -22,12 +22,16 @@ import type { ExecutionRuntime } from "./agents/agent-host.js";
 import type { HarnessRegistry } from "./agents/harness/harness-registry.js";
 import type { MultiplexerRegistry } from "./agents/multiplexer-registry.js";
 import { createPluginLoader, type LoadedPlugins } from "./plugin/loader.js";
-import {
-  prefetchHarnessModels,
-  startHarnessAvailabilityProbe,
-} from "./harness-availability-launch.js";
+import { createHarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
+import { startHarnessAvailabilityProbe } from "./harness-availability-launch.js";
 import { NO_HOST_REASON } from "./host-multiplexer.js";
-import { getStore, installSessionRegistries, setRuntime } from "./shell.js";
+import {
+  getStore,
+  installSessionRegistries,
+  piModelCatalog,
+  setHarnessModelCatalog,
+  setRuntime,
+} from "./shell.js";
 
 /** What bringing the session runtime up hands back. */
 export type SessionRuntimeBoot =
@@ -102,9 +106,15 @@ export async function startSessionRuntime(
   if (ctx.hasUI) {
     for (const notice of probe.notices) ctx.ui.notify(notice, "warning");
   }
-  // Slow model lists start warming now, never awaited; every later listing joins
-  // whatever its harness started.
-  prefetchHarnessModels(pi);
+  // Every harness's model list warms now, off the startup path: the pass runs on
+  // a later turn, one harness at a time, and nothing ever awaits it.
+  const models = createHarnessModelCatalog({
+    registry: registries.harnesses,
+    availability: probe.availability,
+    request: { pi, modelCatalog: piModelCatalog(ctx.modelRegistry) },
+  });
+  setHarnessModelCatalog(models);
+  models.warm();
   return { kind: "hosted", plugins, runtime };
 }
 

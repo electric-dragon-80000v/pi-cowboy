@@ -47,7 +47,6 @@ function pluginHarness(
     listModels: async () => ({ kind: "listed", entries: [] }),
     stop: async () => {},
     steer: async () => ({ kind: "submitted" }),
-    prefetchModels: () => {},
   };
 }
 

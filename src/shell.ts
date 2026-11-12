@@ -27,6 +27,8 @@ import {
   createHarnessRegistry,
   type HarnessRegistry,
 } from "./agents/harness/harness-registry.js";
+import type { HarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
+import { createHarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
 import {
   createMultiplexerRegistry,
   type MultiplexerRegistry,
@@ -91,6 +93,8 @@ interface Shell {
   /** Which probe may write `cowAvailability`: the claim number of the newest one started. */
   cowAvailabilityClaim: number;
   harnessAvailability: Availability<AnyHarnessId>;
+  /** Deferred, shared lists for the harnesses this session can run. */
+  harnessModelCatalog: HarnessModelCatalog | null;
   /** The newest ui flow; each command context carries the claim it began under. */
   uiFlowClaim: number;
   uiFlows: WeakMap<object, number>;
@@ -113,6 +117,7 @@ const shell: Shell = {
   cowAvailability: unprobed(),
   cowAvailabilityClaim: 0,
   harnessAvailability: unprobed(),
+  harnessModelCatalog: null,
   uiFlowClaim: 0,
   uiFlows: new WeakMap(),
 };
@@ -282,6 +287,7 @@ export function installSessionRegistries(): {
   const multiplexers = createMultiplexerRegistry();
   shell.harnesses = harnesses;
   shell.multiplexers = multiplexers;
+  shell.harnessModelCatalog = null;
   return { harnesses, multiplexers };
 }
 
@@ -294,6 +300,26 @@ export function setHarnessAvailability(
   availability: Availability<AnyHarnessId>,
 ): void {
   shell.harnessAvailability = availability;
+}
+
+export function getHarnessModelCatalogOrNull(): HarnessModelCatalog | null {
+  return shell.harnessModelCatalog;
+}
+
+export function getHarnessModelCatalog(): HarnessModelCatalog {
+  shell.harnessModelCatalog ??= createHarnessModelCatalog({
+    registry: shell.harnesses,
+    availability: shell.harnessAvailability,
+    request: {
+      pi: getPiInstance(),
+      modelCatalog: piModelCatalog(getSessionCtx().modelRegistry),
+    },
+  });
+  return shell.harnessModelCatalog;
+}
+
+export function setHarnessModelCatalog(catalog: HarnessModelCatalog): void {
+  shell.harnessModelCatalog = catalog;
 }
 
 /**

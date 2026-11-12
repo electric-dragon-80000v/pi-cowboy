@@ -208,6 +208,18 @@ describe("startSessionRuntime", () => {
     expect(notify).toHaveBeenCalledWith(message, "warning");
   });
 
+  it("returns before warming any harness's models", async () => {
+    shellState.store = fakeStore();
+    const exec = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
+    const pi = { exec } as unknown as ExtensionAPI;
+
+    await startSessionRuntime(pi, context(vi.fn()));
+
+    // The warm pass is scheduled onto a later turn, so boot hands the session
+    // back with no harness's CLI running.
+    expect(exec).not.toHaveBeenCalled();
+  });
+
   it("says nothing when everything the config names is registered", async () => {
     shellState.store = fakeStore();
     const notify = vi.fn();

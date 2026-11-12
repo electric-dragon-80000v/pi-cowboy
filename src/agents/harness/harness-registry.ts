@@ -31,8 +31,6 @@ import {
   DEFAULT_HARNESS,
   HARNESS_IDS,
   isPiFamilyHarness,
-  modelListEntries,
-  modelListNotice,
   readHandoverRecord,
   parseHarnessId,
   type AnyHarnessId,
@@ -43,11 +41,9 @@ import {
   type HarnessId,
   type HarnessLaunch,
   type HandoverRecord,
-  type HarnessListModelsRequest,
   type LaunchRequestFor,
   type ReadHandoverRecords,
   type ModelEntry,
-  type ModelList,
   type PluginHarness,
   type ThinkingLevels,
 } from "../harness.js";
@@ -198,7 +194,6 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
       withBuiltin(id, launch, (typed, request) => typed.buildArgs(request)),
     teardown: (request) => harness.teardown(request),
     listModels: (request) => harness.listModels(request),
-    prefetchModels: (pi) => harness.prefetchModels(pi),
     // Absent stays absent: the capability is what a handover checks, so an
     // adapter must not supply a record reader the implementation never wrote.
     ...(harness.readHandoverRecords === undefined
@@ -351,17 +346,6 @@ export interface HarnessRegistry {
     configured: AnyHarnessId,
     availability: Availability<AnyHarnessId>,
   ): AnyHarnessId;
-  /**
-   * One model list per runnable harness, each answering for itself, read once
-   * when a menu tree opens so every picker under it selects from the same
-   * answer. A harness whose list could not be produced is present with an empty
-   * list: "no models" belongs to that harness alone. A harness that could not
-   * answer for itself contributes a notice for the caller to show.
-   */
-  listModelOptions(
-    request: HarnessListModelsRequest,
-    availability: Availability<AnyHarnessId>,
-  ): Promise<HarnessModelListing>;
 }
 
 /**
@@ -457,35 +441,6 @@ export function createHarnessRegistry(): HarnessRegistry {
         ? configured
         : DEFAULT_HARNESS;
     },
-    async listModelOptions(request, availability) {
-      const answered = await Promise.all(
-        registry.runnable(availability).map(async (id) => {
-          try {
-            return { id, list: await registry.require(id).listModels(request) };
-          } catch (error) {
-            // `listModels` is not supposed to throw; one that does costs its
-            // own list, never the others'.
-            return {
-              id,
-              list: {
-                kind: "unavailable",
-                notice: `Could not list the ${registry.displayName(id)} models (${errorMessage(error)}).`,
-              } satisfies ModelList,
-            };
-          }
-        }),
-      );
-      const options = new Map(
-        answered.map(
-          (answer) => [answer.id, modelListEntries(answer.list)] as const,
-        ),
-      );
-      const notices = answered.flatMap((answer) => {
-        const notice = modelListNotice(answer.list);
-        return notice === undefined ? [] : [notice];
-      });
-      return { options, notices };
-    },
   };
   return registry;
 }
@@ -504,9 +459,8 @@ export function harnessFamilyOf(id: AnyHarnessId): HarnessFamily | undefined {
 /**
  * The models each harness this machine can run offers, keyed by harness — the
  * entries themselves, because a picker offers a key and a launch offers a
- * level, and both answers come from the same listing. A harness whose list
- * could not be produced is present with an empty list: "no models" belongs to
- * that harness alone and is never filled in from another's.
+ * level, and both answers come from the same listing. A harness whose list has
+ * not settled yet is absent: "no models yet" is not "no models".
  */
 export type HarnessModelOptions = ReadonlyMap<
   AnyHarnessId,
@@ -519,30 +473,4 @@ export function modelKeysOf(
   harness: AnyHarnessId,
 ): readonly string[] {
   return (options.get(harness) ?? []).map((entry) => entry.key);
-}
-
-/**
- * One read of every harness's list: the keys for the menus, and one line per
- * harness whose keys are not its own catalog's, for the caller that holds a UI
- * to show them on.
- */
-export interface HarnessModelListing {
-  readonly options: HarnessModelOptions;
-  readonly notices: readonly string[];
-}
-
-/**
- * The one merged view of the per-harness structure: every harness's keys, once
- * each, in registration order. Only the concurrency menu asks for it — its
- * slots are keyed by model key across harnesses, so it must offer every key a
- * spawn could carry.
- */
-export function mergeHarnessModelOptions(
-  options: HarnessModelOptions,
-): string[] {
-  const keys = new Set<string>();
-  for (const entries of options.values()) {
-    for (const entry of entries) keys.add(entry.key);
-  }
-  return [...keys];
 }

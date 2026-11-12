@@ -144,8 +144,6 @@ export function createPiCompatibleHarness(
     stop: stopWithKeys(["ctrl+d"]),
     steer: steerThroughAgentSurface,
     listModels: piFamilyListModels,
-    // The catalog is local: nothing to warm.
-    prefetchModels: () => {},
     teardown: async () => {},
     async prepare({
       pane,
