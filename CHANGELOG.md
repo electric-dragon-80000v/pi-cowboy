@@ -1,3 +1,10 @@
+## [0.32.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.32.0...v0.32.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **harness:** defer model list loading and share via session catalog ([2f717d8](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2f717d83b39bec911b0c6a3aae100e95a418f1ee))
+
 # [0.32.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.31.0...v0.32.0) (2026-11-12)
 
 
