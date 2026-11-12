@@ -23,7 +23,7 @@ settled = "Code review passed; the changes are ready to merge."
 - Shared: `<project>/.agents/orchestrators/` (loaded only when the project is trusted)
 - Project: `<project>/.pi/orchestrators/` (loaded only when the project is trusted)
 
-Because directories are scanned at session start, a new template file appears in the picker on your next `pi` session. Once loaded, select it at `/cowboy` > `Default orchestrator` or set `agent.defaultOrchestrator` in `config.json`.
+Because directories are scanned at session start, a new template file appears in the picker on your next `pi` session. Once loaded, select it at `/cowboy` > `Orchestrator` or set `agent.defaultOrchestrator` in `config.json`.
 
 Every file must define a `name`. `pi-cowboy` skips any file that is missing `name`, contains invalid TOML, or fails cue validation, and prints a one-line warning.
 
@@ -43,7 +43,7 @@ Every custom orchestrator template starts from the built-in `default` template, 
 | Field          | Type              | Default                  | Description                                                                                                                      |
 | -------------- | ----------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | `name`         | string (required) | (required)               | Template identifier used in configuration and layer merging.                                                                     |
-| `display_name` | string            | `name` (or inherited)    | Label shown in `/cowboy` > `Default orchestrator`.                                                                               |
+| `display_name` | string            | `name` (or inherited)    | Label shown in `/cowboy` > `Orchestrator`.                                                                                       |
 | `guidance`     | string            | inherited from `default` | Instructions appended verbatim as the final section of every spawned agent's system prompt. Set to `""` to clear inherited text. |
 | `[cues]`       | table             | inherited per event      | Mustache templates for the `spawned`, `queued`, and `settled` events.                                                            |
 

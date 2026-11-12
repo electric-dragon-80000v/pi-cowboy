@@ -168,7 +168,7 @@ Run the adversarial-review tool before you commit, and fix any glaring mistakes 
 '''
 ```
 
-You can switch the active orchestrator at any time from `/cowboy` > `Default orchestrator`. See [Orchestrator Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Orchestrator%20Templates.md) for details.
+You can switch the active orchestrator at any time from `/cowboy` > `Orchestrator`. See [Orchestrator Templates](https://github.com/electric-dragon-80000v/pi-cowboy/blob/main/docs/Orchestrator%20Templates.md) for details.
 
 ### Foreign harnesses
 

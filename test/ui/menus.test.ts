@@ -143,7 +143,7 @@ describe("Agents menu — structure", () => {
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Model overrides",
-      "Default orchestrator",
+      "Orchestrator",
       "Agent",
       "Status",
       "Spawn agent",
@@ -156,7 +156,7 @@ describe("Agents menu — structure", () => {
 
   const rowTable = [
     ["Model overrides", "(none)"],
-    ["Default orchestrator", "default"],
+    ["Orchestrator", "default"],
     ["Agent", "general-purpose"],
     ["Status", ""],
     ["Spawn agent", ""],
@@ -367,7 +367,7 @@ describe("Agents menu — the hosted spawn-defaults rows", () => {
 
   it("marks the current orchestrator and sets another one", async () => {
     const session = await openMain(200);
-    session.open("Default orchestrator");
+    session.open("Orchestrator");
 
     expect(session.text()).toMatch(/default +✓/);
     expect(session.text()).toContain("reviewer");
@@ -383,7 +383,7 @@ describe("Agents menu — the hosted spawn-defaults rows", () => {
     expect(memory.store.agent.defaultOrchestrator).toBe("reviewer");
     expect(memory.lastLayer()).toBe("global");
     expect(session.activeRow()).toEqual({
-      label: "Default orchestrator",
+      label: "Orchestrator",
       value: "reviewer",
     });
   });
@@ -507,7 +507,7 @@ describe("Agents menu — the Enabled switch", () => {
     session.focus("Model overrides");
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Model overrides",
-      "Default orchestrator",
+      "Orchestrator",
       "Agent",
       "Status",
       "Spawn agent",

@@ -6,15 +6,15 @@ Running `/cowboy` opens an interactive menu for inspecting agents, spawning task
 
 The main menu opens with the title `Agents`.
 
-| Row                    | What it does                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `Model overrides`      | Opens the `Model Settings` screen.                                                |
-| `Default orchestrator` | Sets the orchestrator template used when a spawn does not specify one.            |
-| `Agent`                | Sets the default agent template used when `cowboy_agent` omits `agent_type`.      |
-| `Status`               | Opens the `Status` screen (same as `/cowboy status`).                             |
-| `Spawn agent`          | Opens the manual spawn wizard (same as `/cowboy spawn`).                          |
-| `Settings`             | Opens the `Settings` screen.                                                      |
-| `Enabled`              | Turns `pi-cowboy` on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
+| Row               | What it does                                                                      |
+| ----------------- | --------------------------------------------------------------------------------- |
+| `Model overrides` | Opens the `Model Settings` screen.                                                |
+| `Orchestrator`    | Sets the orchestrator template used when a spawn does not specify one.            |
+| `Agent`           | Sets the default agent template used when `cowboy_agent` omits `agent_type`.      |
+| `Status`          | Opens the `Status` screen (same as `/cowboy status`).                             |
+| `Spawn agent`     | Opens the manual spawn wizard (same as `/cowboy spawn`).                          |
+| `Settings`        | Opens the `Settings` screen.                                                      |
+| `Enabled`         | Turns `pi-cowboy` on or off. See [Turning pi-cowboy off](#turning-pi-cowboy-off). |
 
 The `Agent` row on this screen sets the default template for tool calls that omit `agent_type`. To pick a template for a single manual run, use the `Type` row in `Spawn Options` (`/cowboy spawn`).
 

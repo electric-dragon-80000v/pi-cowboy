@@ -107,7 +107,7 @@ export function buildDefaultOrchestratorRow(
 ): SettingItem {
   return {
     id: "defaultOrchestrator",
-    label: "Default orchestrator",
+    label: "Orchestrator",
     currentValue: options.store.agent.defaultOrchestrator,
     submenu: createOrchestratorSubmenu(
       options.store,
