@@ -85,7 +85,9 @@ export type WorktreeMaterializationOutcome =
   /** Copy-on-write was asked for, the volume cannot clone, git completed the checkout. */
   | { readonly kind: "cow-fallback"; readonly reason: string }
   /** Git's own classic checkout during `git worktree add`; nothing shared with the parent. */
-  | { readonly kind: "checkout" };
+  | { readonly kind: "checkout" }
+  /** Nothing was materialized: the checkout already existed and was reused as it is. */
+  | { readonly kind: "reused" };
 
 // --- Strategy ---
 

@@ -52,6 +52,8 @@ export function formatKeptReason(reason: WorktreeKeptReason): string {
       return `no settlement was recorded and herdr still reports the agent at work (${formatBasis(reason.basis)}) — stop it before retrying`;
     case "ambiguous-artifacts":
       return `two artifacts answer to this id (${reason.candidates.join(", ")}) — nothing was removed; work out which run owns the id before removing either by hand`;
+    case "space-in-use":
+      return `its workspace is still in use by ${reason.tenants.join(", ")} — the checkout is removed when the last agent there has been cleaned up`;
   }
 }
 

@@ -45,6 +45,7 @@ import type {
   Located,
   LocateResult,
   PaneRef,
+  SpaceKey,
 } from "../src/agents/agent-assets.js";
 import { AgentManager } from "../src/agents/agent-manager.js";
 import { SubagentSession } from "../src/agents/subagent-session.js";
@@ -77,12 +78,14 @@ const {
   isWorktreeDirtyMock,
   closePaneMock,
   resolveMainCheckoutMock,
+  listAgentRecordsMock,
 } = vi.hoisted(() => ({
   removeHerdrWorktreeMock: vi.fn(),
   deleteWorktreeBranchMock: vi.fn(),
   isWorktreeDirtyMock: vi.fn(),
   closePaneMock: vi.fn(),
   resolveMainCheckoutMock: vi.fn(),
+  listAgentRecordsMock: vi.fn(),
 }));
 
 vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
@@ -94,6 +97,7 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     ...actual,
     removeHerdrWorktree: removeHerdrWorktreeMock,
     closePane: closePaneMock,
+    listAgentRecords: listAgentRecordsMock,
   };
 });
 
@@ -316,12 +320,17 @@ interface AssetsOptions {
   observeFails?: boolean;
   /** Whether a deliverable was written. */
   deliverablePresent?: boolean;
+  /** Other agents in the run's space; defaults to none (the space is its own). */
+  otherTenants?: (space: SpaceKey, self: string) => Promise<readonly string[]>;
 }
 
 interface MockedAssets extends MockedDeps {
   /** The multiplexer every address cleanup builds belongs to. */
   multiplexer: string;
   locate: Mock<(id: string, hint?: AgentSpawn) => Promise<LocateResult>>;
+  otherTenants: Mock<
+    (space: SpaceKey, self: string) => Promise<readonly string[]>
+  >;
   observe: Mock<(pane: PaneRef) => Promise<HostObservation | undefined>>;
   deliverable: Mock<(id: string) => RecoveredDeliverable>;
 }
@@ -342,6 +351,10 @@ function buildAssets(
     ...deps,
     multiplexer: "herdr",
     locate,
+    // One agent per space unless a test says otherwise: the checkout is its own.
+    otherTenants: vi.fn(
+      options.otherTenants ?? (async () => [] as readonly string[]),
+    ),
     observe: vi.fn(async () => {
       if (options.observeFails === true) throw new Error("herdr down");
       return options.observed;
@@ -841,6 +854,110 @@ describe("removeWorktree", () => {
     expect(deps.probes).not.toHaveBeenCalled();
     expect(deps.closePane).not.toHaveBeenCalled();
     expect(deps.removeWorktree).not.toHaveBeenCalled();
+  });
+});
+
+/* ── The shared workspace ──────────────────────────────────────────────── */
+
+/** A workspace hosts several agents; one agent's cleanup must not take a sibling with it. */
+describe("cleanup — a shared workspace", () => {
+  it("refuses to remove the checkout while another agent lives in it", async () => {
+    // The bug: cleaning up one agent removed the workspace and the worktree,
+    // taking the sibling's pane and checkout with them.
+    const spawns = new Map<string, AgentSpawn>([[ID, completed()]]);
+    const assets = buildAssets("clean", {
+      otherTenants: async () => ["cow-fix-login-flow-fedcba98-2"],
+    });
+    const { registry, dropped } = buildRegistry(spawns);
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report).toEqual({
+      agentId: ID,
+      source: "tracked",
+      outcome: {
+        kind: "refused",
+        reason: {
+          kind: "space-in-use",
+          tenants: ["cow-fix-login-flow-fedcba98-2"],
+        },
+        forceable: false,
+      },
+      settlement: { kind: "recorded", phase: "settled" },
+      branchName: BRANCH,
+      panes: [{ kind: "open", paneId: "w1:p1" }],
+      worktree: { kind: "kept", path: WT_PATH },
+      branch: { kind: "not-applicable" },
+    });
+    // Nothing was touched: not the workspace, the checkout, the branch, or the pane.
+    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeGitWorktree).not.toHaveBeenCalled();
+    expect(assets.deleteBranch).not.toHaveBeenCalled();
+    expect(assets.closePane).not.toHaveBeenCalled();
+    // The run stays listed, so its own status and a later retry still work.
+    expect(dropped).toEqual([]);
+  });
+
+  it("removes the checkout once the last agent there is cleaned up", async () => {
+    const spawns = new Map<string, AgentSpawn>([[ID, completed()]]);
+    const assets = buildAssets("clean");
+    const { registry } = buildRegistry(spawns);
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report.outcome).toEqual({ kind: "torn-down" });
+    expect(assets.removeWorktree).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks about the checkout it is about to remove, not only its workspace", async () => {
+    // The same checkout can be adopted from another workspace; the removal takes
+    // the worktree out from under an agent either way.
+    const spawns = new Map<string, AgentSpawn>([[ID, completed()]]);
+    const assets = buildAssets("clean");
+    const { registry } = buildRegistry(spawns);
+
+    await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(assets.otherTenants).toHaveBeenCalledWith(
+      { workspaceId: "w1", checkoutPath: WT_PATH },
+      "w1:p1",
+    );
+  });
+
+  it("refuses when the workspace could not be checked for siblings", async () => {
+    // Unreadable is not empty: a removal cleanup cannot prove safe is refused.
+    const spawns = new Map<string, AgentSpawn>([[ID, completed()]]);
+    const assets = buildAssets("clean", {
+      otherTenants: async () => {
+        throw new Error("herdr down");
+      },
+    });
+    const { registry } = buildRegistry(spawns);
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report.outcome).toMatchObject({
+      kind: "refused",
+      forceable: false,
+    });
+    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeGitWorktree).not.toHaveBeenCalled();
+  });
+
+  it("does not consult siblings for a checkout removed through git", async () => {
+    // A git-plane removal leaves every placement standing, so no agent there is
+    // at risk and the workspace read is not needed at all.
+    const recorded = completed();
+    recorded.execution.host = undefined;
+    const spawns = new Map<string, AgentSpawn>([[ID, recorded]]);
+    const assets = buildAssets("clean");
+    const { registry } = buildRegistry(spawns);
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report.outcome).toEqual({ kind: "torn-down" });
+    expect(assets.otherTenants).not.toHaveBeenCalled();
+    expect(assets.removeGitWorktree).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1958,6 +2075,8 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     closePaneMock.mockReset().mockResolvedValue(undefined);
     dropNudgeMock.mockReset();
     resolveMainCheckoutMock.mockReset().mockResolvedValue("/work/repo");
+    // No sibling placement shares the fixture's workspace, so a release owns it.
+    listAgentRecordsMock.mockReset().mockResolvedValue([]);
   });
 
   it("delegates to cleanup with the assets seam as locator and deps", async () => {

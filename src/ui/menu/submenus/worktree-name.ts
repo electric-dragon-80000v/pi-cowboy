@@ -10,7 +10,7 @@
 
 import type { Input } from "@earendil-works/pi-tui";
 import type { Notify } from "../helpers.js";
-import { HERDR_AGENT_NAME_MAX_LENGTH } from "../../../spawn/worktree-policy.js";
+import { HERDR_AGENT_NAME_MAX_LENGTH } from "../../../predicates.js";
 import { createNameField } from "./name-field.js";
 
 /** Prefix every worktree name carries; the field is prefilled with it. */

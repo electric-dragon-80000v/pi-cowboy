@@ -27,6 +27,7 @@ const {
   isAttachedMock,
   releaseMock,
   stopMock,
+  listGitWorktreesMock,
 } = vi.hoisted(() => ({
   resolveMainCheckoutMock: vi.fn(),
   createWorktreeCheckoutMock: vi.fn(),
@@ -38,6 +39,7 @@ const {
   isAttachedMock: vi.fn(),
   releaseMock: vi.fn(),
   stopMock: vi.fn(),
+  listGitWorktreesMock: vi.fn(),
 }));
 
 vi.mock("../src/infrastructure/git-client.js", async (importOriginal) => ({
@@ -49,6 +51,7 @@ vi.mock("../src/infrastructure/git-client.js", async (importOriginal) => ({
   deleteWorktreeBranch: deleteWorktreeBranchMock,
   deleteCreatedBranch: deleteCreatedBranchMock,
   isWorktreeDirty: isWorktreeDirtyMock,
+  listGitWorktrees: listGitWorktreesMock,
 }));
 
 vi.mock("../src/spawn/herdr-launcher.js", async (importOriginal) => ({
@@ -89,6 +92,8 @@ beforeEach(() => {
   releaseMock.mockResolvedValue(true);
   stopMock.mockReset();
   stopMock.mockResolvedValue(true);
+  // Default: the checkout does not exist yet, so the create runs.
+  listGitWorktreesMock.mockReset().mockResolvedValue([]);
 });
 
 function created(
@@ -535,6 +540,90 @@ describe("AgentSandbox.allocate", () => {
       }
     },
   );
+});
+
+describe("AgentSandbox.allocate — an existing checkout", () => {
+  /** A configured worktree root holding a checkout at `branch`, already registered. */
+  function existingAt(branch: string, actualBranch = branch) {
+    const root = tempRoot();
+    const worktreePath = path.join(root, branch);
+    fs.mkdirSync(worktreePath, { recursive: true });
+    resolveMainCheckoutMock.mockResolvedValue("/work/repo");
+    listGitWorktreesMock.mockResolvedValue([
+      { path: worktreePath, branch: actualBranch, isDetached: false },
+    ]);
+    return { root, worktreePath };
+  }
+
+  it("reuses a checkout already on disk instead of creating it", async () => {
+    // The wizard's New-worktree field and the tool's picked target both land
+    // here: a name that already exists is the checkout to place into.
+    const { root, worktreePath } = existingAt("existing");
+
+    const sandbox = await AgentSandbox.allocate(
+      pi,
+      request({
+        naming: { kind: "explicit", branch: "existing" },
+        worktreeRoot: root,
+      }),
+    );
+
+    // Nothing was created, and the agent was placed in the tree as it stands.
+    expect(createWorktreeCheckoutMock).not.toHaveBeenCalled();
+    expect(sandbox.worktree).toEqual({
+      path: worktreePath,
+      branch: "existing",
+    });
+    expect(hostAtMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkout: {
+          path: worktreePath,
+          repoCwd: "/work/repo",
+          branch: "existing",
+        },
+      }),
+    );
+  });
+
+  it("joins the branch the checkout actually carries, not the name asked for", async () => {
+    const { root } = existingAt("named-differently", "real-branch");
+
+    const sandbox = await AgentSandbox.allocate(
+      pi,
+      request({
+        naming: { kind: "explicit", branch: "named-differently" },
+        worktreeRoot: root,
+      }),
+    );
+
+    expect(sandbox.branch).toBe("named-differently");
+    expect(hostAtMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkout: expect.objectContaining({ branch: "real-branch" }),
+      }),
+    );
+  });
+
+  it("never removes a pre-existing checkout when adoption fails", async () => {
+    // A failed adoption of somebody else's tree must not delete it: only a
+    // checkout this call created is rolled back.
+    const { root, worktreePath } = existingAt("existing");
+    hostAtMock.mockRejectedValue(new Error("herdr is down"));
+
+    await expect(
+      AgentSandbox.allocate(
+        pi,
+        request({
+          naming: { kind: "explicit", branch: "existing" },
+          worktreeRoot: root,
+        }),
+      ),
+    ).rejects.toThrow(/existing worktree kept/);
+
+    expect(removeGitWorktreeMock).not.toHaveBeenCalled();
+    expect(deleteCreatedBranchMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(worktreePath)).toBe(true);
+  });
 });
 
 describe("AgentSandbox.teardown", () => {

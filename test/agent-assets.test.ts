@@ -202,6 +202,21 @@ describe("locate — a tracked run", () => {
     });
   });
 
+  it("keeps its own pane when a sibling shares the checkout", async () => {
+    // Two agents in one checkout: the recorded address is the only thing that
+    // says which placement this run's cleanup may close.
+    const assets = assetsFor({
+      listPlacements: async () => [
+        agentRecord({ paneId: "w1:p9", tabId: "w1:t9", cwd: "/elsewhere" }),
+        agentRecord({ paneId: "w1:p1", tabId: "w1:t1" }),
+      ],
+    });
+
+    const result = await located(await assets.locate(ID, hint()));
+
+    expect(result.pane?.paneId).toBe("w1:p1");
+  });
+
   it("keeps the recorded pane when the agent registry cannot be read", async () => {
     const assets = assetsFor({
       listPlacements: async () => {
@@ -236,6 +251,22 @@ describe("locate — a tracked run", () => {
 /* ── The recovered path: discovery decides ────────────────────────────── */
 
 describe("locate — a run with no record", () => {
+  it("leaves the pane unclaimed when the checkout hosts several agents", async () => {
+    // Discovery knows no recorded pane, and two placements answer for this
+    // checkout: adopting either would let cleanup close the wrong agent's pane.
+    const assets = assetsFor({
+      listWorktrees: async () => [worktreeEntry({ workspaceId: "w3" })],
+      listPlacements: async () => [
+        agentRecord({ paneId: "w3:p1", cwd: WT_PATH }),
+        agentRecord({ paneId: "w3:p2", cwd: WT_PATH }),
+      ],
+    });
+
+    const result = await located(await assets.locate(ID));
+
+    expect(result.pane).toBeNull();
+  });
+
   it("locates an adopted checkout from herdr's registry", async () => {
     const assets = assetsFor({
       listWorktrees: async () => [worktreeEntry({ workspaceId: "w3" })],

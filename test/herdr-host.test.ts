@@ -15,6 +15,10 @@ const {
   findTaskAttemptsMock,
   waitForAgentGoneMock,
   sendAgentKeysMock,
+  listWorktreesMock,
+  listAgentRecordsMock,
+  getAgentInfoMock,
+  closePaneMock,
 } = vi.hoisted(() => ({
   focusTabMock: vi.fn(),
   runHerdrMock: vi.fn(),
@@ -26,6 +30,10 @@ const {
   findTaskAttemptsMock: vi.fn(),
   waitForAgentGoneMock: vi.fn(),
   sendAgentKeysMock: vi.fn(),
+  listWorktreesMock: vi.fn(),
+  listAgentRecordsMock: vi.fn(),
+  getAgentInfoMock: vi.fn(),
+  closePaneMock: vi.fn(),
 }));
 
 vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
@@ -45,6 +53,10 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     findTaskAttempts: findTaskAttemptsMock,
     waitForAgentGone: waitForAgentGoneMock,
     sendAgentKeys: sendAgentKeysMock,
+    listWorktrees: listWorktreesMock,
+    listAgentRecords: listAgentRecordsMock,
+    getAgentInfo: getAgentInfoMock,
+    closePane: closePaneMock,
   };
 });
 
@@ -59,6 +71,11 @@ beforeEach(() => {
   findTaskAttemptsMock.mockReset();
   waitForAgentGoneMock.mockReset();
   sendAgentKeysMock.mockReset();
+  // Default: no checkout is open, no agent names are taken, no panes close.
+  listWorktreesMock.mockReset().mockResolvedValue([]);
+  listAgentRecordsMock.mockReset().mockResolvedValue([]);
+  getAgentInfoMock.mockReset().mockResolvedValue(undefined);
+  closePaneMock.mockReset().mockResolvedValue(undefined);
 });
 
 const REF: AgentHostRef = {
@@ -216,7 +233,7 @@ describe("createHerdrRuntime host.hostAt", () => {
       }),
     ).resolves.toEqual({
       multiplexer: "herdr",
-      name: "cow-fix-01234567",
+      name: "cow-fix-01234567-1",
       paneId: "w1:p1",
       tabId: "w1:t1",
       workspaceId: "w1",
@@ -343,7 +360,7 @@ describe("createHerdrRuntime host.hostAt", () => {
       }),
     ).resolves.toEqual({
       multiplexer: "herdr",
-      name: "cow-fix-01234567",
+      name: "cow-fix-01234567-1",
       paneId: "w1:p1",
       tabId: "w1:t1",
       workspaceId: "w1",
@@ -383,6 +400,277 @@ describe("createHerdrRuntime host.hostAt", () => {
       kind: "label",
       label: "🐄",
     });
+  });
+});
+
+describe("createHerdrRuntime host.hostAt on an already-open checkout", () => {
+  const pi = {} as unknown as ExtensionAPI;
+  const checkout = {
+    path: "/wt",
+    repoCwd: "/repo",
+    branch: "cow-fix-01234567",
+  };
+  const request = {
+    unit: "pane" as const,
+    cwd: "/wt",
+    label: "fix login",
+    name: "cow-fix-01234567",
+    checkout,
+  };
+
+  it("opens a new tab instead of reusing the pane an agent already occupies", async () => {
+    // The live agent that already holds this checkout: its tab and root pane.
+    listWorktreesMock.mockResolvedValue([
+      { path: "/wt", branch: "cow-fix-01234567", openWorkspaceId: "w1" },
+    ]);
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+
+    await expect(createHerdrRuntime(pi).host.hostAt(request)).resolves.toEqual({
+      multiplexer: "herdr",
+      name: "cow-fix-01234567-1",
+      paneId: "w1:p2",
+      tabId: "w1:t2",
+      workspaceId: "w1",
+      paneCreated: true,
+    });
+
+    // The checkout is adopted, never re-opened: `worktree open` on an open
+    // checkout answers with the existing pane, which is another agent's.
+    expect(runHerdrMock).not.toHaveBeenCalled();
+    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
+    expect(createAgentTabMock).toHaveBeenCalledWith(pi, {
+      workspaceId: "w1",
+      cwd: "/wt",
+      label: "🐄 fix login",
+    });
+  });
+
+  it("does not retitle the live agent's pane or tab", async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: "/wt", branch: "cow-fix-01234567", openWorkspaceId: "w1" },
+    ]);
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+
+    await createHerdrRuntime(pi).host.hostAt(request);
+
+    // The new tab is labelled when it is created, so nothing renames it, and the
+    // resident agent's pane and tab are never touched.
+    expect(renameTabMock).not.toHaveBeenCalled();
+    expect(renamePaneMock).toHaveBeenCalledTimes(1);
+    expect(renamePaneMock).toHaveBeenCalledWith(pi, "w1:p2", {
+      kind: "label",
+      label: "🐄 fix login",
+    });
+  });
+
+  it("opens a new tab when a racing open reports the checkout already open", async () => {
+    // The pre-probe saw nothing, then another spawn adopted the checkout.
+    listWorktreesMock.mockResolvedValue([]);
+    runHerdrMock.mockResolvedValue({
+      already_open: true,
+      worktree: { path: "/wt", branch: "cow-fix-01234567" },
+      workspace: { workspace_id: "w1" },
+      tab: { tab_id: "w1:t1" },
+      root_pane: { pane_id: "w1:p1" },
+    });
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+
+    await expect(
+      createHerdrRuntime(pi).host.hostAt(request),
+    ).resolves.toMatchObject({ paneId: "w1:p2", workspaceId: "w1" });
+    // The workspace belongs to the agent that opened it, so a race never removes it.
+    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a racing open whose branch does not match", async () => {
+    listWorktreesMock.mockResolvedValue([]);
+    runHerdrMock.mockResolvedValue({
+      already_open: true,
+      worktree: { path: "/wt", branch: "other-branch" },
+      workspace: { workspace_id: "w1" },
+      tab: { tab_id: "w1:t1" },
+      root_pane: { pane_id: "w1:p1" },
+    });
+
+    await expect(createHerdrRuntime(pi).host.hostAt(request)).rejects.toThrow(
+      /already open, but not as "cow-fix-01234567"/,
+    );
+    expect(createAgentTabMock).not.toHaveBeenCalled();
+    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createHerdrRuntime host agent spots", () => {
+  const pi = {} as unknown as ExtensionAPI;
+  const request = {
+    unit: "pane" as const,
+    cwd: "/wt",
+    label: "fix login",
+    name: "cow-fix-01234567",
+    checkout: { path: "/wt", repoCwd: "/repo", branch: "cow-fix-01234567" },
+  };
+
+  it("numbers the first agent in a checkout from 1", async () => {
+    getCurrentWorkspaceIdMock.mockResolvedValue("w1");
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t1", paneId: "w1:p1" });
+
+    const ref = await createHerdrRuntime(pi).host.hostAt({
+      unit: "pane",
+      cwd: "/repo",
+      label: "general-purpose",
+      name: "cow-fix-01234567",
+    });
+
+    expect(ref.name).toBe("cow-fix-01234567-1");
+  });
+
+  it("reads a bare name as spot 1, so the second agent gets 2", async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: "/wt", branch: "cow-fix-01234567", openWorkspaceId: "w1" },
+    ]);
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+    // The agent running there was named before spots existed.
+    getAgentInfoMock.mockImplementation(async (_pi: unknown, target: string) =>
+      target === "cow-fix-01234567"
+        ? { name: target, paneId: "w1:p1", state: "working" }
+        : undefined,
+    );
+
+    const ref = await createHerdrRuntime(pi).host.hostAt(request);
+
+    expect(ref.name).toBe("cow-fix-01234567-2");
+  });
+
+  it("takes spot 2 for the second agent, so the first keeps its name", async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: "/wt", branch: "cow-fix-01234567", openWorkspaceId: "w1" },
+    ]);
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+    getAgentInfoMock.mockImplementation(async (_pi: unknown, target: string) =>
+      target === "cow-fix-01234567-1"
+        ? { name: target, paneId: "w1:p1", state: "working" }
+        : undefined,
+    );
+
+    const ref = await createHerdrRuntime(pi).host.hostAt(request);
+
+    expect(ref.name).toBe("cow-fix-01234567-2");
+  });
+
+  it("refuses a checkout whose spots 1 through max are all taken", async () => {
+    listWorktreesMock.mockResolvedValue([
+      { path: "/wt", branch: "cow-fix-01234567", openWorkspaceId: "w1" },
+    ]);
+    createAgentTabMock.mockResolvedValue({ tabId: "w1:t2", paneId: "w1:p2" });
+    getAgentInfoMock.mockResolvedValue({ state: "working" });
+
+    await expect(createHerdrRuntime(pi).host.hostAt(request)).rejects.toThrow(
+      /no free agent spot left/,
+    );
+  });
+
+  it("gives two placements taken before either launches different spots", async () => {
+    // A spot reaches herdr only when `agent start` registers it, so two spawns
+    // placed back to back must not both read spot 1 as free.
+    getCurrentWorkspaceIdMock.mockResolvedValue("w1");
+    createAgentTabMock
+      .mockResolvedValueOnce({ tabId: "w1:t1", paneId: "w1:p1" })
+      .mockResolvedValueOnce({ tabId: "w1:t2", paneId: "w1:p2" });
+    const host = createHerdrRuntime(pi).host;
+    const parentRequest = {
+      unit: "pane" as const,
+      cwd: "/repo",
+      label: "general-purpose",
+      name: "cow-fix-01234567",
+    };
+
+    const first = await host.hostAt(parentRequest);
+    const second = await host.hostAt(parentRequest);
+
+    expect([first.name, second.name]).toEqual([
+      "cow-fix-01234567-1",
+      "cow-fix-01234567-2",
+    ]);
+  });
+
+  it("gives concurrent placements distinct spots", async () => {
+    getCurrentWorkspaceIdMock.mockResolvedValue("w1");
+    createAgentTabMock
+      .mockResolvedValueOnce({ tabId: "w1:t1", paneId: "w1:p1" })
+      .mockResolvedValueOnce({ tabId: "w1:t2", paneId: "w1:p2" });
+    const host = createHerdrRuntime(pi).host;
+    const parentRequest = {
+      unit: "pane" as const,
+      cwd: "/repo",
+      label: "general-purpose",
+      name: "cow-fix-01234567",
+    };
+
+    const refs = await Promise.all([
+      host.hostAt(parentRequest),
+      host.hostAt(parentRequest),
+    ]);
+
+    expect(refs.map((ref) => ref.name)).toEqual([
+      "cow-fix-01234567-1",
+      "cow-fix-01234567-2",
+    ]);
+  });
+});
+
+describe("createHerdrRuntime host.release", () => {
+  it("declines to remove a workspace another agent still occupies", async () => {
+    const pi = {} as unknown as ExtensionAPI;
+    listAgentRecordsMock.mockResolvedValue([
+      {
+        name: "cow-fix-01234567-2",
+        state: "idle",
+        paneId: "w1:p3",
+        workspaceId: "w1",
+      },
+    ]);
+
+    await expect(
+      createHerdrRuntime(pi).host.release(REF, "worktree-association"),
+    ).resolves.toBe(false);
+    expect(removeHerdrWorktreeMock).not.toHaveBeenCalled();
+  });
+
+  it("removes the workspace once no sibling placement is left", async () => {
+    const pi = {} as unknown as ExtensionAPI;
+    listAgentRecordsMock.mockResolvedValue([
+      { name: REF.name, state: "idle", paneId: REF.paneId, workspaceId: "w1" },
+    ]);
+    removeHerdrWorktreeMock.mockResolvedValue(true);
+
+    await expect(
+      createHerdrRuntime(pi).host.release(REF, "worktree-association"),
+    ).resolves.toBe(true);
+    expect(removeHerdrWorktreeMock).toHaveBeenCalledWith(pi, "w1");
+  });
+
+  it("frees a spot so a later placement can take it again", async () => {
+    // A released agent's name is not held by the checkout forever: the next
+    // placement reuses the spot instead of reading it as still taken.
+    const pi = {} as unknown as ExtensionAPI;
+    getCurrentWorkspaceIdMock.mockResolvedValue("w1");
+    createAgentTabMock
+      .mockResolvedValueOnce({ tabId: "w1:t1", paneId: "w1:p1" })
+      .mockResolvedValueOnce({ tabId: "w1:t2", paneId: "w1:p2" });
+    const host = createHerdrRuntime(pi).host;
+    const parentRequest = {
+      unit: "pane" as const,
+      cwd: "/repo",
+      label: "general-purpose",
+      name: "cow-fix-01234567",
+    };
+
+    const first = await host.hostAt(parentRequest);
+    await host.release(first, "placement");
+    const second = await host.hostAt(parentRequest);
+
+    expect(second.name).toBe("cow-fix-01234567-1");
+    expect(closePaneMock).toHaveBeenCalledWith(pi, "w1:p1");
   });
 });
 

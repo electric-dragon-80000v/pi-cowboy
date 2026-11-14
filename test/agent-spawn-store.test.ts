@@ -50,6 +50,7 @@ const {
   deleteWorktreeBranchMock,
   removeHerdrWorktreeMock,
   resolveMainCheckoutMock,
+  listAgentRecordsMock,
 } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(),
   getStoreMock: vi.fn(() => ({ agent: {} })),
@@ -62,6 +63,7 @@ const {
   deleteWorktreeBranchMock: vi.fn(),
   removeHerdrWorktreeMock: vi.fn(),
   resolveMainCheckoutMock: vi.fn(),
+  listAgentRecordsMock: vi.fn(),
 }));
 
 /** Store instance the mocked shell hands to every manager. */
@@ -80,6 +82,7 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     getAgentInfo: getAgentInfoMock,
     closePane: closePaneMock,
     removeHerdrWorktree: removeHerdrWorktreeMock,
+    listAgentRecords: listAgentRecordsMock,
   };
 });
 
@@ -536,6 +539,8 @@ describe("spawn retention through the manager", () => {
     } satisfies BranchCleanupResult);
     removeHerdrWorktreeMock.mockReset().mockResolvedValue(true);
     resolveMainCheckoutMock.mockReset().mockResolvedValue("/work/repo");
+    // No sibling placement shares the fixture's workspace, so a release owns it.
+    listAgentRecordsMock.mockReset().mockResolvedValue([]);
     for (const spawn of shared.store.list()) shared.store.drop(spawn.id);
   });
 

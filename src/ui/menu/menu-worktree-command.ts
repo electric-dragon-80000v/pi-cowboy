@@ -65,6 +65,8 @@ function materializationLabel(outcome: WorktreeMaterializationOutcome): string {
       return "checkout (the volume cannot clone, so copy-on-write was unavailable)";
     case "checkout":
       return "checkout";
+    case "reused":
+      return "reused (the checkout already existed)";
   }
 }
 
@@ -87,6 +89,8 @@ function inheritedLabel(
       return dirtyCheckout === "dirty"
         ? "the parent's tracked changes, applied on top of git's checkout of HEAD (a clean parent carries none)"
         : "nothing: git checked out HEAD, and the parent's uncommitted work stays out";
+    case "reused":
+      return "nothing: the existing checkout was reused exactly as it was";
   }
 }
 

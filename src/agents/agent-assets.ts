@@ -136,6 +136,18 @@ interface NotFound {
 
 export type LocateResult = Located | Ambiguous | NotFound;
 
+/**
+ * The space an agent occupies: the workspace whose removal takes it with it, and
+ * the checkout it works in. Tearing down is shared — several agents can live in
+ * one workspace, each in its own tab, and a checkout is what they share — so
+ * this is what cleanup asks about before removing anything.
+ */
+export interface SpaceKey {
+  readonly workspaceId: string;
+  /** The checkout whose removal would take the worktree out from under an agent. */
+  readonly checkoutPath?: string;
+}
+
 /** The seam: locate an agent's artifacts, then act on them. Injected probes are function-typed properties (see CleanupDeps). */
 export interface AgentAssets extends CleanupDeps {
   /**
@@ -148,6 +160,13 @@ export interface AgentAssets extends CleanupDeps {
   deliverable: (id: string) => RecoveredDeliverable;
   /** Locate one agent's artifacts (hint, else discovery); never stops anything — the pane is an address, not a process. */
   locate(id: string, hint?: AgentSpawn): Promise<LocateResult>;
+  /**
+   * Every other agent still living in a space. A workspace can host several
+   * agents' tabs, so tearing one down is only safe once nothing else is left in
+   * it — a failed read throws, since unreadable is not empty and cleanup must not
+   * remove a space it cannot prove is empty.
+   */
+  otherTenants(space: SpaceKey, self: string): Promise<readonly string[]>;
   /** Raw liveness read: undefined = gone, a throw = unreadable (never evidence the run is over); no settlement verdict. */
   observe(pane: PaneRef): Promise<HostObservation | undefined>;
 }
@@ -211,25 +230,42 @@ function paneOf(record: PlacementRecord): LocatedPane {
   };
 }
 
-function paneInWorktree(
+/**
+ * The live placement for a tracked run: the record herdr reports in that run's
+ * checkout, or memory's address when the registry has nothing to say. A restart
+ * or a re-adopt mints new ids, so the live record wins — but only when it is the
+ * only one there, since a checkout can now host several agents and memory's
+ * address is the one run this cleanup is about.
+ */
+function livePaneFor(
   records: readonly PlacementRecord[] | undefined,
-  worktreePath: string,
+  recorded: LocatedPane | null,
+  worktreePath: string | undefined,
   canonicalize: (value: string) => string,
 ): LocatedPane | undefined {
-  const wanted = canonicalize(worktreePath);
-  const record = records?.find(
-    (entry) => entry.cwd !== undefined && canonicalize(entry.cwd) === wanted,
+  if (worktreePath === undefined) return recorded ?? undefined;
+  const inCheckout = (records ?? []).filter(
+    (entry) =>
+      entry.cwd !== undefined &&
+      canonicalize(entry.cwd) === canonicalize(worktreePath),
   );
-  return record === undefined ? undefined : paneOf(record);
+  return inCheckout.length === 1
+    ? paneOf(inCheckout[0]!)
+    : (recorded ?? undefined);
 }
 
-function paneInWorkspace(
+/**
+ * The one placement record in a checkout or workspace, or undefined when the
+ * answer is not unique. Discovery knows a run's id, not its name, so a second
+ * agent in the same checkout makes the pane ambiguous — and picking one anyway
+ * would let cleanup close a sibling's pane.
+ */
+function solePaneAmong(
   records: readonly PlacementRecord[] | undefined,
-  workspaceId: string | undefined,
+  matches: (entry: PlacementRecord) => boolean,
 ): LocatedPane | undefined {
-  if (workspaceId === undefined) return undefined;
-  const record = records?.find((entry) => entry.workspaceId === workspaceId);
-  return record === undefined ? undefined : paneOf(record);
+  const found = records?.filter(matches) ?? [];
+  return found.length === 1 ? paneOf(found[0]!) : undefined;
 }
 
 /** Bind the seam over injected probes. */
@@ -327,11 +363,27 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
       if (entry !== undefined) workspaceId = entry.workspaceId;
     }
 
+    // The run's own pane, never merely a pane in its checkout: a checkout can
+    // host several agents, and closing a sibling's pane is not this run's
+    // cleanup. With no recorded address there is no identity to match on, so a
+    // checkout's pane is used only when exactly one exists.
     const pane =
-      worktreePath === undefined
-        ? recordedPane
-        : (paneInWorktree(records, worktreePath, deps.canonicalizePath) ??
-          recordedPane);
+      recordedPane !== null
+        ? (livePaneFor(
+            records,
+            recordedPane,
+            worktreePath,
+            deps.canonicalizePath,
+          ) ?? recordedPane)
+        : worktreePath === undefined
+          ? null
+          : (solePaneAmong(
+              records,
+              (entry) =>
+                entry.cwd !== undefined &&
+                deps.canonicalizePath(entry.cwd) ===
+                  deps.canonicalizePath(worktreePath),
+            ) ?? null);
     const worktree =
       worktreePath === undefined
         ? null
@@ -374,9 +426,23 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
       };
     }
     const found = candidates[0]!;
+    // Nobody recorded a pane for this run, so the checkout and the workspace are
+    // the only links to it — and either can now answer with a sibling agent's
+    // placement. A pane is adopted from here only when one alone answers; an
+    // ambiguous one is left null, which leaves any pane standing rather than
+    // closing the wrong one.
     const pane =
-      paneInWorktree(records, found.path, deps.canonicalizePath) ??
-      paneInWorkspace(records, found.workspaceId) ??
+      solePaneAmong(
+        records,
+        (entry) =>
+          entry.cwd !== undefined &&
+          deps.canonicalizePath(entry.cwd) ===
+            deps.canonicalizePath(found.path),
+      ) ??
+      solePaneAmong(
+        records,
+        (entry) => entry.workspaceId === found.workspaceId,
+      ) ??
       null;
     return {
       kind: "located",
@@ -405,9 +471,41 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
       : locateTracked(id, hint, entries, live);
   }
 
+  /**
+   * The other agents in a space, by name where herdr reports one and by pane id
+   * otherwise. A space is shared two ways — the workspace they sit in, and the
+   * checkout they work in — so a match on either counts as a tenant.
+   *
+   * A failed read throws instead of answering "none": a space cleanup could not
+   * prove empty is one it must not remove. `self` is excluded by pane id, since
+   * the name a record carries is not guaranteed to be this agent's.
+   */
+  async function otherTenants(
+    space: SpaceKey,
+    self: string,
+  ): Promise<readonly string[]> {
+    const records = await deps.listPlacements();
+    const wantedCheckout =
+      space.checkoutPath === undefined
+        ? undefined
+        : deps.canonicalizePath(space.checkoutPath);
+    return records
+      .filter((record) => {
+        if (record.paneId === self) return false;
+        if (record.workspaceId === space.workspaceId) return true;
+        return (
+          wantedCheckout !== undefined &&
+          record.cwd !== undefined &&
+          deps.canonicalizePath(record.cwd) === wantedCheckout
+        );
+      })
+      .map((record) => record.name ?? record.paneId);
+  }
+
   return {
     multiplexer: deps.multiplexer,
     locate,
+    otherTenants,
     observe: (pane) => deps.readPane(pane.paneId),
     deliverable: deps.deliverable,
     isWorktreeDirty: deps.isWorktreeDirty,

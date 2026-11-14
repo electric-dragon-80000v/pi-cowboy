@@ -40,7 +40,19 @@ export type WorktreeKeptReason =
   | WorktreeRetentionReason
   | AgentActiveReason
   | RecoveredRefusalReason
-  | AmbiguousArtifactsReason;
+  | AmbiguousArtifactsReason
+  | SpaceInUseReason;
+
+/**
+ * Refusal for an agent whose space is shared: tearing its workspace down would
+ * take every sibling in it with it. Cleanup of one agent is never cleanup of the
+ * checkout — the last tenant out removes it.
+ */
+type SpaceInUseReason = {
+  kind: "space-in-use";
+  /** The agents still living in the space, by name or pane id. */
+  tenants: readonly string[];
+};
 
 /* ── Report shape ──────────────────────────────────────────────────────── */
 

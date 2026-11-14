@@ -239,7 +239,11 @@ function makeFakeHost(options: FakeHostOptions = {}) {
   const host = {
     hostAt: async (hostOptions: Record<string, unknown>) => {
       hostAtCalls.push(hostOptions);
-      return ref;
+      // The address names the agent the request asked to disambiguate — the
+      // real host resolves which spot is free in that placement.
+      return typeof hostOptions.name === "string"
+        ? { ...ref, name: hostOptions.name }
+        : ref;
     },
     start: async (
       startedRef: AgentHostRef,
@@ -956,9 +960,11 @@ describe("SubagentSession launch naming", () => {
     await driveRun(DRIVE_COMPLETED_MS);
 
     expect(run.hostAtCalls).toEqual([]);
+    // The adopted address already names its agent — the name the placement was
+    // minted under, not the branch the checkout is on.
     expect(run.startCalls).toEqual([
       expect.objectContaining({
-        options: expect.objectContaining({ name: BRANCH }),
+        options: expect.objectContaining({ name: fake.ref.name }),
       }),
     ]);
   });
@@ -1029,7 +1035,7 @@ describe("SubagentSession deferred sandbox allocation", () => {
     expect(fake.hostAtCalls).toEqual([]);
     expect(fake.startCalls).toEqual([
       expect.objectContaining({
-        options: expect.objectContaining({ name: BRANCH }),
+        options: expect.objectContaining({ name: fake.ref.name }),
       }),
     ]);
     expect(harness.session.spawn.lifecycle).toMatchObject({
@@ -2110,7 +2116,14 @@ describe("handover", () => {
         endedAt: expect.any(Number),
       },
     ]);
-    expect(run.session.spawn.execution.host).toEqual(run.ref);
+    // The next run hosts its own placement, so it names its own agent; the
+    // pane, tab and workspace are the run's own address either way.
+    expect(run.session.spawn.execution.host).toMatchObject({
+      multiplexer: run.ref.multiplexer,
+      paneId: run.ref.paneId,
+      tabId: run.ref.tabId,
+      workspaceId: run.ref.workspaceId,
+    });
     expect(run.session.spawn.execution.harness).toBe("pi");
 
     // The old process is stopped at the run's own pane before the next starts.

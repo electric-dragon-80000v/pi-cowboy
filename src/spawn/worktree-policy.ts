@@ -7,6 +7,10 @@
 import * as path from "node:path";
 import { canonicalPath, defaultWorktreeRoot } from "../paths.js";
 import { isAvailable, type Availability } from "../availability.js";
+import {
+  AGENT_NAME_SUFFIX_MAX_LENGTH,
+  HERDR_AGENT_NAME_MAX_LENGTH,
+} from "../predicates.js";
 import { SPAWN_ID_LENGTH } from "./spawn-id.js";
 
 /** Branch prefix on every extension-created worktree (branch + tab label + path basename). */
@@ -152,15 +156,17 @@ export function parseWorktreeRequest(value: unknown): WorktreeRequest {
 /** Max words in a task slug (fits small UI elements). */
 const TASK_SLUG_MAX_WORDS = 3;
 
-/** herdr caps an agent name at 32 characters — the one value every name-length rule reads. */
-export const HERDR_AGENT_NAME_MAX_LENGTH = 32;
-
-/** Max slug length: a generated name spends `cow-`, `-`, and the spawn id, so the slug gets the rest. */
+/**
+ * Max slug length: a generated name spends `cow-`, `-`, the spawn id, and the
+ * `-<index>` an agent name carries so a second agent can share the checkout, so
+ * the slug gets the rest.
+ */
 const TASK_SLUG_MAX_LENGTH =
   HERDR_AGENT_NAME_MAX_LENGTH -
   WORKTREE_BRANCH_PREFIX.length -
   1 -
-  SPAWN_ID_LENGTH;
+  SPAWN_ID_LENGTH -
+  AGENT_NAME_SUFFIX_MAX_LENGTH;
 
 /** Lowercase a branch-name part into a filesystem/branch-safe slug; empty input gives "agent". */
 export function slugifyWorktreeType(typeName: string): string {

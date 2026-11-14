@@ -69,7 +69,7 @@ describe("buildTaskSlug", () => {
 
   it("throws when the slug exceeds the length limit, reporting the branch name it gives", () => {
     expect(() => buildTaskSlug("researching existing tool")).toThrow(
-      /gives the branch name "researching-existing-tool" with 25 characters\. The limit is 19 characters/,
+      /gives the branch name "researching-existing-tool" with 25 characters\. The limit is 17 characters/,
     );
   });
 

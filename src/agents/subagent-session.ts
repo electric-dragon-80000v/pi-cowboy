@@ -1022,7 +1022,10 @@ export class SubagentSession {
       this.supervisor = supervisor;
       await supervisor.start(
         {
-          name: agentName,
+          // The address resolved which agent name is free in this pane; the
+          // base name (a checkout's branch) is shared by every agent there and
+          // is only what the multiplexer was asked to disambiguate.
+          name: ref.name,
           cwd: plan.cwd,
           piArgs: plan.piArgs,
           agentMultiplexerKind: harness.agentMultiplexerKind,

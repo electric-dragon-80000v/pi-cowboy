@@ -18,6 +18,7 @@ import {
   deleteWorktreeBranch,
   formatRetentionClause,
   isWorktreeDirty,
+  listGitWorktrees,
   removeGitWorktree,
   resolveMainCheckout,
   type BranchCleanupResult,
@@ -36,10 +37,12 @@ import {
 import type { CleanupOptions } from "../agents/cleanup-policy.js";
 import { errorMessage } from "../utils.js";
 import { getRepoLock } from "../shell.js";
+import { canonicalPath } from "../paths.js";
 import {
   buildWorktreeBranch,
   resolveWorktreeRoot,
   slugifyWorktreeType,
+  worktreeBranchOf,
   type WorktreeCheckoutType,
   type WorktreeMaterialization,
 } from "./worktree-policy.js";
@@ -416,6 +419,39 @@ export async function createAdoptedWorktree(
   );
 }
 
+/**
+ * The checkout already at this path, as the piece of a creation it stands in
+ * for — or undefined when there is nothing there to reuse.
+ *
+ * A path that is already a registered checkout of this repo is the tree the
+ * caller named: placing another agent in it is the whole point, so there is
+ * nothing to create and nothing to materialize. A path that exists but is not a
+ * checkout of this repo is not ours to adopt, and is left to the create to
+ * refuse.
+ */
+async function existingCheckout(
+  pi: ExtensionAPI,
+  repoCwd: string,
+  target: string,
+): Promise<WorktreeCheckout | undefined> {
+  const entries = await listGitWorktrees(pi, repoCwd);
+  const wanted = canonicalPath(target);
+  const entry =
+    wanted === undefined
+      ? undefined
+      : entries?.find((candidate) => canonicalPath(candidate.path) === wanted);
+  if (entry === undefined) return undefined;
+  return {
+    path: entry.path,
+    // The branch the checkout actually carries, never the name the caller asked
+    // for: a second agent joins the tree as it is.
+    branch: worktreeBranchOf(entry),
+    repoCwd,
+    // Nothing was materialized, so there is no strategy outcome to report.
+    materialization: { kind: "reused" },
+  };
+}
+
 /** Phases 1 and 2: create the checkout, then adopt it. Both unwind inside this boundary. */
 async function adoptWorktree(
   pi: ExtensionAPI,
@@ -430,24 +466,33 @@ async function adoptWorktree(
     dirtyCheckout,
     notify,
   } = request;
-  // Phase 1: git worktree add on the branch plus materialization.
+  // Phase 1: git worktree add on the branch plus materialization — unless the
+  // checkout already exists, in which case there is nothing to create. This is
+  // what makes a second agent in one worktree work from every entry point: the
+  // requested branch is a name, and a name that is already on disk is the
+  // checkout to place the agent in, not an error.
+  const existing = await existingCheckout(pi, repoCwd, target);
   let created: WorktreeCheckout;
-  try {
-    created = await createWorktreeCheckout(pi, {
-      repoCwd,
-      path: target,
-      branch,
-      materialization,
-      dirtyCheckout,
-      notify,
-    });
-  } catch (err: unknown) {
-    // The create's own failure paths prune the branch they minted; the checkout
-    // they may have left behind is this boundary's to remove.
-    throw createFailureMessage(
-      err,
-      await removeFailedCheckout(pi, repoCwd, target),
-    );
+  if (existing !== undefined) {
+    created = existing;
+  } else {
+    try {
+      created = await createWorktreeCheckout(pi, {
+        repoCwd,
+        path: target,
+        branch,
+        materialization,
+        dirtyCheckout,
+        notify,
+      });
+    } catch (err: unknown) {
+      // The create's own failure paths prune the branch they minted; the checkout
+      // they may have left behind is this boundary's to remove.
+      throw createFailureMessage(
+        err,
+        await removeFailedCheckout(pi, repoCwd, target),
+      );
+    }
   }
 
   // Phase 2: adoption. The host never destroys filesystem state, so a failed adoption rolls back here.
@@ -466,6 +511,11 @@ async function adoptWorktree(
       },
     });
   } catch (err: unknown) {
+    // Only a checkout this call created is rolled back. A pre-existing checkout
+    // is somebody's work — it is the tree the caller asked to place an agent in,
+    // and a failed adoption is not a reason to delete it.
+    if (existing !== undefined)
+      throw createFailureMessage(err, "existing worktree kept");
     const checkout = await removeFailedCheckout(pi, repoCwd, created.path);
     // The branch is this create's own — the add minted it moments ago and nothing
     // has committed on it — so it goes by name, without the guards that keep a

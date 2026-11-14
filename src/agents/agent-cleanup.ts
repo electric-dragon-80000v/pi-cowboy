@@ -40,6 +40,7 @@ import {
   removalMechanismOf,
   shouldDropSpawn,
   type CleanupOptions,
+  type CleanupPlan,
   type CleanupReport,
   type DiscoveryBasis,
   type PaneOutcome,
@@ -317,6 +318,53 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
   };
 }
 
+/* ── Shared spaces ────────────────────────────────────────────────────── */
+
+/** Who else lives in the space a plan would remove. */
+type SpaceTenancy =
+  /** Nothing else does: the removal takes only this run's own placement. */
+  | { readonly kind: "exclusive" }
+  | { readonly kind: "shared"; readonly tenants: readonly string[] }
+  /** The registry could not be read: never evidence the space is empty. */
+  | { readonly kind: "unreadable"; readonly detail: string };
+
+/**
+ * Whether the space this plan would remove holds anything besides this run.
+ *
+ * Only a multiplexer removal of a checkout destroys a workspace — a git-plane
+ * removal leaves every placement standing, and a run without a checkout has no
+ * workspace of its own — so only that case can take a sibling with it. Reading
+ * the registry is the only way to know, and a failed read is not an empty space:
+ * that answers `unreadable`, which the caller refuses on.
+ */
+async function spaceTenancy(
+  assets: AgentAssets,
+  plan: CleanupPlan,
+  address: AgentHostRef | undefined,
+): Promise<SpaceTenancy> {
+  if (
+    plan.kind !== "worktree" ||
+    address === undefined ||
+    removalMechanismOf(plan.worktree) !== "multiplexer"
+  ) {
+    return { kind: "exclusive" };
+  }
+  try {
+    const tenants = await assets.otherTenants(
+      {
+        workspaceId: address.workspaceId,
+        checkoutPath: plan.worktree.worktreePath,
+      },
+      address.paneId,
+    );
+    return tenants.length === 0
+      ? { kind: "exclusive" }
+      : { kind: "shared", tenants };
+  } catch (error: unknown) {
+    return { kind: "unreadable", detail: errorMessage(error) };
+  }
+}
+
 /* ── The environment ───────────────────────────────────────────────────── */
 
 /**
@@ -482,6 +530,26 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       return keptReport(agentId, located.source, plan, verdict.settlement, {
         reason: verdict.reason,
         forceable: verdict.forceable,
+      });
+    }
+
+    // A workspace is shared: several agents live in one, each in its own tab, and
+    // removing the space takes all of them. So this run's cleanup must not be the
+    // checkout's — the last tenant out removes it. Checked before anything is
+    // touched, so a sibling is never collateral of one agent's teardown.
+    const tenancy = await spaceTenancy(assets, plan, current);
+    if (tenancy.kind !== "exclusive") {
+      return keptReport(agentId, located.source, plan, verdict.settlement, {
+        reason:
+          tenancy.kind === "shared"
+            ? { kind: "space-in-use", tenants: tenancy.tenants }
+            : {
+                kind: "unverifiable",
+                detail: `could not check the workspace for other agents (${tenancy.detail})`,
+              },
+        // Force removes worktrees, never other agents: a sibling's run is not
+        // this operator's to destroy at any price.
+        forceable: false,
       });
     }
 
