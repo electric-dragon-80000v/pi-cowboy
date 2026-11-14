@@ -1,3 +1,10 @@
+# [0.33.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.32.1...v0.33.0) (2026-11-14)
+
+
+### Features
+
+* **agents:** use session as backing state store to survive reloads and restarts ([267f741](https://github.com/electric-dragon-80000v/pi-cowboy/commit/267f74118b1670cc22a1e1ac66a3ec7573ff9ec1))
+
 ## [0.32.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.32.0...v0.32.1) (2026-11-12)
 
 
