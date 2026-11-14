@@ -16,6 +16,7 @@ import {
   getAgentSpawns,
   getHarnessRegistry,
   getPiInstance,
+  getSessionCtx,
   getStore,
   getWorktreeMaterialization,
 } from "../shell.js";
@@ -75,6 +76,7 @@ import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
   activateRun,
+  activeRun,
   createRun,
   disposeLiveRun,
   disposeQueuedRun,
@@ -150,7 +152,51 @@ export function buildAgentSpawn(
       promise,
       abortController: new AbortController(),
       host: options.hostRef,
+      modelKey: modelChoiceKey(options.modelChoice),
       history: [],
+    },
+  };
+}
+
+/** The start an attached run already earned: the only phase attach accepts. */
+function existingStartedAt(spawn: AgentSpawn): number {
+  if (spawn.lifecycle.phase !== "spawned") {
+    throw new Error(
+      `agent ${spawn.id} is not a started run, so it cannot be attached`,
+    );
+  }
+  return spawn.lifecycle.startedAt;
+}
+
+/** The queue time an attached run's state starts from: the one it already recorded. */
+function existingQueueTime(spawn: AgentSpawn): number {
+  const { lifecycle } = spawn;
+  return lifecycle.phase === "queued" || lifecycle.phase === "never-started"
+    ? lifecycle.queuedAt
+    : lifecycle.startedAt;
+}
+
+/**
+ * The args an attached session carries. Nothing here is a launch parameter: an
+ * attached run takes no admission and provisions no worktree, and what the
+ * session reads later (harness, model key) comes off the spawn.
+ * `prompt` is empty because the run it describes was launched by a session that
+ * is gone — the task text is not recoverable, and nothing on this path replays it.
+ */
+function attachArgs(spawn: AgentSpawn, harness: AnyHarnessId): SpawnArgs {
+  return {
+    pi: getPiInstance(),
+    ctx: getSessionCtx(),
+    type: spawn.display.type,
+    prompt: "",
+    options: {
+      spawnId: spawn.id,
+      description: spawn.display.description,
+      taskSlug: spawn.display.taskSlug,
+      orchestration: spawn.display.orchestration,
+      worktree: spawn.display.worktree,
+      hostRef: spawn.execution.host,
+      harness,
     },
   };
 }
@@ -194,6 +240,12 @@ interface SubagentSessionOptions {
   id: string;
   args: SpawnArgs;
   deps: SubagentSessionDeps;
+  /**
+   * The spawn this session supervises, when it was not born here. An attached run
+   * already exists in the store with its own identity and state, so the session
+   * adopts it instead of building and registering a second one.
+   */
+  existing?: AgentSpawn;
 }
 
 /**
@@ -268,10 +320,21 @@ export class SubagentSession {
   private supervisor?: ProcessSupervisor;
   private parentBinding?: { signal: AbortSignal; handler: () => void };
 
-  constructor({ id, args, deps }: SubagentSessionOptions) {
+  constructor({ id, args, deps, existing }: SubagentSessionOptions) {
     this.id = id;
     this.args = args;
     this.deps = deps;
+    if (existing !== undefined) {
+      // An attached run is already in flight: the store holds it, its process
+      // predates this session, and nothing is built, registered, or launched. It
+      // starts active from the times it recorded — there is no queue to leave.
+      this.stableSpawn = existing;
+      this.run = activeRun(
+        existingQueueTime(existing),
+        existingStartedAt(existing),
+      );
+      return;
+    }
     this.stableSpawn = buildAgentSpawn(args, this.gate.promise);
     this.stableSpawn.id = id;
     const birth = this.stableSpawn.lifecycle;
@@ -283,6 +346,61 @@ export class SubagentSession {
     // the spawn outlives session disposal and stays listed and cleanable.
     getAgentSpawns().add(this.stableSpawn);
     this.bindParentSignal();
+  }
+
+  /**
+   * Adopt a run this session found already in flight — the agent a reload
+   * restored and `spawn-verification.ts` called live. The spawn already exists in
+   * the store, so nothing is built or registered: this session only has to
+   * supervise a process no launch here produced.
+   *
+   * `start()` is never taken on this path. The process is already running, so
+   * there is nothing to launch, no admission to take, and no worktree to
+   * provision; the pane it occupies is the address the record carried.
+   */
+  static attach(options: {
+    spawn: AgentSpawn;
+    harness: AnyHarnessId;
+    deps: SubagentSessionDeps;
+  }): SubagentSession {
+    const { spawn, deps } = options;
+    const ref = spawn.execution.host;
+    // The two preconditions the attach seam cannot work without: a pane to reach the
+    // run through, and the start it already earned. The constructor reads the same
+    // phase, so this is the one place its absence is reported.
+    if (ref === undefined || spawn.lifecycle.phase !== "spawned") {
+      throw new Error(
+        `agent ${spawn.id} is not a started run in a known pane, so it cannot be attached`,
+      );
+    }
+
+    const session = new SubagentSession({
+      id: spawn.id,
+      args: attachArgs(spawn, options.harness),
+      deps,
+      existing: spawn,
+    });
+    // A nudge this run produces should reach the session that adopted it. A
+    // context is not part of a record, so this is the first moment one exists.
+    spawn.execution.spawnCtx ??= getSessionCtx();
+    // The report file the run already writes through, so its next report — the one
+    // that settles it — is found where the original launch put it. The guard above
+    // narrowed the lifecycle to `spawned`, the only arm carrying a launch.
+    session.launchState = spawn.lifecycle.launch;
+    const supervisor = createPaneSupervisor({
+      host: deps.transport.createHost(getPiInstance()),
+      resultFile: session.resultFilePath(),
+      supervisorOptions: session.supervisorOptions(),
+      transport: deps.transport,
+    });
+    // Adopted, never launched: the pane already holds the run's process.
+    supervisor.adopt(ref);
+    // No parent binding: the turn that spawned this run is over, so there is no
+    // in-flight parent to inherit an interrupt from (see `bindParentSignal`).
+    // Already active from construction: nothing transitions here, so attaching
+    // publishes no state change the journal would have to drop.
+    session.beginWatch(supervisor, session.run);
+    return session;
   }
 
   get spawn(): AgentSpawn {
@@ -319,11 +437,25 @@ export class SubagentSession {
 
   /**
    * The run's one writer: move the state, then project the spawn's lifecycle
-   * from it, so a reader can never see the spawn disagree with the run.
+   * from it, so a reader can never see the spawn disagree with the run. The
+   * projection is what the store publishes, and every mutation a record
+   * carries — placement, harness, worktree, retention — is followed by a
+   * commit, so one publish here keeps the session's mirror in step.
    */
   private commit(next: RunState): void {
     this.run = next;
     this.spawn.lifecycle = projectLifecycle(next, this.artifacts);
+    getAgentSpawns().save(this.spawn);
+  }
+
+  /**
+   * The harness that occupies this run's pane. Recorded before its prepare runs, so
+   * it is the one that must tear that state down — and the only one a revived,
+   * attached, or handed-over run has, since its launch options belong to a session
+   * that may not be this one.
+   */
+  private harnessId(): AnyHarnessId | undefined {
+    return this.spawn.execution.harness ?? this.args.options.harness;
   }
 
   /** What the projection reads off the session: the launch this run produced and the retention reason it recorded. */
@@ -377,12 +509,16 @@ export class SubagentSession {
     // Snapshot settlement up front: the message delivers as the run was.
     const wasSettled = this.isSettled();
     // The harness owns how its process takes input; this is the only steer
-    // route, so nothing here knows a pane command or a TUI's submit key.
-    const harness = getHarnessRegistry().get(this.args.options.harness);
+    // route, so nothing here knows a pane command or a TUI's submit key. Read off
+    // the spawn: it is the harness that actually occupies the pane, which a
+    // restored or handed-over run kept while this session's options never saw it.
+    const harnessId = this.harnessId();
+    const harness =
+      harnessId === undefined ? undefined : getHarnessRegistry().get(harnessId);
     if (!harness) {
       return {
         kind: "refused",
-        reason: `agent ${this.id} runs harness "${this.args.options.harness}", which this session has not registered, so there is no route to send a message.`,
+        reason: `agent ${this.id} runs harness "${harnessId ?? "unknown"}", which this session has not registered, so there is no route to send a message.`,
       };
     }
     let submit: DeliverOutcome;
@@ -426,33 +562,64 @@ export class SubagentSession {
    * only writer. See agent-reviver.ts for the pane guardrails.
    */
   private revive(ref: AgentHostRef): void {
-    const startedAt = Date.now();
     reviveSettledRun({
       spawn: this.spawn,
       hostRef: ref,
       transport: this.deps.transport,
       supervisorOptions: this.supervisorOptions(),
       attachSupervisor: (supervisor, launch) => {
-        // The settled turn's watch has done its job; the revived turn's reports
-        // are the new supervisor's to find.
-        this.supervisor?.detach();
-        // A revived turn is a live process again, so it takes the same pools the first
-        // turn held: its model's, its provider's, its harness's, and the global limit.
-        this.deps.pools.reacquire(this.id, {
-          harness: this.args.options.harness,
-          modelKey: modelChoiceKey(this.args.options.modelChoice),
-        });
-        this.supervisor = supervisor;
+        // A revived turn is a live process again, so it takes the same pools the
+        // first turn held. It has not settled yet: no report, no retention reason.
         this.launchState = launch;
-        // A revived run has not settled yet: no report, no retention reason.
         this.retention = undefined;
-        this.commit(reviveRun(this.run, startedAt));
+        this.beginWatch(supervisor, reviveRun(this.run, Date.now()));
       },
       rebindParentSignal: () => this.bindParentSignal(),
-      reportOutcome: (supervisor, outcome) => {
-        void this.applySupervisorOutcome(supervisor, outcome);
-      },
     });
+  }
+
+  /**
+   * Take a live process under watch: adopt it, take its pools back, and settle
+   * into the detached-but-watching run the supervisor reports through.
+   *
+   * The one tail both entry points share — a revived turn and an agent this
+   * session attached after a reload. Both are live processes in existing panes
+   * that no launch will produce, and both are here for the same reason: a run
+   * that survives without a session watching it can never report again.
+   *
+   * The supervisor watches through `applySupervisorOutcome`, so whatever settles
+   * it — its own report, or a stop that reaches its pane — lands in this session's
+   * settle pass and, from there, in the journal.
+   */
+  private beginWatch(supervisor: ProcessSupervisor, next: RunState): void {
+    // A *different* supervisor's watch has done its job; this run's reports are the
+    // new one's to find. A launch arrives holding the supervisor it just started,
+    // so detaching unconditionally would end the watch this call is about to arm.
+    if (this.supervisor !== supervisor) this.supervisor?.detach();
+    // A live process again, so it takes the pools a launched run would hold: its
+    // model's, its provider's, its harness's, and the global limit. A revive or an
+    // attach is not an admission, so the run cannot wait for room and may pass a
+    // limit; a launch already took its slots, and reacquiring is a no-op there.
+    this.deps.pools.reacquire(this.id, {
+      harness: this.harnessId() ?? this.args.options.harness,
+      modelKey: this.spawn.execution.modelKey,
+    });
+    this.supervisor = supervisor;
+    // A launch and a revive move the run; an attach arrives already active, and
+    // committing an unchanged state would publish a no-op the journal has to drop.
+    if (next !== this.run) this.commit(next);
+    void supervisor
+      .watch()
+      .then((outcome) => this.applySupervisorOutcome(supervisor, outcome))
+      .catch((error: unknown) => {
+        // A watch that never starts (a second one on a spent supervisor, a
+        // detached run) leaves this run unsettled with nothing coming. Say so
+        // rather than let the rejection escape the event loop unhandled.
+        log.warn("run watch failed", {
+          spawnId: this.id,
+          detail: errorMessage(error),
+        });
+      });
   }
 
   async abort(initiator?: StopInitiator): Promise<boolean> {
@@ -885,10 +1052,10 @@ export class SubagentSession {
       }
       placement = { kind: "committed" };
       if (!this.isLaunching() || this.launchAborted()) return;
-      this.commit(activateRun(this.run));
-      void supervisor
-        .watch()
-        .then((outcome) => this.applySupervisorOutcome(supervisor, outcome));
+      // The one place a watch is armed, shared with revive and attach. A launch is
+      // the only caller whose supervisor has never watched before, which is why
+      // `beginWatch` detaches whatever it replaces.
+      this.beginWatch(supervisor, activateRun(this.run));
     } catch (err) {
       failure = { kind: "failed", error: err };
     } finally {
@@ -1092,7 +1259,17 @@ export class SubagentSession {
     binding.signal.removeEventListener("abort", binding.handler);
   }
 
-  /** Parent abort stops this run; re-bound on revive since settlement detaches it. */
+  /**
+   * Parent abort stops this run; re-bound on revive since settlement detaches it.
+   *
+   * An attached run has nothing to bind. The parent signal is a *foreground*
+   * spawn's: the turn that is blocked waiting on it passes its own abort signal so
+   * an interrupt lands on the child too. An adopted run was spawned by a turn that
+   * is over — the session it belonged to ended — so there is no in-flight parent to
+   * inherit an interrupt from, and no signal to store. Its stops are the explicit
+   * ones: `stop_cowboy_agent`, the status menu, and cleanup. That is the asymmetry:
+   * not a missed attachment, but a parent that no longer exists.
+   */
   private bindParentSignal(): void {
     if (this.parentBinding) return;
     const signal = this.args.options.signal;

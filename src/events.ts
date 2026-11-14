@@ -34,7 +34,10 @@ import { toolCallListener } from "./agents/tool-execution.js";
 import { activateExtension, deactivateExtension } from "./registration.js";
 import { startCowSupportProbe } from "./cow-support-launch.js";
 import { type LoadedPlugins } from "./plugin/loader.js";
-import { startSessionRuntime } from "./session-runtime.js";
+import {
+  startSessionRuntime,
+  type SessionSpawnJournal,
+} from "./session-runtime.js";
 import { isExtensionEnabled } from "./extension-toggle.js";
 import { hideExtensionIndicator } from "./ui/indicator.js";
 import {
@@ -167,6 +170,8 @@ export function setupEventListeners(pi: ExtensionAPI): void {
   // The one plugin load of this process; disposed and forgotten at shutdown so a
   // later session re-imports it.
   let plugins: LoadedPlugins | null = null;
+  // The spawn store's session mirror, taken down with the session that bound it.
+  let journal: SessionSpawnJournal | null = null;
 
   pi.on("session_start", async (_event: unknown, ctx: ExtensionContext) => {
     setSessionCtx(ctx);
@@ -175,6 +180,7 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     // runtime depends on (see session-runtime.ts).
     const boot = await startSessionRuntime(pi, ctx);
     plugins = boot.plugins;
+    if (boot.kind === "hosted") journal = boot.journal;
     if (boot.kind === "unhosted") {
       // Nothing here can launch a pane: leave the registered tools inactive. The
       // template scans and the probes would only describe work this session
@@ -189,9 +195,11 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     // The templates a hosted session offers; the scans wait for the host decision
     // so a session that can launch no agent reads nothing for one.
     await scanSessionTemplates(ctx);
-    // The manager's transport is the session's runtime, so every spawn and dedup
-    // check reuses one multiplexer instead of rebuilding it.
     wireManagerAndCoordinator(boot.runtime);
+    // Under watch from the first turn, not from the first stop: a run in flight
+    // whose pane still works must report on its own, which is the whole reason it
+    // was kept. Sends nothing and stops nothing — this only starts reading reports.
+    getManagerOrNull()?.attachLiveSpawns();
     // Awaited: one small clone (~100ms), and awaiting is what guarantees the
     // probe's `finally rm` runs — a fire-and-forget probe orphaned its
     // `.cow-probe-*` directory whenever a quick session exited mid-probe.
@@ -232,6 +240,12 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     getStore().dispose();
     currentManager?.dispose();
     setManager(null);
+    // After the manager, whose disposal is what settles a queued run into the
+    // ended disposition a reload must find; before the first await, so no settle
+    // pass outlives the runtime its journal writes through.
+    const dyingJournal = journal;
+    journal = null;
+    dyingJournal?.dispose();
     // The marker polls the spawn store on a timer, so it goes with the runtime
     // that owns that store; a reload mounts a fresh one in its place.
     hideExtensionIndicator();

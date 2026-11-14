@@ -9,6 +9,7 @@ import {
   DISPOSE_QUEUED_MESSAGE,
   abortQueuedRun,
   activateRun,
+  activeRun,
   createRun,
   disposeLiveRun,
   disposeQueuedRun,
@@ -355,6 +356,26 @@ describe("run-state drop", () => {
   it("dropping a drop is a no-op", () => {
     const dropped = dropRun(active(), NO_ARTIFACTS);
     expect(dropRun(dropped, NO_ARTIFACTS)).toBe(dropped);
+  });
+});
+
+describe("activeRun", () => {
+  it("is active from the first moment, with the times a run already earned", () => {
+    const state = activeRun(1_000, 2_000);
+
+    expect(state).toEqual({
+      process: { kind: "active", queuedAt: 1_000, startedAt: 2_000 },
+      shell: "held",
+    });
+  });
+
+  it("projects a spawned lifecycle, not a queued one", () => {
+    // An attached run was in flight before this session met it; nothing here is
+    // waiting on a launch, so it must never read as queued.
+    expect(projectLifecycle(activeRun(1_000, 2_000), {})).toEqual({
+      phase: "spawned",
+      startedAt: 2_000,
+    });
   });
 });
 

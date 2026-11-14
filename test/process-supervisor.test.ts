@@ -308,6 +308,50 @@ describe("ProcessSupervisorEngine.adopt", () => {
     expect(() => supervisor.adopt(REF)).toThrow(/one run per supervisor/);
   });
 
+  it("settles on a report that was already on disk at adopt time", async () => {
+    // A run reaches adopt either because a launch is about to replace the file,
+    // because a revive deleted it, or because a reload restored a `spawned` record —
+    // and a run only stays `spawned` when nothing settled it. Settlement is what
+    // delivers a report, so this file was never handed to a parent.
+    const { deliverable, supervisor } = makeFixture({ agent: workingAgent });
+    deliverable.report = "the answer nobody saw";
+    supervisor.adopt(REF);
+
+    const watchPromise = supervisor.watch();
+    expect(await advancePolls(watchPromise, 2)).toBe("settled");
+    await expect(watchPromise).resolves.toEqual({
+      kind: "completed",
+      deliverable: "the answer nobody saw",
+    });
+  });
+
+  it("settles once on a report written after it adopted", async () => {
+    const { deliverable, supervisor } = makeFixture({ agent: workingAgent });
+    deliverable.report = "the answer it already gave";
+    supervisor.adopt(REF);
+    const watchPromise = supervisor.watch();
+
+    deliverable.report = "the follow-up work";
+    expect(await advancePolls(watchPromise, 2)).toBe("settled");
+    await expect(watchPromise).resolves.toEqual({
+      kind: "completed",
+      deliverable: "the follow-up work",
+    });
+  });
+
+  it("behaves as before when the run has written nothing at adopt time", async () => {
+    const { deliverable, supervisor } = makeFixture({ agent: workingAgent });
+    supervisor.adopt(REF);
+    const watchPromise = supervisor.watch();
+
+    deliverable.report = "the first answer";
+    expect(await advancePolls(watchPromise, 2)).toBe("settled");
+    await expect(watchPromise).resolves.toMatchObject({
+      kind: "completed",
+      deliverable: "the first answer",
+    });
+  });
+
   it("stops an adopted run and ends the watch with a stopped outcome", async () => {
     const { host, supervisor } = makeFixture({
       agent: workingAgent,

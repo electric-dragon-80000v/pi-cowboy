@@ -162,6 +162,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {},
       release: async () => {},
+      reacquire: () => {},
       clearQueue: () => {},
     };
     const released: Array<{ ref: AgentHostRef; scope: string }> = [];
@@ -231,6 +232,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       admitSpawn: () => ({ kind: "start" as const, reservation: [pool] }),
       reserve: () => {},
       release: async () => {},
+      reacquire: () => {},
       clearQueue: () => {},
     };
     const manager = new AgentManager(pools as unknown as ConcurrencyPools, {
@@ -317,6 +319,9 @@ describe("AgentManager supervisor launch→watch seam", () => {
         released.push(id);
         pool.spawned--;
       },
+      // A launched run already took its slots, so `reacquire` is the no-op the
+      // real pool documents; the fake states that rather than omit the method.
+      reacquire: () => {},
       clearQueue: () => {},
     };
     const nudges: AgentSpawn[] = [];
@@ -410,6 +415,9 @@ describe("AgentManager supervisor launch→watch seam", () => {
         released.push(id);
         pool.spawned--;
       },
+      // A launched run already took its slots, so `reacquire` is the no-op the
+      // real pool documents; the fake states that rather than omit the method.
+      reacquire: () => {},
       clearQueue: () => {},
     };
     const nudges: AgentSpawn[] = [];
@@ -574,9 +582,23 @@ describe("AgentManager fleet routing", () => {
   afterEach(() => vi.useRealTimers());
 
   /** Routing suites assert routing, never the file plane. */
+  /**
+   * A report the test drives. A fixed-content fake would answer the same words
+   * forever, so a revived turn could never settle on anything new — which is how a
+   * real run behaves: it writes again.
+   */
   class FleetScriptedDeliverable implements DeliverableSource {
+    private content = "done";
+    private stamp = 1;
+
+    /** Write a later report, moving its stamp so the watch reads it as news. */
+    write(content: string): void {
+      this.content = content;
+      this.stamp += 1;
+    }
+
     async readDeliverable(): Promise<DeliverableReport | null> {
-      return { content: "done", mtime: 1 };
+      return { content: this.content, mtime: this.stamp };
     }
   }
 
@@ -886,13 +908,14 @@ describe("AgentManager fleet routing", () => {
       reservation: [{ limit: 1, spawned: 0 }],
     }));
     const nudges: AgentSpawn[] = [];
+    const deliverable = new FleetScriptedDeliverable();
     const manager = new AgentManager(
       fake.pools as unknown as ConcurrencyPools,
       {
         createHost: () => host,
         createPane: () => TEST_PANE,
         createPlacements: () => TEST_PLACEMENTS,
-        createDeliverable: () => new FleetScriptedDeliverable(),
+        createDeliverable: () => deliverable,
       },
     );
     manager.setOnComplete((spawn) => nudges.push(spawn));
@@ -922,10 +945,14 @@ describe("AgentManager fleet routing", () => {
       kind: "delivered",
     });
 
-    // The revived turn is live again, so its pools are charged again.
-    expect(fake.reacquired).toEqual([
-      { id, identity: { harness: "pi", modelKey: "test/model" } },
-    ]);
+    // The revived turn is live again, so its pools are charged again. The launch
+    // one arming of the watch also asks, and the real pool treats a granted run
+    // as a no-op; what this pins is the revive's own charge, not how often the
+    // idempotent call is made.
+    expect(fake.reacquired.at(-1)).toEqual({
+      id,
+      identity: { harness: "pi", modelKey: "test/model" },
+    });
 
     // Revived runs look live to dispatch again.
     expect(manager.getSpawn(id)!.lifecycle).toMatchObject({
@@ -935,7 +962,9 @@ describe("AgentManager fleet routing", () => {
       id,
     ]);
 
-    // Second settlement repeats the completion path.
+    // Second settlement repeats the completion path, on the report the revived
+    // turn wrote — the revive cleared the one the first turn had delivered.
+    deliverable.write("done again");
     await vi.advanceTimersByTimeAsync(4_000);
     expect(nudges).toHaveLength(2);
     expect(manager.getSpawn(id)!.lifecycle).toMatchObject({

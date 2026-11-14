@@ -45,7 +45,29 @@ vi.mock("../src/plugin/loader.js", () => ({
         registries.multiplexers.register({
           id,
           hosts: () => plugin.multiplexerHosts,
-          create: () => ({ multiplexer: id }),
+          // A runtime the journal can verify records through: the assets seam
+          // reads all four, so a stand-in that offers only its id cannot boot.
+          create: () => ({
+            multiplexer: id,
+            host: {
+              hostAt: async () => ({}),
+              start: async () => {},
+              observe: async () => undefined,
+              waitUntilGone: async () => true,
+              release: async () => true,
+              isAttached: async () => false,
+              findAttempts: async () => [],
+            },
+            view: { focus: async () => {} },
+            pane: { kind: id, run: async () => {}, sendKeys: async () => {} },
+            placements: {
+              multiplexer: id,
+              canonicalizePath: (value: string) => value,
+              listWorktrees: async () => [],
+              listPlacements: async () => [],
+              observePane: async () => undefined,
+            },
+          }),
         });
       }
       return { loaded: [], dispose: async () => {} };
@@ -86,6 +108,8 @@ function context(notify: ReturnType<typeof vi.fn>): ExtensionContext {
     cwd: process.cwd(),
     hasUI: true,
     ui: { notify },
+    // Every live session has one; the spawn journal replays its branch here.
+    sessionManager: { getBranch: () => [] },
   } as unknown as ExtensionContext;
 }
 

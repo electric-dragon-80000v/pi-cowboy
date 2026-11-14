@@ -265,6 +265,19 @@ export function reviveRun(state: RunState, startedAt: number): RunState {
   };
 }
 
+/**
+ * A run already in flight when this session met it: an agent a reload restored and
+ * verification called live, or one an earlier session of this process left behind.
+ * Its process predates this session, so it is active from the first moment and
+ * carries the times already recorded — there was never a launch here to wait on.
+ */
+export function activeRun(queuedAt: number, startedAt: number): RunState {
+  return {
+    process: { kind: "active", queuedAt, startedAt },
+    shell: "held",
+  };
+}
+
 /** A queued run the parent discarded never started; its error says so. */
 export function disposeQueuedRun(
   state: RunState,

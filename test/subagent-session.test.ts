@@ -140,6 +140,7 @@ vi.mock("../src/shell.js", async (importOriginal) => {
     // Stub store: the session registers at creation; these suites assert none of it.
     getAgentSpawns: () => ({
       add: () => {},
+      save: () => {},
       get: () => undefined,
       drop: () => {},
       list: () => [],
@@ -161,19 +162,36 @@ function settledExecution(
   return lifecycle;
 }
 
-/** Scripted deliverable: the report the parent's watcher reads. */
+/**
+ * Scripted deliverable: the report the parent's watcher reads.
+ *
+ * A bare fixture answers "done", which stands in for the report a launched run
+ * writes on its own. `remove` models the revive's deletion of the result file, so a
+ * revived turn settles on what it writes next rather than on the words the previous
+ * turn already delivered.
+ */
 class ScriptedDeliverable implements DeliverableSource {
   private stamp = 0;
-  constructor(private readonly script: { deliverable?: string } = {}) {}
+  private written: string | undefined;
+  constructor(script: { deliverable?: string } = {}) {
+    this.written = script.deliverable ?? "done";
+  }
 
   /** Write a later report, moving its stamp so the watch reads it as news. */
   write(content: string): void {
-    this.script.deliverable = content;
+    this.written = content;
+    this.stamp += 1;
+  }
+
+  /** Clear the report, as the revive's `fs.rmSync` clears the result file. */
+  remove(): void {
+    this.written = undefined;
     this.stamp += 1;
   }
 
   async readDeliverable(): Promise<DeliverableReport | null> {
-    return { content: this.script.deliverable ?? "done", mtime: this.stamp };
+    if (this.written === undefined) return null;
+    return { content: this.written, mtime: this.stamp };
   }
 }
 
@@ -356,6 +374,7 @@ function makeSession(options: HarnessOptions = {}) {
   });
   return {
     session,
+    deliverable: options.deliverable as ScriptedDeliverable,
     releasedSlots,
     cancelledQueued,
     reacquired,
@@ -418,20 +437,27 @@ async function driveRun(ticksMs: number): Promise<void> {
 /** Completed settlement needs two polls (one confirm tick). */
 const DRIVE_COMPLETED_MS = 4_000;
 
-/** A completed run reporting "the final answer" on a recording host. */
+/**
+ * A completed run reporting "the final answer" on a recording host.
+ *
+ * The deliverable rides the result: a revive deletes the report, and the next turn
+ * has to write its own, so a test that steers a settled run calls `write` again to
+ * model that second turn. Nothing reports on its own after a revive.
+ */
 function completedRun(
   options: { onRunEnded?: (spawn: AgentSpawn) => void } = {},
 ) {
   const fake = makeFakeHost({ observeState: "done" });
+  const deliverable = new ScriptedDeliverable({
+    deliverable: "the final answer",
+  });
   const harness = makeSession({
     host: fake.host,
-    deliverable: new ScriptedDeliverable({
-      deliverable: "the final answer",
-    }),
+    deliverable,
     hostRef: fake.ref,
     onRunEnded: options.onRunEnded,
   });
-  return { ...fake, ...harness };
+  return { ...fake, ...harness, deliverable };
 }
 /** A failed launch settles without waiting for a report. */
 const DRIVE_FAILED_MS = 2_000;
@@ -1509,6 +1535,8 @@ describe("SubagentSession revive on steer", () => {
     await expect(run.session.steer("one more thing")).resolves.toEqual({
       kind: "delivered",
     });
+    // The revive deleted the first report; the second turn writes its own.
+    run.deliverable.write("the second answer");
 
     // Delivered, then revived off the state snapshotted before the delivery.
     expect(steerCalls.at(-1)).toEqual({
@@ -1528,13 +1556,14 @@ describe("SubagentSession revive on steer", () => {
     expect(run.startCalls).toHaveLength(1);
     expect(run.stopCalls).toEqual([]);
 
-    // Second settlement repeats release + completion nudge.
+    // Second settlement repeats release + completion nudge, on the report the
+    // revived turn wrote — not the one the first turn had already delivered.
     await driveRun(DRIVE_COMPLETED_MS);
     expect(run.session.isSettled()).toBe(true);
     expect(run.session.spawn.lifecycle).toMatchObject({
       phase: "settled",
       status: "completed",
-      result: "the final answer",
+      result: "the second answer",
     });
     expect(settledRuns).toHaveLength(2);
     expect(settledRuns[1]).toBe(run.session.spawn);
@@ -1553,18 +1582,25 @@ describe("SubagentSession revive on steer", () => {
     await driveRun(DRIVE_COMPLETED_MS);
 
     // Settlement gave the pools back, so the revived turn has to take them again.
+    // Arming the launch's watch asked once, which a run that already holds its
+    // slots is answered with a no-op, so nothing was charged since.
     expect(run.releasedSlots).toEqual(["session-1"]);
-    expect(run.reacquired).toEqual([]);
+    expect(run.reacquired).toHaveLength(1);
 
     await expect(run.session.steer("one more thing")).resolves.toEqual({
       kind: "delivered",
     });
     expect(run.session.isActive()).toBe(true);
-    expect(run.reacquired).toEqual([
-      { id: "session-1", identity: { harness: "pi", modelKey: "acme/fast" } },
-    ]);
+    // The revive's own charge; arming the launch's watch asked too, and the real
+    // pool treats an already-granted run as a no-op.
+    expect(run.reacquired.at(-1)).toEqual({
+      id: "session-1",
+      identity: { harness: "pi", modelKey: "acme/fast" },
+    });
 
-    // The second settlement gives the same pools back again.
+    // The second settlement gives the same pools back again, on the report the
+    // revived turn wrote (the revive cleared the first one).
+    run.deliverable.write("the second answer");
     await driveRun(DRIVE_COMPLETED_MS);
     expect(run.releasedSlots).toEqual(["session-1", "session-1"]);
   });
@@ -1588,8 +1624,10 @@ describe("SubagentSession revive on steer", () => {
     // The message landed, so the run stays settled and nothing is left watching.
     expect(steerCalls.at(-1)?.message).toBe("one more thing");
     expect(run.session.isSettled()).toBe(true);
-    // A revive that never happened charges nothing: the run is not live.
-    expect(run.reacquired).toEqual([]);
+    // A revive that never happened charges nothing of its own. Arming the launch's
+    // watch asked once, which the real pool answers with a no-op for a run that
+    // already holds its slots.
+    expect(run.reacquired).toHaveLength(1);
   });
 
   it("clears a retention reason captured by the settled run", async () => {
@@ -1771,11 +1809,12 @@ describe("SubagentSession steer inside the settle pass", () => {
     } = {},
   ) {
     const fake = makeFakeHost({ observeState: "done" });
+    const deliverable = new ScriptedDeliverable({
+      deliverable: "the final answer",
+    });
     const harness = makeSession({
       host: fake.host,
-      deliverable: new ScriptedDeliverable({
-        deliverable: "the final answer",
-      }),
+      deliverable,
       hostRef: fake.ref,
       worktree: { kind: "owned", path: WORKTREE_PATH, branch: WORKTREE_BRANCH },
       options: options.signal ? { signal: options.signal } : undefined,
@@ -1878,17 +1917,19 @@ describe("SubagentSession steer inside the settle pass", () => {
 
     // The revived run settles on its own report: release and nudge repeat once.
     run.setObserveState("done");
+    run.deliverable.write("the second answer");
     await driveRun(DRIVE_COMPLETED_MS);
 
     expect(run.session.isSettled()).toBe(true);
     expect(run.session.spawn.lifecycle).toMatchObject({
       phase: "settled",
       status: "completed",
-      result: "the final answer",
+      // The second turn's report, not the one the first turn already delivered.
+      result: "the second answer",
     });
     expect(run.releasedSlots).toEqual(["session-1", "session-1"]);
     expect(settledRuns).toEqual([run.session.spawn, run.session.spawn]);
-    // The gate keeps the first run's result.
+    // The gate keeps the first run's result: it opened once, with the first turn.
     await expect(run.session.promise).resolves.toBe("the final answer");
     expect(run.session.spawn.lifecycle.phase).toBe("settled");
   });
@@ -1915,6 +1956,8 @@ describe("SubagentSession steer inside the settle pass", () => {
     expect(settledRuns).toEqual([]);
 
     probe.release();
+    // The revived turn writes its own report: the revive cleared the first one.
+    run.deliverable.write("the second answer");
     await driveRun(DRIVE_COMPLETED_MS);
 
     expect(probe.probeCount()).toBe(2);
@@ -2090,9 +2133,13 @@ describe("handover", () => {
     expect(run.startCalls).toHaveLength(2);
 
     // A settle released the ended run's slots; the next run takes them again.
-    expect(run.reacquired).toEqual([
-      { id: "session-1", identity: { harness: "pi", modelKey: undefined } },
-    ]);
+    // Arming the first launch's watch asked once too, which a run holding its
+    // slots is answered with a no-op.
+    expect(run.reacquired.at(-1)).toEqual({
+      id: "session-1",
+      identity: { harness: "pi", modelKey: undefined },
+    });
+    expect(run.reacquired.length).toBeGreaterThanOrEqual(2);
     // The ended run's report cannot settle the next one.
     expect(fs.existsSync(staleReport)).toBe(false);
   });
@@ -2363,7 +2410,9 @@ describe("handover", () => {
       // An export is read-only: nothing is stopped, archived, released, or launched.
       expect(run.stopCalls).toEqual([]);
       expect(run.startCalls).toHaveLength(1);
-      expect(run.reacquired).toEqual([]);
+      // Only the one arming of the launch's own watch asked, and the real pool
+      // answers a run that already holds its slots with a no-op.
+      expect(run.reacquired).toHaveLength(1);
       expect(run.session.spawn.execution.history).toEqual([]);
       expect(run.session.isSettled()).toBe(true);
     });

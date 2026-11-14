@@ -26,12 +26,18 @@ import { createHarnessModelCatalog } from "./agents/harness/model-list-catalog.j
 import { startHarnessAvailabilityProbe } from "./harness-availability-launch.js";
 import { NO_HOST_REASON } from "./host-multiplexer.js";
 import {
+  bindSessionSpawnJournal,
+  type SessionSpawnJournal,
+} from "./spawn-journal-session.js";
+import {
   getStore,
   installSessionRegistries,
   piModelCatalog,
   setHarnessModelCatalog,
   setRuntime,
 } from "./shell.js";
+
+export type { SessionSpawnJournal } from "./spawn-journal-session.js";
 
 /** What bringing the session runtime up hands back. */
 export type SessionRuntimeBoot =
@@ -44,6 +50,8 @@ export type SessionRuntimeBoot =
        * it again per call.
        */
       readonly runtime: ExecutionRuntime;
+      /** The spawn store's session mirror, bound with the runtime and disposed with it. */
+      readonly journal: SessionSpawnJournal;
     }
   | {
       readonly kind: "unhosted";
@@ -100,6 +108,11 @@ export async function startSessionRuntime(
     return { kind: "unhosted", plugins, reason: NO_HOST_REASON };
   }
   setRuntime(runtime);
+  // The spawn store's session-backed mirror. Bound here, once the host decision is
+  // made, so a session that can launch no agent reads nothing for one. Awaited:
+  // every restored record is verified against this session's multiplexer, and a
+  // caller that saw the boot finish must not find the store still filling.
+  const journal = await bindSessionSpawnJournal(pi, ctx, runtime);
   // Which harnesses this machine can launch — plugin harnesses included, now
   // that they have registered — decides which stay on offer.
   const probe = startHarnessAvailabilityProbe();
@@ -115,7 +128,7 @@ export async function startSessionRuntime(
   });
   setHarnessModelCatalog(models);
   models.warm();
-  return { kind: "hosted", plugins, runtime };
+  return { kind: "hosted", plugins, runtime, journal };
 }
 
 /**

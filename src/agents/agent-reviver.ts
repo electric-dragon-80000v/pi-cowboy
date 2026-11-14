@@ -19,7 +19,6 @@ import { subagentResultFileFor } from "../paths.js";
 import type {
   ProcessSupervisor,
   ProcessSupervisorOptions,
-  SubagentExitOutcome,
 } from "../subagent/supervisor.js";
 import {
   createPaneSupervisor,
@@ -41,19 +40,14 @@ interface AgentReviveRequest {
   ): void;
   /** Re-bind the parent abort signal (settlement detached it). */
   rebindParentSignal(): void;
-  /** Feed the revived run's terminal outcome back to the session. */
-  reportOutcome(
-    supervisor: ProcessSupervisor,
-    outcome: SubagentExitOutcome,
-  ): void;
 }
 
 /**
- * Reset settlement artifacts, adopt the host with a fresh supervisor, and arm
- * the second-settlement watch. The spawn's state stays with the session: the
- * attach seam returns the run to active, so this function writes none of it.
- * Synchronous: the message is already delivered, so nothing here waits on
- * the agent.
+ * Reset settlement artifacts and adopt the host with a fresh supervisor. The
+ * spawn's state stays with the session: the attach seam returns the run to
+ * active and arms the second-settlement watch, so this function writes none of
+ * it and starts no watch of its own. Synchronous: the message is already
+ * delivered, so nothing here waits on the agent.
  */
 export function reviveSettledRun(request: AgentReviveRequest): void {
   const { spawn, hostRef, transport } = request;
@@ -74,9 +68,6 @@ export function reviveSettledRun(request: AgentReviveRequest): void {
   supervisor.adopt(hostRef);
   request.attachSupervisor(supervisor, launch);
   request.rebindParentSignal();
-  void supervisor
-    .watch()
-    .then((outcome) => request.reportOutcome(supervisor, outcome));
 }
 
 /**

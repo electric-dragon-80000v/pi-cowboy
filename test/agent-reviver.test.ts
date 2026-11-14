@@ -89,7 +89,6 @@ function makeFixture(options: FixtureOptions = {}) {
   } as unknown as AgentSpawn;
 
   const attached: unknown[] = [];
-  const outcomes: Array<{ kind: string }> = [];
   let rebinds = 0;
 
   const request = {
@@ -111,9 +110,6 @@ function makeFixture(options: FixtureOptions = {}) {
     rebindParentSignal: () => {
       rebinds += 1;
     },
-    reportOutcome: (_supervisor: unknown, outcome: { kind: string }) => {
-      outcomes.push(outcome);
-    },
   };
 
   return {
@@ -123,7 +119,6 @@ function makeFixture(options: FixtureOptions = {}) {
     deliverableFiles,
     startCalls,
     attached,
-    outcomes,
     rebinds: () => rebinds,
   };
 }
@@ -171,24 +166,14 @@ describe("reviveSettledRun", () => {
     expect(fs.statSync(path.dirname(resultFile)).mode & 0o777).toBe(0o700);
   });
 
-  it("hands the revived run's terminal outcome back through the injected mapping", async () => {
-    vi.useFakeTimers();
+  it("starts no watch, so the session that owns the run arms it", async () => {
     const resultFile = path.join(tmpDir, "result.md");
     const fixture = makeFixture({ resultFile });
 
     reviveSettledRun(fixture.request);
-    expect(fixture.outcomes).toEqual([]);
 
-    fixture.deliverable.report = "the second answer";
-    await vi.advanceTimersByTimeAsync(1_000); // first sighting: held
-    expect(fixture.outcomes).toEqual([]);
-    await vi.advanceTimersByTimeAsync(1_000); // confirm: final
-
-    expect(fixture.outcomes).toEqual([
-      {
-        kind: "completed",
-        deliverable: "the second answer",
-      },
-    ]);
+    // The attach seam watches: one watcher per run, and the revive only binds
+    // the supervisor it hands back.
+    expect(fixture.attached).toHaveLength(1);
   });
 });

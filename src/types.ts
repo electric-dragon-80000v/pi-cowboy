@@ -399,6 +399,13 @@ export interface AgentExecutionState {
    * that tears it down, regardless of later config changes.
    */
   harness?: AnyHarnessId;
+  /**
+   * The `<provider>/<modelId>` key the run's model pool was charged from. Absent
+   * when the spawn carried no model of its own. Kept beside the harness because
+   * it is what a re-acquisition needs: a revived or attached run has no launch
+   * options left to read it from.
+   */
+  modelKey?: string;
   /** Every run this environment hosted before the active one, oldest first. */
   history: EndedRun[];
   /** Opened exactly once at the terminal transition; never the run's own promise. */

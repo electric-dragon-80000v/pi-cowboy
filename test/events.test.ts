@@ -15,8 +15,11 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { Component } from "@earendil-works/pi-tui";
 import { ConfigStore } from "../src/config/config-store.js";
+import type { AgentSpawn } from "../src/types.js";
+import { AgentSpawnStore } from "../src/agents/agent-spawn-store.js";
 import { createConfigIO } from "../src/config/config-io.js";
 import type { RawConfig } from "../src/config/config-io.js";
+import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
 import {
   recordOverlayMount,
   type OverlayCallOptions,
@@ -25,9 +28,20 @@ import {
 
 const shell = vi.hoisted(() => ({
   store: null as unknown,
-  manager: { listAgents: () => [], dispose: vi.fn() } as unknown,
+  manager: {
+    listAgents: () => [],
+    dispose: vi.fn(),
+    // The eager attach after wiring; this file asserts the wiring, not the attach.
+    attachLiveSpawns: vi.fn(),
+  } as unknown,
   active: [] as string[],
   registeredTools: [] as string[],
+  /** The store each test starts from; a reload's "memory" is exactly this. */
+  spawnStore: null as unknown,
+  /** What the session journal appended, in order. */
+  journalEntries: [] as Array<{ kind: string; record?: { id: string } }>,
+  /** The branch the session manager replays. */
+  branch: [] as unknown[],
 }));
 
 vi.mock("../src/shell.js", async (importOriginal) => ({
@@ -38,6 +52,7 @@ vi.mock("../src/shell.js", async (importOriginal) => ({
   getManagerOrNull: () => shell.manager,
   setManager: vi.fn(),
   setCoordinator: vi.fn(),
+  getAgentSpawns: () => shell.spawnStore,
   getPiInstance: () => ({
     getActiveTools: () => [...shell.active],
     setActiveTools: (names: string[]) => {
@@ -48,6 +63,9 @@ vi.mock("../src/shell.js", async (importOriginal) => ({
     },
     registerMessageRenderer: () => {},
     registerCommand: () => {},
+    appendEntry: (_customType: string, entry: { kind: string }) => {
+      shell.journalEntries.push(entry);
+    },
   }),
 }));
 
@@ -64,18 +82,43 @@ const booted = vi.hoisted(() => ({
   /** Whether the stubbed boot found a multiplexer to host the session. */
   kind: "hosted" as "hosted" | "unhosted",
   reason: "no multiplexer hosts this process",
+  /** The multiplexer the session's journal verifies restored records against. */
+  runtime: {
+    host: {},
+    view: {},
+    pane: {},
+    placements: {},
+    multiplexer: "test",
+  } as unknown,
 }));
 
-vi.mock("../src/session-runtime.js", () => ({
-  startSessionRuntime: async () => {
-    const plugins = { loaded: [], dispose: vi.fn(async () => {}) };
-    booted.plugins.push(plugins);
-    if (booted.kind === "unhosted") {
-      return { kind: "unhosted", plugins, reason: booted.reason };
-    }
-    return { kind: "hosted", plugins, runtime: {} };
-  },
-}));
+vi.mock("../src/session-runtime.js", async () => {
+  // The real journal composition, so this file pins the session wiring rather
+  // than a stand-in for it; only the runtime boot itself is stubbed.
+  const { bindSessionSpawnJournal } =
+    await import("../src/spawn-journal-session.js");
+  return {
+    startSessionRuntime: async (pi: never, ctx: never) => {
+      const plugins = { loaded: [], dispose: vi.fn(async () => {}) };
+      booted.plugins.push(plugins);
+      if (booted.kind === "unhosted") {
+        return { kind: "unhosted", plugins, reason: booted.reason };
+      }
+      // The real boot binds the journal once a multiplexer hosts the session; the
+      // runtime it verifies against is this file's stand-in.
+      return {
+        kind: "hosted",
+        plugins,
+        runtime: {},
+        journal: await bindSessionSpawnJournal(
+          pi,
+          ctx,
+          booted.runtime as never,
+        ),
+      };
+    },
+  };
+});
 
 const scanned = vi.hoisted(() => ({
   agents: vi.fn(async () => ({})),
@@ -122,16 +165,34 @@ function installStore(global: RawConfig): void {
 function sessionHandler(
   event: "session_start" | "session_shutdown",
 ): (event: unknown, ctx: unknown) => Promise<void> {
+  const handlers = sessionHandlers();
+  return event === "session_start" ? handlers.start : handlers.shutdown;
+}
+
+/**
+ * Both lifecycle handlers from ONE registration. What a start binds and a shutdown
+ * releases lives in that registration's closure, so a test reading it across both
+ * events must not register twice.
+ */
+function sessionHandlers(): {
+  start: (event: unknown, ctx: unknown) => Promise<void>;
+  shutdown: (event: unknown, ctx: unknown) => Promise<void>;
+} {
   type Handler = (event: unknown, ctx: unknown) => Promise<void>;
   const handlers = new Map<string, Handler>();
   setupEventListeners({
     on: (name: string, handler: Handler) => {
       handlers.set(name, handler);
     },
+    appendEntry: (_customType: string, entry: { kind: string }) => {
+      shell.journalEntries.push(entry);
+    },
   } as never);
-  const handler = handlers.get(event);
-  if (!handler) throw new Error(`${event} was not registered`);
-  return handler;
+  const start = handlers.get("session_start");
+  const shutdown = handlers.get("session_shutdown");
+  if (!start) throw new Error("session_start was not registered");
+  if (!shutdown) throw new Error("session_shutdown was not registered");
+  return { start, shutdown };
 }
 
 /** The session's ui, plus every presence-marker overlay it mounts. */
@@ -142,6 +203,7 @@ function sessionContext(notify: ReturnType<typeof vi.fn>) {
     hasUI: true,
     isProjectTrusted: () => false,
     markers,
+    sessionManager: { getBranch: () => [...shell.branch] },
     ui: {
       notify,
       custom: (factory: () => Component, options?: OverlayCallOptions) => {
@@ -156,6 +218,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   shell.active = [];
   shell.registeredTools = [];
+  shell.journalEntries.length = 0;
+  shell.branch.length = 0;
+  shell.spawnStore = new AgentSpawnStore();
   booted.plugins.length = 0;
   booted.kind = "hosted";
 });
@@ -270,5 +335,128 @@ describe("session_shutdown", () => {
     await sessionHandler("session_shutdown")({}, ctx);
 
     expect(ctx.markers[0]!.hidden()).toBe(true);
+  });
+});
+
+/* ── The session's spawn journal ──────────────────────────────────────── */
+
+/** A spawn the store would already hold across a session replacement. */
+function trackedSpawn(id: string): AgentSpawn {
+  return {
+    id,
+    lifecycle: { phase: "spawned", startedAt: 1_700_000_000_000 },
+    display: {
+      type: "general-purpose",
+      description: "still running",
+      taskSlug: `task-${id}`,
+      orchestration: TEST_ORCHESTRATION,
+    },
+    execution: {
+      promise: Promise.resolve(""),
+      abortController: new AbortController(),
+      history: [],
+    },
+  };
+}
+
+/** One of our own custom entries, as a previous start would have left it. */
+function branchRecord(record: unknown): unknown {
+  return {
+    type: "custom",
+    customType: "pi-cowboy.spawn-journal",
+    data: record,
+    id: "e1",
+    parentId: null,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+describe("session_start and the spawn journal", () => {
+  it("restores the branch's spawns into the store a reload left empty", async () => {
+    installStore({});
+    const store = shell.spawnStore as AgentSpawnStore;
+    store.add(trackedSpawn("aaaaaaaa"));
+    // What the previous session wrote: capture it, then reload (memory is gone).
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+    shell.branch.push(...shell.journalEntries.map(branchRecord));
+    shell.journalEntries.length = 0;
+    shell.spawnStore = new AgentSpawnStore();
+
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+
+    const restored = (shell.spawnStore as AgentSpawnStore).list();
+    expect(restored.map((spawn) => spawn.id)).toEqual(["aaaaaaaa"]);
+    // The branch already held it, so the restore wrote nothing back.
+    expect(shell.journalEntries).toEqual([]);
+  });
+
+  it("seeds a replacement session with the spawns it still tracks", async () => {
+    installStore({});
+    (shell.spawnStore as AgentSpawnStore).add(trackedSpawn("aaaaaaaa"));
+    // A fresh branch: this session has never heard of that spawn.
+
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+
+    expect(shell.journalEntries).toHaveLength(1);
+    expect(shell.journalEntries[0]).toMatchObject({
+      kind: "spawn",
+      record: { id: "aaaaaaaa" },
+    });
+  });
+
+  it("records a spawn registered while the session runs", async () => {
+    installStore({});
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+    shell.journalEntries.length = 0;
+
+    (shell.spawnStore as AgentSpawnStore).add(trackedSpawn("aaaaaaaa"));
+
+    expect(shell.journalEntries).toHaveLength(1);
+    expect(shell.journalEntries[0]).toMatchObject({
+      record: { id: "aaaaaaaa" },
+    });
+  });
+
+  it("records a drop as a tombstone, so a reload cannot resurrect it", async () => {
+    installStore({});
+    const store = shell.spawnStore as AgentSpawnStore;
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+    store.add(trackedSpawn("aaaaaaaa"));
+    shell.journalEntries.length = 0;
+
+    store.drop("aaaaaaaa");
+
+    expect(shell.journalEntries).toHaveLength(1);
+    expect(shell.journalEntries[0]).toMatchObject({ kind: "forgotten" });
+  });
+
+  it("stops writing once the session shuts down", async () => {
+    installStore({});
+    const ctx = sessionContext(vi.fn());
+    const store = shell.spawnStore as AgentSpawnStore;
+    // One registration: the handle the start binds is the one shutdown releases.
+    const { start, shutdown } = sessionHandlers();
+    await start({}, ctx);
+    await shutdown({}, ctx);
+    shell.journalEntries.length = 0;
+
+    store.add(trackedSpawn("aaaaaaaa"));
+
+    expect(shell.journalEntries).toEqual([]);
+  });
+
+  it("leaves the journal unbound in a session nothing hosts", async () => {
+    installStore({});
+    booted.kind = "unhosted";
+    shell.branch.push(
+      branchRecord({ v: 1, kind: "forgotten", spawnId: "a", at: 1 }),
+    );
+
+    // The branch is never read: a session that can launch no agent restores none.
+    const before = shell.branch.length;
+    await sessionHandler("session_start")({}, sessionContext(vi.fn()));
+
+    expect(shell.branch).toHaveLength(before);
+    expect(shell.journalEntries).toEqual([]);
   });
 });

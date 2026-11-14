@@ -89,7 +89,6 @@ afterEach(() => {
 describe("createPaneSupervisor", () => {
   it("builds an unstarted supervisor that adopts and watches on demand", async () => {
     const fixture = makeInput();
-    fixture.deliverable.deliverable = "the answer";
 
     const supervisor = createPaneSupervisor(fixture.input);
 
@@ -103,6 +102,9 @@ describe("createPaneSupervisor", () => {
     supervisor.adopt(REF);
     const outcomes: unknown[] = [];
     void supervisor.watch().then((outcome) => outcomes.push(outcome));
+    // Written after the adoption, so it is the run's next report — the only kind
+    // an adopted run settles on.
+    fixture.deliverable.deliverable = "the answer";
     await vi.advanceTimersByTimeAsync(1_000); // first sighting: held
     await vi.advanceTimersByTimeAsync(1_000); // confirm: final
     expect(outcomes).toEqual([

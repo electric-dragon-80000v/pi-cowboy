@@ -239,10 +239,11 @@ export class ConcurrencyPools {
   }
 
   /**
-   * Charge a run that returns to active without an admission, which is a revived
-   * turn. The message is already in the agent's pane, so the run cannot wait for
-   * room: a pool that is full is charged past its limit, and the next admission
-   * reads the true count. Idempotent: a run already charged is left alone.
+   * Charge a run that returns to active without an admission: a revived turn, or
+   * a run this session attached after a reload. Its process already exists, so the
+   * run cannot wait for room: a pool that is full is charged past its limit, and
+   * the next admission reads the true count. Idempotent: a run already charged —
+   * including a launched run, whose admission took its slots — is left alone.
    */
   reacquire(agentId: string, identity: PoolIdentity): void {
     if (this.reservations.has(agentId)) return;

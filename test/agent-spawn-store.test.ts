@@ -213,6 +213,9 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
     release: async () => {
       pool.spawned--;
     },
+    // A launched run already took its slots, so the watch's re-acquire is the
+    // no-op the real pool documents.
+    reacquire: () => {},
     clearQueue: () => {},
   };
   const manager = new AgentManager(
@@ -282,6 +285,7 @@ function spawnQueued(): Harness {
     admitSpawn: () => ({ kind: "queue" as const }),
     reserve: () => {},
     release: async () => {},
+    reacquire: () => {},
     cancelQueued: () => {},
     clearQueue: () => {},
   };
@@ -432,6 +436,81 @@ describe("AgentSpawnStore", () => {
       ...ACTIVE_AGENT_PHASES,
       ...TERMINAL_AGENT_PHASES,
     ]);
+  });
+});
+
+/* ── The observer seam ────────────────────────────────────────────────── */
+
+describe("AgentSpawnStore observer", () => {
+  /** A store bound to a recorder standing in for the session journal. */
+  function observed() {
+    const store = new AgentSpawnStore();
+    const recorded: string[] = [];
+    const forgotten: string[] = [];
+    store.setObserver({
+      record: (spawn) => recorded.push(spawn.id),
+      forget: (id) => forgotten.push(id),
+    });
+    return { store, recorded, forgotten };
+  }
+
+  it("publishes a registration", () => {
+    const { store, recorded } = observed();
+
+    store.add(storeSpawn("agent-1", SPAWNED));
+
+    expect(recorded).toEqual(["agent-1"]);
+  });
+
+  it("publishes a save only for a spawn the store holds", () => {
+    const { store, recorded } = observed();
+    const mine = storeSpawn("agent-1", SPAWNED);
+    store.add(mine);
+    recorded.length = 0;
+
+    store.save(mine);
+    // A stranger claiming the id changes nothing: the store vouches for identity.
+    store.save({ ...storeSpawn("agent-1", SETTLED) });
+    store.save(storeSpawn("agent-2", SPAWNED));
+
+    expect(recorded).toEqual(["agent-1"]);
+  });
+
+  it("publishes exactly one tombstone per drop", () => {
+    const { store, forgotten } = observed();
+    store.add(storeSpawn("agent-1", SETTLED));
+
+    store.drop("agent-1");
+    // A second drop removes nothing, so there is nothing to publish.
+    store.drop("agent-1");
+    store.drop("missing");
+
+    expect(forgotten).toEqual(["agent-1"]);
+  });
+
+  it("publishes a rejected registration not at all", () => {
+    const { store, recorded } = observed();
+    const original = storeSpawn("agent-1", SPAWNED);
+    store.add(original);
+    recorded.length = 0;
+
+    expect(() => store.add(storeSpawn("agent-1", SETTLED))).toThrow(
+      SpawnIdCollisionError,
+    );
+    expect(recorded).toEqual([]);
+  });
+
+  it("goes silent once the observer is unbound", () => {
+    const { store, recorded, forgotten } = observed();
+    const spawn = storeSpawn("agent-1", SPAWNED);
+
+    store.setObserver(null);
+    store.add(spawn);
+    store.save(spawn);
+    store.drop("agent-1");
+
+    expect(recorded).toEqual([]);
+    expect(forgotten).toEqual([]);
   });
 });
 
@@ -684,5 +763,36 @@ describe("spawn retention through the manager", () => {
     expect(report.worktree).toEqual({ kind: "none" });
     expect(shared.store.get(id)).toBeUndefined();
     fresh.dispose();
+  });
+});
+
+/* ── The observer's ownership guard ───────────────────────────────────── */
+
+describe("AgentSpawnStore.clearObserver", () => {
+  it("unbinds only the observer that is still bound", () => {
+    const store = new AgentSpawnStore();
+    const first = { record: vi.fn(), forget: vi.fn() };
+    const second = { record: vi.fn(), forget: vi.fn() };
+
+    store.setObserver(first);
+    // A replacement session binds its own before the old teardown runs.
+    store.setObserver(second);
+    store.clearObserver(first);
+
+    // The dying session's teardown must not take the live session's binding.
+    store.add(storeSpawn("agent-1", SPAWNED));
+    expect(second.record).toHaveBeenCalledTimes(1);
+    expect(first.record).not.toHaveBeenCalled();
+  });
+
+  it("clears its own binding", () => {
+    const store = new AgentSpawnStore();
+    const observer = { record: vi.fn(), forget: vi.fn() };
+    store.setObserver(observer);
+
+    store.clearObserver(observer);
+    store.add(storeSpawn("agent-1", SPAWNED));
+
+    expect(observer.record).not.toHaveBeenCalled();
   });
 });

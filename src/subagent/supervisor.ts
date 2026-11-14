@@ -53,7 +53,16 @@ export type SubagentExitOutcome =
 
 export interface ProcessSupervisor {
   start(plan: SubagentLaunchPlan, ref: AgentHostRef): Promise<void>;
-  /** Bind an already-spawned run without launching; the host is never called. */
+  /**
+   * Bind an already-spawned run without launching; the host is never called.
+   *
+   * A report the run had already written is news like any other, not a baseline to
+   * swallow. A run reaches this seam either because a launch is about to replace
+   * the file, because a revive already deleted it, or because a reload restored a
+   * record that is still `spawned` — and a run only stays `spawned` when no
+   * settlement happened, settlement being what delivers a report. So whatever is on
+   * disk here has not been handed to a parent, which is why it settles normally.
+   */
   adopt(ref: AgentHostRef): void;
   watch(): Promise<SubagentExitOutcome>;
   stop(graceMs: number): Promise<boolean>;
@@ -197,6 +206,10 @@ export class ProcessSupervisorEngine implements ProcessSupervisor {
    * Rejects when never started or a watch is pending; resolves immediately with
    * the stored outcome after settlement. The run's single loop polls it, so a
    * host round trip slower than the interval cannot stack observations.
+   *
+   * An adopted run's existing report is news like any other, and is not treated as
+   * already delivered: a record survives as `spawned` only when no settlement —
+   * which is what delivers a report — ever happened for it (see `adopt`).
    */
   watch(): Promise<SubagentExitOutcome> {
     // A settled run replays its outcome; the loop may still be polling for

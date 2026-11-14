@@ -134,7 +134,6 @@ export class AgentManager {
   private readonly pools: ConcurrencyPools;
   /** Task identity and admission serialization; pool accounting lives in `pools`. */
   private readonly registry: HerdrTaskRegistry;
-
   constructor(
     pools: ConcurrencyPools,
     private readonly transport: SupervisorTransport,
@@ -153,6 +152,64 @@ export class AgentManager {
 
   getRegistry(): HerdrTaskRegistry {
     return this.registry;
+  }
+
+  /**
+   * Take every live run this process is not yet watching under watch.
+   *
+   * A spawn in the store that is `spawned` and names a pane and a harness is a run
+   * in flight — verification already settled or forgot every record it could not
+   * vouch for, so what survives is the set worth attaching. That covers both halves
+   * of a session's inheritance: a record this start restored from the branch, and a
+   * spawn an earlier session of this process left behind, which a replacement
+   * session must be able to stop just the same.
+   *
+   * Runs already tracked are skipped, so a start after a start is cheap.
+   */
+  attachLiveSpawns(): void {
+    for (const spawn of getAgentSpawns().list(["spawned"])) {
+      if (this.sessions.has(spawn.id)) continue;
+      // `attach` answers undefined for a run it could not adopt, and reports that
+      // itself; one such run is one run without a watcher, and the rest still get
+      // theirs.
+      this.attachSpawn(spawn);
+    }
+  }
+
+  /**
+   * Attach the run behind one spawn, or answer nothing. The spawn's own state is
+   * the gate: an in-flight run names the pane and harness a supervisor needs, and a
+   * spawn missing either is not a run anything here can watch.
+   */
+  private attachSpawn(spawn: AgentSpawn): SubagentSession | undefined {
+    const harness = spawn.execution.harness;
+    if (harness === undefined || spawn.execution.host === undefined)
+      return undefined;
+
+    let session: SubagentSession;
+    try {
+      session = SubagentSession.attach({
+        spawn,
+        harness,
+        deps: {
+          transport: this.transport,
+          pools: this.pools,
+          onRunEnded: (ended) => this.notifyComplete(ended),
+          onFollowUpResult: (ended, deliverable) =>
+            this.notifyFollowUp(ended, deliverable),
+        },
+      });
+    } catch (err) {
+      // A refusal here is a lost control surface, never a lost agent: the spawn
+      // stays listed and cleanable.
+      log.warn("spawn could not be attached", {
+        spawnId: spawn.id,
+        detail: errorMessage(err),
+      });
+      return undefined;
+    }
+    this.sessions.set(spawn.id, session);
+    return session;
   }
   setConcurrency(config: ConcurrencyConfig): void {
     this.pools.setConcurrency(config);
@@ -418,6 +475,12 @@ export class AgentManager {
   /**
    * Record why a spawn's checkout survived. The caller reports the outcome and
    * the reason rides the spawn, so status still states it after the menu leaves.
+   *
+   * This is the one write to a spawn that does not go through
+   * `SubagentSession.commit`, so it publishes itself: the projection a session owns
+   * covers lifecycle moves and the launch and retention it records, and a cleanup
+   * report is neither. A future in-place mutation outside a session has to publish
+   * the same way — see `AgentSpawnStore.save`.
    */
   private recordRetention(
     spawn: AgentSpawn,
@@ -427,6 +490,7 @@ export class AgentManager {
     // The reason lives on the ended phases; an active spawn records none.
     if (hasOutcome(lifecycle)) {
       lifecycle.worktreeRetentionReason = reason;
+      getAgentSpawns().save(spawn);
     }
   }
 
