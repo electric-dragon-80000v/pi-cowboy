@@ -1,3 +1,15 @@
+# [0.35.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.34.0...v0.35.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **agents:** remove duplicate agent state that was causing issues ([741b8b3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/741b8b3948e034dd1e46168689f8e99dfe54f22d))
+
+
+### Features
+
+* **menu:** move export action out of the handover flow ([6a0f197](https://github.com/electric-dragon-80000v/pi-cowboy/commit/6a0f1971e6f0c322ccd62a168e01e03fe316a03f))
+
 # [0.34.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.33.0...v0.34.0) (2026-11-15)
 
 
