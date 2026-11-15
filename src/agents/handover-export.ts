@@ -1,12 +1,13 @@
 /**
- * handover-export.ts — what an exported handover is: the artifact one settled
- * run's read produces, the reasons it produces none, and how each answer reads.
+ * handover-export.ts — what an exported handover is: the artifact one run's
+ * read produces, the reasons it produces none, and how each answer reads.
  *
  * The read, the loss policy and the task text belong to the handover's own
  * modules; this one names the artifact and the outcome of writing it to a file
  * instead of launching a run with it.
  */
 
+import * as path from "node:path";
 import type { AnyHarnessId, HarnessExportLoss } from "./harness.js";
 import { handoverFileName, handoverFilePath } from "./handover-file.js";
 import type { HandoverSourceFault } from "./handover.js";
@@ -18,8 +19,8 @@ import type { ToolSeverity } from "./tool-result.js";
  * a run.
  */
 export interface HandoverExportArtifact {
-  /** Absolute path the finished artifact lands on. */
-  readonly path: string;
+  /** The absolute path the artifact is offered at; the writer may choose another. */
+  readonly defaultPath: string;
   /** The exact artifact text: `renderHandoverTask`'s output. */
   readonly text: string;
   readonly sessionId: string;
@@ -45,9 +46,24 @@ export type PreparedHandoverExport = Extract<
   { kind: "prepared" }
 >;
 
+/**
+ * The name an export is filed under: the run's checkout directory, or the
+ * parent-cwd fallback when it ran without a worktree. The directory name is
+ * the worktree's own name — the same one herdr labels the workspace with, not
+ * the branch checked out in it.
+ */
+export function exportWorktreeName(
+  worktree: { readonly path: string } | undefined,
+  agentId: string,
+): string {
+  return worktree === undefined
+    ? `main-${agentId}`
+    : path.basename(worktree.path);
+}
+
 /** Everything the artifact is named and written from. */
 export interface HandoverExportRequest {
-  /** The run's branch, or `main-<agent id>` when it ran without a worktree. */
+  /** The run's worktree name, or `main-<agent id>` when it ran without one. */
   readonly worktree: string;
   /** The harness that ran the session, which names it in the file name. */
   readonly harness: AnyHarnessId;
@@ -57,13 +73,13 @@ export interface HandoverExportRequest {
   readonly loss?: HarnessExportLoss;
 }
 
-/** The artifact one ready export describes: its text and the path it lands on. */
+/** The artifact one ready export describes: its text and the path it is offered at. */
 export function handoverExportArtifact(
   request: HandoverExportRequest,
 ): PreparedHandoverExport {
   return {
     kind: "prepared",
-    path: handoverFilePath(
+    defaultPath: handoverFilePath(
       handoverFileName({
         worktree: request.worktree,
         harness: request.harness,
@@ -82,7 +98,7 @@ export function handoverExportFaultReason(fault: HandoverExportFault): string {
     case "agent-unknown":
       return "not found — check the id from its spawn or completion result.";
     case "agent-not-settled":
-      return `is still ${fault.status} — only a settled run has a session to export. Nothing was changed.`;
+      return `is still ${fault.status} — its session cannot be read while the run is in that state. Nothing was changed.`;
     case "harness-cannot-export-session":
       return `was not exported: harness "${fault.harness}" cannot export its own session, so there is nothing to write.`;
     case "never-started":

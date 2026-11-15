@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  exportWorktreeName,
   handoverExportArtifact,
   handoverExportFaultReason,
   handoverExportSeverity,
@@ -11,7 +12,7 @@ import {
 } from "../src/agents/handover-export.js";
 
 const ARTIFACT = {
-  path: "/tmp/cowboy-handover_main-abcd1234_pi_ses_1.md",
+  defaultPath: "/tmp/main-abcd1234-pi-ses_1.md",
   text: "task",
   sessionId: "ses_1",
 };
@@ -27,7 +28,7 @@ describe("handoverExportArtifact", () => {
       }),
     ).toEqual({
       kind: "prepared",
-      path: "/tmp/cowboy-handover_feat-login_claude_ses_1.md",
+      defaultPath: "/tmp/feat-login-claude-ses_1.md",
       text: "task",
       sessionId: "ses_1",
     });
@@ -43,6 +44,21 @@ describe("handoverExportArtifact", () => {
         loss: { excluded: 1, total: 4 },
       }).loss,
     ).toEqual({ excluded: 1, total: 4 });
+  });
+});
+
+describe("exportWorktreeName", () => {
+  it("names the checkout by its own directory, not its branch", () => {
+    expect(
+      exportWorktreeName(
+        { path: "/repo/worktrees/cow-fix-login-abcd1234" },
+        "spawn-1",
+      ),
+    ).toBe("cow-fix-login-abcd1234");
+  });
+
+  it("falls back to the agent id when the run had no worktree", () => {
+    expect(exportWorktreeName(undefined, "spawn-1")).toBe("main-spawn-1");
   });
 });
 
@@ -96,14 +112,14 @@ describe("handoverExportFaultReason", () => {
     );
   });
 
-  it("says only a settled run has something to export", () => {
+  it("says the run's state is what stopped the read", () => {
     expect(
       handoverExportFaultReason({
         kind: "agent-not-settled",
         status: "spawned",
       }),
     ).toBe(
-      "is still spawned — only a settled run has a session to export. Nothing was changed.",
+      "is still spawned — its session cannot be read while the run is in that state. Nothing was changed.",
     );
   });
 

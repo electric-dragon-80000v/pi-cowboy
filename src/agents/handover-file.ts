@@ -1,8 +1,9 @@
 /**
  * handover-file.ts — an export-only handover written to disk instead of
  * launched. The name carries the three identities a reader needs to find the
- * run again — its checkout, the harness that ran it, and that harness's own
- * session id — and nothing else, so the same run always lands on the same path.
+ * run again — its worktree, the harness that ran it, and that harness's own
+ * session id — and nothing else, so the same run lands on the same default
+ * path. The writer may still export it anywhere.
  */
 
 import fs from "node:fs";
@@ -13,8 +14,8 @@ export const HANDOVER_EXPORT_DIR = "/tmp";
 
 /**
  * One field of a handover export name, reduced to filename-safe characters. A
- * branch may contain `/` and a harness id anything at all, so each field is
- * flattened rather than allowed to introduce a separator or a control byte.
+ * worktree name may contain `/` and a harness id anything at all, so each field
+ * is flattened rather than allowed to introduce a separator or a control byte.
  */
 export function handoverNameField(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, "-");
@@ -22,18 +23,18 @@ export function handoverNameField(value: string): string {
 
 /** What the name is built from: the three identities, as the run knows them. */
 export interface HandoverFileRequest {
-  /** The run's branch, or `main-<agent id>` when it ran without a worktree. */
+  /** The run's worktree name, or `main-<agent id>` when it ran without one. */
   readonly worktree: string;
   readonly harness: AnyHarnessId;
   readonly sessionId: string;
 }
 
-/** `cowboy-handover_<worktree>_<harness>_<sessionId>.md`. */
+/** `<worktree>-<harness>-<sessionId>.md`. */
 export function handoverFileName(request: HandoverFileRequest): string {
   const fields = [request.worktree, request.harness, request.sessionId].map(
     handoverNameField,
   );
-  return `cowboy-handover_${fields.join("_")}.md`;
+  return `${fields.join("-")}.md`;
 }
 
 /** The absolute path one name lands on. */

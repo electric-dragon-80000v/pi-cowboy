@@ -2410,7 +2410,7 @@ describe("handover", () => {
 
       expect(outcome).toMatchObject({
         kind: "prepared",
-        path: `/tmp/cowboy-handover_main-${run.session.spawn.id}_pi_ses_1.md`,
+        defaultPath: `/tmp/main-${run.session.spawn.id}-pi-ses_1.md`,
         sessionId: "ses_1",
       });
       const text = outcome.kind === "prepared" ? outcome.text : "";
@@ -2430,12 +2430,16 @@ describe("handover", () => {
       expect(run.session.isSettled()).toBe(true);
     });
 
-    it("names the worktree's branch when the run had one", async () => {
+    it("names the worktree's directory when the run had one", async () => {
       const fake = makeFakeHost({ observeState: "done" });
       const run = makeSession({
         host: fake.host,
         deliverable: new ScriptedDeliverable({ deliverable: "done" }),
-        worktree: { kind: "owned", path: "/repo/wt", branch: "cow-fix-x" },
+        worktree: {
+          kind: "owned",
+          path: "/repo/worktrees/cow-fix-x",
+          branch: "cow-fix-x",
+        },
         hostRef: fake.ref,
       });
       resolveMainCheckoutMock.mockResolvedValue("/repo");
@@ -2452,20 +2456,20 @@ describe("handover", () => {
       try {
         await expect(run.session.exportHandover()).resolves.toMatchObject({
           kind: "prepared",
-          path: "/tmp/cowboy-handover_cow-fix-x_pi_ses_1.md",
+          defaultPath: "/tmp/cow-fix-x-pi-ses_1.md",
         });
       } finally {
         registry.overrides.delete("pi");
       }
     });
 
-    it("refuses a run that has not settled, without reading a session", async () => {
+    it("exports a run that is still working, from the session it is writing", async () => {
       const readHandoverRecords = vi.fn(async () => ({
-        sessionId: "ses_1",
+        sessionId: "ses_live",
         records: [
           {
             kind: "user" as const,
-            content: "go on",
+            content: "still going",
           },
         ],
       }));
@@ -2481,14 +2485,45 @@ describe("handover", () => {
         run.session.start(makeReservation());
         await driveRun(0);
 
-        await expect(run.session.exportHandover()).resolves.toEqual({
-          kind: "faulted",
-          fault: { kind: "agent-not-settled", status: "spawned" },
+        await expect(run.session.exportHandover()).resolves.toMatchObject({
+          kind: "prepared",
+          defaultPath: `/tmp/main-${run.session.spawn.id}-pi-ses_live.md`,
+          sessionId: "ses_live",
         });
-        expect(readHandoverRecords).not.toHaveBeenCalled();
+        expect(readHandoverRecords).toHaveBeenCalledTimes(1);
+        // The run keeps running: nothing was stopped, archived, or relaunched.
+        expect(run.session.isActive()).toBe(true);
+        expect(fake.stopCalls).toEqual([]);
+        expect(fake.startCalls).toHaveLength(1);
       } finally {
         registry.overrides.delete("pi");
       }
+    });
+
+    it("survives a steer that revives the run while it reads", async () => {
+      const run = await settledRun();
+      registry.overrides.set(
+        "pi",
+        exportingPi(async () => {
+          // A user's steer lands mid-read: the run is active again, and the
+          // export only snapshots the text it already read.
+          await run.session.steer("keep going");
+          return {
+            sessionId: "ses_1",
+            records: [{ kind: "user", content: "go on" }],
+          };
+        }),
+      );
+
+      try {
+        await expect(run.session.exportHandover()).resolves.toMatchObject({
+          kind: "prepared",
+          sessionId: "ses_1",
+        });
+      } finally {
+        registry.overrides.delete("pi");
+      }
+      expect(run.session.isActive()).toBe(true);
     });
 
     it("reports a run stopped before it started as never started", async () => {

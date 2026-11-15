@@ -382,9 +382,10 @@ export class AgentManager {
   }
 
   /**
-   * Read one settled agent's handover artifact without handing it over:
-   * nothing is stopped, archived, or launched. Refused while a handover owns
-   * the id, because that run's session is on its way out from under the read.
+   * Read one agent's handover artifact without handing it over: nothing is
+   * stopped, archived, or launched, and a run still in flight can be read.
+   * Refused while a handover owns the id, because that run's session is on its
+   * way out from under the read.
    */
   async exportHandover(id: string): Promise<HandoverExportOutcome> {
     if (this.handovers.has(id)) {

@@ -69,6 +69,7 @@ import {
   type RunSession,
 } from "./handover.js";
 import {
+  exportWorktreeName,
   handoverExportArtifact,
   type HandoverExportOutcome,
 } from "./handover-export.js";
@@ -282,11 +283,15 @@ function faulted<F extends HandoverFault>(
   return { kind: "faulted", fault };
 }
 
-/** A settled run as a handover reads it: the harness that ran it, its pane, and where its checkout is. */
-interface HandoverSource {
+/** A started run as a read sees it: the harness that ran it, its pane, and where its checkout is. */
+interface StartedRunSource {
   readonly from: AnyHarnessId;
   readonly ref: AgentHostRef;
   readonly cwd: string;
+}
+
+/** A settled run as a handover reads it. */
+interface HandoverSource extends StartedRunSource {
   /** The run that was read, so a revive during the read is noticed. */
   readonly settled: RunState;
   /** When that run started: a settled run that started always has one. */
@@ -296,6 +301,11 @@ interface HandoverSource {
 /** Whether there is a session to read, and at what address. */
 type HandoverSourceRead =
   | ({ readonly kind: "ready" } & HandoverSource)
+  | { readonly kind: "faulted"; readonly fault: HandoverSourceFault };
+
+/** An export reads any run that started, so it has no settled run to recheck. */
+type ExportSourceRead =
+  | ({ readonly kind: "ready" } & StartedRunSource)
   | { readonly kind: "faulted"; readonly fault: HandoverSourceFault };
 
 /**
@@ -656,8 +666,29 @@ export class SubagentSession {
   }
 
   /**
+   * The harness, its address, and the checkout a read reads from, for a run
+   * that engaged them. A run that never started engaged neither.
+   */
+  private readTarget():
+    | ({ readonly kind: "ready" } & StartedRunSource)
+    | { readonly kind: "faulted"; readonly fault: HandoverSourceFault } {
+    const from = this.spawn.execution.harness;
+    const ref = this.spawn.execution.host;
+    if (from === undefined || ref === undefined) {
+      return faulted({ kind: "never-started" });
+    }
+    return {
+      kind: "ready",
+      from,
+      ref,
+      cwd: this.args.options.worktree?.path ?? this.args.ctx.cwd,
+    };
+  }
+
+  /**
    * The run a handover would read, or the fault saying there is nothing to
-   * read: only a settled run that started and holds an address has a session.
+   * read: only a settled run that started and holds an address has a session
+   * a handover may replace.
    */
   private handoverSource(): HandoverSourceRead {
     const settled = this.run;
@@ -669,30 +700,45 @@ export class SubagentSession {
         status: lifecycleStatus(this.spawn.lifecycle),
       });
     }
-    const from = this.spawn.execution.harness;
-    const ref = this.spawn.execution.host;
-    // A source run is a started run at a known address; one settled without
-    // starting engaged neither.
-    if (from === undefined || ref === undefined || !settled.process.started) {
-      return faulted({ kind: "never-started" });
-    }
+    if (!settled.process.started) return faulted({ kind: "never-started" });
+    const target = this.readTarget();
+    if (target.kind === "faulted") return target;
     return {
-      kind: "ready",
-      from,
-      ref,
-      cwd: this.args.options.worktree?.path ?? this.args.ctx.cwd,
+      ...target,
       settled,
       startedAt: settled.process.startedAt,
     };
   }
 
   /**
-   * Read one settled run's session through the harness that ran it, applying
-   * the configured loss policy. Nothing is stopped or written.
+   * The run an export would read, or the fault saying there is nothing to
+   * read. Every started run is exportable: its harness writes the session it
+   * reads while the run is still working, and an export only snapshots text.
    */
-  private async exportSettledSession(
-    source: HandoverSource,
-  ): Promise<RunSession> {
+  private exportSource(): ExportSourceRead {
+    const run = this.run;
+    // A dropped or disposed run is no longer this session's to read.
+    if (run.shell !== "held") {
+      return faulted({
+        kind: "agent-not-settled",
+        status: lifecycleStatus(this.spawn.lifecycle),
+      });
+    }
+    // Queued, or settled before it started: no harness ever ran, so no session.
+    if (
+      run.process.kind === "queued" ||
+      (run.process.kind === "settled" && !run.process.started)
+    ) {
+      return faulted({ kind: "never-started" });
+    }
+    return this.readTarget();
+  }
+
+  /**
+   * Read one run's session through the harness that ran it, applying the
+   * configured loss policy. Nothing is stopped or written.
+   */
+  private async readRunSession(source: StartedRunSource): Promise<RunSession> {
     return await exportRunSession(
       getHarnessRegistry(),
       source.from,
@@ -711,7 +757,7 @@ export class SubagentSession {
    * to a file: the ended run's session, quoted, with the chain that led to it.
    */
   private handoverTask(
-    source: HandoverSource,
+    source: StartedRunSource,
     sessionId: string,
     session: string,
   ): string {
@@ -743,7 +789,7 @@ export class SubagentSession {
 
     // Export before stopping: a harness that cannot export its session must
     // change nothing at all, so the capability is the first question asked.
-    const exported = await this.exportSettledSession(source);
+    const exported = await this.readRunSession(source);
     if (exported.kind === "faulted") return exported;
     // A steer may have revived the run while its session was exported; that
     // session is no longer finished, so this handover no longer applies.
@@ -841,23 +887,16 @@ export class SubagentSession {
   /**
    * The handover artifact for this run without handing it over: the session is
    * read and the next run's task rendered, and nothing is stopped, archived,
-   * or launched. Writing it to disk belongs to the caller.
+   * or launched. The run may still be working; the read snapshots what its
+   * harness has written so far. Writing it to disk belongs to the caller.
    */
   async exportHandover(): Promise<HandoverExportOutcome> {
-    const source = this.handoverSource();
+    const source = this.exportSource();
     if (source.kind === "faulted") return source;
-    const exported = await this.exportSettledSession(source);
+    const exported = await this.readRunSession(source);
     if (exported.kind === "faulted") return exported;
-    // A steer may have revived the run while its session was exported; that
-    // session is no longer finished, so this export no longer applies.
-    if (this.run !== source.settled) {
-      return faulted({
-        kind: "agent-not-settled",
-        status: lifecycleStatus(this.spawn.lifecycle),
-      });
-    }
     return handoverExportArtifact({
-      worktree: this.spawn.display.worktree?.branch ?? `main-${this.spawn.id}`,
+      worktree: exportWorktreeName(this.spawn.display.worktree, this.spawn.id),
       harness: source.from,
       sessionId: exported.sessionId,
       text: this.handoverTask(source, exported.sessionId, exported.session),

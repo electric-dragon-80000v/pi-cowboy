@@ -1,18 +1,17 @@
 /**
  * menu-agent-handover.ts — the status menu's handover sub-flow.
  *
- * An agent's session can be carried to another harness, or written to a file
- * and launched by hand. A run still in flight has no finished session to read,
- * so the sub-flow asks before stopping it; only a confirmed stop ends a run it
- * did not settle on its own.
+ * An agent's session can be carried to another harness. A run still in flight
+ * has no finished session to read, so the sub-flow asks before stopping it;
+ * only a confirmed stop ends a run it did not settle on its own.
  *
  * The submenu only chooses: which targets exist, why a source cannot produce a
  * session, and how an outcome reads are all answered by the same modules
  * `handover_cowboy_agent` uses, so the menu cannot offer a handover the tool
  * would refuse.
  *
- * Nothing here changes the agent during a listing or an export; only a target
- * selection hands the environment over, and it does so off-menu.
+ * Nothing here changes the agent during the listing; only a target selection
+ * hands the environment over, and it does so off-menu.
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -22,16 +21,8 @@ import {
   type SelectItem,
 } from "@earendil-works/pi-tui";
 import { isActivePhase, type AgentSpawn } from "../../types.js";
-import {
-  writeHandoverFile,
-  handoverFileExists,
-} from "../../agents/handover-file.js";
-import {
-  handoverExportFaultReason,
-  handoverExportSeverity,
-  type PreparedHandoverExport,
-} from "../../agents/handover-export.js";
-import { handoverLossClause, handoverSeverity } from "../../agents/handover.js";
+import { handoverExportFaultReason } from "../../agents/handover-export.js";
+import { handoverSeverity } from "../../agents/handover.js";
 import { handoverTargets } from "../../agents/handover-target.js";
 import {
   canReadHandoverRecords,
@@ -52,9 +43,9 @@ import { actionReport, buildSelectListTheme, withVimKeys } from "./helpers.js";
 export interface StatusHandoverDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** The swapping view the overwrite confirmation is shown in. */
+  /** The swapping view every body of this flow is shown in. */
   view: SwappableView;
-  /** Close the status menu; a handover or an export then finishes off-menu. */
+  /** Close the status menu; a handover then finishes off-menu. */
   close: () => void;
   /** Repaint the screen: a body swapped from an async pass has no keypress to ride. */
   requestRender: () => void;
@@ -84,79 +75,6 @@ export function createStatusHandover(
     action.outcome("warning", `Agent ${spawn.id} ${reason}`);
   };
 
-  /** Write the prepared artifact and report the path, at the loss's severity. */
-  const writeAndReport = (
-    id: string,
-    prepared: PreparedHandoverExport,
-  ): void => {
-    try {
-      writeHandoverFile(prepared.path, prepared.text);
-    } catch (error) {
-      action.failed(`Failed to export agent ${id} to ${prepared.path}`, error);
-      return;
-    }
-    const loss =
-      prepared.loss === undefined ? "" : handoverLossClause(prepared.loss);
-    action.outcome(
-      handoverExportSeverity(prepared),
-      `Exported handover for agent ${id} to ${prepared.path}.${loss}`,
-    );
-  };
-
-  /** Confirm the one destructive case: replacing an existing export. */
-  const askOverwrite = (id: string, prepared: PreparedHandoverExport): void => {
-    show(
-      createKeyConfirm({
-        theme,
-        message: `Overwrite ${prepared.path}?`,
-        detail:
-          "An export of this run already exists there. Y replaces it with the current export; Esc keeps the existing file.",
-        onYes: () => {
-          close();
-          writeAndReport(id, prepared);
-        },
-        onNo: () => {
-          close();
-          action.outcome(
-            "warning",
-            `Did not export agent ${id}: kept the existing file at ${prepared.path}`,
-          );
-        },
-      }),
-    );
-  };
-
-  /** Read the run's session and either ask about a collision or write the file. */
-  const runExport = (spawn: AgentSpawn): void => {
-    const manager = getManagerOrNull();
-    if (!manager) {
-      close();
-      action.failed(
-        `Failed to export agent ${spawn.id}`,
-        "manager unavailable",
-      );
-      return;
-    }
-    action.pending(`Exporting handover for agent ${spawn.id}`);
-    void (async () => {
-      const outcome = await manager.exportHandover(spawn.id);
-      if (outcome.kind === "faulted") {
-        close();
-        action.outcome(
-          handoverExportSeverity(outcome),
-          `Agent ${spawn.id} ${handoverExportFaultReason(outcome.fault)}`,
-        );
-        return;
-      }
-      if (handoverFileExists(outcome.path)) {
-        askOverwrite(spawn.id, outcome);
-        return;
-      }
-      close();
-      writeAndReport(spawn.id, outcome);
-    })();
-  };
-
   /** Hand the run to another harness, off-menu, and report the tool's sentence. */
   const runHandover = (spawn: AgentSpawn, harness: AnyHarnessId): void => {
     const manager = getManagerOrNull();
@@ -178,7 +96,7 @@ export function createStatusHandover(
     })();
   };
 
-  /** The submenu: one row per target harness, then the export. */
+  /** The submenu: one row per target harness. */
   const openSubmenu = (spawn: AgentSpawn, from: AnyHarnessId): void => {
     const registry = getHarnessRegistry();
     const items: SelectItem[] = handoverTargets(
@@ -190,21 +108,17 @@ export function createStatusHandover(
       label: `Hand over to ${registry.displayName(harness)}`,
       description: `Launch the next run of this agent under ${registry.displayName(harness)}`,
     }));
-    items.push({
-      value: "export",
-      label: "Export",
-      description:
-        "Write the handover file to /tmp (nothing is stopped or launched)",
-    });
+    // With no other launchable harness there is nothing to pick, so the row
+    // reports that instead of opening an empty list.
+    if (items.length === 0) {
+      refuse(spawn, "was not handed over: no other harness can take it over.");
+      return;
+    }
 
     const list = withVimKeys(
       new SelectList(items, 10, buildSelectListTheme(theme)),
     );
     list.onSelect = (item) => {
-      if (item.value === "export") {
-        runExport(spawn);
-        return;
-      }
       runHandover(spawn, item.value.slice("harness:".length));
     };
     list.onCancel = () => close();

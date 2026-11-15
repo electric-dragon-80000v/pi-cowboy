@@ -121,14 +121,15 @@ Opens the `System Prompt` screen.
 
 Lists every spawned, queued, and settled agent from the session. Selecting an agent opens the actions available for its current state:
 
-| Action        | What it does                                                                                                                                                                                                                                                                                                         |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                                                                           |
-| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                                                                                 |
-| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                                                                             |
-| `Handover`    | Hands an agent's session to another harness, or exports it to a file instead. Shown for every agent; a run that is still in flight is stopped first, after a confirmation. A harness that cannot export its own session is reported when you pick it. See [Handing over and exporting](#handing-over-and-exporting). |
-| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                                                                        |
-| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below).                                                   |
+| Action        | What it does                                                                                                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `View shell`  | Focuses the agent's multiplexer terminal pane (available while the agent is running and after it settles).                                                                                                                                                         |
+| `View result` | Opens a scrollable viewer showing the report from a completed agent.                                                                                                                                                                                               |
+| `View error`  | Opens a scrollable viewer showing the error message from a failed agent.                                                                                                                                                                                           |
+| `Handover`    | Hands an agent's session to another harness. Shown for every agent; a run that is still in flight is stopped first, after a confirmation. A harness that cannot export its own session is reported when you pick it. See [Handing over](#handing-over).            |
+| `Stop`        | Interrupts a running agent while keeping its pane, worktree, and branch intact (same as `stop_cowboy_agent`).                                                                                                                                                      |
+| `Clean up`    | Closes the pane, removes the worktree, and deletes the branch once merged (same as `cleanup_cowboy_agent`). Keeps worktrees containing uncommitted changes and reports the reason; for retained worktrees, the menu offers an option to force removal (see below). |
+| `Export`      | Copies an agent's handover text to the clipboard, or writes it to a file you choose. Shown last, for an agent whose harness can export its own session; it works while the agent is still running. See [Exporting](#exporting).                                    |
 
 Below the individual agents, the list displays bulk actions when applicable:
 
@@ -140,27 +141,34 @@ Below the individual agents, the list displays bulk actions when applicable:
 
 If a cleanup keeps a worktree (for example, because of uncommitted changes), the reason is recorded on that agent's entry in the status list.
 
-### Handing over and exporting
+### Handing over
 
 `Handover` opens a submenu of target harnesses. You will see a list of every harness that you can hand-over an agent's session to.
 
-A handover reads a finished session, so an agent that is still running has to end first. Picking `Handover` for one asks before anything happens; confirming stops the run (as `Stop` does) and then opens the target list, and declining leaves the agent running. An agent that is still queued, or ended before it launched, has no session and is reported as such.
+A handover reads a finished session, so an agent that is still running has to end first. Picking `Handover` for one asks before anything happens; confirming stops the run (as `Stop` does) and then opens the target list, and declining leaves the agent running. An agent that is still queued, or ended before it launched, has no session and is reported as such. When no other harness is available, the menu reports that instead of opening an empty list.
 
-`Export` writes the handover export to a file under the temporary directory. `Export` does not interact with the agents, it's purely an export that you can inspect or use elsewhere.
+### Exporting
+
+`Export` reads the agent's session without stopping, archiving, or relaunching anything, so it works while the agent is still running. It offers two destinations:
+
+- `Export to clipboard` copies the handover text.
+- `Export to file` opens an editable path, prefilled with the default below.
+
+An agent whose harness cannot export its own session has no `Export` row. The exported text is the same handover text a handover would give the next harness: the run's session, quoted, with the chain that led to it.
 
 #### Export path
 
 ```text
-/tmp/cowboy-handover_<worktree>_<harness>_<session id>.md
+/tmp/<worktree name>-<harness>-<session id>.md
 ```
 
-- `<worktree>`: the agent's branch, or `main-<agent id>` for an agent that ran in the parent working directory.
+- `<worktree name>`: the final component of the agent's worktree path, or `main-<agent id>` for an agent that ran in the parent working directory.
 - `<harness>`: the harness that ran the session.
 - `<session id>`: the id that harness gave the session.
 
-Each field has every character outside `A-Za-z0-9._-` replaced with `-`, so a branch such as `feat/login` appears as `feat-login`. The file's contents keep every id verbatim.
+Each field has every character outside `A-Za-z0-9._-` replaced with `-`, so a worktree at `…/worktrees/cow-fix-login-abcd1234` appears as `cow-fix-login-abcd1234`. The file's contents keep every id verbatim.
 
-Exporting the same run twice targets the same path; the menu asks before replacing a file that is already there.
+The path is only a suggestion: edit it before pressing Enter to write anywhere else. If a file already exists there, the menu asks before replacing it, and declining returns to the path field. A write that fails — a missing directory, a permission error — reports the error and leaves the field open with your path, so you can correct it.
 
 ### Forcing cleanup
 

@@ -25,6 +25,7 @@ import {
   lifecycleStatus,
 } from "../../types.js";
 
+import { canReadHandoverRecords } from "../../agents/harness.js";
 import { errorMessage } from "../../utils.js";
 import {
   getDisplayName,
@@ -32,10 +33,15 @@ import {
   formatMs,
   statusIcon,
 } from "../format.js";
-import { getManagerOrNull, getRuntime } from "../../shell.js";
+import {
+  getHarnessRegistry,
+  getManagerOrNull,
+  getRuntime,
+} from "../../shell.js";
 import type { Theme } from "../types.js";
 import { ScreenHost, SwappableView, asListFields } from "./screen-host.js";
 import { createStatusCleanup } from "./menu-agent-status-cleanup.js";
+import { createStatusExport } from "./menu-agent-export.js";
 import { createStatusHandover } from "./menu-agent-handover.js";
 import {
   SEPARATOR_ID,
@@ -243,6 +249,7 @@ function stopAgentsOffMenu(
  * @param onClose — close the entire menu.
  * @param beginCleanup — start the two-phase cleanup flow over these ids.
  * @param beginHandover — open the handover sub-flow for this agent.
+ * @param beginExport — open the export sub-flow for this agent.
  */
 export function buildAgentActionsList(
   ctx: ExtensionCommandContext,
@@ -252,6 +259,7 @@ export function buildAgentActionsList(
   onClose: () => void,
   beginCleanup: (ids: readonly string[]) => void,
   beginHandover: (spawn: AgentSpawn) => void,
+  beginExport: (spawn: AgentSpawn) => void,
 ): SelectList {
   const items: SelectItem[] = [];
   // Spawn id is the full handle — printed whole, never sliced.
@@ -266,6 +274,14 @@ export function buildAgentActionsList(
       : "";
   const hasResult = resultText.length > 0;
   const hasError = errorText.length > 0;
+  // Only a harness with a record reader can produce an export, and only a run
+  // that launched one has a session to read.
+  const harness =
+    spawn.execution.harness === undefined
+      ? undefined
+      : getHarnessRegistry().get(spawn.execution.harness);
+  const canExport =
+    hasHerdrPane && harness !== undefined && canReadHandoverRecords(harness);
 
   if (hasHerdrPane) {
     items.push({
@@ -288,14 +304,23 @@ export function buildAgentActionsList(
   items.push({
     value: "handover",
     label: "Handover",
-    description:
-      "Hand this run's session to another harness, or export it to /tmp",
+    description: "Hand this run's session to another harness",
   });
   if (!activeSpawn) {
     items.push({
       value: "cleanup",
       label: "Clean up",
       description: "Close its pane and remove its worktree and merged branch",
+    });
+  }
+  // Last, because it is the only action that never touches the agent: a live
+  // run is exported as it works.
+  if (canExport) {
+    items.push({
+      value: "export",
+      label: "Export",
+      description:
+        "Copy this run's handover text to the clipboard or write it to a file",
     });
   }
 
@@ -327,6 +352,9 @@ export function buildAgentActionsList(
       // The sub-flow keeps the menu open through the target choice and the
       // overwrite confirmation; a target closes it before anything moves.
       beginHandover(spawn);
+    } else if (item.value === "export") {
+      // Export keeps the menu open until something has actually been exported.
+      beginExport(spawn);
     }
   };
   list.onCancel = () => done();
@@ -455,6 +483,7 @@ export async function showAgentStatusMenu(
           () => close(),
           beginCleanup,
           beginHandover,
+          beginExport,
         ),
       );
     };
@@ -466,6 +495,14 @@ export async function showAgentStatusMenu(
       close,
       requestRender,
       backToActions: openAgentActions,
+    });
+
+    const beginExport = createStatusExport({
+      ctx,
+      theme,
+      view,
+      close,
+      requestRender,
     });
 
     agentList.onSelect = async (item) => {

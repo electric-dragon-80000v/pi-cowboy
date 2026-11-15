@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("handoverFileName", () => {
-  it("joins the three identities with underscores", () => {
+  it("joins the three identities with dashes", () => {
     expect(
       handoverFileName({
         worktree: "cow-fix-login-abcd1234",
@@ -34,7 +34,7 @@ describe("handoverFileName", () => {
         sessionId: "3f9a1c2e-77bd-4d0e-9a1b-8f2c1d4e5f60",
       }),
     ).toBe(
-      "cowboy-handover_cow-fix-login-abcd1234_claude_3f9a1c2e-77bd-4d0e-9a1b-8f2c1d4e5f60.md",
+      "cow-fix-login-abcd1234-claude-3f9a1c2e-77bd-4d0e-9a1b-8f2c1d4e5f60.md",
     );
   });
 
@@ -45,7 +45,7 @@ describe("handoverFileName", () => {
         harness: "pi",
         sessionId: "ses_0f3c9a",
       }),
-    ).toBe("cowboy-handover_main-abcd1234_pi_ses_0f3c9a.md");
+    ).toBe("main-abcd1234-pi-ses_0f3c9a.md");
   });
 
   it("flattens anything a field could introduce as a separator", () => {
@@ -55,7 +55,7 @@ describe("handoverFileName", () => {
         harness: "reg/plugin",
         sessionId: "ses-with space",
       }),
-    ).toBe("cowboy-handover_feat-login_reg-plugin_ses-with-space.md");
+    ).toBe("feat-login-reg-plugin-ses-with-space.md");
   });
 });
 
@@ -67,8 +67,8 @@ describe("handoverNameField", () => {
 
 describe("handoverFilePath", () => {
   it("lands the name in /tmp", () => {
-    expect(handoverFilePath("cowboy-handover_a_pi_s.md")).toBe(
-      `${HANDOVER_EXPORT_DIR}/cowboy-handover_a_pi_s.md`,
+    expect(handoverFilePath("a-pi-s.md")).toBe(
+      `${HANDOVER_EXPORT_DIR}/a-pi-s.md`,
     );
   });
 });
