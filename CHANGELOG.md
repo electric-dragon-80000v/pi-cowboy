@@ -1,3 +1,10 @@
+# [0.34.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.33.0...v0.34.0) (2026-11-15)
+
+
+### Features
+
+* **agents:** support multiple agents per checkout and workspace ([8d3ca50](https://github.com/electric-dragon-80000v/pi-cowboy/commit/8d3ca50ccd804fe3cde1c229b900baabb5b0a123))
+
 # [0.33.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.32.1...v0.33.0) (2026-11-14)
 
 
