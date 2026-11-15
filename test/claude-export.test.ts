@@ -763,6 +763,12 @@ describe("claudeHarness.readHandoverRecords", () => {
       subagentId: SUBAGENT_ID,
       paneId: "w1:p9",
       cwd: hookCwd,
+      startedAt: 1_760_000_000_000,
+      staged: {
+        systemPromptFile: "/staged/system.md",
+        taskFile: "/staged/prompt.md",
+        resultFile: "/staged/result.md",
+      },
     });
 
     expect(completeHandoverExport(exported!)).toEqual({

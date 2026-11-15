@@ -33,6 +33,7 @@ export type {
   HarnessConfigReport,
   HarnessListModelsRequest,
   HarnessExportRequest,
+  HarnessRunStaging,
   HandoverRecord,
   HandoverRecordSource,
   HarnessPrepareRequest,

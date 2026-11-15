@@ -540,10 +540,19 @@ export interface HarnessTeardownRequest extends HarnessTeardownContext {
   readonly pi: ExtensionAPI;
 }
 
+/** The staged files one run was launched with; each is a function of its id. */
+export interface HarnessRunStaging {
+  readonly systemPromptFile: string;
+  readonly taskFile: string;
+  readonly resultFile: string;
+}
+
 /**
  * What a harness is asked for when one run is handed over. The address is the
  * run's own, not the spawn's: a handover's earlier run sits in a pane the next
- * run never occupies.
+ * run never occupies. Every field is a fact the extension still holds once the
+ * run's process is gone, so a reader never depends on what its own instance
+ * happened to remember at launch.
  */
 export interface HarnessExportRequest {
   readonly pi: ExtensionAPI;
@@ -551,6 +560,18 @@ export interface HarnessExportRequest {
   readonly paneId: string;
   /** The tree the run ran in; a harness that keys sessions by directory reads it. */
   readonly cwd: string;
+  /**
+   * When the run was started, stamped before any launch work. A store that
+   * names sessions by creation time uses it as a lower bound; it is never an
+   * identity on its own.
+   */
+  readonly startedAt: number;
+  /**
+   * Where the run was staged, readable after the run ends. A reader that keyed
+   * its records on this run — the task file its opening message names — finds
+   * it here rather than in launch-time memory.
+   */
+  readonly staged: HarnessRunStaging;
 }
 
 /**

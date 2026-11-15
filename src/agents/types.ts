@@ -108,6 +108,11 @@ export interface AgentInvocation {
   /** Short display name, e.g. "haiku" — only set when different from parent. */
   modelName?: string;
   thinkingLevel?: SpawnThinkingLevel;
+  /**
+   * Whether this run's result is announced to the parent when it settles instead
+   * of being returned inline. The spawn record keeps it, so the announcement
+   * survives a reload that replaced the process that made the request.
+   */
   runInBackground?: boolean;
   /** Whether the run forked the parent session. */
   fork?: boolean;

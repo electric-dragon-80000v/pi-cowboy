@@ -138,6 +138,7 @@ export interface SpawnConfig extends RunTunables {
   worktree?: AgentWorktree;
   /** Absent/true = load project resources; false = ignore them. */
   projectTrusted?: boolean;
+  /** How this run was asked for; persisted with the spawn so a reload reads it back. */
   invocation?: AgentInvocation;
   /** Captured verbatim at spawn time; every spawn carries a resolved template. */
   orchestration: OrchestratorConfig;

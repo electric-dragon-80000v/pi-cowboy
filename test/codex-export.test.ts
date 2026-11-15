@@ -782,6 +782,12 @@ describe("findCodexSession", () => {
       subagentId: "c0d3e4f5",
       paneId: "pane-1",
       cwd: "/worktree",
+      startedAt: 1_760_000_000_000,
+      staged: {
+        systemPromptFile: "/staged/system.md",
+        taskFile: "/staged/prompt.md",
+        resultFile: "/staged/result.md",
+      },
     });
 
     expect(read.sessionId).toBe(id(7));

@@ -59,9 +59,6 @@ const NUDGE_DELAY_MS = 200;
 export class SpawnCoordinator {
   private manager: AgentManager;
 
-  /** Background agent ids; every settlement of one nudges, except a stop the user ordered. */
-  private backgroundAgentIds = new Set<string>();
-
   /** Pending nudge agent ids. */
   private pendingNudges = new Set<string>();
 
@@ -106,9 +103,7 @@ export class SpawnCoordinator {
     // after it would report a launch only once the run is over.
     this.announceSpawn(ctx, spawn);
 
-    if (intent.runInBackground) {
-      this.backgroundAgentIds.add(agentId);
-    } else {
+    if (!intent.runInBackground) {
       await spawn.execution.promise;
     }
 
@@ -178,7 +173,7 @@ export class SpawnCoordinator {
    * recorded result does not carry, so it is delivered apart from that result.
    */
   onAgentFollowUp(spawn: AgentSpawn, deliverable: string): void {
-    if (!this.backgroundAgentIds.has(spawn.id)) return;
+    if (!isBackgroundRun(spawn)) return;
     this.pendingFollowUps.set(spawn.id, deliverable);
     this.ensureNudgeTimer();
   }
@@ -207,10 +202,10 @@ export class SpawnCoordinator {
    * Nudge on every settlement of a background agent — a revived run notifies on
    * each settlement, not just the first. A stop the user ordered from the status
    * menu is the one exception: they did it on purpose, so the orchestrator is not
-   * woken to react. Only dispose clears the set.
+   * woken to react.
    */
   onAgentComplete(spawn: AgentSpawn): void {
-    if (!this.backgroundAgentIds.has(spawn.id)) return;
+    if (!isBackgroundRun(spawn)) return;
     // A stop the user ordered from the menu is not news — they were right there.
     // A stop the orchestrator ordered through stop_cowboy_agent still reports.
     if (stoppedByUser(spawn)) return;
@@ -224,7 +219,6 @@ export class SpawnCoordinator {
     }
     this.pendingNudges.clear();
     this.pendingFollowUps.clear();
-    this.backgroundAgentIds.clear();
     this.disposed = true;
   }
 
@@ -321,6 +315,18 @@ export class SpawnCoordinator {
       }
     }
   }
+}
+
+/**
+ * Whether this spawn's result is the parent's to be told about later, read from
+ * the spawn itself rather than from what this process remembered asking for.
+ *
+ * A reload replaces the process but not the record, so a run it restored answers
+ * exactly as the run it launched did. A record written before the flag was kept
+ * defaults to background, which is what the tool does when a call omits it.
+ */
+function isBackgroundRun(spawn: AgentSpawn): boolean {
+  return spawn.display.invocation?.runInBackground ?? true;
 }
 
 /** Whether a settlement is a stop the user ordered from the status menu. */

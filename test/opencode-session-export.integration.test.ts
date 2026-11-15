@@ -197,6 +197,12 @@ function request(): HarnessExportRequest {
     subagentId: SUBAGENT_ID,
     paneId: "w1:p1",
     cwd: project,
+    startedAt: 1_760_000_000_000,
+    staged: {
+      systemPromptFile: "/staged/system.md",
+      taskFile: "/staged/prompt.md",
+      resultFile: "/staged/result.md",
+    },
   };
 }
 

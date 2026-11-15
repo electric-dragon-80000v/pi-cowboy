@@ -57,8 +57,12 @@ function registryFor(
   });
 }
 
-/** Spawned-phase fixture. */
-function spawnedSpawn(id: string, taskSlug: string): AgentSpawn {
+/** Spawned-phase fixture; background unless `background` says otherwise. */
+function spawnedSpawn(
+  id: string,
+  taskSlug: string,
+  background = true,
+): AgentSpawn {
   return {
     id,
     display: {
@@ -66,6 +70,7 @@ function spawnedSpawn(id: string, taskSlug: string): AgentSpawn {
       description: "some task",
       taskSlug,
       orchestration: TEST_ORCHESTRATION,
+      invocation: { runInBackground: background },
     },
     lifecycle: {
       phase: "spawned",
@@ -268,15 +273,6 @@ describe("SpawnCoordinator completion nudges", () => {
     return { isIdle: () => idle } as unknown as ExtensionContext;
   }
 
-  function intent(runInBackground: boolean) {
-    return {
-      type: "general-purpose",
-      prompt: "do it",
-      runInBackground,
-      taskSlug: "fix-login-flow",
-    } as never;
-  }
-
   beforeEach(() => {
     findTaskAttemptsMock.mockReset().mockResolvedValue([]);
     getPiInstanceMock.mockReset();
@@ -292,8 +288,6 @@ describe("SpawnCoordinator completion nudges", () => {
       isExtensionEnabledMock.mockReturnValue(false);
       const spawn = spawnedSpawn("bg-off", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
       expect(sendMessage).not.toHaveBeenCalled();
@@ -309,8 +303,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg1", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
       expect(sendMessage).toHaveBeenCalledTimes(1);
@@ -328,6 +320,23 @@ describe("SpawnCoordinator completion nudges", () => {
     }
   });
 
+  it("nudges a background agent this process never spawned", async () => {
+    vi.useFakeTimers();
+    try {
+      const sendMessage = vi.fn();
+      getPiInstanceMock.mockReturnValue({ sendMessage });
+      // A run a reload restored: its spawn came from the session, not from this
+      // coordinator, and the record is the only thing that says it is background.
+      const spawn = spawnedSpawn("bg-restored", "fix-login-flow");
+      const coordinator = new SpawnCoordinator(managerFor(spawn));
+      coordinator.onAgentComplete(spawn);
+      vi.advanceTimersByTime(NUDGE_WINDOW_MS);
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("queues the nudge as a follow-up while the orchestrator is mid-turn", async () => {
     vi.useFakeTimers();
     try {
@@ -336,8 +345,6 @@ describe("SpawnCoordinator completion nudges", () => {
       vi.mocked(getSessionCtx).mockReturnValue(parentSession(false));
       const spawn = spawnedSpawn("bg-busy", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
 
@@ -357,8 +364,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = stoppedSpawn("stopped-by-agent", "fix-login-flow", "agent");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       // The agentic case: the orchestrator learns the run is no longer in flight.
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
@@ -375,8 +380,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = stoppedSpawn("stopped-by-user", "fix-login-flow", "user");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       // The user stopped it deliberately; the orchestrator need not be woken.
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
@@ -393,8 +396,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg3", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       coordinator.onAgentFollowUp(spawn, "the agent kept going");
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
 
@@ -418,8 +419,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg4", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       coordinator.onAgentComplete(spawn);
       coordinator.onAgentFollowUp(spawn, "first draft");
       coordinator.onAgentFollowUp(spawn, "second draft");
@@ -438,10 +437,8 @@ describe("SpawnCoordinator completion nudges", () => {
     try {
       const sendMessage = vi.fn();
       getPiInstanceMock.mockReturnValue({ sendMessage });
-      const spawn = spawnedSpawn("fg2", "fix-login-flow");
+      const spawn = spawnedSpawn("fg2", "fix-login-flow", false);
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(false));
-
       coordinator.onAgentFollowUp(spawn, "nobody is waiting for this");
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
       expect(sendMessage).not.toHaveBeenCalled();
@@ -457,8 +454,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg5", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       // Dropping the settlement's own nudge says nothing about the agent: a run
       // that survives its cleanup keeps reporting, and each report is added as
       // news on the same window.
@@ -482,8 +477,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg2", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       // Cleanup starts inside the batch window: the settlement is already reported.
       coordinator.onAgentComplete(spawn);
       coordinator.dropNudge(spawn.id);
@@ -506,8 +499,6 @@ describe("SpawnCoordinator completion nudges", () => {
       getPiInstanceMock.mockReturnValue({ sendMessage });
       const spawn = spawnedSpawn("bg6", "fix-login-flow");
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(true));
-
       // The report lands inside the batch window, then cleanup starts.
       coordinator.onAgentFollowUp(spawn, "too late");
       coordinator.dropNudge(spawn.id);
@@ -529,10 +520,8 @@ describe("SpawnCoordinator completion nudges", () => {
     try {
       const sendMessage = vi.fn();
       getPiInstanceMock.mockReturnValue({ sendMessage });
-      const spawn = spawnedSpawn("fg1", "fix-login-flow");
+      const spawn = spawnedSpawn("fg1", "fix-login-flow", false);
       const coordinator = new SpawnCoordinator(managerFor(spawn));
-      await coordinator.spawn({} as never, intent(false));
-
       coordinator.onAgentComplete(spawn);
       vi.advanceTimersByTime(NUDGE_WINDOW_MS);
       expect(sendMessage).not.toHaveBeenCalled();

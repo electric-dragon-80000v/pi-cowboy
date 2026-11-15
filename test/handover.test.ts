@@ -387,6 +387,12 @@ describe("exportRunSession", () => {
     subagentId: "session-1",
     paneId: "w1:p1",
     cwd: "/repo",
+    startedAt: 1_760_000_000_000,
+    staged: {
+      systemPromptFile: "/staged/system.md",
+      taskFile: "/staged/prompt.md",
+      resultFile: "/staged/result.md",
+    },
   };
 
   function registryWith(harness: {

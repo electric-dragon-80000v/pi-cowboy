@@ -166,6 +166,12 @@ function exportRequest(subagentId: string) {
     subagentId,
     paneId: "w1:p9",
     cwd: "/scrubbed/worktree",
+    startedAt: 1_760_000_000_000,
+    staged: {
+      systemPromptFile: "/staged/system.md",
+      taskFile: "/staged/prompt.md",
+      resultFile: "/staged/result.md",
+    },
   };
 }
 

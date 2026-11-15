@@ -20,7 +20,11 @@ import {
   getStore,
   getWorktreeMaterialization,
 } from "../shell.js";
-import { subagentResultFileFor } from "../paths.js";
+import {
+  subagentResultFileFor,
+  subagentSystemFileFor,
+  subagentTaskFileFor,
+} from "../paths.js";
 import {
   removeResultArtifacts,
   removeResultFile,
@@ -145,7 +149,13 @@ export function buildAgentSpawn(
       type,
       description: options.description,
       taskSlug: options.taskSlug,
-      invocation: options.invocation,
+      // Stamped rather than copied, so every spawn's record says whether its
+      // result is delivered inline or announced later. A reader a reload restored
+      // takes that from the record; only this process ever knew the request.
+      invocation: {
+        ...options.invocation,
+        runInBackground: options.isBackground ?? true,
+      },
       orchestration: options.orchestration,
       worktree: options.worktree,
     },
@@ -157,6 +167,18 @@ export function buildAgentSpawn(
       history: [],
     },
   };
+}
+
+/**
+ * When this run started, for a process that got that far: a queued run, and one
+ * that ended without launching, have no start instant to key a session store on.
+ */
+function startedAtOf(state: RunState): number | undefined {
+  if (state.shell === "dropped") return undefined;
+  const process = state.process;
+  if (process.kind === "queued") return undefined;
+  if (process.kind === "settled" && !process.started) return undefined;
+  return process.startedAt;
 }
 
 /** The start an attached run already earned: the only phase attach accepts. */
@@ -288,14 +310,17 @@ interface StartedRunSource {
   readonly from: AnyHarnessId;
   readonly ref: AgentHostRef;
   readonly cwd: string;
+  /**
+   * When the run started. A harness whose store names sessions by creation time
+   * reads it as a lower bound, so what a read finds cannot predate the run.
+   */
+  readonly startedAt: number;
 }
 
 /** A settled run as a handover reads it. */
 interface HandoverSource extends StartedRunSource {
   /** The run that was read, so a revive during the read is noticed. */
   readonly settled: RunState;
-  /** When that run started: a settled run that started always has one. */
-  readonly startedAt: number;
 }
 
 /** Whether there is a session to read, and at what address. */
@@ -666,15 +691,16 @@ export class SubagentSession {
   }
 
   /**
-   * The harness, its address, and the checkout a read reads from, for a run
-   * that engaged them. A run that never started engaged neither.
+   * The harness, its address, the start it earned, and the checkout a read reads
+   * from, for a run that engaged them. A run that never started engaged none.
    */
   private readTarget():
     | ({ readonly kind: "ready" } & StartedRunSource)
     | { readonly kind: "faulted"; readonly fault: HandoverSourceFault } {
     const from = this.spawn.execution.harness;
     const ref = this.spawn.execution.host;
-    if (from === undefined || ref === undefined) {
+    const startedAt = startedAtOf(this.run);
+    if (from === undefined || ref === undefined || startedAt === undefined) {
       return faulted({ kind: "never-started" });
     }
     return {
@@ -682,6 +708,7 @@ export class SubagentSession {
       from,
       ref,
       cwd: this.args.options.worktree?.path ?? this.args.ctx.cwd,
+      startedAt,
     };
   }
 
@@ -703,11 +730,7 @@ export class SubagentSession {
     if (!settled.process.started) return faulted({ kind: "never-started" });
     const target = this.readTarget();
     if (target.kind === "faulted") return target;
-    return {
-      ...target,
-      settled,
-      startedAt: settled.process.startedAt,
-    };
+    return { ...target, settled };
   }
 
   /**
@@ -747,6 +770,12 @@ export class SubagentSession {
         subagentId: this.id,
         paneId: source.ref.paneId,
         cwd: source.cwd,
+        startedAt: source.startedAt,
+        staged: {
+          systemPromptFile: subagentSystemFileFor(this.id),
+          taskFile: subagentTaskFileFor(this.id),
+          resultFile: subagentResultFileFor(this.id),
+        },
       },
       { maxExcludedRatio: getStore().agent.handoverMaxExcludedRatio },
     );

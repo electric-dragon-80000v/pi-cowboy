@@ -28,6 +28,16 @@ import {
   type MultiplexerRegistry,
 } from "../src/agents/multiplexer-registry.js";
 
+/** The run half of an export request that no case varies. */
+const EXPORT_RUN = {
+  startedAt: 1_760_000_000_000,
+  staged: {
+    systemPromptFile: "/staged/system.md",
+    taskFile: "/staged/prompt.md",
+    resultFile: "/staged/result.md",
+  },
+};
+
 /**
  * A plugin harness whose verdict is fixed, so a test can prove a plugin is
  * probed like a built-in rather than assumed launchable.
@@ -107,6 +117,7 @@ describe("the open harness registry", () => {
       subagentId: "s",
       paneId: "w1:p1",
       cwd: "/repo",
+      ...EXPORT_RUN,
     });
     expect({ ...answer, records: [...answer.records] }).toEqual({
       sessionId: "ses_1",
@@ -133,6 +144,7 @@ describe("the open harness registry", () => {
       subagentId: "s",
       paneId: "w1:p1",
       cwd: "/repo",
+      ...EXPORT_RUN,
     });
 
     expect([...answer.records]).toEqual([
