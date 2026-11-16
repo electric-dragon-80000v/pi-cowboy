@@ -28,7 +28,11 @@ import {
   formatActiveAgents,
   runDelegationBatch,
 } from "../orchestrators/protocol.js";
-import type { CowboyAgents } from "./schemas/cowboy-agents.schema.js";
+import { DEV_MODE } from "../dev-mode.js";
+import type {
+  CowboyAgentParams,
+  CowboyAgents,
+} from "./schemas/cowboy-agents.schema.js";
 import {
   StopBatchSchema,
   type StopBatchParams,
@@ -69,6 +73,22 @@ export function delegationSeverity(
 }
 
 /**
+ * The call without the `worktree` target. The target is dev mode only: the
+ * registered schema does not offer the field elsewhere, and a call that sends
+ * one anyway runs with a new worktree, exactly as the field's absence means.
+ */
+function withoutWorktreeTarget(params: CowboyAgents): CowboyAgents {
+  return {
+    ...params,
+    agents: params.agents.map((item) => {
+      const agent: CowboyAgentParams = { ...item };
+      delete agent.worktree;
+      return agent;
+    }),
+  };
+}
+
+/**
  * cowboy_agent handler. Validates the call shape and dispatches one spawn per
  * item in `agents`. A non-background call requires exactly one item — the
  * guard lives in `runDelegationBatch` so it fires before any side effect.
@@ -82,7 +102,7 @@ export async function executeAgentTool(
   ctx: ExtensionContext,
 ): Promise<ToolResult<Record<string, unknown>>> {
   const { message, details } = await runDelegationBatch(
-    params,
+    DEV_MODE ? params : withoutWorktreeTarget(params),
     ctx,
     _toolCallId,
     signal,

@@ -11,7 +11,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isRecord } from "../src/predicates.js";
 import { registerAgentTool, registerTools } from "../src/registration.js";
 import { registerAgents } from "../src/agents/agent-types.js";
@@ -36,14 +36,16 @@ interface ItemsShape {
   };
 }
 
-function captureAgentTool(): CapturedTool {
+function captureAgentTool(
+  register: typeof registerAgentTool = registerAgentTool,
+): CapturedTool {
   let captured: CapturedTool | undefined;
   const pi = {
     registerTool: (tool: CapturedTool) => {
       captured = tool;
     },
   } as unknown as ExtensionAPI;
-  registerAgentTool(pi);
+  register(pi);
   if (!captured) throw new Error("registerAgentTool registered no tool");
   return captured;
 }
@@ -153,34 +155,42 @@ describe("cowboy_agent registration", () => {
     expect(agentTypeParam()).toContain("Available: general-purpose,Explore");
   });
 
-  it("exposes `worktree` as an optional nullable target, never required", () => {
+  it("omits the per-item `worktree` target outside dev mode", () => {
     const tool = captureAgentTool();
-    const worktree = itemProperties(tool)?.worktree;
-    expect(isRecord(worktree) && Array.isArray(worktree.anyOf)).toBe(true);
-    expect(
-      (worktree as { anyOf: unknown[] }).anyOf.some(
-        (variant) => isRecord(variant) && variant.type === "object",
-      ),
-    ).toBe(true);
-    expect(itemRequired(tool) ?? []).not.toContain("worktree");
+    expect(itemProperties(tool) ?? {}).not.toHaveProperty("worktree");
+    expect(tool.description).not.toContain("`worktree`");
   });
 
-  it("documents `worktree` as new by default, with inherit and an existing path", () => {
-    const tool = captureAgentTool();
-    const description =
-      (itemProperties(tool)?.worktree as { description?: string } | undefined)
-        ?.description ?? "";
-    expect(description).toMatch(/^Optional\b/);
-    expect(description).toContain('"new"');
-    expect(description).toContain('"inherit"');
-    expect(description).toContain("path");
-    expect(description).toContain("default");
-  });
+  it("offers `worktree` as an optional nullable target in dev mode", async () => {
+    vi.resetModules();
+    vi.stubGlobal("__PI_COWBOY_DEV_MODE__", true);
+    try {
+      const dev = await import("../src/registration.js");
+      const tool = captureAgentTool(dev.registerAgentTool);
+      const worktree = itemProperties(tool)?.worktree;
+      expect(isRecord(worktree) && Array.isArray(worktree.anyOf)).toBe(true);
+      expect(
+        (worktree as { anyOf: unknown[] }).anyOf.some(
+          (variant) => isRecord(variant) && variant.type === "object",
+        ),
+      ).toBe(true);
+      expect(itemRequired(tool) ?? []).not.toContain("worktree");
+      expect(tool.description).toContain("`worktree`");
+      expect(tool.description).toContain(
+        "Always omit optional parameters the user did not explicitly ask for",
+      );
 
-  it("tells the caller to assume defaults unless the user asked otherwise", () => {
-    expect(captureAgentTool().description).toContain(
-      "Always omit optional parameters the user did not explicitly ask for",
-    );
+      const description =
+        (worktree as { description?: string } | undefined)?.description ?? "";
+      expect(description).toMatch(/^Optional\b/);
+      expect(description).toContain('"new"');
+      expect(description).toContain('"inherit"');
+      expect(description).toContain("path");
+      expect(description).toContain("default");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
   });
 
   it("documents `harness_type` as the override, listing the harnesses and the no-fallback rule", () => {

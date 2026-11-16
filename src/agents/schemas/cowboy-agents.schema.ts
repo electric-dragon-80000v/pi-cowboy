@@ -32,6 +32,29 @@ const WORKTREE_DESCRIPTION =
   'Optional worktree for THIS agent. Omit it, or pass null, for "new": an isolated cow-<task>-<id> worktree, the default. Pass "inherit" to run in the parent session cwd with no worktree of its own, or {"path":"/absolute/checkout"} to run inside an existing worktree of this repository; that checkout is never removed by cleanup. Never pick a target the user did not ask for — omit the parameter to keep the default.';
 
 /**
+ * The `worktree` target's shape. Registration puts it on the tool only in dev
+ * mode; the params type keeps it so the parse path can resolve it when the
+ * schema does offer it.
+ */
+export const CowboyAgentWorktree = Type.Union(
+  [
+    Type.Literal("new"),
+    Type.Literal("inherit"),
+    Type.Object(
+      {
+        path: Type.String({
+          description:
+            "Absolute path of an existing git worktree of this repository.",
+        }),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Null(),
+  ],
+  { description: WORKTREE_DESCRIPTION },
+);
+
+/**
  * One spawn's parameters: prompt + task_name required; agent_type/model/
  * harness_type/worktree optional, where null means the same as omitting them.
  * Strict constrained sampling rewrites each optional property into a required
@@ -52,25 +75,7 @@ const CowboyAgentParamsSchema = Type.Object(
         description: HARNESS_TYPE_DESCRIPTION,
       }),
     ),
-    worktree: Type.Optional(
-      Type.Union(
-        [
-          Type.Literal("new"),
-          Type.Literal("inherit"),
-          Type.Object(
-            {
-              path: Type.String({
-                description:
-                  "Absolute path of an existing git worktree of this repository.",
-              }),
-            },
-            { additionalProperties: false },
-          ),
-          Type.Null(),
-        ],
-        { description: WORKTREE_DESCRIPTION },
-      ),
-    ),
+    worktree: Type.Optional(CowboyAgentWorktree),
   },
   { additionalProperties: false, required: ["prompt", "task_name"] },
 );

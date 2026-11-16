@@ -7,6 +7,7 @@ import type {
 import { Text } from "@earendil-works/pi-tui";
 import {
   CowboyAgentsSchema,
+  CowboyAgentWorktree,
   type CowboyAgentParams,
 } from "./agents/schemas/cowboy-agents.schema.js";
 import { getAvailableTypes } from "./agents/agent-types.js";
@@ -33,6 +34,7 @@ import {
   getStore,
 } from "./shell.js";
 import { NO_HOST_REASON } from "./host-multiplexer.js";
+import { DEV_MODE } from "./dev-mode.js";
 
 export { COWBOY_TOOLS, COWBOY_TOOL_NAMES };
 
@@ -40,6 +42,24 @@ export { COWBOY_TOOLS, COWBOY_TOOL_NAMES };
 export const REGISTERED_TOOL_NAMES: readonly string[] = COWBOY_TOOL_NAMES;
 
 // The /cowboy UI is imported lazily so none of it runs at boot.
+
+/** One item's properties as `cowboy-agents.schema.ts` declares them. */
+type AgentItemProperties =
+  typeof CowboyAgentsSchema.properties.agents.items.properties;
+
+/**
+ * The item properties the model is offered. The `worktree` target is dev mode
+ * only, so outside dev mode the property is absent from the JSON schema. The
+ * return type keeps it: it describes the call the tool accepts, which is the
+ * same in both modes because a non-dev call runs with a new worktree.
+ */
+function offeredItemProperties(
+  shared: Omit<AgentItemProperties, "worktree">,
+): AgentItemProperties {
+  return DEV_MODE
+    ? { ...shared, worktree: Type.Optional(CowboyAgentWorktree) }
+    : (shared as AgentItemProperties);
+}
 
 /**
  * Rebuild the per-item `agent_type` description so it lists the agent types
@@ -51,7 +71,7 @@ function cowboyAgentsSchemaWithTypes(
   types: readonly string[],
 ): typeof CowboyAgentsSchema {
   const params = Type.Object(
-    {
+    offeredItemProperties({
       prompt: CowboyAgentsSchema.properties.agents.items.properties.prompt,
       task_name:
         CowboyAgentsSchema.properties.agents.items.properties.task_name,
@@ -63,8 +83,7 @@ function cowboyAgentsSchemaWithTypes(
       model: CowboyAgentsSchema.properties.agents.items.properties.model,
       harness_type:
         CowboyAgentsSchema.properties.agents.items.properties.harness_type,
-      worktree: CowboyAgentsSchema.properties.agents.items.properties.worktree,
-    },
+    }),
     { additionalProperties: false, required: ["prompt", "task_name"] },
   );
 
@@ -77,6 +96,14 @@ function cowboyAgentsSchemaWithTypes(
   );
 }
 
+/**
+ * The tool description. Only dev mode's names the `worktree` target, which is
+ * why it also asks the caller to leave every optional parameter alone.
+ */
+const AGENT_TOOL_DESCRIPTION = DEV_MODE
+  ? "Delegate one or more tasks to agents. Each agent gets a fresh pi process and, by default, an isolated worktree — pass a single-item `agents` array to delegate one task, or several to launch them in one call. Every item in `agents` requires its own short `task_name`; a name used twice in one call is rejected before anything spawns. Each agent is instructed to write its complete final response to a report file when it finishes — do not repeat reporting instructions in the `prompt`. Delegation is NON-BLOCKING by default: the call returns immediately with one agent id per item, and each result is delivered to you as a message when that agent settles — do not poll, do not re-delegate the task, do not duplicate the work. Pass `run_in_background: false` ONLY when `agents` has exactly one item AND you need that result inline in the same turn; a non-background call with multiple items is rejected before anything spawns. Always omit optional parameters the user did not explicitly ask for — `agent_type`, `model`, `harness_type`, and `worktree` each take this session's configured default when unset, so never guess or fill them in on the user's behalf. When an agent settles, the completion message names its branch when it has one and says whether the worktree is kept and why. Merge the settled branch with merge_cowboy_branch when the work is good (or reject it), then call cleanup_cowboy_agent to remove it."
+  : "Delegate one or more tasks to agents. Each agent gets an isolated worktree and a fresh pi process — pass a single-item `agents` array to delegate one task, or several to launch them in one call. Every item in `agents` requires its own short `task_name`; a name used twice in one call is rejected before anything spawns. Each agent is instructed to write its complete final response to a report file when it finishes — do not repeat reporting instructions in the `prompt`. Delegation is NON-BLOCKING by default: the call returns immediately with one agent id per item, and each result is delivered to you as a message when that agent settles — do not poll, do not re-delegate the task, do not duplicate the work. Pass `run_in_background: false` ONLY when `agents` has exactly one item AND you need that result inline in the same turn; a non-background call with multiple items is rejected before anything spawns. When an agent settles, the completion message names its `cow-` branch and says whether the worktree is kept and why. Merge the settled branch with merge_cowboy_branch when the work is good (or reject it), then call cleanup_cowboy_agent to remove it.";
+
 /** Re-registers the agent tool once the session's agent types are known. */
 export function registerAgentTool(pi: ExtensionAPI): void {
   const params = cowboyAgentsSchemaWithTypes(getAvailableTypes());
@@ -84,8 +111,7 @@ export function registerAgentTool(pi: ExtensionAPI): void {
   const tool = {
     name: COWBOY_TOOLS.agent,
     label: COWBOY_TOOLS.agent,
-    description:
-      "Delegate one or more tasks to agents. Each agent gets a fresh pi process and, by default, an isolated worktree — pass a single-item `agents` array to delegate one task, or several to launch them in one call. Every item in `agents` requires its own short `task_name`; a name used twice in one call is rejected before anything spawns. Each agent is instructed to write its complete final response to a report file when it finishes — do not repeat reporting instructions in the `prompt`. Delegation is NON-BLOCKING by default: the call returns immediately with one agent id per item, and each result is delivered to you as a message when that agent settles — do not poll, do not re-delegate the task, do not duplicate the work. Pass `run_in_background: false` ONLY when `agents` has exactly one item AND you need that result inline in the same turn; a non-background call with multiple items is rejected before anything spawns. Always omit optional parameters the user did not explicitly ask for — `agent_type`, `model`, `harness_type`, and `worktree` each take this session's configured default when unset, so never guess or fill them in on the user's behalf. When an agent settles, the completion message names its branch when it has one and says whether the worktree is kept and why. Merge the settled branch with merge_cowboy_branch when the work is good (or reject it), then call cleanup_cowboy_agent to remove it.",
+    description: AGENT_TOOL_DESCRIPTION,
     parameters: params,
     execute: executeAgentTool,
     constrainedSampling: CONSTRAINED_SAMPLING,
