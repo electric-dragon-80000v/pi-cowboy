@@ -278,6 +278,59 @@ export function activeRun(queuedAt: number, startedAt: number): RunState {
   };
 }
 
+/**
+ * The run a recorded lifecycle stands for. Every spawn a session adopts came
+ * from a record, so this is the one way an adopted session finds its state: an
+ * in-flight run starts active, and an ended one starts with the outcome the
+ * record carries. A started run has no recorded queue time, so its start stands
+ * in for one — that field is only read on the never-started arm.
+ */
+export function restoreRun(
+  lifecycle: AgentLifecycleState,
+): RunState | undefined {
+  switch (lifecycle.phase) {
+    case "queued":
+      return createRun(lifecycle.queuedAt);
+    case "spawned":
+      return activeRun(lifecycle.startedAt, lifecycle.startedAt);
+    case "settled": {
+      const terminal: RunTerminal =
+        lifecycle.status === "completed"
+          ? { kind: "completed", result: lifecycle.result }
+          : lifecycle.status === "error"
+            ? { kind: "failed", error: lifecycle.error }
+            : { kind: "stopped", initiator: lifecycle.stop.initiator };
+      return {
+        process: {
+          kind: "settled",
+          queuedAt: lifecycle.startedAt,
+          startedAt: lifecycle.startedAt,
+          started: true,
+          terminal,
+          completedAt: lifecycle.completedAt,
+        },
+        shell: "held",
+      };
+    }
+    case "never-started": {
+      const terminal: RunNeverStartedTerminal =
+        lifecycle.status === "error"
+          ? { kind: "failed", error: lifecycle.error }
+          : { kind: "stopped", initiator: lifecycle.stop.initiator };
+      return {
+        process: {
+          kind: "settled",
+          queuedAt: lifecycle.queuedAt,
+          started: false,
+          terminal,
+          completedAt: lifecycle.completedAt,
+        },
+        shell: "held",
+      };
+    }
+  }
+}
+
 /** A queued run the parent discarded never started; its error says so. */
 export function disposeQueuedRun(
   state: RunState,

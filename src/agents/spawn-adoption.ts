@@ -23,9 +23,10 @@
  *                   work tree (keeping it, with that reason, if it is dirty);
  *   - `forget`      nothing is left — leave a tombstone so no reload revives it.
  *
- * What is worth attaching needs no separate set: a restored spawn left `spawned` in
- * the store, with the pane and harness a supervisor needs, *is* the set — and the
- * manager reads it from there (see `AgentManager.attachLiveSpawns`).
+ * What is worth attaching needs no separate set: the store itself is the set,
+ * and the manager reads it from there (see `AgentManager.attachSpawns`). The
+ * spawn's recorded lifecycle tells the session whether there is a process to
+ * supervise or only an outcome to answer with.
  *
  * A restore publishes nothing: the branch already holds what was just read, and
  * only a record whose restored shape differs (a demoted queue entry, a settled

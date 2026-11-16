@@ -155,61 +155,42 @@ export class AgentManager {
   }
 
   /**
-   * Take every live run this process is not yet watching under watch.
+   * Give every recorded spawn a session, whatever phase its run reached. A live
+   * run gets its process supervised; an ended one gets the state a handover, an
+   * export or a steer needs to answer by the same id. The spawn holds all the
+   * facts — the session's attach seam reads its lifecycle to decide what, if
+   * anything, there is to watch.
    *
-   * A spawn in the store that is `spawned` and names a pane and a harness is a run
-   * in flight — verification already settled or forgot every record it could not
-   * vouch for, so what survives is the set worth attaching. That covers both halves
-   * of a session's inheritance: a record this start restored from the branch, and a
-   * spawn an earlier session of this process left behind, which a replacement
-   * session must be able to stop just the same.
-   *
-   * Runs already tracked are skipped, so a start after a start is cheap.
+   * A spawn with no harness has no address a tool could use, so it stays in the
+   * store for status and cleanup alone. Runs already tracked are skipped, which
+   * keeps a start after a start cheap.
    */
-  attachLiveSpawns(): void {
-    for (const spawn of getAgentSpawns().list(["spawned"])) {
+  attachSpawns(): void {
+    const deps = {
+      transport: this.transport,
+      pools: this.pools,
+      onRunEnded: (ended: AgentSpawn) => this.notifyComplete(ended),
+      onFollowUpResult: (ended: AgentSpawn, deliverable: string) =>
+        this.notifyFollowUp(ended, deliverable),
+    };
+    for (const spawn of getAgentSpawns().list()) {
       if (this.sessions.has(spawn.id)) continue;
-      // `attach` answers undefined for a run it could not adopt, and reports that
-      // itself; one such run is one run without a watcher, and the rest still get
-      // theirs.
-      this.attachSpawn(spawn);
+      const harness = spawn.execution.harness;
+      if (harness === undefined) continue;
+      try {
+        this.sessions.set(
+          spawn.id,
+          SubagentSession.attach({ spawn, harness, deps }),
+        );
+      } catch (err) {
+        // A refusal here is a lost control surface, never a lost agent: the
+        // spawn stays listed and cleanable, and the others still get a session.
+        log.warn("spawn could not be attached", {
+          spawnId: spawn.id,
+          detail: errorMessage(err),
+        });
+      }
     }
-  }
-
-  /**
-   * Attach the run behind one spawn, or answer nothing. The spawn's own state is
-   * the gate: an in-flight run names the pane and harness a supervisor needs, and a
-   * spawn missing either is not a run anything here can watch.
-   */
-  private attachSpawn(spawn: AgentSpawn): SubagentSession | undefined {
-    const harness = spawn.execution.harness;
-    if (harness === undefined || spawn.execution.host === undefined)
-      return undefined;
-
-    let session: SubagentSession;
-    try {
-      session = SubagentSession.attach({
-        spawn,
-        harness,
-        deps: {
-          transport: this.transport,
-          pools: this.pools,
-          onRunEnded: (ended) => this.notifyComplete(ended),
-          onFollowUpResult: (ended, deliverable) =>
-            this.notifyFollowUp(ended, deliverable),
-        },
-      });
-    } catch (err) {
-      // A refusal here is a lost control surface, never a lost agent: the spawn
-      // stays listed and cleanable.
-      log.warn("spawn could not be attached", {
-        spawnId: spawn.id,
-        detail: errorMessage(err),
-      });
-      return undefined;
-    }
-    this.sessions.set(spawn.id, session);
-    return session;
   }
   setConcurrency(config: ConcurrencyConfig): void {
     this.pools.setConcurrency(config);

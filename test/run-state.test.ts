@@ -18,6 +18,7 @@ import {
   failStart,
   finishSettling,
   projectLifecycle,
+  restoreRun,
   reviveRun,
   startRun,
   type RunArtifacts,
@@ -543,5 +544,58 @@ describe("projectLifecycle artifacts", () => {
 
     expect(revived).toMatchObject({ phase: "spawned", launch: LAUNCH });
     expect(revived).not.toHaveProperty("worktreeRetentionReason");
+  });
+});
+
+describe("restoreRun", () => {
+  it("gives every recorded phase the run state its lifecycle says", () => {
+    const phases: readonly AgentLifecycleState[] = [
+      { phase: "queued", queuedAt: QUEUED_AT },
+      { phase: "spawned", startedAt: STARTED_AT },
+      {
+        phase: "settled",
+        startedAt: STARTED_AT,
+        status: "completed",
+        result: "done",
+        completedAt: COMPLETED_AT,
+      },
+      {
+        phase: "never-started",
+        queuedAt: QUEUED_AT,
+        status: "error",
+        error: "gone",
+        completedAt: COMPLETED_AT,
+      },
+    ];
+
+    const states = phases.map((lifecycle) => restoreRun(lifecycle));
+    expect(states.map((state) => state?.shell)).toEqual([
+      "held",
+      "held",
+      "held",
+      "held",
+    ]);
+    expect(restoreRun(phases[0]!)).toEqual(createRun(QUEUED_AT));
+    expect(restoreRun(phases[1]!)).toEqual(activeRun(STARTED_AT, STARTED_AT));
+  });
+
+  it("round-trips a settled outcome when the session holds its artifacts", () => {
+    const launch: AgentLaunchState = {
+      resultFile: "/tmp/pi-cowboy/a/result.md",
+    };
+    const retention = { kind: "dirty" } as const;
+    const lifecycle: AgentLifecycleState = {
+      phase: "settled",
+      startedAt: STARTED_AT,
+      launch,
+      worktreeRetentionReason: retention,
+      status: "stopped",
+      stop: { initiator: "user" },
+      completedAt: COMPLETED_AT,
+    };
+
+    const state = restoreRun(lifecycle)!;
+
+    expect(projectLifecycle(state, { launch, retention })).toEqual(lifecycle);
   });
 });

@@ -32,7 +32,7 @@ const shell = vi.hoisted(() => ({
     listAgents: () => [],
     dispose: vi.fn(),
     // The eager attach after wiring; this file asserts the wiring, not the attach.
-    attachLiveSpawns: vi.fn(),
+    attachSpawns: vi.fn(),
   } as unknown,
   active: [] as string[],
   registeredTools: [] as string[],

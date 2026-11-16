@@ -81,7 +81,6 @@ import { buildLaunchPlan, type SubagentLaunchPlan } from "./agent-runner.js";
 import {
   abortQueuedRun,
   activateRun,
-  activeRun,
   createRun,
   disposeLiveRun,
   disposeQueuedRun,
@@ -91,6 +90,7 @@ import {
   finishSettling,
   handoverRun,
   projectLifecycle,
+  restoreRun,
   reviveRun,
   startRun,
   type RunArtifacts,
@@ -179,24 +179,6 @@ function startedAtOf(state: RunState): number | undefined {
   if (process.kind === "queued") return undefined;
   if (process.kind === "settled" && !process.started) return undefined;
   return process.startedAt;
-}
-
-/** The start an attached run already earned: the only phase attach accepts. */
-function existingStartedAt(spawn: AgentSpawn): number {
-  if (spawn.lifecycle.phase !== "spawned") {
-    throw new Error(
-      `agent ${spawn.id} is not a started run, so it cannot be attached`,
-    );
-  }
-  return spawn.lifecycle.startedAt;
-}
-
-/** The queue time an attached run's state starts from: the one it already recorded. */
-function existingQueueTime(spawn: AgentSpawn): number {
-  const { lifecycle } = spawn;
-  return lifecycle.phase === "queued" || lifecycle.phase === "never-started"
-    ? lifecycle.queuedAt
-    : lifecycle.startedAt;
 }
 
 /**
@@ -360,14 +342,17 @@ export class SubagentSession {
     this.args = args;
     this.deps = deps;
     if (existing !== undefined) {
-      // An attached run is already in flight: the store holds it, its process
-      // predates this session, and nothing is built, registered, or launched. It
-      // starts active from the times it recorded — there is no queue to leave.
+      // A spawn the store already holds is adopted, never built or registered
+      // again. Its run state comes from the same record the store was restored
+      // from, whether that run is still in flight or already ended.
+      const run = restoreRun(existing.lifecycle);
+      if (run === undefined) {
+        throw new Error(
+          `agent ${existing.id}'s recorded lifecycle cannot be restored`,
+        );
+      }
       this.stableSpawn = existing;
-      this.run = activeRun(
-        existingQueueTime(existing),
-        existingStartedAt(existing),
-      );
+      this.run = run;
       return;
     }
     this.stableSpawn = buildAgentSpawn(args, this.gate.promise);
@@ -384,14 +369,16 @@ export class SubagentSession {
   }
 
   /**
-   * Adopt a run this session found already in flight — the agent a reload
-   * restored and `spawn-verification.ts` called live. The spawn already exists in
-   * the store, so nothing is built or registered: this session only has to
-   * supervise a process no launch here produced.
+   * Adopt a spawn this session did not create — one a reload restored from the
+   * branch or an earlier session of this process left in the store.
    *
-   * `start()` is never taken on this path. The process is already running, so
-   * there is nothing to launch, no admission to take, and no worktree to
-   * provision; the pane it occupies is the address the record carried.
+   * The run state comes from the recorded lifecycle, so live and ended runs take
+   * the same path: an in-flight run's process is already in its pane and gets a
+   * supervisor, while an ended run needs only the outcome, harness address and
+   * checkout the record carries for a handover, an export or a later steer. A
+   * queued run is adopted as queued; there is no launch here to start it.
+   * `start()` is never taken on this path: nothing is launched, admitted or
+   * provisioned.
    */
   static attach(options: {
     spawn: AgentSpawn;
@@ -400,12 +387,11 @@ export class SubagentSession {
   }): SubagentSession {
     const { spawn, deps } = options;
     const ref = spawn.execution.host;
-    // The two preconditions the attach seam cannot work without: a pane to reach the
-    // run through, and the start it already earned. The constructor reads the same
-    // phase, so this is the one place its absence is reported.
-    if (ref === undefined || spawn.lifecycle.phase !== "spawned") {
+    // Only a run still in flight needs a pane to reach it. An ended one has no
+    // process, so the absence of a ref says nothing about whether it is attachable.
+    if (spawn.lifecycle.phase === "spawned" && ref === undefined) {
       throw new Error(
-        `agent ${spawn.id} is not a started run in a known pane, so it cannot be attached`,
+        `agent ${spawn.id} is in flight but names no pane, so it cannot be attached`,
       );
     }
 
@@ -418,23 +404,30 @@ export class SubagentSession {
     // A nudge this run produces should reach the session that adopted it. A
     // context is not part of a record, so this is the first moment one exists.
     spawn.execution.spawnCtx ??= getSessionCtx();
-    // The report file the run already writes through, so its next report — the one
-    // that settles it — is found where the original launch put it. The guard above
-    // narrowed the lifecycle to `spawned`, the only arm carrying a launch.
-    session.launchState = spawn.lifecycle.launch;
-    const supervisor = createPaneSupervisor({
-      host: deps.transport.createHost(getPiInstance()),
-      resultFile: session.resultFilePath(),
-      supervisorOptions: session.supervisorOptions(),
-      transport: deps.transport,
-    });
-    // Adopted, never launched: the pane already holds the run's process.
-    supervisor.adopt(ref);
-    // No parent binding: the turn that spawned this run is over, so there is no
-    // in-flight parent to inherit an interrupt from (see `bindParentSignal`).
-    // Already active from construction: nothing transitions here, so attaching
-    // publishes no state change the journal would have to drop.
-    session.beginWatch(supervisor, session.run);
+    // The launch and any retention reason ride the lifecycle. Keeping them on
+    // the session's artifacts means a later commit projects the same record back,
+    // including on the ended arm.
+    session.launchState =
+      "launch" in spawn.lifecycle ? spawn.lifecycle.launch : undefined;
+    session.retention =
+      "worktreeRetentionReason" in spawn.lifecycle
+        ? spawn.lifecycle.worktreeRetentionReason
+        : undefined;
+    if (session.isActive() && ref !== undefined) {
+      const supervisor = createPaneSupervisor({
+        host: deps.transport.createHost(getPiInstance()),
+        resultFile: session.resultFilePath(),
+        supervisorOptions: session.supervisorOptions(),
+        transport: deps.transport,
+      });
+      // Adopted, never launched: the pane already holds the run's process.
+      supervisor.adopt(ref);
+      // No parent binding: the turn that spawned this run is over, so there is
+      // no in-flight parent to inherit an interrupt from (see `bindParentSignal`).
+      // Already active from construction: attaching publishes no state change
+      // the journal would have to drop.
+      session.beginWatch(supervisor, session.run);
+    }
     return session;
   }
 

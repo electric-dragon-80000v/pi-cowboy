@@ -198,8 +198,10 @@ export function setupEventListeners(pi: ExtensionAPI): void {
     wireManagerAndCoordinator(boot.runtime);
     // Under watch from the first turn, not from the first stop: a run in flight
     // whose pane still works must report on its own, which is the whole reason it
-    // was kept. Sends nothing and stops nothing — this only starts reading reports.
-    getManagerOrNull()?.attachLiveSpawns();
+    // was kept. Ended runs get a session too, so a handover, export or steer can
+    // still address the id the branch restored. Sends nothing and stops nothing —
+    // this only attaches what the store already records.
+    getManagerOrNull()?.attachSpawns();
     // Awaited: one small clone (~100ms), and awaiting is what guarantees the
     // probe's `finally rm` runs — a fire-and-forget probe orphaned its
     // `.cow-probe-*` directory whenever a quick session exited mid-probe.

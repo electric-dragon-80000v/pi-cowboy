@@ -253,13 +253,20 @@ describe("SubagentSession.attach", () => {
     ).toThrow(/cannot be attached/);
   });
 
-  it("refuses a record that never started", () => {
+  it("adopts a queued record as queued, without inventing a process", async () => {
     const { host } = fakeHost();
     const spawn = adoptedSpawn({}, { phase: "queued", queuedAt: 1 });
+    const session = SubagentSession.attach({
+      spawn,
+      harness: "pi",
+      deps: attachDeps(host),
+    });
 
-    expect(() =>
-      SubagentSession.attach({ spawn, harness: "pi", deps: attachDeps(host) }),
-    ).toThrow(/cannot be attached/);
+    expect(session.isQueued()).toBe(true);
+    await expect(session.steer("hello")).resolves.toMatchObject({
+      kind: "refused",
+      reason: expect.stringContaining("queued"),
+    });
   });
 });
 
@@ -274,7 +281,7 @@ describe("AgentManager on a run in flight", () => {
   it("stops a run it inherited, reaching the recorded pane", async () => {
     store.add(adoptedSpawn());
     const { manager: fleet, startCalls, stopCalls } = manager();
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await expect(fleet.abort("aaaaaaaa", "user")).resolves.toBe(true);
 
@@ -302,7 +309,7 @@ describe("AgentManager on a run in flight", () => {
   it("attaches once: a second stop reuses the session it built", async () => {
     store.add(adoptedSpawn());
     const { manager: fleet, stopCalls } = manager();
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await fleet.abort("aaaaaaaa", "user");
     // The first stop settled the run, so a second one has nothing live to stop.
@@ -315,7 +322,7 @@ describe("AgentManager on a run in flight", () => {
   it("steers through the recorded pane once it has attached", async () => {
     store.add(adoptedSpawn());
     const { manager: fleet } = manager();
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await expect(fleet.steer("aaaaaaaa", "keep going")).resolves.toEqual({
       kind: "delivered",
@@ -329,7 +336,7 @@ describe("AgentManager on a run in flight", () => {
     store.add(spawn);
     expect(spawn.execution.spawnCtx).toBeUndefined();
     const { manager: fleet } = manager();
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await fleet.abort("aaaaaaaa", "user");
 
@@ -351,7 +358,7 @@ describe("AgentManager on a run in flight", () => {
     store.add(spawn);
     const { manager: fleet, stopCalls } = manager();
 
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await expect(fleet.abort("aaaaaaaa", "user")).resolves.toBe(false);
     expect(stopCalls).toEqual([]);
@@ -374,7 +381,7 @@ describe("AgentManager on a run in flight", () => {
     );
     const { manager: fleet, stopCalls } = manager();
 
-    fleet.attachLiveSpawns();
+    fleet.attachSpawns();
 
     await expect(fleet.abort("aaaaaaaa", "user")).resolves.toBe(false);
     expect(stopCalls).toEqual([]);
@@ -399,7 +406,7 @@ describe("the spawn's own state is what makes a run attachable", () => {
     first.built.dispose();
 
     const second = fleet();
-    second.built.attachLiveSpawns();
+    second.built.attachSpawns();
 
     await expect(second.built.abort("aaaaaaaa", "user")).resolves.toBe(true);
     expect(second.stopCalls.map((ref) => ref.paneId)).toEqual(["w1:p1"]);
@@ -410,7 +417,7 @@ describe("the spawn's own state is what makes a run attachable", () => {
     store.add(adoptedSpawn());
     const { built, startCalls, stopCalls } = fleet();
 
-    built.attachLiveSpawns();
+    built.attachSpawns();
 
     // Watching is not driving: nothing launched, nothing stopped.
     expect(startCalls).toEqual([]);
@@ -422,15 +429,15 @@ describe("the spawn's own state is what makes a run attachable", () => {
     store.add(adoptedSpawn());
     const { built, stopCalls } = fleet();
 
-    built.attachLiveSpawns();
-    built.attachLiveSpawns();
+    built.attachSpawns();
+    built.attachSpawns();
     await built.abort("aaaaaaaa", "user");
 
     expect(stopCalls).toHaveLength(1);
     built.dispose();
   });
 
-  it("attaches nothing to a run that is queued, settled, or ended unstarted", async () => {
+  it("attaches a recorded run in every phase; only a queued one can be cancelled", async () => {
     store.add(adoptedSpawn({}, { phase: "queued", queuedAt: 1 }));
     store.add(
       adoptedSpawn(
@@ -458,9 +465,11 @@ describe("the spawn's own state is what makes a run attachable", () => {
     );
     const { built, stopCalls } = fleet();
 
-    built.attachLiveSpawns();
+    built.attachSpawns();
 
-    await expect(built.abort("aaaaaaaa", "user")).resolves.toBe(false);
+    // A queued run has no process but can still be cancelled; the two ended
+    // ones are already over, so there is nothing to stop.
+    await expect(built.abort("aaaaaaaa", "user")).resolves.toBe(true);
     await expect(built.abort("bbbbbbbb", "user")).resolves.toBe(false);
     await expect(built.abort("cccccccc", "user")).resolves.toBe(false);
     expect(stopCalls).toEqual([]);
@@ -496,7 +505,7 @@ describe("attaching does not grow the session file", () => {
     journal.replay();
     store.setObserver(journal);
 
-    built.attachLiveSpawns();
+    built.attachSpawns();
 
     // Attaching an already-active run moves nothing, so nothing is published; and
     // the one entry written before the reload is the only one on the branch.
@@ -523,7 +532,7 @@ describe("an eagerly attached run reports on its own", () => {
     });
     built.setOnComplete((settled) => ended.push(settled.lifecycle.phase));
 
-    built.attachLiveSpawns();
+    built.attachSpawns();
     // The run keeps working and writes its result once the watch is running.
     report = { content: "finished", mtime: 1 };
     // Two confirm polls, which is how a report becomes final.
@@ -555,7 +564,7 @@ describe("an eagerly attached run reports on its own", () => {
     });
     built.setOnComplete((settled) => ended.push(settled.lifecycle.phase));
 
-    built.attachLiveSpawns();
+    built.attachSpawns();
     await vi.advanceTimersByTimeAsync(4_500);
 
     expect(ended).toEqual(["settled"]);
@@ -566,6 +575,99 @@ describe("an eagerly attached run reports on its own", () => {
     });
     built.dispose();
     vi.useRealTimers();
+  });
+});
+
+describe("AgentManager on runs a reload restored", () => {
+  /** The shape the journal holds after a run finished in the previous session. */
+  function settledSpawn(): AgentSpawn {
+    return adoptedSpawn(
+      {},
+      {
+        phase: "settled",
+        startedAt: 1_700_000_000_000,
+        launch: { resultFile: "/tmp/pi-cowboy/aaaaaaaa/result.md" },
+        status: "completed",
+        result: "the recorded result",
+        completedAt: 1_700_000_010_000,
+      },
+    );
+  }
+
+  function builtFleet() {
+    const { host, startCalls } = fakeHost();
+    return {
+      fleet: new AgentManager(new ConcurrencyPools(), transport(host)),
+      startCalls,
+    };
+  }
+
+  it("attaches live and ended runs in one pass", async () => {
+    const live = adoptedSpawn();
+    const ended = { ...settledSpawn(), id: "bbbbbbbb" };
+    store.add(live);
+    store.add(ended);
+    const { fleet } = builtFleet();
+
+    fleet.attachSpawns();
+
+    await expect(fleet.abort("aaaaaaaa", "user")).resolves.toBe(true);
+    const outcome = await fleet.exportHandover("bbbbbbbb");
+    expect(outcome.kind).toBe("faulted");
+    if (outcome.kind === "faulted") {
+      expect(outcome.fault.kind).not.toBe("agent-unknown");
+    }
+    fleet.dispose();
+  });
+
+  it("answers by id after the attach pass instead of reporting an unknown agent", async () => {
+    store.add(settledSpawn());
+    const { fleet, startCalls } = builtFleet();
+
+    // Before the pass, a restored spawn has no session to answer the tool.
+    await expect(fleet.exportHandover("aaaaaaaa")).resolves.toMatchObject({
+      kind: "faulted",
+      fault: { kind: "agent-unknown" },
+    });
+
+    fleet.attachSpawns();
+    const outcome = await fleet.exportHandover("aaaaaaaa");
+
+    // The id is known now: the read gets as far as asking the harness, which
+    // this test's registry cannot export — the old "not found" fault is gone.
+    expect(outcome.kind).toBe("faulted");
+    if (outcome.kind === "faulted") {
+      expect(outcome.fault.kind).toBe("harness-cannot-export-session");
+    }
+    expect(startCalls).toEqual([]);
+    fleet.dispose();
+  });
+
+  it("revives a restored settled run on a steer", async () => {
+    store.add(settledSpawn());
+    const { fleet, startCalls } = builtFleet();
+    fleet.attachSpawns();
+
+    await expect(fleet.steer("aaaaaaaa", "keep going")).resolves.toEqual({
+      kind: "delivered",
+    });
+    expect(fleet.getSpawn("aaaaaaaa")?.lifecycle.phase).toBe("spawned");
+    expect(startCalls).toEqual([]);
+    fleet.dispose();
+  });
+
+  it("leaves an ended spawn with no recorded harness alone", async () => {
+    const spawn = settledSpawn();
+    spawn.execution.harness = undefined;
+    store.add(spawn);
+    const { fleet } = builtFleet();
+    fleet.attachSpawns();
+
+    await expect(fleet.exportHandover("aaaaaaaa")).resolves.toMatchObject({
+      kind: "faulted",
+      fault: { kind: "agent-unknown" },
+    });
+    fleet.dispose();
   });
 });
 
