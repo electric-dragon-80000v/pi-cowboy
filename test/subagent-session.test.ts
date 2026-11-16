@@ -2158,6 +2158,46 @@ describe("handover", () => {
     expect(fs.existsSync(staleReport)).toBe(false);
   });
 
+  it("hands over a run that a stop ended first", async () => {
+    const fake = makeFakeHost({ observeState: "working" });
+    const run = makeSession({
+      host: fake.host,
+      deliverable: new ScriptedDeliverable(),
+      hostRef: fake.ref,
+    });
+    run.session.start(makeReservation());
+    await driveRun(0);
+    expect(run.session.isActive()).toBe(true);
+
+    // The stop that ends the run aborts its controller; the handover's launch
+    // must not reuse that spent signal.
+    await expect(run.session.abort("user")).resolves.toBe(true);
+    expect(run.session.isSettled()).toBe(true);
+
+    registry.overrides.set(
+      "pi",
+      exportingPi(async () => ({
+        sessionId: "ses_1",
+        records: [
+          { kind: "user", content: "fix it" },
+          { kind: "assistant", content: "fixed" },
+        ],
+      })),
+    );
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "handed-over",
+        from: "pi",
+        to: "pi",
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    expect(fake.startCalls).toHaveLength(2);
+    expect(run.session.isActive()).toBe(true);
+  });
+
   it("hands the whole chain on, not just the run it replaced", async () => {
     const run = await settledRun();
     // The state one earlier handover leaves: the run it ended is archived, and

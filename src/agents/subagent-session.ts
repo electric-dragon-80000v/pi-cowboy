@@ -543,6 +543,9 @@ export class SubagentSession {
     }
     // Snapshot settlement up front: the message delivers as the run was.
     const wasSettled = this.isSettled();
+    // A delivered message revives a settled run, and that next run must not
+    // inherit the abort a stop left on the run it replaces.
+    if (wasSettled) this.renewAbortController();
     // The harness owns how its process takes input; this is the only steer
     // route, so nothing here knows a pane command or a TUI's submit key. Read off
     // the spawn: it is the harness that actually occupies the pane, which a
@@ -892,7 +895,9 @@ export class SubagentSession {
     });
     this.commit(handoverRun(this.run, Date.now()));
     // The next run belongs to the same spawn, so it answers to the same parent:
-    // an abort must stop it as it would stop a revive.
+    // an abort must stop it as it would stop a revive. The controller that
+    // stopped the ended run is spent; this run starts with its own.
+    this.renewAbortController();
     this.bindParentSignal();
     await this.launch({ kind: "handover" });
     if (!this.isActive()) {
@@ -1170,6 +1175,15 @@ export class SubagentSession {
 
   private launchAborted(): boolean {
     return this.spawn.execution.abortController.signal.aborted;
+  }
+
+  /**
+   * The controller belongs to the run that is launching or active, not to the
+   * spawn: a stop aborts the one it ended, and nothing a later run launches may
+   * start already aborted.
+   */
+  private renewAbortController(): void {
+    this.spawn.execution.abortController = new AbortController();
   }
 
   /** Report-only: poll for the report; no liveness or turn policy. */
