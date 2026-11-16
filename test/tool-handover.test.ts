@@ -93,6 +93,32 @@ describe("executeHandoverAgentTool", () => {
     expect(result.details.severity).toBe("success");
   });
 
+  it("reads the configured defaults injected by the shared tool_call listener", async () => {
+    handoverMock.mockResolvedValue({
+      kind: "handed-over",
+      from: "pi",
+      to: "claude",
+    });
+    const injected = {
+      agent_id: ID,
+      harness_type: "claude",
+      _configuredModel: "claude/sonnet-4.6",
+      _configuredThinking: "high",
+    } as HandoverAgentParams;
+
+    await invoke(injected);
+
+    expect(handoverMock).toHaveBeenCalledWith(ID, {
+      harness: "claude",
+      modelChoice: {
+        harness: "claude",
+        key: "claude/sonnet-4.6",
+        name: "claude/sonnet-4.6",
+        thinking: "high",
+      },
+    });
+  });
+
   it("trims the agent id before lookup and reporting", async () => {
     handoverMock.mockResolvedValue({
       kind: "faulted",

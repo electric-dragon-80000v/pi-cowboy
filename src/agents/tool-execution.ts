@@ -41,8 +41,10 @@ import { getAgentConfig } from "./agent-types.js";
 import {
   requestedHarnessId,
   resolveAgentTypeParam,
+  resolveDefaultAgentType,
   resolveHarnessType,
 } from "./spawn-defaults.js";
+import type { AnyHarnessId } from "./harness.js";
 import { runBatch } from "./batch.js";
 import {
   foldSeverity,
@@ -244,27 +246,78 @@ export async function executeStopAgentTool(
 }
 
 /**
- * Inject the configured default model and the agent-type-resolved thinking
- * level into each item in `agents`. Per-item: a batch may carry items with
- * different `agent_type`s and different effective models.
+ * Inject the configured model and thinking level under the private keys the
+ * model request reads. Shared by every tool that launches a run: a spawn reads
+ * its items' harness and type, a handover reads the target and the type of the
+ * agent being handed over. A caller's own values are never replaced.
+ */
+function injectConfiguredDefaults(
+  item: Record<string, unknown>,
+  ctx: ExtensionContext,
+  subagentType: string,
+  harnessType: AnyHarnessId,
+): void {
+  const agentConfig = getAgentConfig(subagentType);
+  const parentModelId = ctx.model
+    ? `${ctx.model.provider}/${ctx.model.id}`
+    : null;
+  const calledModel = readModelKey(item.model);
+  const effectiveModel =
+    calledModel ??
+    getStore().modelFor(
+      subagentType,
+      parentModelId,
+      agentConfig,
+      harnessType,
+      getHarnessRegistry().family(harnessType),
+    );
+  if (effectiveModel && !calledModel) {
+    item[CONFIGURED_MODEL_KEY] = effectiveModel;
+  }
+
+  // The configured level travels in its own key for the same reason the model
+  // does: it is a default this extension chose, and the resolution that reads
+  // it must be able to tell it apart from the caller's own `thinking`. The
+  // session's current level serves as the Pi family's final fallback.
+  if (item.thinking === undefined) {
+    const thinking = getStore().thinkingFor(
+      subagentType,
+      agentConfig,
+      harnessType,
+      getHarnessRegistry().family(harnessType),
+      ctx.thinkingLevel,
+    );
+    if (thinking !== undefined) item[CONFIGURED_THINKING_KEY] = thinking;
+  }
+}
+
+/**
+ * Inject configured model defaults into each tool that launches a run. A batch
+ * of spawns resolves a harness and type per item; a handover takes the explicit
+ * target harness and inherits the type of the agent whose run it replaces.
  */
 export async function toolCallListener(
   event: ToolCallEvent,
   ctx: ExtensionContext,
 ): Promise<void> {
-  if (event.toolName !== "cowboy_agent") return;
+  const input = event.input as Record<string, unknown>;
+  if (event.toolName === COWBOY_TOOLS.handoverAgent) {
+    const harness = requestedHarnessId(input.harness_type);
+    // An unknown or unlaunchable target is the tool's refusal; leave its args
+    // alone so that refusal is the one the caller sees.
+    if (harness === undefined) return;
+    const agentId = readModelKey(input.agent_id) ?? "";
+    const type =
+      getManager().getSpawn(agentId)?.display.type ?? resolveDefaultAgentType();
+    injectConfiguredDefaults(input, ctx, type, harness);
+    return;
+  }
+  if (event.toolName !== COWBOY_TOOLS.agent) return;
 
-  const input = event.input as { agents?: Array<Record<string, unknown>> };
-  const items = input.agents ?? [];
-  const parentModelId = ctx.model
-    ? `${ctx.model.provider}/${ctx.model.id}`
-    : null;
-
+  const items =
+    (input as { agents?: Array<Record<string, unknown>> }).agents ?? [];
   for (const item of items) {
-    const calledType = item.agent_type;
-    // Look up the type the spawn will actually resolve.
-    const subagentType = resolveAgentTypeParam(calledType);
-    const agentConfig = getAgentConfig(subagentType);
+    const subagentType = resolveAgentTypeParam(item.agent_type);
     // The requested harness only when this machine can launch it; parse raises
     // the real error for an unknown or unlaunchable value, so a bad one here
     // leaves the template/config resolution in charge instead of throwing.
@@ -272,36 +325,6 @@ export async function toolCallListener(
     // Resolved the way the launch resolves it — post-availability-fallback —
     // because the harness names which default the chain below consults.
     const harnessType = resolveHarnessType(subagentType, requested);
-
-    // The configured default travels in its own key so a caller-supplied model
-    // is never mistaken for the injected default across repeated hook runs.
-    const calledModel = readModelKey(item.model);
-    const effectiveModel =
-      calledModel ??
-      getStore().modelFor(
-        subagentType,
-        parentModelId,
-        agentConfig,
-        harnessType,
-        getHarnessRegistry().family(harnessType),
-      );
-    if (effectiveModel && !calledModel) {
-      item[CONFIGURED_MODEL_KEY] = effectiveModel;
-    }
-
-    // The configured level travels in its own key for the same reason the model
-    // does: it is a default this extension chose, and the resolution that reads
-    // it must be able to tell it apart from the caller's own `thinking`. The
-    // session's current level serves as the Pi family's final fallback.
-    if (item.thinking === undefined) {
-      const thinking = getStore().thinkingFor(
-        subagentType,
-        agentConfig,
-        harnessType,
-        getHarnessRegistry().family(harnessType),
-        ctx.thinkingLevel,
-      );
-      if (thinking !== undefined) item[CONFIGURED_THINKING_KEY] = thinking;
-    }
+    injectConfiguredDefaults(item, ctx, subagentType, harnessType);
   }
 }

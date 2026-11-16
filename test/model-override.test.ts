@@ -142,6 +142,7 @@ let worktreeRoot: string;
 function managerFake(): {
   listAgents(): AgentSpawn[];
   mintSpawnId(): string;
+  getSpawn(id: string): AgentSpawn | undefined;
 } {
   return {
     listAgents: () => [],
@@ -149,6 +150,8 @@ function managerFake(): {
       mintSpawnIdMock();
       return AGENT_ID;
     },
+    getSpawn: (id: string) =>
+      ({ id, display: { type: "general-purpose" } }) as AgentSpawn,
   };
 }
 
@@ -757,5 +760,49 @@ describe("cowboy_agent per-call model override", () => {
     expect(details.agents[0].modelId).toBe("special-model");
     // A foreground run that completed reads as a success.
     expect(result.details.severity).toBe("success");
+  });
+});
+
+describe("handover_cowboy_agent — the shared model injection", () => {
+  afterEach(() => {
+    setHarnessAvailability(unprobed());
+  });
+
+  it("injects the target harness's configured default into the handover args", async () => {
+    setHarnessAvailability(probed(["pi", "claude"]));
+    configuredModelMock.mockReturnValue("claude/sonnet-4.6");
+
+    const input: Record<string, unknown> = {
+      agent_id: AGENT_ID,
+      harness_type: "claude",
+    };
+    await toolCallListener(
+      {
+        toolName: "handover_cowboy_agent",
+        input,
+      } as unknown as ToolCallEvent,
+      ctx,
+    );
+
+    // The same private keys the spawn path writes, so the handover tool reads
+    // the layered default through the one model-request vocabulary.
+    expect(input._configuredModel).toBe("claude/sonnet-4.6");
+  });
+
+  it("leaves an unlaunchable target alone for the tool to refuse", async () => {
+    configuredModelMock.mockReturnValue("claude/sonnet-4.6");
+    const input: Record<string, unknown> = {
+      agent_id: AGENT_ID,
+      harness_type: "no-such-harness",
+    };
+    await toolCallListener(
+      {
+        toolName: "handover_cowboy_agent",
+        input,
+      } as unknown as ToolCallEvent,
+      ctx,
+    );
+
+    expect(input._configuredModel).toBeUndefined();
   });
 });
