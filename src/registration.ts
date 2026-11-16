@@ -4,7 +4,7 @@ import type {
   ExtensionCommandContext,
   ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { renderSubagentResult } from "./agents/result-renderer.js";
 import {
   CowboyAgentsSchema,
   CowboyAgentWorktree,
@@ -172,16 +172,7 @@ export function registerTools(pi: ExtensionAPI): void {
   pi.registerTool(withCowboyRenderer(handoverAgentTool));
   pi.registerTool(withCowboyRenderer(cleanupAgentTool));
 
-  pi.registerMessageRenderer("subagent-result", (message, _options, theme) => {
-    const content =
-      typeof message === "object" &&
-      typeof (message as { content?: unknown }).content === "string"
-        ? (message as { content: string }).content
-        : "";
-    const isError = /\b(error|stopped)\b/.test(content.slice(0, 200));
-    const icon = theme.fg(isError ? "error" : "success", isError ? "✗" : "✓");
-    return new Text(`${icon} ${content}`, 0, 0);
-  });
+  pi.registerMessageRenderer("subagent-result", renderSubagentResult);
 }
 
 /** The one place the command name is spelled. */
