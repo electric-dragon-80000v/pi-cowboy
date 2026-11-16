@@ -1,3 +1,15 @@
+# [0.36.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.35.0...v0.36.0) (2026-11-16)
+
+
+### Bug Fixes
+
+* **agents:** disable worktree parameter on prod ([ccd1cd9](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ccd1cd9ed5bf572fbd86d247d5b6090c932d4c0d))
+
+
+### Features
+
+* **harness:** support harness derivation and default environment variables ([f913ba4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f913ba4b7a9155252937593c52e6d495682b73d6))
+
 # [0.35.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.34.0...v0.35.0) (2026-11-15)
 
 
