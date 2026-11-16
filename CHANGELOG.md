@@ -1,3 +1,11 @@
+## [0.36.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.1...v0.36.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **agents:** attach every recorded spawn after a session reload ([5b0f32a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/5b0f32aded395f17d74a73a45afa8bc7c7a9cf37))
+* **harness:** pass staged paths to stop and steer ([859c6dc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/859c6dc8a70754e182ce9f3cdaccb868f76b6dbc))
+
 ## [0.36.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.0...v0.36.1) (2026-11-16)
 
 
