@@ -1,3 +1,10 @@
+## [0.36.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.2...v0.36.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* **agents:** model parameter agent handovers ([872d0aa](https://github.com/electric-dragon-80000v/pi-cowboy/commit/872d0aa73d75e37c750b0b998440d71726f4b10a))
+
 ## [0.36.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.1...v0.36.2) (2026-11-16)
 
 
