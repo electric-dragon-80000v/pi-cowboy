@@ -22,7 +22,6 @@ import {
   type HarnessId,
   type PluginHarness,
 } from "../src/agents/harness.js";
-import { harnessFamilyOf } from "../src/agents/harness/harness-registry.js";
 import { getHarnessRegistry, installSessionRegistries } from "../src/shell.js";
 
 /** A registered-only harness: this file is about resolution, not availability. */
@@ -252,7 +251,9 @@ describe("spawn-defaults — harness", () => {
       configured.harnessAvailability = unprobed();
       configured.harnessType = harness;
 
-      expect(harnessFamilyOf(resolveHarnessType("general-purpose"))).toBe("pi");
+      expect(
+        getHarnessRegistry().family(resolveHarnessType("general-purpose")),
+      ).toBe("pi");
     },
   );
 
@@ -260,9 +261,9 @@ describe("spawn-defaults — harness", () => {
     configured.harnessAvailability = unprobed();
     configured.harnessType = "opencode";
 
-    expect(harnessFamilyOf(resolveHarnessType("general-purpose"))).toBe(
-      "opencode",
-    );
+    expect(
+      getHarnessRegistry().family(resolveHarnessType("general-purpose")),
+    ).toBe("opencode");
   });
 });
 

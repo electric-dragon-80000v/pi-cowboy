@@ -1982,6 +1982,7 @@ describe("handover", () => {
     return {
       id: "pi",
       displayName: "Pi",
+      family: "pi",
       agentMultiplexerKind: "pi",
       availability: () => ({ status: "available" }),
       prepare: async () => {},

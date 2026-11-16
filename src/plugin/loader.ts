@@ -211,6 +211,14 @@ function pluginApi(
       }
       return accepted;
     },
+    deriveHarness: (derivation) => {
+      const accepted = registries.harnesses.derive(derivation);
+      if (accepted) {
+        onRegistered(() => registries.harnesses.unregister(derivation.id));
+      }
+      return accepted;
+    },
+    getHarness: (id) => registries.harnesses.get(id),
     registerMultiplexer: (multiplexer) => {
       const accepted = registries.multiplexers.register(multiplexer);
       if (accepted) {

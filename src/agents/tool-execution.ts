@@ -23,7 +23,7 @@ import {
   CONFIGURED_THINKING_KEY,
   readModelKey,
 } from "../models/model-request.js";
-import { getManager, getStore } from "../shell.js";
+import { getHarnessRegistry, getManager, getStore } from "../shell.js";
 import {
   formatActiveAgents,
   runDelegationBatch,
@@ -263,6 +263,7 @@ export async function toolCallListener(
         parentModelId,
         agentConfig,
         harnessType,
+        getHarnessRegistry().family(harnessType),
       );
     if (effectiveModel && !calledModel) {
       item[CONFIGURED_MODEL_KEY] = effectiveModel;
@@ -277,6 +278,7 @@ export async function toolCallListener(
         subagentType,
         agentConfig,
         harnessType,
+        getHarnessRegistry().family(harnessType),
         ctx.thinkingLevel,
       );
       if (thinking !== undefined) item[CONFIGURED_THINKING_KEY] = thinking;

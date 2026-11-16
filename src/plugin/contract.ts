@@ -17,7 +17,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { MultiplexerRegistration } from "../agents/multiplexer-registry.js";
-import type { PluginHarness } from "../agents/harness.js";
+import type { RegisteredHarness } from "../agents/harness/harness-registry.js";
+import type { HarnessDerivation, PluginHarness } from "../agents/harness.js";
 
 export type { PluginHarness } from "../agents/harness.js";
 export type { MultiplexerRegistration as PluginMultiplexer } from "../agents/multiplexer-registry.js";
@@ -40,6 +41,25 @@ export interface CowboyPluginApi {
    * one every session.
    */
   registerHarness(harness: PluginHarness): boolean;
+  /**
+   * Register a variant of an existing harness: the base's implementation, this
+   * variant's environment defaults, and its own host-side hooks. The variant is
+   * an ordinary harness id from here on — its own config section, model and
+   * thinking defaults, concurrency pools and `harness_type` value — so nothing
+   * above this call needs to know it was derived.
+   *
+   * The base is resolved when the variant is used, not here, so a plugin may
+   * register a variant of a harness another plugin registers later. A base that
+   * never registers leaves the variant unavailable with a notice naming it.
+   */
+  deriveHarness(derivation: HarnessDerivation): boolean;
+  /**
+   * The harness registered under one id, or undefined when this session has
+   * none. It answers for what has registered so far — plugins load in
+   * package-name order — and is a read-only view: `deriveHarness` takes its base
+   * by id, so a wrapper never needs to look one up first.
+   */
+  getHarness(id: string): RegisteredHarness | undefined;
   /**
    * Register one execution multiplexer. Its `hosts()` decides whether this
    * process runs inside it, which is both what makes a session run at all and

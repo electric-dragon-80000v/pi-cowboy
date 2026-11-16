@@ -21,7 +21,6 @@ import { ThinkingLevelSchema, type ThinkingLevel } from "../../types.js";
 import { getAgentConfig, getAllTypes } from "../../agents/agent-types.js";
 import { resolveHarnessType } from "../../agents/spawn-defaults.js";
 import {
-  harnessFamilyOf,
   modelKeysOf,
   type HarnessModelOptions,
 } from "../../agents/harness/harness-registry.js";
@@ -390,7 +389,8 @@ function buildModelSettingsList(
           ? (piDefaultThinking ?? null)
           : null;
       },
-      harnessFamilyFor: (type) => harnessFamilyOf(resolveHarnessType(type)),
+      harnessFamilyFor: (type) =>
+        getHarnessRegistry().family(resolveHarnessType(type)),
       hasProjectModelKey: (key) => store.hasProjectModelKey(key),
       hasProjectThinkingKey: (type) => store.hasProjectThinkingKey(type),
       parentModelId,
@@ -496,6 +496,7 @@ function buildModelSettingsList(
                   parentModelId,
                   config,
                   harnessId,
+                  getHarnessRegistry().family(harnessId),
                 );
                 // The type inherits both values, so its picker opens on what
                 // the launch would send and writes only what is picked.
@@ -506,7 +507,7 @@ function buildModelSettingsList(
                   displayedThinking({
                     type: typeName,
                     agentConfig: config,
-                    harnessFamily: harnessFamilyOf(harnessId),
+                    harnessFamily: getHarnessRegistry().family(harnessId),
                     config: agentConfigSnapshot,
                     harnessDefault: store.defaultThinkingForHarness(harnessId),
                     parentThinking: parentThinking ?? undefined,

@@ -294,6 +294,7 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
       "parent/parent-1",
       { harnessType: AGENT_HARNESS },
       AGENT_HARNESS,
+      "pi",
     );
   });
 
@@ -307,6 +308,7 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
       "general-purpose",
       "parent/parent-1",
       { harnessType: "pi-bolt" },
+      "pi",
       "pi",
     );
   });
@@ -322,6 +324,7 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
       "parent/parent-1",
       { harnessType: "pi" },
       AGENT_HARNESS,
+      "pi",
     );
     // The request rides to the spawn as the pool identity the manager resolves.
     expect(options.requestedHarness).toBe(AGENT_HARNESS);
@@ -347,6 +350,7 @@ describe("cowboy_agent — the launching harness reaches model resolution", () =
       "parent/parent-1",
       { harnessType: AGENT_HARNESS },
       AGENT_HARNESS,
+      "pi",
     );
 
     await expect(

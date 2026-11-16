@@ -25,8 +25,8 @@ import {
   isPiFamilyHarness,
   type AnyHarnessId,
   type HarnessConfigIssue,
+  type HarnessFamily,
 } from "../agents/harness.js";
-import { harnessFamilyOf } from "../agents/harness/harness-registry.js";
 import { DEFAULT_MAX_EXCLUDED_RATIO } from "../agents/handover.js";
 import type { EnvOverrides } from "../agents/harness/env-overrides.js";
 import { isRecord } from "../predicates.js";
@@ -397,12 +397,13 @@ export class ConfigStore {
     type: string,
     agentConfig: { thinkingByFamily?: ThinkingByFamily } | undefined,
     harnessId: AnyHarnessId,
+    harnessFamily: HarnessFamily | undefined,
     parentThinking?: string,
   ): string | undefined {
     return resolveThinking({
       subagentType: type,
       agentConfig,
-      harnessFamily: harnessFamilyOf(harnessId),
+      harnessFamily,
       config: this.layers.effective,
       harnessDefault: this.defaultThinkingForHarness(harnessId),
       parentThinking,
@@ -591,11 +592,12 @@ export class ConfigStore {
     parentModelId: string | null,
     agentConfig: { modelsByFamily?: ModelsByFamily } | undefined,
     harnessId: AnyHarnessId,
+    harnessFamily: HarnessFamily | undefined,
   ): string | null {
     return resolveModel({
       subagentType: type,
       agentConfig,
-      harnessFamily: harnessFamilyOf(harnessId),
+      harnessFamily,
       config: this.layers.effective,
       harnessDefault: this.defaultModelForHarness(harnessId),
       parentModelId,

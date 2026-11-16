@@ -96,7 +96,13 @@ export async function askSpawnConfiguration(
 
   /** Effective model for a type under a harness, resolved per call so a change re-derives it. */
   const modelFor = (type: string, harness: AnyHarnessId): string =>
-    store.modelFor(type, parentModelId, getAgentConfig(type), harness) ?? "";
+    store.modelFor(
+      type,
+      parentModelId,
+      getAgentConfig(type),
+      harness,
+      getHarnessRegistry().family(harness),
+    ) ?? "";
 
   /** The choices this spawn makes, against the lists this menu tree loaded. */
   const choices = spawnChoices({
@@ -120,6 +126,7 @@ export async function askSpawnConfiguration(
       type,
       getAgentConfig(type),
       harness,
+      getHarnessRegistry().family(harness),
       session.thinkingLevel,
     );
 

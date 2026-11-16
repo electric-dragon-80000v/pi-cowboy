@@ -37,6 +37,7 @@ import {
   type BuiltinLaunchRequest,
   type Harness,
   type HarnessConfigIssue,
+  type HarnessDerivation,
   type HarnessFamily,
   type HarnessId,
   type HarnessLaunch,
@@ -93,6 +94,15 @@ const BUILTIN_FAMILIES: Record<HarnessId, HarnessFamily> = {
 export interface RegisteredHarness extends Harness<HarnessLaunch> {
   readonly id: AnyHarnessId;
   readonly displayName: string;
+  /**
+   * The template table and launch request this harness reads: a built-in's own
+   * family, a derived harness's inherited one, or `undefined` for a plugin
+   * harness, whose family is its id and which keys no template table. Reading
+   * it is how the layers above the registry stop asking whether an id happens
+   * to be a built-in: an id with a family reads that family's slices, an id
+   * without one reads none.
+   */
+  readonly family: HarnessFamily | undefined;
 }
 
 /**
@@ -163,6 +173,7 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
   return {
     id,
     displayName: BUILTIN_DISPLAY_NAMES[id],
+    family: BUILTIN_FAMILIES[id],
     // The codec is what `validateConfigs` reads for a built-in too, so the
     // uniform entry carries it.
     config: harness.config,
@@ -177,6 +188,9 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
     ...(harness.inheritedEnv === undefined
       ? {}
       : { inheritedEnv: harness.inheritedEnv.bind(harness) }),
+    ...(harness.defaultEnv === undefined
+      ? {}
+      : { defaultEnv: harness.defaultEnv.bind(harness) }),
     prepare: (request) =>
       withBuiltin(id, request.launch, (typed, launch) =>
         typed.prepare({
@@ -292,6 +306,17 @@ export interface HarnessRegistry {
    */
   register(harness: PluginHarness): boolean;
   /**
+   * Register a variant of an existing harness: the base's implementation, this
+   * variant's environment defaults and host-side hooks. Refused like `register`
+   * when the id is a built-in's, already taken, or names its own base.
+   *
+   * The base's presence is answered at use time, not here: plugins load in
+   * package-name order, so a variant may register before the harness it derives
+   * from, and a base that never registers leaves the variant unavailable with a
+   * notice naming it rather than half-unloading the plugin that declared it.
+   */
+  derive(derivation: HarnessDerivation): boolean;
+  /**
    * Forget one plugin harness — the undo a plugin's own load needs when its
    * factory throws after registering. A built-in id is never removed, and
    * neither is an id this registry did not register.
@@ -327,6 +352,12 @@ export interface HarnessRegistry {
   /** The display form of one harness; an unregistered id shows as itself. */
   displayName(id: AnyHarnessId): string;
   /**
+   * The family whose template table and launch request this id reads. A derived
+   * harness reads its base's, transitively; `undefined` for a plugin harness,
+   * for a derivation whose chain is broken, and for an unregistered id.
+   */
+  family(id: AnyHarnessId): HarnessFamily | undefined;
+  /**
    * The harnesses a spawn here can really use: built-in ids first (in
    * `HARNESS_IDS` order), then plugin ids (in registration order). pi runs the
    * pane it would launch in, so the family answers always; any other harness —
@@ -353,6 +384,16 @@ export interface HarnessRegistry {
  * here, so each registry owns its own wrappers — a stale registry cannot answer
  * with an entry another session replaced.
  */
+/**
+ * Where a chain of derivations ends: the entry it reaches, the id nothing
+ * registered, or the id a cycle returns to. The last two are what a variant
+ * reports as unavailable instead of following.
+ */
+type BaseChain =
+  | { readonly kind: "resolved"; readonly entry: RegisteredHarness }
+  | { readonly kind: "missing"; readonly id: AnyHarnessId }
+  | { readonly kind: "cycle"; readonly id: AnyHarnessId };
+
 export function createHarnessRegistry(): HarnessRegistry {
   const registered = new Map<string, RegisteredHarness>(
     HARNESS_IDS.map((id): [string, RegisteredHarness] => [id, wrapBuiltin(id)]),
@@ -361,6 +402,131 @@ export function createHarnessRegistry(): HarnessRegistry {
   const owned = new Set<string>();
   /** Each harness's validated configuration, stored beside the entry. */
   const configs = new Map<string, unknown>();
+  /** Each derived harness's base id, so a base registered later still resolves. */
+  const bases = new Map<string, AnyHarnessId>();
+
+  /**
+   * The entry a derivation chain ends at, walking the base ids as far as they
+   * go. A non-derived id ends its own chain, so this one walk answers for a
+   * built-in and a variant alike.
+   */
+  function chainEnd(id: AnyHarnessId): BaseChain {
+    const seen = new Set<AnyHarnessId>();
+    let current = id;
+    while (true) {
+      if (seen.has(current)) return { kind: "cycle", id: current };
+      seen.add(current);
+      const base = bases.get(current);
+      if (base === undefined) {
+        const entry = registered.get(current);
+        return entry === undefined
+          ? { kind: "missing", id: current }
+          : { kind: "resolved", entry };
+      }
+      current = base;
+    }
+  }
+
+  /**
+   * The harness one derivation delegates to: its immediate base, or undefined
+   * when the chain is broken. Delegating to the immediate base keeps each
+   * level's hooks in the chain; a broken chain never launches, because
+   * availability says so first.
+   */
+  function baseEntry(id: AnyHarnessId): RegisteredHarness | undefined {
+    const base = bases.get(id);
+    if (base === undefined || chainEnd(id).kind !== "resolved") {
+      return undefined;
+    }
+    return registered.get(base);
+  }
+
+  /** The base a derivation delegates to, or the id it never found. */
+  function requireBase(derivation: HarnessDerivation): RegisteredHarness {
+    const found = baseEntry(derivation.id);
+    if (found === undefined) {
+      throw new Error(
+        `no harness registered for "${bases.get(derivation.id) ?? derivation.base}"`,
+      );
+    }
+    return found;
+  }
+
+  /**
+   * One variant's entry: the base's members, or a hook around them. Capability
+   * members (`config`, `readHandoverRecords`) are getters so they answer for the
+   * base as it stands when asked, rather than as it stood at registration.
+   */
+  function derivedEntry(derivation: HarnessDerivation): RegisteredHarness {
+    return {
+      id: derivation.id,
+      displayName: derivation.displayName,
+      get family() {
+        const answer = chainEnd(derivation.id);
+        return answer.kind === "resolved" ? answer.entry.family : undefined;
+      },
+      get agentMultiplexerKind() {
+        return requireBase(derivation).agentMultiplexerKind;
+      },
+      get config() {
+        return baseEntry(derivation.id)?.config;
+      },
+      get readHandoverRecords() {
+        return baseEntry(derivation.id)?.readHandoverRecords;
+      },
+      defaultEnv: derivation.env,
+      reservedEnvVars: () => [
+        ...(baseEntry(derivation.id)?.reservedEnvVars?.() ?? []),
+        ...(derivation.reservedEnvVars?.() ?? []),
+      ],
+      inheritedEnv: () => {
+        const inherited = baseEntry(derivation.id)?.inheritedEnv?.() ?? {};
+        const declared = derivation.env?.() ?? {};
+        // A name the base's launch inherits is one its child and the export read
+        // the same way (codex's home, pi's store). A variant that declares a value
+        // for it is the harness that will actually run, so its value wins there;
+        // every other declared name stays a default, under configuration.
+        const overrides = Object.fromEntries(
+          Object.entries(declared).filter(([name]) => name in inherited),
+        );
+        return { ...inherited, ...overrides };
+      },
+      availability: () => {
+        const answer = chainEnd(derivation.id);
+        if (answer.kind === "missing") {
+          return {
+            status: "unavailable" as const,
+            notice: `its base harness "${answer.id}" is not registered`,
+          };
+        }
+        if (answer.kind === "cycle") {
+          return {
+            status: "unavailable" as const,
+            notice: `its base chain cycles through "${answer.id}"`,
+          };
+        }
+        const base = baseEntry(derivation.id)?.availability();
+        if (base !== undefined && base.status === "unavailable") return base;
+        return derivation.availability?.() ?? { status: "available" as const };
+      },
+      prepare: async (request) => {
+        await derivation.prepare?.(request);
+        await requireBase(derivation).prepare(request);
+      },
+      postStart: async (request) => {
+        await baseEntry(derivation.id)?.postStart?.(request);
+        await derivation.postStart?.(request);
+      },
+      stop: (request) => requireBase(derivation).stop(request),
+      steer: (request) => requireBase(derivation).steer(request),
+      buildArgs: (launch) => requireBase(derivation).buildArgs(launch),
+      teardown: async (request) => {
+        await derivation.teardown?.(request);
+        await baseEntry(derivation.id)?.teardown(request);
+      },
+      listModels: (request) => requireBase(derivation).listModels(request),
+    };
+  }
 
   const registry: HarnessRegistry = {
     register(harness) {
@@ -376,8 +542,31 @@ export function createHarnessRegistry(): HarnessRegistry {
         );
         return false;
       }
-      registered.set(harness.id, withOneLevelShape(withGuardedReader(harness)));
+      registered.set(harness.id, {
+        ...withOneLevelShape(withGuardedReader(harness)),
+        family: undefined,
+      });
       owned.add(harness.id);
+      return true;
+    },
+    derive(derivation) {
+      const refusal =
+        parseHarnessId(derivation.id) !== undefined
+          ? "a built-in harness owns that id"
+          : registered.has(derivation.id)
+            ? "another harness already registered that id in this load"
+            : derivation.base === derivation.id
+              ? "a harness cannot derive from itself"
+              : undefined;
+      if (refusal !== undefined) {
+        console.warn(
+          `[subagents] Ignoring harness "${derivation.id}": ${refusal}`,
+        );
+        return false;
+      }
+      bases.set(derivation.id, derivation.base);
+      registered.set(derivation.id, derivedEntry(derivation));
+      owned.add(derivation.id);
       return true;
     },
     unregister(id) {
@@ -385,6 +574,7 @@ export function createHarnessRegistry(): HarnessRegistry {
       registered.delete(id);
       owned.delete(id);
       configs.delete(id);
+      bases.delete(id);
     },
     ids() {
       return [...registered.keys()];
@@ -428,6 +618,10 @@ export function createHarnessRegistry(): HarnessRegistry {
     displayName(id) {
       return registered.get(id)?.displayName ?? id;
     },
+    family(id) {
+      const answer = chainEnd(id);
+      return answer.kind === "resolved" ? answer.entry.family : undefined;
+    },
     runnable(availability) {
       return registry
         .ids()
@@ -443,17 +637,6 @@ export function createHarnessRegistry(): HarnessRegistry {
     },
   };
   return registry;
-}
-
-/**
- * The family whose template table this harness's launch reads: the built-in
- * family the id maps to, or undefined when the id is a plugin harness's own.
- * A plugin's family is its id, which keys no template table, so the caller
- * reads no slice rather than another family's.
- */
-export function harnessFamilyOf(id: AnyHarnessId): HarnessFamily | undefined {
-  const builtin = parseHarnessId(id);
-  return builtin === undefined ? undefined : BUILTIN_FAMILIES[builtin];
 }
 
 /**

@@ -1142,11 +1142,17 @@ describe("buildLaunchPlan — a plugin harness", () => {
     const store = storeRef.current;
 
     expect(
-      store.modelFor("test-agent", null, undefined, "runner-plugin-3"),
+      store.modelFor(
+        "test-agent",
+        null,
+        undefined,
+        "runner-plugin-3",
+        undefined,
+      ),
     ).toBe("openai/gpt-4o");
     // The pi family's default does not answer for a plugin harness, and the
     // plugin's entry does not answer for pi.
-    expect(store.modelFor("test-agent", null, undefined, "pi")).toBe(
+    expect(store.modelFor("test-agent", null, undefined, "pi", "pi")).toBe(
       "anthropic/claude-sonnet-4",
     );
   });
@@ -1391,5 +1397,42 @@ describe("buildLaunchPlan — env overrides", () => {
         delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = previousXdgConfigHome;
     }
+  });
+
+  it("launches a derived harness with its base's request and its own defaults", async () => {
+    harnesses.derive({
+      id: "codex-work",
+      displayName: "Codex (work)",
+      base: "codex",
+      // The variant's own home is a name codex reserves; the base inherits its
+      // own from this process, and the variant's value is what its child must get.
+      env: () => ({ CODEX_HOME: "/variant/home", VARIANT_FLAG: "1" }),
+    });
+    const { cwd, notify } = setup(makeAgent({ harnessType: "codex-work" }));
+    storeRef.current = loadedStore(
+      memoryIO({
+        harness: {
+          "codex-work": {
+            env: { VARIANT_FLAG: "config", CODEX_HOME: "/elsewhere" },
+          },
+        },
+      }),
+    );
+
+    const plan = await launch("test-agent", cwd, notify);
+
+    // codex's own request, not the plugin arm: a variant is a codex launch.
+    expect(plan.launch.family).toBe("codex");
+    // The variant's default is overridden by configuration; its own value for the
+    // reserved name stands, and the user's configured entry for it is dropped.
+    expect(stagedEnv(plan.launch)).toEqual({
+      CODEX_HOME: "/variant/home",
+      VARIANT_FLAG: "config",
+    });
+    expect(
+      notify.mock.calls.some(([message]) =>
+        String(message).includes("CODEX_HOME"),
+      ),
+    ).toBe(true);
   });
 });

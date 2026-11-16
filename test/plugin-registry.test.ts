@@ -17,7 +17,6 @@ import {
 } from "../src/agents/harness.js";
 import {
   createHarnessRegistry,
-  harnessFamilyOf,
   type HarnessRegistry,
 } from "../src/agents/harness/harness-registry.js";
 import { opencodeConfigCodec } from "../src/agents/harness/opencode/config.js";
@@ -83,7 +82,7 @@ describe("the open harness registry", () => {
     expect(harnesses.get(PROVABLE_ID)?.displayName).toBe(
       `Plugin ${PROVABLE_ID}`,
     );
-    expect(harnessFamilyOf(PROVABLE_ID)).toBeUndefined();
+    expect(harnesses.family(PROVABLE_ID)).toBeUndefined();
     expect(harnesses.displayName(PROVABLE_ID)).toBe(`Plugin ${PROVABLE_ID}`);
     expect(harnesses.require(PROVABLE_ID).agentMultiplexerKind).toBe(
       PROVABLE_ID,
@@ -272,7 +271,7 @@ describe("the open harness registry", () => {
 
   it("names an unregistered id rather than inventing a harness for it", () => {
     expect(harnesses.get("reg-ghost")).toBeUndefined();
-    expect(harnessFamilyOf("reg-ghost")).toBeUndefined();
+    expect(harnesses.family("reg-ghost")).toBeUndefined();
     expect(harnesses.displayName("reg-ghost")).toBe("reg-ghost");
     expect(() => harnesses.require("reg-ghost")).toThrow(
       /no harness registered/,

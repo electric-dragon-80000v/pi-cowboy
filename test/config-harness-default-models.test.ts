@@ -216,9 +216,15 @@ describe("model resolution — the harness default's position", () => {
   it("resolves the harness default for a spawn under that harness", () => {
     const store = storeWithOpencodeDefault();
 
-    expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
-      OPENCODE_DEFAULT,
-    );
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        undefined,
+        "opencode",
+        "opencode",
+      ),
+    ).toBe(OPENCODE_DEFAULT);
   });
 
   it("leaves a pi spawn alone: pi reads the `default` key, not the harness map", () => {
@@ -231,20 +237,26 @@ describe("model resolution — the harness default's position", () => {
       }).io,
     );
 
-    expect(store.modelFor("general-purpose", null, undefined, "pi")).toBe(
+    expect(store.modelFor("general-purpose", null, undefined, "pi", "pi")).toBe(
       "anthropic/claude-3",
     );
     // The pi family runs one binary: pig and pi-bolt resolve pi's default too.
-    expect(store.modelFor("general-purpose", null, undefined, "pig")).toBe(
-      "anthropic/claude-3",
-    );
+    expect(
+      store.modelFor("general-purpose", null, undefined, "pig", "pi"),
+    ).toBe("anthropic/claude-3");
   });
 
   it("resolves the parent for a harness with no default of its own", () => {
     const store = storeWithOpencodeDefault();
 
     expect(
-      store.modelFor("general-purpose", "parent/parent-1", undefined, "pi"),
+      store.modelFor(
+        "general-purpose",
+        "parent/parent-1",
+        undefined,
+        "pi",
+        "pi",
+      ),
     ).toBe("parent/parent-1");
   });
 
@@ -256,6 +268,7 @@ describe("model resolution — the harness default's position", () => {
         "general-purpose",
         null,
         { modelsByFamily: { opencode: TEMPLATE_MODEL } },
+        "opencode",
         "opencode",
       ),
     ).toBe(TEMPLATE_MODEL);
@@ -273,6 +286,7 @@ describe("model resolution — the harness default's position", () => {
         null,
         { modelsByFamily: { pi: TEMPLATE_MODEL } },
         "opencode",
+        "opencode",
       ),
     ).toBe(OPENCODE_DEFAULT);
     expect(
@@ -280,6 +294,7 @@ describe("model resolution — the harness default's position", () => {
         "general-purpose",
         null,
         { modelsByFamily: { pi: TEMPLATE_MODEL } },
+        "pi",
         "pi",
       ),
     ).toBe(TEMPLATE_MODEL);
@@ -291,9 +306,15 @@ describe("model resolution — the harness default's position", () => {
 
     // `/cowboy model` picks from pi's catalogue, so that key is pi's alone: the
     // opencode launch keeps its own configured default.
-    expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
-      OPENCODE_DEFAULT,
-    );
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        undefined,
+        "opencode",
+        "opencode",
+      ),
+    ).toBe(OPENCODE_DEFAULT);
   });
 
   it("never hands pi's session default to a plugin harness", () => {
@@ -305,7 +326,13 @@ describe("model resolution — the harness default's position", () => {
     store.mutate.session.setOverride("default", "session/session-model");
 
     expect(
-      store.modelFor("general-purpose", null, undefined, "runner-plugin"),
+      store.modelFor(
+        "general-purpose",
+        null,
+        undefined,
+        "runner-plugin",
+        undefined,
+      ),
     ).toBe(OPENCODE_DEFAULT);
   });
 
@@ -315,13 +342,13 @@ describe("model resolution — the harness default's position", () => {
     );
     store.mutate.session.setOverride("default", "session/session-model");
 
-    expect(store.modelFor("general-purpose", null, undefined, "pi")).toBe(
+    expect(store.modelFor("general-purpose", null, undefined, "pi", "pi")).toBe(
       "session/session-model",
     );
     // The pi family runs one binary, so pig and pi-bolt read the same default.
-    expect(store.modelFor("general-purpose", null, undefined, "pig")).toBe(
-      "session/session-model",
-    );
+    expect(
+      store.modelFor("general-purpose", null, undefined, "pig", "pi"),
+    ).toBe("session/session-model");
   });
 
   it("lets a per-type override win over the harness default", () => {
@@ -334,9 +361,9 @@ describe("model resolution — the harness default's position", () => {
       }).io,
     );
 
-    expect(store.modelFor("auditor", null, undefined, "opencode")).toBe(
-      "anthropic/claude-3",
-    );
+    expect(
+      store.modelFor("auditor", null, undefined, "opencode", "opencode"),
+    ).toBe("anthropic/claude-3");
   });
 
   it("resolves the session harness default over the configured one", () => {
@@ -347,18 +374,30 @@ describe("model resolution — the harness default's position", () => {
       "session",
     );
 
-    expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
-      "session/session-model",
-    );
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        undefined,
+        "opencode",
+        "opencode",
+      ),
+    ).toBe("session/session-model");
   });
 
   it("reads a session null as no session entry: the configured default answers", () => {
     const store = storeWithOpencodeDefault();
     store.mutate.agent.setHarnessDefaultModel("opencode", null, "session");
 
-    expect(store.modelFor("general-purpose", null, undefined, "opencode")).toBe(
-      OPENCODE_DEFAULT,
-    );
+    expect(
+      store.modelFor(
+        "general-purpose",
+        null,
+        undefined,
+        "opencode",
+        "opencode",
+      ),
+    ).toBe(OPENCODE_DEFAULT);
     expect(store.harnessDefaultModelLevels("opencode").session).toBe(false);
   });
 
@@ -378,6 +417,7 @@ describe("model resolution — the harness default's position", () => {
         "parent/parent-1",
         undefined,
         "opencode",
+        "opencode",
       ),
     ).toBeNull();
   });
@@ -393,11 +433,18 @@ describe("model resolution — the harness default's position", () => {
         "parent/parent-1",
         undefined,
         "opencode",
+        "opencode",
       ),
     ).toBeNull();
     // The pi family keeps inheriting it — same store, same parent, pi harness.
     expect(
-      store.modelFor("general-purpose", "parent/parent-1", undefined, "pi"),
+      store.modelFor(
+        "general-purpose",
+        "parent/parent-1",
+        undefined,
+        "pi",
+        "pi",
+      ),
     ).toBe("parent/parent-1");
   });
 
@@ -409,6 +456,7 @@ describe("model resolution — the harness default's position", () => {
         "general-purpose",
         "parent/parent-1",
         undefined,
+        "opencode",
         "opencode",
       ),
     ).toBe(OPENCODE_DEFAULT);

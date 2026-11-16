@@ -894,6 +894,15 @@ export interface Harness<
    */
   readonly inheritedEnv?: () => Readonly<Record<string, string>>;
   /**
+   * Variables this harness's launches carry as defaults, read at launch time:
+   * what the harness says its own runs want, below the configured layers, so a
+   * user's `harness.<id>.env` replaces any of them. Absent when the harness
+   * declares no defaults of its own. Unlike `inheritedEnv`, a name here may be
+   * one the family reserves: reservation refuses configuration, and this is not
+   * configuration — it is the harness stating what its own process needs.
+   */
+  readonly defaultEnv?: () => Readonly<Record<string, string>>;
+  /**
    * The agent kind this harness launches as, in the multiplexer's vocabulary; the only
    * place a kind appears as a literal. A harness whose binary is not pi's can
    * only launch under its own kind, because the multiplexer matches the detected process
@@ -1014,4 +1023,57 @@ export interface PluginHarness<C = unknown> extends Harness<
   readonly id: AnyHarnessId;
   /** The label its settings rows show. */
   readonly displayName: string;
+}
+
+/**
+ * What a derived harness prepares before its base brings the pane into the
+ * launch state. Same request the base is handed, at the same address.
+ */
+export type HarnessPrepareHook = (
+  request: HarnessPrepareRequest<HarnessLaunch, unknown>,
+) => Promise<void>;
+
+/** What a derived harness runs after the base accepts the launch. */
+export type HarnessPostStartHook = (
+  request: HarnessPostStartRequest<HarnessLaunch, unknown>,
+) => Promise<void>;
+
+/** What a derived harness undoes before its base's teardown. */
+export type HarnessTeardownHook = (
+  request: HarnessTeardownRequest,
+) => Promise<void>;
+
+/**
+ * One variant of an existing harness: the same process, launched after its own
+ * host-side preparation and with its own environment defaults.
+ *
+ * A derivation cannot replace argv building, stop, steer, model listing, session
+ * export, the multiplexer agent kind or the config codec — those stay the base's,
+ * so a variant is a base harness plus preparation and defaults, never a second
+ * implementation of the same CLI. Its id is its own everywhere (config section,
+ * model and thinking defaults, concurrency pools, `harness_type`), so no layer
+ * above the registry needs to know it was derived.
+ */
+export interface HarnessDerivation {
+  /** The variant's own id: not a built-in, not already registered, not the base. */
+  readonly id: AnyHarnessId;
+  /** The label its settings rows and spawn lists show. */
+  readonly displayName: string;
+  /** The harness this variant delegates to: a built-in, a plugin's, or another variant. */
+  readonly base: AnyHarnessId;
+  /**
+   * Variables this variant's launches carry as defaults, read per launch. A
+   * configured value of the same name wins; a reserved name is carried.
+   */
+  readonly env?: () => Readonly<Record<string, string>>;
+  /** Names this variant reserves besides the base's and the universal set. */
+  readonly reservedEnvVars?: () => readonly string[];
+  /** This variant's own condition, composed with the base's: both must hold. */
+  readonly availability?: () => HarnessAvailability;
+  /** Prepare the host before the base prepares the pane. */
+  readonly prepare?: HarnessPrepareHook;
+  /** Run after the base has accepted the launch. */
+  readonly postStart?: HarnessPostStartHook;
+  /** Undo this variant's own state, before the base's teardown. */
+  readonly teardown?: HarnessTeardownHook;
 }

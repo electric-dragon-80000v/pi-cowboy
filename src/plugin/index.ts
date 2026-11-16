@@ -13,7 +13,7 @@
  * `Parameters<…>` / `ReturnType<…>` would be a worse contract than naming them.
  */
 
-// The registration api and the two things it registers.
+// The registration api and the things it registers.
 export type {
   CowboyPluginApi,
   CowboyPluginDisposer,
@@ -21,6 +21,15 @@ export type {
   PluginMultiplexer,
   PluginHarness,
 } from "./contract.js";
+
+// What a derived harness is handed, and the entry `getHarness` answers with.
+export type { RegisteredHarness } from "../agents/harness/harness-registry.js";
+export type {
+  HarnessDerivation,
+  HarnessPostStartHook,
+  HarnessPrepareHook,
+  HarnessTeardownHook,
+} from "../agents/harness.js";
 
 // What a harness's callbacks are handed and what they answer with.
 export type {

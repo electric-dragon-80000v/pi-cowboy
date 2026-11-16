@@ -55,6 +55,7 @@ afterEach(async () => {
   delete globals.__fixtureRuns;
   delete globals.__fixtureDisposed;
   delete globals.__disposeGate;
+  delete globals.__fixtureDerivation;
 });
 
 /** An installed plugin package whose entry is the given ESM source. */
@@ -102,6 +103,23 @@ function runCount(): number {
   return typeof value === "number" ? value : 0;
 }
 
+/** A plugin that derives a harness and reads it back through the same api. */
+const DERIVATION_PLUGIN = `
+export default function (api) {
+  const accepted = api.deriveHarness({
+    id: "fixture-derived",
+    displayName: "Fixture Derived",
+    base: "claude",
+  });
+  const seen = api.getHarness("fixture-derived");
+  globalThis.__fixtureDerivation = {
+    accepted,
+    displayName: seen?.displayName,
+    family: seen?.family,
+  };
+}
+`;
+
 describe("createPluginLoader", () => {
   it("imports each plugin and lets it register its harness and multiplexer", async () => {
     discoverMock.mockResolvedValue([pluginPackage("fixture-pkg", GOOD_PLUGIN)]);
@@ -125,6 +143,28 @@ describe("createPluginLoader", () => {
     expect(
       plugins.multiplexers.runtime(PI, "fixture-multiplexer").multiplexer,
     ).toBe("fixture-multiplexer");
+  });
+
+  it("wires deriveHarness and getHarness to the session registry", async () => {
+    discoverMock.mockResolvedValue([
+      pluginPackage("derivation-pkg", DERIVATION_PLUGIN),
+    ]);
+    const plugins = session();
+
+    loaded = await plugins.load(PI, process.cwd(), vi.fn());
+
+    expect(loaded.loaded).toEqual(["derivation-pkg"]);
+    // The api reads what the registration wrote, in the same factory call.
+    expect((globalThis as Record<string, unknown>).__fixtureDerivation).toEqual(
+      {
+        accepted: true,
+        displayName: "Fixture Derived",
+        family: "claude",
+      },
+    );
+    // And the registry sees an ordinary harness entry, ordered after the built-ins.
+    expect(plugins.harnesses.family("fixture-derived")).toBe("claude");
+    expect(plugins.harnesses.ids().at(-1)).toBe("fixture-derived");
   });
 
   it("skips a plugin that throws while loading, and still loads the good one", async () => {

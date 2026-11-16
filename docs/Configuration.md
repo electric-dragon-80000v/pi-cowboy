@@ -206,6 +206,8 @@ Sets the terminal multiplexer used to host subagent panes, specified by ID. This
 
 The `harness` object configures individual harnesses, keyed by harness ID. Each harness defines the schema, validation rules, and defaults for its configuration section. Unrecognized IDs retain their raw configuration until a matching plugin registers. Harnesses without custom configuration require no entry.
 
+A harness ID that a plugin derives from another ([Plugins](Plugins.md#deriving-a-harness)) is an ordinary key wherever a harness is keyed: `harness.claude-work` is parsed by claude's codec, and `agent.defaultModelByHarness`, `agent.defaultThinkingByHarness` and `concurrency.harnesses` take the derived harness's own `claude-work` entry.
+
 ### `harness.<id>.env`
 
 Defines environment variables that every spawn of a harness carries, in addition to the pane's own environment:

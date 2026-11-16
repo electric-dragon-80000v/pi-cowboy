@@ -421,7 +421,7 @@ describe("Model Settings — per-type rows", () => {
               expect(store.sessionModelOverride("auditor")).toBe(
                 "openai/gpt-4o",
               );
-              expect(store.thinkingFor("auditor", undefined, "pi")).toBe(
+              expect(store.thinkingFor("auditor", undefined, "pi", "pi")).toBe(
                 "high",
               );
             },
@@ -1288,7 +1288,7 @@ describe("Model Settings — per-type pairs", () => {
               expect(store.sessionModelOverride("auditor")).toBe(
                 "openai/gpt-4",
               );
-              expect(store.thinkingFor("auditor", undefined, "pi")).toBe(
+              expect(store.thinkingFor("auditor", undefined, "pi", "pi")).toBe(
                 "high",
               );
               // The session write leaves the config layers untouched.

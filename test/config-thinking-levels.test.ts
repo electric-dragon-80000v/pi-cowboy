@@ -288,9 +288,9 @@ describe("ConfigStore — per-type thinking overrides", () => {
       ).io,
     );
 
-    expect(store.thinkingFor("auditor", undefined, "pi")).toBe("high");
-    expect(store.thinkingFor("reviewer", undefined, "pi")).toBe("max");
-    expect(store.thinkingFor("scribe", undefined, "pi")).toBeUndefined();
+    expect(store.thinkingFor("auditor", undefined, "pi", "pi")).toBe("high");
+    expect(store.thinkingFor("reviewer", undefined, "pi", "pi")).toBe("max");
+    expect(store.thinkingFor("scribe", undefined, "pi", "pi")).toBeUndefined();
   });
 });
 
@@ -316,9 +316,14 @@ describe("ConfigStore — per-harness default thinking", () => {
     );
 
     expect(
-      store.thinkingFor("auditor", { thinkingByFamily: { pi: "high" } }, "pi"),
+      store.thinkingFor(
+        "auditor",
+        { thinkingByFamily: { pi: "high" } },
+        "pi",
+        "pi",
+      ),
     ).toBe("high");
-    expect(store.thinkingFor("auditor", undefined, "pi")).toBe("low");
+    expect(store.thinkingFor("auditor", undefined, "pi", "pi")).toBe("low");
   });
 });
 
