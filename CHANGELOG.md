@@ -1,3 +1,10 @@
+## [0.36.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.0...v0.36.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **agents:** renew abort controller on subagent handover and message delivery ([51f7567](https://github.com/electric-dragon-80000v/pi-cowboy/commit/51f7567670810c46254dfc41f8ef77428a473353))
+
 # [0.36.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.35.0...v0.36.0) (2026-11-16)
 
 
