@@ -1966,7 +1966,16 @@ describe("stop", () => {
     "%s presses its TUI's exit keys through the active pane",
     async (id, keys) => {
       const { pane, calls } = recordingPane();
-      await harnessFor(id).stop({ pi: PI, pane, paneId: "w1:p9" });
+      await harnessFor(id).stop({
+        pi: PI,
+        pane,
+        paneId: "w1:p9",
+        staged: {
+          systemPromptFile: "/spawn/esp02hpw/system.md",
+          taskFile: "/spawn/esp02hpw/task.md",
+          resultFile: "/spawn/esp02hpw/result.md",
+        },
+      });
       expect(calls).toEqual([{ paneId: "w1:p9", keys }]);
     },
   );

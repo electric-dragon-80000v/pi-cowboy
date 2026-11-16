@@ -494,6 +494,11 @@ export interface HarnessStopRequest {
    */
   readonly pane: PaneControl;
   readonly paneId: string;
+  /**
+   * Where the run was staged. A harness whose launcher state lived only in its
+   * own instance needs this after a reload to find the run's control endpoint.
+   */
+  readonly staged: HarnessRunStaging;
 }
 
 /** Asks one run's process to exit; the harness owns the key sequence. */
@@ -513,6 +518,8 @@ export interface HarnessSteerRequest {
   readonly paneId: string;
   readonly message: string;
   readonly signal: AbortSignal;
+  /** The run's staging paths, so a reloaded harness can recover its endpoint. */
+  readonly staged: HarnessRunStaging;
 }
 
 /**

@@ -58,7 +58,7 @@ import {
   type OwnedCheckout,
 } from "../spawn/sandbox.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
-import type { AnyHarnessId } from "./harness.js";
+import type { AnyHarnessId, HarnessRunStaging } from "./harness.js";
 import {
   engageExecution,
   endExecutionRun,
@@ -560,6 +560,7 @@ export class SubagentSession {
         paneId: ref.paneId,
         message,
         signal: this.spawn.execution.abortController.signal,
+        staged: this.stagedPaths(),
       });
     } catch (error) {
       submit = { kind: "not-submitted", detail: errorMessage(error) };
@@ -753,6 +754,15 @@ export class SubagentSession {
     return this.readTarget();
   }
 
+  /** The run's staging paths, named by every harness request that survives a reload. */
+  private stagedPaths(): HarnessRunStaging {
+    return {
+      systemPromptFile: subagentSystemFileFor(this.id),
+      taskFile: subagentTaskFileFor(this.id),
+      resultFile: subagentResultFileFor(this.id),
+    };
+  }
+
   /**
    * Read one run's session through the harness that ran it, applying the
    * configured loss policy. Nothing is stopped or written.
@@ -767,11 +777,7 @@ export class SubagentSession {
         paneId: source.ref.paneId,
         cwd: source.cwd,
         startedAt: source.startedAt,
-        staged: {
-          systemPromptFile: subagentSystemFileFor(this.id),
-          taskFile: subagentTaskFileFor(this.id),
-          resultFile: subagentResultFileFor(this.id),
-        },
+        staged: this.stagedPaths(),
       },
       { maxExcludedRatio: getStore().agent.handoverMaxExcludedRatio },
     );
@@ -1207,6 +1213,7 @@ export class SubagentSession {
           pi: this.args.pi,
           pane: this.deps.transport.createPane(this.args.pi),
           paneId: ref.paneId,
+          staged: this.stagedPaths(),
         });
     } catch (err) {
       // A stop key can race the TUI exiting on its own; the confirmation, not
