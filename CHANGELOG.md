@@ -1,3 +1,10 @@
+## [0.36.4](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.3...v0.36.4) (2026-11-16)
+
+
+### Bug Fixes
+
+* collapse subagent reports and render expanded Markdown ([0a555a8](https://github.com/electric-dragon-80000v/pi-cowboy/commit/0a555a89fdbc40781bd02aba84ea046eccd6665d))
+
 ## [0.36.3](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.2...v0.36.3) (2026-11-16)
 
 
