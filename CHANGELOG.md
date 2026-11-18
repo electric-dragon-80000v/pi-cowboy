@@ -1,3 +1,10 @@
+## [0.36.5](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.4...v0.36.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ui:** list every launchable harness in concurrency settings ([4adf819](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4adf819798c750a63450057b13728047c17278fc))
+
 ## [0.36.4](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.3...v0.36.4) (2026-11-16)
 
 
