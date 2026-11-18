@@ -10,7 +10,12 @@ import {
   type Component,
   type SettingItem,
 } from "@earendil-works/pi-tui";
-import { getHarnessRegistry, getStore } from "../../shell.js";
+import {
+  getHarnessAvailability,
+  getHarnessRegistry,
+  getStore,
+} from "../../shell.js";
+import { selectable } from "../../availability.js";
 import type { AnyHarnessId } from "../../agents/harness.js";
 import {
   modelKeysOf,
@@ -80,9 +85,14 @@ export async function showConcurrencySettingsMenu(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
-  // Every runnable harness is its own pool namespace, so each gets its own
-  // section and its picker offers only the models that harness can run.
-  const harnessIds = [...harnessModelOptions.keys()];
+  // Every launchable harness is its own pool namespace, so each gets its own
+  // section whether or not it lists models: a harness that selects its model
+  // elsewhere still pools its agents, and its limit is set here. Its picker
+  // offers only the models that harness can run.
+  const harnessIds: readonly AnyHarnessId[] = selectable(
+    getHarnessRegistry().ids(),
+    getHarnessAvailability(),
+  );
   const buildItems = (
     store: ReturnType<typeof getStore>,
     theme: Theme,
@@ -268,10 +278,11 @@ export async function showConcurrencySettingsMenu(
     };
 
     /**
-     * Harnesses for the per-harness list: runnable plus already-configured. The
-     * configured keys are taken raw — the vocabulary is open, so a limit left
-     * behind by a plugin that is no longer installed still gets a row, which is
-     * the only place it can be cleared from.
+     * Harnesses for the per-harness list: every launchable harness plus
+     * already-configured ones. The configured keys are taken raw — the
+     * vocabulary is open, so a limit left behind by a plugin that is no longer
+     * installed still gets a row, which is the only place it can be cleared
+     * from.
      */
     const harnessListItems = (): SettingItem[] => {
       const live = getStore();

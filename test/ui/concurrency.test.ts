@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { HarnessModelOptions } from "../../src/agents/harness/harness-registry.js";
+import { getHarnessRegistry } from "../../src/shell.js";
 import { formatSlotLimit } from "../../src/ui/format.js";
 import { KEY, openMenu, type MenuSession } from "./harness.js";
 import { listedModel } from "./models.js";
@@ -776,6 +777,47 @@ describe("Concurrency Settings — the harness level", () => {
 
     expect(labels).toContain("Pi");
     expect(labels).toContain("OpenCode");
+  });
+
+  it("lists a launchable harness that lists no models", async () => {
+    // A harness that picks its model in its own settings has no catalogued
+    // models, but its agents still pool under its id.
+    getHarnessRegistry().register({
+      id: "freebuff-relay",
+      displayName: "Freebuff (relay)",
+      agentMultiplexerKind: "freebuff-relay",
+      availability: () => ({ status: "available" }),
+      prepare: async () => {},
+      buildArgs: () => [],
+      teardown: async () => {},
+      listModels: async () => ({
+        kind: "unavailable",
+        notice: "selects its model in its own settings",
+      }),
+      stop: async () => {},
+      steer: async () => ({ kind: "submitted" }),
+    });
+
+    const session = openConcurrency(120);
+    await walk(
+      session,
+      [
+        { open: "Per-harness limits" },
+        { open: "Freebuff (relay)" },
+        { open: "Global" },
+        { fill: "2" },
+        { enter: true },
+        {
+          expect: {
+            store: (store) =>
+              expect(store.concurrency.harnesses["freebuff-relay"]).toBe(2),
+            notified: ["freebuff-relay concurrency set to 2 (global)"],
+          },
+        },
+      ],
+      memory.store,
+      "harness limit without models",
+    );
   });
 
   it("tags a per-harness limit that comes from the session layer", () => {
