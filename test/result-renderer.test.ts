@@ -45,10 +45,10 @@ Some prose with \`inline code\` and **bold** text.`,
     output: [
       ' <success>✓</> <toolTitle>**[Cowboy agent "Explore" a1 finished]**</>',
       "",
-      " <toolOutput>## Findings</>",
-      " <toolOutput></>",
-      " <toolOutput>- `foo.ts:12` calls **bar()**</>",
-      " <toolOutput>- `baz.ts:7` is unused</>",
+      " Findings",
+      "",
+      " - foo.ts:12 calls bar()",
+      " - baz.ts:7 is unused",
       " <muted>... (4 more lines,</> <dim>ctrl+o</> to expand<muted>)</>",
     ],
   },
@@ -60,8 +60,8 @@ Some prose with \`inline code\` and **bold** text.`,
     output: [
       " <success>✓</> <toolTitle>**headline**</>",
       "",
-      " <toolOutput>line one</>",
-      " <toolOutput>line two</>",
+      " line one",
+      " line two",
     ],
   },
 
@@ -74,7 +74,7 @@ boom`,
     output: [
       ' <error>✗</> <toolTitle>**[Cowboy agent "Explore" a1 error]**</>',
       "",
-      " <toolOutput>boom</>",
+      " boom",
     ],
   },
   {
@@ -85,7 +85,7 @@ body`,
     output: [
       ' <error>✗</> <toolTitle>**[Cowboy agent "Explore" a1 stopped]**</>',
       "",
-      " <toolOutput>body</>",
+      " body",
     ],
   },
   {
@@ -96,7 +96,7 @@ body`,
     output: [
       ' <error>✗</> <toolTitle>**[Cowboy agent "Explore" a1 ERROR]**</>',
       "",
-      " <toolOutput>body</>",
+      " body",
     ],
   },
   {
@@ -107,7 +107,7 @@ error: none found`,
     output: [
       ' <success>✓</> <toolTitle>**[Cowboy agent "Explore" a1 finished]**</>',
       "",
-      " <toolOutput>error: none found</>",
+      " error: none found",
     ],
   },
   {
@@ -118,7 +118,7 @@ body`,
     output: [
       ' <success>✓</> <toolTitle>**[Cowboy agent "ErrorBot" a1 finished]**</>',
       "",
-      " <toolOutput>body</>",
+      " body",
     ],
   },
 
@@ -233,10 +233,6 @@ body`,
         false,
         2,
       ),
-    ).toEqual([
-      "  <success>✓</> <toolTitle>**headline**</>",
-      "",
-      "  <toolOutput>body</>",
-    ]);
+    ).toEqual(["  <success>✓</> <toolTitle>**headline**</>", "", "  body"]);
   });
 });

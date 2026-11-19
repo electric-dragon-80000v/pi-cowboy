@@ -1,7 +1,6 @@
 import {
   getMarkdownTheme,
   keyHint,
-  truncateToVisualLines,
   type MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -16,40 +15,35 @@ import {
 const PREVIEW_LINES = 4;
 
 /**
- * The head of a collapsed report plus the expand hint. Limits wrapped lines rather than logical
- * ones, so a single long line cannot fill the transcript. The kept lines come first: a report is
- * read from the top, unlike shell output whose result is its tail.
+ * The head of a collapsed report plus the expand hint, rendered as markdown so the preview and the
+ * expanded body read the same. Limits rendered lines rather than logical ones, so a single long
+ * line cannot fill the transcript. The kept lines come first: a report is read from the top, unlike
+ * shell output whose result is its tail.
  */
 class ReportPreview implements Component {
   private cachedWidth: number | undefined;
   private cachedLines: string[] | undefined;
+  private readonly markdown: Markdown;
 
   constructor(
-    private readonly text: string,
+    report: string,
     private readonly formatHint: (hidden: number) => string,
     private readonly padX: number,
-  ) {}
+  ) {
+    this.markdown = new Markdown(report, padX, 0, getMarkdownTheme());
+  }
 
   render(width: number): string[] {
     if (this.cachedLines === undefined || this.cachedWidth !== width) {
-      const preview = truncateToVisualLines(
-        this.text,
-        PREVIEW_LINES,
-        width,
-        this.padX,
-        "start",
-      );
+      const lines = this.markdown.render(width);
+      const hidden = lines.length - PREVIEW_LINES;
       this.cachedLines =
-        preview.skippedCount > 0
+        hidden > 0
           ? [
-              ...preview.visualLines,
-              ...new Text(
-                this.formatHint(preview.skippedCount),
-                this.padX,
-                0,
-              ).render(width),
+              ...lines.slice(0, PREVIEW_LINES),
+              ...new Text(this.formatHint(hidden), this.padX, 0).render(width),
             ]
-          : preview.visualLines;
+          : lines;
       this.cachedWidth = width;
     }
     return this.cachedLines;
@@ -58,6 +52,7 @@ class ReportPreview implements Component {
   invalidate(): void {
     this.cachedWidth = undefined;
     this.cachedLines = undefined;
+    this.markdown.invalidate();
   }
 }
 
@@ -89,17 +84,12 @@ export const renderSubagentResult: MessageRenderer = (
       "keyHint" in options && typeof options.keyHint === "function"
         ? options.keyHint("app.tools.expand", "to expand")
         : keyHint("app.tools.expand", "to expand");
-    const styled = report
-      .split("\n")
-      .map((line) => theme.fg("toolOutput", line))
-      .join("\n");
-
     const collapsed = new Container();
     collapsed.addChild(new Text(heading, options.outputPad, 0));
     collapsed.addChild(new Spacer(1));
     collapsed.addChild(
       new ReportPreview(
-        styled,
+        report,
         (hidden) =>
           `${theme.fg("muted", `... (${hidden} more lines,`)} ${hintKey}${theme.fg("muted", ")")}`,
         options.outputPad,
