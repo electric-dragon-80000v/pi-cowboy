@@ -1,3 +1,11 @@
+## [0.36.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.5...v0.36.6) (2026-11-19)
+
+
+### Bug Fixes
+
+* **ui:** preview the head of a collapsed subagent report ([00b3be0](https://github.com/electric-dragon-80000v/pi-cowboy/commit/00b3be0d99212e7958e8540e1c9dac9cac617059))
+* **ui:** render the collapsed report preview as markdown ([e3a3475](https://github.com/electric-dragon-80000v/pi-cowboy/commit/e3a34754cb949646f59ea55ca08ca4c67b540de8))
+
 ## [0.36.5](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.4...v0.36.5) (2026-11-18)
 
 
