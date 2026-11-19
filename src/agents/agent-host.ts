@@ -127,10 +127,12 @@ export interface PaneControl {
    * the Enter is the key that commits them, and the two travel in order, so a
    * message is never typed into a pane that has already moved on.
    *
-   * An escape byte is allowed into the text so a harness can report a terminal
-   * sequence first — a TUI that ignores keys until it is told its terminal has
-   * focus needs `\u001b[I`. Every other control character is refused, so one
-   * message cannot smuggle in a second submit or a ctrl key.
+   * An escape byte and a line feed are allowed into the text: the first lets a
+   * harness report a terminal sequence first — a TUI that ignores keys until it
+   * is told its terminal has focus needs `\u001b[I` — and the second is a
+   * newline in a TUI's composer, so a multi-line message is one message. Every
+   * other control character is refused, so one message cannot smuggle in a
+   * second submit or a ctrl key.
    *
    * The process check is best-effort, not atomic with the write.
    */

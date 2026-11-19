@@ -190,6 +190,44 @@ describe("guarded pane submission", () => {
     }
   });
 
+  it("carries a multi-line message as one submission", async () => {
+    vi.useFakeTimers();
+    try {
+      runHerdrMock
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({
+          process_info: { foreground_processes: [{ pid: 13 }] },
+        })
+        .mockResolvedValueOnce(undefined);
+      const pane = createHerdrRuntime({} as ExtensionAPI).pane;
+      const result = pane.submit!(
+        "w1:p2",
+        "first line\nsecond line",
+        13,
+        new AbortController().signal,
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await result;
+      expect(runHerdrMock.mock.calls.map((call) => call[1])).toContainEqual([
+        "pane",
+        "send-text",
+        "w1:p2",
+        "first line\nsecond line",
+      ]);
+      expect(runHerdrMock.mock.calls.map((call) => call[1])).toContainEqual([
+        "pane",
+        "send-keys",
+        "w1:p2",
+        "enter",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refuses a submit smuggled into the text", async () => {
     runHerdrMock.mockResolvedValue(undefined);
     const pane = createHerdrRuntime({} as ExtensionAPI).pane;

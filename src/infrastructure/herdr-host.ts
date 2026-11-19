@@ -517,9 +517,11 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
         pid <= 0 ||
         Array.from(text).some((character) => {
           const code = character.charCodeAt(0);
-          // ESC is the one control byte a harness may send: a TUI that ignores
-          // input while its terminal is unfocused has to be told it has focus.
-          return (code < 32 && code !== 0x1b) || code === 127;
+          // Two control bytes a harness may send. ESC lets a TUI that ignores
+          // input while its terminal is unfocused be told it has focus, and LF
+          // is a newline in a TUI's composer, never its submit key (that is CR).
+          // Refusing LF would make every multi-line message undeliverable.
+          return (code < 32 && code !== 0x1b && code !== 0x0a) || code === 127;
         })
       ) {
         throw new Error(
