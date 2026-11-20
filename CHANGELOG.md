@@ -1,3 +1,12 @@
+# [0.37.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.6...v0.37.0) (2026-11-20)
+
+
+### Features
+
+* add harness type to the status line ([ffebe09](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ffebe09216fca207da7f67eabfe86eddd7addac1))
+* **agent-host:** allow line feeds in pane text for multi-line messages ([5e479db](https://github.com/electric-dragon-80000v/pi-cowboy/commit/5e479db2a040bbf681e394a0dfcc76749d0163fa))
+* **agents:** wrap subagent result renderer in background box ([0e5ca9a](https://github.com/electric-dragon-80000v/pi-cowboy/commit/0e5ca9ae29c0f3178be8b1da1ef2da2f06cb140c))
+
 ## [0.36.6](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.5...v0.36.6) (2026-11-19)
 
 
