@@ -224,6 +224,30 @@ describe("renderSubagentResult", () => {
     expect(render(input, true)).toEqual(output);
   });
 
+  it.each([
+    { name: "success", input: `done\n\nbody`, expected: "toolSuccessBg" },
+    { name: "error", input: `boom error\n\nbody`, expected: "toolErrorBg" },
+  ])(
+    "paints the $name report with pi's tool-result background",
+    ({ input, expected }) => {
+      const backgrounds: string[] = [];
+      const theme = {
+        fg: (color: string, text: string) => `<${color}>${text}</>`,
+        bold: (text: string) => `**${text}**`,
+        bg: (color: string, text: string) => {
+          backgrounds.push(color);
+          return text;
+        },
+      } as unknown as Theme;
+      renderSubagentResult(
+        { customType: "subagent-result", content: input } as never,
+        { expanded: false, outputPad: 1, keyHint: () => "hint" } as never,
+        theme,
+      )!.render(200);
+      expect(new Set(backgrounds)).toEqual(new Set([expected]));
+    },
+  );
+
   it("honors outputPad", () => {
     expect(
       render(

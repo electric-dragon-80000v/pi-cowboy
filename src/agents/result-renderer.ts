@@ -4,6 +4,7 @@ import {
   type MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
 import {
+  Box,
   Container,
   Markdown,
   Spacer,
@@ -74,9 +75,16 @@ export const renderSubagentResult: MessageRenderer = (
   const isError = /\b(error|stopped)\b/i.test(headline);
   const icon = theme.fg(isError ? "error" : "success", isError ? "✗" : "✓");
   const heading = `${icon} ${theme.fg("toolTitle", theme.bold(headline || "Cowboy agent report"))}`;
+  const bg = (text: string): string =>
+    theme.bg(isError ? "toolErrorBg" : "toolSuccessBg", text);
+  const panel = (child: Component): Component => {
+    const box = new Box(0, 0, bg);
+    box.addChild(child);
+    return box;
+  };
 
   if (!report) {
-    return new Text(heading, options.outputPad, 0);
+    return panel(new Text(heading, options.outputPad, 0));
   }
 
   if (!options.expanded) {
@@ -95,7 +103,7 @@ export const renderSubagentResult: MessageRenderer = (
         options.outputPad,
       ),
     );
-    return collapsed;
+    return panel(collapsed);
   }
 
   const expanded = new Container();
@@ -104,5 +112,5 @@ export const renderSubagentResult: MessageRenderer = (
   expanded.addChild(
     new Markdown(report, options.outputPad, 0, getMarkdownTheme()),
   );
-  return expanded;
+  return panel(expanded);
 };
