@@ -400,12 +400,16 @@ export async function showAgentStatusMenu(
           : "";
         const suffix = headline ? ` \u2014 ${headline}` : "";
         const bullet = agentBulletPrefix(theme);
+        // A queued spawn has not engaged a harness yet.
+        const harness = spawn.execution.harness;
+        const harnessField =
+          harness === undefined ? "" : `${bullet}${harness} `;
         const wtInfo = spawn.display.worktree
           ? `  wt:${spawn.display.worktree.branch}`
           : "";
         return {
           value: spawn.id,
-          label: `${icon} ${spawn.id}  ${bullet}${spawn.display.type}  ${status}  ${duration}${wtInfo}${suffix}${ago}`,
+          label: `${icon} ${spawn.id}  ${harnessField}${bullet}${spawn.display.type}  ${status}  ${duration}${wtInfo}${suffix}${ago}`,
         };
       });
       const active = activeAgents();

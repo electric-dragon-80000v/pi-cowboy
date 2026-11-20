@@ -251,12 +251,26 @@ describe("Agent status — the list", () => {
     expect(session.title()).toBe("Status");
     const text = session.text();
     expect(text).toMatch(
-      /◈ abcd1234-spawned-id\s+• general-purpose\s+spawned\s+<1s\s+wt:cow-fix-login-abcd1234/,
+      /◈ abcd1234-spawned-id\s+• pi • general-purpose\s+spawned\s+<1s\s+wt:cow-fix-login-abcd1234/,
     );
     expect(text).toMatch(
-      /✓ beef5678-completed\s+• general-purpose\s+completed\s+<1s/,
+      /✓ beef5678-completed\s+• pi • general-purpose\s+completed\s+<1s/,
     );
     expect(text).toContain("— Fix the login flow");
+  });
+
+  it("shows the harness the run launched under", () => {
+    installManager([
+      baseSpawn({
+        id: "abcd1234-spawned-id",
+        lifecycle: { phase: "spawned", startedAt: Date.now() },
+        host: true,
+        harness: "opencode",
+      }),
+    ]);
+    const session = openAgentStatus();
+
+    expect(session.text()).toContain("• opencode • general-purpose");
   });
 
   it("offers the group actions that match the listed agents", () => {
