@@ -1,3 +1,10 @@
+# [0.39.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.38.0...v0.39.0) (2026-11-20)
+
+
+### Features
+
+* **agents:** support launching agents with empty initial prompts ([25acfa3](https://github.com/electric-dragon-80000v/pi-cowboy/commit/25acfa319e905656531e7a1daadbf803a414eea8))
+
 # [0.38.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.37.0...v0.38.0) (2026-11-20)
 
 
