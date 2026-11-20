@@ -524,6 +524,28 @@ describe("prepare: opencode", () => {
     expect(definition).toContain("You review one diff.");
   });
 
+  it("feeds no prompt and leaves stdin on the terminal when the launch carries no task", async () => {
+    await harnessFor("opencode").prepare({
+      pi: PI,
+      pane: PANE,
+      paneId: "w1:p9",
+      cwd: "/repo",
+      launch: { ...opencodeLaunch(), taskFile: null },
+      config: { configInclude: [] },
+    });
+
+    const configDir = opencodeConfigDir("esp02hpw");
+    const { sessionId } = JSON.parse(
+      readFileSync(join(configDir, "session.json"), "utf-8"),
+    ) as { sessionId: string };
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" --session '${sessionId}'; }`,
+    );
+  });
+
   it("sources the launch's staged env on the command that runs opencode", async () => {
     await harnessFor("opencode").prepare({
       pi: PI,
@@ -749,6 +771,24 @@ describe("prepare: codex", () => {
 
     // One define plus one verify; codex stages nothing to read back.
     expect(runInPaneMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes no positional prompt when the launch carries no task", async () => {
+    await harnessFor("codex").prepare({
+      pi: PI,
+      pane: PANE,
+      paneId: "w1:p9",
+      cwd: "/repo",
+      launch: { ...codexLaunch(), taskFile: null },
+      config: undefined,
+    });
+
+    expect(runInPaneMock).toHaveBeenNthCalledWith(
+      1,
+      PI,
+      "w1:p9",
+      'codex() { : "CODEX_LAUNCHER_3f8a1c"; command codex "$@"; }',
+    );
   });
 });
 
@@ -1089,6 +1129,13 @@ describe("buildArgs", () => {
     const args = harnessFor("pi").buildArgs(request());
 
     expect(args.at(-1)).toBe("@/spawn/esp02hpw/task.md");
+  });
+
+  it("sends no initial message when the launch carries no task", () => {
+    const args = harnessFor("pi").buildArgs(request({ taskFile: null }));
+
+    expect(args).toEqual(BASE.slice(0, -1));
+    expect(args.some((arg) => arg.startsWith("@"))).toBe(false);
   });
 });
 

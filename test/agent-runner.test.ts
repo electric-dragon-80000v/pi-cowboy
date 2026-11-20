@@ -333,7 +333,8 @@ describe("buildLaunchPlan CLI flags", () => {
       "--agent",
       "runner-opencode",
     ]);
-    expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
+    expect(plan.launch.taskFile).not.toBeNull();
+    expect(fs.readFileSync(plan.launch.taskFile!, "utf-8")).toBe("do the task");
   });
 
   it("dispatches codex through its own family's request", async () => {
@@ -375,7 +376,8 @@ describe("buildLaunchPlan CLI flags", () => {
         "--dangerously-bypass-approvals-and-sandbox",
       ]),
     );
-    expect(fs.readFileSync(plan.launch.taskFile, "utf-8")).toBe("do the task");
+    expect(plan.launch.taskFile).not.toBeNull();
+    expect(fs.readFileSync(plan.launch.taskFile!, "utf-8")).toBe("do the task");
   });
 
   it("carries a level with no model of its own onto that harness's flag", async () => {
@@ -1047,6 +1049,41 @@ describe("buildLaunchPlan system prompt split", () => {
       });
     }
   });
+
+  it.each(["", "  \n"])(
+    "stages no task file and no initial message for the prompt %j",
+    async (prompt) => {
+      const { cwd, notify } = setup(undefined);
+      const agentId = "runner-empty-prompt";
+      const pi = {
+        exec: vi.fn().mockResolvedValue({ code: 1, stdout: "" }),
+      } as unknown as ExtensionAPI;
+      const ctx = {
+        cwd,
+        getSystemPrompt: () => "parent prompt",
+        ui: { notify },
+      } as unknown as ExtensionContext;
+      try {
+        const plan = await buildLaunchPlan(pi, ctx, "general-purpose", prompt, {
+          description: "test task",
+          agentId,
+          harness: resolveHarnessType("general-purpose"),
+          cwd,
+        });
+
+        expect(plan.launch.taskFile).toBeNull();
+        expect(plan.piArgs.some((arg) => arg.startsWith("@"))).toBe(false);
+        expect(
+          fs.existsSync(path.join(subagentResultDir(), agentId, "prompt.md")),
+        ).toBe(false);
+      } finally {
+        fs.rmSync(path.join(subagentResultDir(), agentId), {
+          recursive: true,
+          force: true,
+        });
+      }
+    },
+  );
 
   it("fails loud when the system-prompt file is missing after the write", async () => {
     const { cwd, notify } = setup(undefined);

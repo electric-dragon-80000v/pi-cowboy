@@ -151,21 +151,24 @@ export function spawnCredentialStore(platform: NodeJS.Platform): string {
 function launcherBody(
   configDir: string,
   sessionId: string,
-  taskFile: string,
+  taskFile: string | null,
   credentialStore: string,
   envFile: string | null,
 ): string {
   const settings = singleQuote(claudeSettingsFile(configDir));
   const trimmed = singleQuote(`${claudeSettingsFile(configDir)}.tmp`);
+  const session = `command claude --session-id ${singleQuote(sessionId)} "$@"`;
+  // No task, no positional prompt — and no `--` to introduce one.
+  const command =
+    taskFile === null
+      ? session
+      : `${session} -- "$(cat ${singleQuote(taskFile)})"`;
   return [
     `if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' ${settings} > ${trimmed} && mv ${trimmed} ${settings}; fi`,
     `export CLAUDE_SECURESTORAGE_CONFIG_DIR=${singleQuote(credentialStore)}`,
     `export CLAUDE_CONFIG_DIR=${singleQuote(configDir)}`,
     "export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",
-    launchEnvBody(
-      envFile,
-      `command claude --session-id ${singleQuote(sessionId)} "$@" -- "$(cat ${singleQuote(taskFile)})"`,
-    ),
+    launchEnvBody(envFile, command),
   ].join("; ");
 }
 
@@ -190,19 +193,26 @@ function singleQuote(value: string): string {
  * the check would pass on the launcher this install just defined, even with
  * no binary anywhere, and the failure below could never fire. The subshell
  * keeps the installed launcher intact for the launch that follows. The
- * `test -r` pair proves the staged settings and the task file the launcher
- * names are visible from the pane; without them the TUI would park at its
- * onboarding or trust dialog, which nothing in the argv or exit status
- * reports. The marker is broken with a `""` so only the shell's evaluation
- * of the command — not the command line's own echo, which `wait-output` also
- * sees — produces the contiguous token.
+ * `test -r` checks prove the staged settings and, when the launch carries
+ * one, the task file the launcher names are visible from the pane; without
+ * them the TUI would park at its onboarding or trust dialog, which nothing in
+ * the argv or exit status reports. The marker is broken with a `""` so only
+ * the shell's evaluation of the command — not the command line's own echo,
+ * which `wait-output` also sees — produces the contiguous token.
  */
-function stagedProof(configDir: string, taskFile: string): PaneProof {
+function stagedProof(configDir: string, taskFile: string | null): PaneProof {
+  const settingsCheck = `test -r ${singleQuote(claudeSettingsFile(configDir))}`;
+  const taskCheck =
+    taskFile === null ? "" : ` && test -r ${singleQuote(taskFile)}`;
+  const staged =
+    taskFile === null
+      ? `the settings ${claudeSettingsFile(configDir)}`
+      : `the settings ${claudeSettingsFile(configDir)}, the task ${taskFile}`;
   return {
-    command: `test -r ${singleQuote(claudeSettingsFile(configDir))} && test -r ${singleQuote(taskFile)} && (unset -f ${CLAUDE_COMMAND}; command -v ${CLAUDE_COMMAND} >/dev/null) && echo CLAUDE_""STAGED`,
+    command: `${settingsCheck}${taskCheck} && (unset -f ${CLAUDE_COMMAND}; command -v ${CLAUDE_COMMAND} >/dev/null) && echo CLAUDE_""STAGED`,
     output: STAGED_MARKER,
     timeoutMs: STAGED_PROOF_TIMEOUT_MS,
-    failure: `failed to prepare the pane: the pane never proved it can see the staged claude state — the settings ${claudeSettingsFile(configDir)}, the task ${taskFile}, or the claude binary on its PATH. The agent did not start.`,
+    failure: `failed to prepare the pane: the pane never proved it can see the staged claude state — ${staged}, or the claude binary on its PATH. The agent did not start.`,
   };
 }
 

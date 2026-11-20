@@ -278,8 +278,13 @@ export interface SubagentLaunchInputs {
   readonly subagentId: string;
   /** Absolute path of the staged system prompt (multi-line text never crosses herdr's single-line shell encoder). */
   readonly systemPromptFile: string;
-  /** Absolute path of the staged task; the harness decides how it rides the argv. */
-  readonly taskFile: string;
+  /**
+   * Absolute path of the staged task; the harness decides how it rides the
+   * argv. `null` when the spawn carried no task (an agent launched with an
+   * empty prompt): nothing was staged, and the harness sends no initial
+   * prompt of any kind.
+   */
+  readonly taskFile: string | null;
   /** Absolute path of the file the child reports through. */
   readonly resultFile: string;
   /** `null` = no model override was requested. */
@@ -987,7 +992,8 @@ export interface Harness<
   stop: HarnessStop;
   /**
    * The complete argv the pane runs, including how the task rides (the pi
-   * family ends with `@<taskFile>`). Pure: no shellouts, no filesystem writes.
+   * family ends with `@<taskFile>`), or no task argument at all when the
+   * launch carries none. Pure: no shellouts, no filesystem writes.
    * Typed to this harness's own launch, so one family's flags cannot reach
    * another's buildArgs, and a plugin reads only the shared inputs.
    */

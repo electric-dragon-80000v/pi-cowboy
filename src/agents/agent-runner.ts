@@ -548,8 +548,11 @@ export async function buildLaunchPlan(
       `the system prompt file is missing after the write: ${systemFile}. The agent did not start.`,
     );
   }
-  // Throws on failure: a launch without its task file must not proceed.
-  writeResultFile(taskFile, prompt);
+  // An empty prompt is no task: nothing is staged for it, and the harness is
+  // handed no task to deliver, so the agent opens with its editor empty.
+  const hasTask = prompt.trim() !== "";
+  // Throws on failure: a launch with a task must not proceed without its file.
+  if (hasTask) writeResultFile(taskFile, prompt);
 
   const forkSessionFile = options.fork
     ? resolveParentSessionFile(ctx)
@@ -568,7 +571,7 @@ export async function buildLaunchPlan(
   const sharedInputs: SubagentLaunchInputs = {
     subagentId: agentId,
     systemPromptFile: systemFile,
-    taskFile,
+    taskFile: hasTask ? taskFile : null,
     resultFile,
     modelKey: modelChoiceKey(options.modelChoice) ?? null,
     thinking: options.modelChoice?.thinking ?? null,

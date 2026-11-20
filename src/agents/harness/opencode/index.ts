@@ -104,7 +104,8 @@ const MODEL_FAILURE = "Model unavailable";
  * and `command` bypasses this very function. The redirect is what delivers a
  * multi-line task: it becomes the initial message (opencode reads stdin as the
  * prompt when it is not a terminal), and mini mode then reopens the controlling
- * terminal for input, so later steers still reach the process.
+ * terminal for input, so later steers still reach the process. A launch with
+ * no task keeps stdin on the terminal, so nobody is fed a prompt at all.
  *
  * `OPENCODE_CONFIG` names the staged copy of the parent's explicit config
  * file, when the parent had one, and is unset otherwise; either way the spawn
@@ -122,10 +123,15 @@ const MODEL_FAILURE = "Model unavailable";
 function launcherBody(
   configDir: string,
   sessionId: string,
-  taskFile: string,
+  taskFile: string | null,
   explicitConfigFile: string | undefined,
   envFile: string | null,
 ): string {
+  const session = `command opencode "$@" --session ${singleQuoteShellWord(sessionId)}`;
+  const command =
+    taskFile === null
+      ? session
+      : `${session} < ${singleQuoteShellWord(taskFile)}`;
   return [
     explicitConfigFile === undefined
       ? "unset OPENCODE_CONFIG"
@@ -134,10 +140,7 @@ function launcherBody(
     `export OPENCODE_CONFIG_DIR=${singleQuoteShellWord(configDir)}`,
     "export OPENCODE_DISABLE_PROJECT_CONFIG=1",
     "export OPENCODE_DISABLE_AUTOUPDATE=1",
-    launchEnvBody(
-      envFile,
-      `command opencode "$@" --session ${singleQuoteShellWord(sessionId)} < ${singleQuoteShellWord(taskFile)}`,
-    ),
+    launchEnvBody(envFile, command),
   ].join("; ");
 }
 

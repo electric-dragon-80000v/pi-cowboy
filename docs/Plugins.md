@@ -77,7 +77,8 @@ export default function (api: CowboyPluginApi) {
       launch.systemPromptFile,
       "--append-system-prompt",
       `cowboy-subagent-${launch.subagentId}`,
-      `@${launch.taskFile}`,
+      // `taskFile` is null when the spawn carried no prompt: send no task.
+      ...(launch.taskFile === null ? [] : [`@${launch.taskFile}`]),
     ],
     prepare: async ({ pane, paneId }) => {},
     stop: async ({ pane, paneId }) => {

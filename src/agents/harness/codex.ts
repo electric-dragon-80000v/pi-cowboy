@@ -91,7 +91,8 @@ const CODEX_KEY_PREFIX = `${CODEX_PROVIDER}/`;
 
 /**
  * The launcher body: the real binary with the pane's own arguments, then the
- * task as the positional prompt the TUI starts its session with.
+ * task as the positional prompt the TUI starts its session with. A launch
+ * with no task passes no positional prompt, so the TUI opens idle.
  *
  * Bare `codex` keeps the pane's `PATH` the authority on which binary runs,
  * and `command` bypasses this very function. The substitution is
@@ -103,11 +104,12 @@ const CODEX_KEY_PREFIX = `${CODEX_PROVIDER}/`;
  * The launch's own variables arrive the same way: a staged file the body
  * sources, so the values never reach the typed command line.
  */
-function launcherBody(taskFile: string, envFile: string | null): string {
-  return launchEnvBody(
-    envFile,
-    `command codex "$@" "$(cat ${singleQuoteShellWord(taskFile)})"`,
-  );
+function launcherBody(taskFile: string | null, envFile: string | null): string {
+  const command =
+    taskFile === null
+      ? `command codex "$@"`
+      : `command codex "$@" "$(cat ${singleQuoteShellWord(taskFile)})"`;
+  return launchEnvBody(envFile, command);
 }
 
 /**

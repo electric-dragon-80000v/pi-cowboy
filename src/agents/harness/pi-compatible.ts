@@ -29,10 +29,11 @@ import { stopWithKeys } from "./stop-keys.js";
 
 /**
  * The pi family's argv: every flag a pi-compatible launch carries, ending with
- * the task riding as `@<taskFile>` (the pane shell expands it, so multi-line
- * task text never crosses herdr's single-line shell encoder). The report
- * token rides via `--append-system-prompt` because `--system-prompt` names a
- * file and a path cannot carry the marker.
+ * the task riding as `@<taskFile>` when the launch has one (the pane shell
+ * expands it, so multi-line task text never crosses herdr's single-line shell
+ * encoder). Without a task the argv ends at the flags, so the TUI opens with
+ * an empty editor. The report token rides via `--append-system-prompt`
+ * because `--system-prompt` names a file and a path cannot carry the marker.
  */
 export function buildPiLaunchArgs(request: PiFamilyLaunchRequest): string[] {
   const args: string[] = [
@@ -64,7 +65,7 @@ export function buildPiLaunchArgs(request: PiFamilyLaunchRequest): string[] {
     for (const extPath of request.extensions.paths) args.push("-e", extPath);
   }
   args.push(request.projectTrusted ? "--approve" : "--no-approve");
-  args.push(`@${request.taskFile}`);
+  if (request.taskFile !== null) args.push(`@${request.taskFile}`);
   return args;
 }
 
