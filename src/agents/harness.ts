@@ -1051,6 +1051,35 @@ export type HarnessTeardownHook = (
 ) => Promise<void>;
 
 /**
+ * What one harness layers over another: the hooks and defaults a variant adds,
+ * with everything else left to the harness underneath.
+ *
+ * This is the vocabulary itself, free of ids, bases and registration, so a
+ * caller that already holds a harness can layer the same behaviour on it for a
+ * single launch without registering a variant. The lifecycle hooks compose in
+ * the order the lifecycle runs (prepare before the base, postStart after it,
+ * teardown before the base's), and a name the base inherits is one this
+ * decoration's `env` replaces rather than merges below.
+ */
+export interface HarnessDecoration {
+  /**
+   * Variables this decoration's launches carry as defaults, read per launch. A
+   * configured value of the same name wins; a reserved name is carried.
+   */
+  readonly env?: () => Readonly<Record<string, string>>;
+  /** Names this decoration reserves besides the base's and the universal set. */
+  readonly reservedEnvVars?: () => readonly string[];
+  /** This decoration's own condition, composed with the base's: both must hold. */
+  readonly availability?: () => HarnessAvailability;
+  /** Prepare the host before the base prepares the pane. */
+  readonly prepare?: HarnessPrepareHook;
+  /** Run after the base has accepted the launch. */
+  readonly postStart?: HarnessPostStartHook;
+  /** Undo this decoration's own state, before the base's teardown. */
+  readonly teardown?: HarnessTeardownHook;
+}
+
+/**
  * One variant of an existing harness: the same process, launched after its own
  * host-side preparation and with its own environment defaults.
  *
@@ -1061,26 +1090,11 @@ export type HarnessTeardownHook = (
  * model and thinking defaults, concurrency pools, `harness_type`), so no layer
  * above the registry needs to know it was derived.
  */
-export interface HarnessDerivation {
+export interface HarnessDerivation extends HarnessDecoration {
   /** The variant's own id: not a built-in, not already registered, not the base. */
   readonly id: AnyHarnessId;
   /** The label its settings rows and spawn lists show. */
   readonly displayName: string;
   /** The harness this variant delegates to: a built-in, a plugin's, or another variant. */
   readonly base: AnyHarnessId;
-  /**
-   * Variables this variant's launches carry as defaults, read per launch. A
-   * configured value of the same name wins; a reserved name is carried.
-   */
-  readonly env?: () => Readonly<Record<string, string>>;
-  /** Names this variant reserves besides the base's and the universal set. */
-  readonly reservedEnvVars?: () => readonly string[];
-  /** This variant's own condition, composed with the base's: both must hold. */
-  readonly availability?: () => HarnessAvailability;
-  /** Prepare the host before the base prepares the pane. */
-  readonly prepare?: HarnessPrepareHook;
-  /** Run after the base has accepted the launch. */
-  readonly postStart?: HarnessPostStartHook;
-  /** Undo this variant's own state, before the base's teardown. */
-  readonly teardown?: HarnessTeardownHook;
 }

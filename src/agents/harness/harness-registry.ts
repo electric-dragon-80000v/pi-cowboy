@@ -48,6 +48,7 @@ import {
   type PluginHarness,
   type ThinkingLevels,
 } from "../harness.js";
+import { deriveHarness, type BaseResolution } from "./harness-derivation.js";
 import { piHarness } from "./pi.js";
 import { pigHarness } from "./pig.js";
 import { piBoltHarness } from "./pi-bolt.js";
@@ -441,91 +442,22 @@ export function createHarnessRegistry(): HarnessRegistry {
     return registered.get(base);
   }
 
-  /** The base a derivation delegates to, or the id it never found. */
-  function requireBase(derivation: HarnessDerivation): RegisteredHarness {
-    const found = baseEntry(derivation.id);
-    if (found === undefined) {
-      throw new Error(
-        `no harness registered for "${bases.get(derivation.id) ?? derivation.base}"`,
-      );
-    }
-    return found;
+  /**
+   * The answer `deriveHarness` builds an entry from: the immediate base when the
+   * whole chain resolves, otherwise the fault the chain ends at.
+   */
+  function baseResolution(id: AnyHarnessId): BaseResolution {
+    const found = baseEntry(id);
+    if (found !== undefined) return { kind: "resolved", harness: found };
+    const chain = chainEnd(id);
+    return chain.kind === "resolved"
+      ? { kind: "missing", id: bases.get(id) ?? id }
+      : chain;
   }
 
-  /**
-   * One variant's entry: the base's members, or a hook around them. Capability
-   * members (`config`, `readHandoverRecords`) are getters so they answer for the
-   * base as it stands when asked, rather than as it stood at registration.
-   */
+  /** One variant's entry, from the declaration and the base's current answer. */
   function derivedEntry(derivation: HarnessDerivation): RegisteredHarness {
-    return {
-      id: derivation.id,
-      displayName: derivation.displayName,
-      get family() {
-        const answer = chainEnd(derivation.id);
-        return answer.kind === "resolved" ? answer.entry.family : undefined;
-      },
-      get agentMultiplexerKind() {
-        return requireBase(derivation).agentMultiplexerKind;
-      },
-      get config() {
-        return baseEntry(derivation.id)?.config;
-      },
-      get readHandoverRecords() {
-        return baseEntry(derivation.id)?.readHandoverRecords;
-      },
-      defaultEnv: derivation.env,
-      reservedEnvVars: () => [
-        ...(baseEntry(derivation.id)?.reservedEnvVars?.() ?? []),
-        ...(derivation.reservedEnvVars?.() ?? []),
-      ],
-      inheritedEnv: () => {
-        const inherited = baseEntry(derivation.id)?.inheritedEnv?.() ?? {};
-        const declared = derivation.env?.() ?? {};
-        // A name the base's launch inherits is one its child and the export read
-        // the same way (codex's home, pi's store). A variant that declares a value
-        // for it is the harness that will actually run, so its value wins there;
-        // every other declared name stays a default, under configuration.
-        const overrides = Object.fromEntries(
-          Object.entries(declared).filter(([name]) => name in inherited),
-        );
-        return { ...inherited, ...overrides };
-      },
-      availability: () => {
-        const answer = chainEnd(derivation.id);
-        if (answer.kind === "missing") {
-          return {
-            status: "unavailable" as const,
-            notice: `its base harness "${answer.id}" is not registered`,
-          };
-        }
-        if (answer.kind === "cycle") {
-          return {
-            status: "unavailable" as const,
-            notice: `its base chain cycles through "${answer.id}"`,
-          };
-        }
-        const base = baseEntry(derivation.id)?.availability();
-        if (base !== undefined && base.status === "unavailable") return base;
-        return derivation.availability?.() ?? { status: "available" as const };
-      },
-      prepare: async (request) => {
-        await derivation.prepare?.(request);
-        await requireBase(derivation).prepare(request);
-      },
-      postStart: async (request) => {
-        await baseEntry(derivation.id)?.postStart?.(request);
-        await derivation.postStart?.(request);
-      },
-      stop: (request) => requireBase(derivation).stop(request),
-      steer: (request) => requireBase(derivation).steer(request),
-      buildArgs: (launch) => requireBase(derivation).buildArgs(launch),
-      teardown: async (request) => {
-        await derivation.teardown?.(request);
-        await baseEntry(derivation.id)?.teardown(request);
-      },
-      listModels: (request) => requireBase(derivation).listModels(request),
-    };
+    return deriveHarness(derivation, () => baseResolution(derivation.id));
   }
 
   const registry: HarnessRegistry = {
