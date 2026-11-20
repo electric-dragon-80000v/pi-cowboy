@@ -1,3 +1,10 @@
+# [0.38.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.37.0...v0.38.0) (2026-11-20)
+
+
+### Features
+
+* **agents:** add readEnv harness hook for session continuations ([85af600](https://github.com/electric-dragon-80000v/pi-cowboy/commit/85af600ef14f88b6a9372c54d0af3462d9c72151))
+
 # [0.37.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.36.6...v0.37.0) (2026-11-20)
 
 
