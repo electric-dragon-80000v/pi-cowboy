@@ -204,6 +204,7 @@ describe("the open harness registry", () => {
       thinking: null,
       toolSelection: { kind: "default" as const },
       envFile: null,
+      continuation: null,
     };
 
     const harness = harnesses.require("reg-dispatch");

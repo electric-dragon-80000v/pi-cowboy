@@ -169,6 +169,7 @@ function launchInputs(
     thinking: null,
     toolSelection: { kind: "default" },
     envFile: null,
+    continuation: null,
   };
   return { ...shared, family: "claude", ...overrides };
 }

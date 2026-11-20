@@ -274,6 +274,7 @@ describe.skipIf(!canRunRealClaude)(
         toolSelection: { kind: "include", names: ["Bash"] },
         thinking: null,
         envFile: null,
+        continuation: null,
       });
       const result = await runClaude(
         configDir,

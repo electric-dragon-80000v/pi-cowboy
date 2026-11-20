@@ -31,6 +31,7 @@ const SHARED = {
   thinking: null,
   toolSelection: { kind: "default" as const },
   envFile: null,
+  continuation: null,
 };
 
 /** The launch a plugin harness is handed; a built-in base narrows its own. */
@@ -266,6 +267,35 @@ describe("deriving a harness", () => {
       true,
     );
     expect(canReadHandoverRecords(registry.require("closed-work"))).toBe(false);
+  });
+
+  it("reads its base's run environment back, so a continuation carries it", async () => {
+    const registry = createHarnessRegistry();
+    const readEnv = vi.fn(async () => ({ FREEBUFF_CONFIG_DIR: "/store" }));
+    registry.register(baseHarness({ id: "reading", readEnv }));
+    registry.register(baseHarness({ id: "silent" }));
+    registry.derive({
+      id: "reading-work",
+      displayName: "Work",
+      base: "reading",
+    });
+    registry.derive({ id: "silent-work", displayName: "Work", base: "silent" });
+
+    const address = {
+      pi: {} as ExtensionAPI,
+      subagentId: "sub-1",
+      paneId: "pane-1",
+      cwd: "/tmp/work",
+      staged: {
+        systemPromptFile: "/staged/system.md",
+        taskFile: "/staged/task.md",
+        resultFile: "/staged/result.md",
+      },
+    };
+    await expect(
+      registry.require("reading-work").readEnv!(address),
+    ).resolves.toEqual({ FREEBUFF_CONFIG_DIR: "/store" });
+    expect(registry.require("silent-work").readEnv).toBeUndefined();
   });
 
   it("runs the variant's prepare before the base's and its teardown after", async () => {

@@ -58,7 +58,11 @@ import {
   type OwnedCheckout,
 } from "../spawn/sandbox.js";
 import type { AgentHost, AgentHostRef, DeliverOutcome } from "./agent-host.js";
-import type { AnyHarnessId, HarnessRunStaging } from "./harness.js";
+import type {
+  AnyHarnessId,
+  HarnessContinuation,
+  HarnessRunStaging,
+} from "./harness.js";
 import {
   engageExecution,
   endExecutionRun,
@@ -754,6 +758,33 @@ export class SubagentSession {
     return this.readTarget();
   }
 
+  /**
+   * The session the next run continues, under the name the harness that ran it
+   * gives it: the id it exported and the environment that run resolved for its
+   * own store, read while its process can still answer. A harness that keeps no
+   * environment the extension needs answers none, and the continuation carries
+   * none; a read that fails refuses the handover before anything is stopped.
+   */
+  private async continuation(
+    from: AnyHarnessId,
+    paneId: string,
+    cwd: string,
+    sessionId: string,
+  ): Promise<HarnessContinuation> {
+    const readEnv = getHarnessRegistry().get(from)?.readEnv;
+    if (readEnv === undefined) return { sessionId, env: {} };
+    return {
+      sessionId,
+      env: await readEnv({
+        pi: this.args.pi,
+        subagentId: this.id,
+        paneId,
+        cwd,
+        staged: this.stagedPaths(),
+      }),
+    };
+  }
+
   /** The run's staging paths, named by every harness request that survives a reload. */
   private stagedPaths(): HarnessRunStaging {
     return {
@@ -830,6 +861,21 @@ export class SubagentSession {
         status: lifecycleStatus(this.spawn.lifecycle),
       });
     }
+    let continuation: HarnessContinuation;
+    try {
+      continuation = await this.continuation(
+        from,
+        ref.paneId,
+        cwd,
+        exported.sessionId,
+      );
+    } catch (error) {
+      return faulted({
+        kind: "session-export-failed",
+        harness: from,
+        detail: `the run's own environment could not be read back: ${errorMessage(error)}`,
+      });
+    }
 
     // A settled run's process may still be alive, and launching the next
     // harness anyway would put two agents in one checkout.
@@ -898,7 +944,7 @@ export class SubagentSession {
     // stopped the ended run is spent; this run starts with its own.
     this.renewAbortController();
     this.bindParentSignal();
-    await this.launch({ kind: "handover" });
+    await this.launch({ kind: "handover" }, continuation);
     if (!this.isActive()) {
       const lifecycle = this.spawn.lifecycle;
       return faulted({
@@ -969,6 +1015,7 @@ export class SubagentSession {
 
   private async launch(
     origin: LaunchOrigin = { kind: "spawn" },
+    continuation?: HarnessContinuation,
   ): Promise<void> {
     let placement: LaunchPlacement = { kind: "none" };
     let failure: LaunchFailure = { kind: "none" };
@@ -1043,6 +1090,7 @@ export class SubagentSession {
           cwd: options.worktree?.path,
           projectTrusted: options.projectTrusted,
           description: options.description,
+          ...(continuation === undefined ? {} : { continuation }),
           worktree: options.worktree,
           agentGuidance: options.orchestration.guidance,
         },

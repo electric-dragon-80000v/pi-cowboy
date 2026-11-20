@@ -37,6 +37,7 @@ import {
   type ExtensionLaunchMode,
   type HarnessEnvReservations,
   type HarnessFamily,
+  type HarnessContinuation,
   type HarnessLaunch,
   type PiLaunchInputs,
   type SkillLaunchMode,
@@ -253,6 +254,8 @@ interface LaunchExtras {
   worktree?: AgentWorktree;
   /** The subagent-facing guidance the resolved orchestration template declares, rendered as the system prompt's final block. */
   agentGuidance?: string;
+  /** The session a handover's launch continues; absent for every other launch. */
+  continuation?: HarnessContinuation;
 }
 
 /**
@@ -571,6 +574,7 @@ export async function buildLaunchPlan(
     thinking: options.modelChoice?.thinking ?? null,
     toolSelection,
     envFile,
+    continuation: options.continuation ?? null,
   };
   const piInputs: PiLaunchInputs = {
     forkSessionFile: forkSessionFile ?? null,

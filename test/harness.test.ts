@@ -120,6 +120,7 @@ function sharedInputs(): SubagentLaunchInputs {
     thinking: null,
     toolSelection: { kind: "default" },
     envFile: null,
+    continuation: null,
   };
 }
 

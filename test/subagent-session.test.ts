@@ -416,6 +416,7 @@ beforeEach(() => {
       toolSelection: { kind: "default" },
       thinking: null,
       envFile: null,
+      continuation: null,
       forkSessionFile: null,
       skills: { kind: "default" },
       extensions: { kind: "default" },
@@ -2233,6 +2234,66 @@ describe("handover", () => {
     expect(
       run.session.spawn.execution.history.map(({ sessionId }) => sessionId),
     ).toEqual(["ses_claude", "ses_2"]);
+  });
+
+  it("carries the ended run's own environment into the run that continues it", async () => {
+    const run = await settledRun();
+    const readEnv = vi.fn(async () => ({ FREEBUFF_CONFIG_DIR: "/store" }));
+    registry.overrides.set("pi", {
+      ...exportingPi(async () => ({
+        sessionId: "ses_1",
+        records: [{ kind: "user", content: "go on" }],
+      })),
+      readEnv,
+    });
+    try {
+      await expect(
+        run.session.handover({ harness: "pi" }),
+      ).resolves.toMatchObject({ kind: "handed-over" });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    // The environment is the source run's, read at its own address before its
+    // process was stopped: the run that continues it resumes that session.
+    expect(readEnv).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: "/repo", paneId: expect.any(String) }),
+    );
+    const options = buildLaunchPlanMock.mock.calls[1]![4] as {
+      readonly continuation?: unknown;
+    };
+    expect(options.continuation).toEqual({
+      sessionId: "ses_1",
+      env: { FREEBUFF_CONFIG_DIR: "/store" },
+    });
+  });
+
+  it("refuses a handover whose run environment cannot be read, stopping nothing", async () => {
+    const run = await settledRun();
+    registry.overrides.set("pi", {
+      ...exportingPi(async () => ({
+        sessionId: "ses_1",
+        records: [{ kind: "user", content: "go on" }],
+      })),
+      readEnv: async () => {
+        throw new Error("no store");
+      },
+    });
+    try {
+      await expect(run.session.handover({ harness: "pi" })).resolves.toEqual({
+        kind: "faulted",
+        fault: {
+          kind: "session-export-failed",
+          harness: "pi",
+          detail: "the run's own environment could not be read back: no store",
+        },
+      });
+    } finally {
+      registry.overrides.delete("pi");
+    }
+
+    expect(run.session.spawn.execution.history).toEqual([]);
+    expect(buildLaunchPlanMock).toHaveBeenCalledTimes(1);
   });
 
   it("gives the next run its own pane instead of the placement it ends", async () => {

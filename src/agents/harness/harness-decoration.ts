@@ -40,6 +40,9 @@ export function decorateHarness(
     get readHandoverRecords() {
       return of().readHandoverRecords;
     },
+    get readEnv() {
+      return of().readEnv;
+    },
     defaultEnv: decoration.env,
     reservedEnvVars: () => [
       ...(of().reservedEnvVars?.() ?? []),

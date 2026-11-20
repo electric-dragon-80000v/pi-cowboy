@@ -102,6 +102,7 @@ function stubLaunchPlan() {
       modelKey: null,
       toolSelection: { kind: "default" },
       envFile: null,
+      continuation: null,
       thinkingLevel: null,
       forkSessionFile: null,
       skills: { kind: "default" },

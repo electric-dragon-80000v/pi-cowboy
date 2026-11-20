@@ -352,6 +352,7 @@ describe("buildLaunchPlan CLI flags", () => {
     // Exactly the shared inputs plus codex's own: no pi input rides this
     // request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "continuation",
       "envFile",
       "family",
       "modelKey",
@@ -480,6 +481,7 @@ describe("buildLaunchPlan CLI flags", () => {
       thinking: null,
       toolSelection: { kind: "default" },
       envFile: subagentEnvFileFor("runner-test"),
+      continuation: null,
       projectTrusted: true,
     } satisfies CodexLaunchRequest);
   });
@@ -552,6 +554,7 @@ describe("buildLaunchPlan CLI flags", () => {
       thinking: "high",
       toolSelection: { kind: "default" },
       envFile: null,
+      continuation: null,
     });
     // One object: the argv and the plan were built from the same request.
     expect(requests[0]).toBe(plan.launch);
@@ -568,6 +571,7 @@ describe("buildLaunchPlan CLI flags", () => {
     // Exactly the shared inputs plus the family tag: no pi input and no
     // opencode-only field rides this request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "continuation",
       "envFile",
       "family",
       "modelKey",
@@ -1104,6 +1108,7 @@ describe("buildLaunchPlan — a plugin harness", () => {
     });
     // No built-in family's option rides a plugin request.
     expect(Object.keys(plan.launch).sort()).toEqual([
+      "continuation",
       "envFile",
       "family",
       "modelKey",

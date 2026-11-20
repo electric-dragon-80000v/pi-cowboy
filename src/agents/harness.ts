@@ -250,6 +250,23 @@ export function reservedEnvVarsOf(
 }
 
 /**
+ * The session one launch continues: what a handover carries from the run that
+ * ended to the run that takes its place.
+ *
+ * `env` is the ended run's own environment as its harness read it back
+ * (`readEnv`), not this process's: a harness whose child resolves its store
+ * from a variable of its own cannot be answered for by the extension, which
+ * never sees what that variable held. A target that can resume the session
+ * computes where it lives from this, so the extension only carries it.
+ */
+export interface HarnessContinuation {
+  /** The ended run's harness's own id for the session — what it resumes by. */
+  readonly sessionId: string;
+  /** The ended run's environment, as its harness read it; empty when it read none. */
+  readonly env: Readonly<Record<string, string>>;
+}
+
+/**
  * Launch inputs every harness family shares. All fields are required;
  * a value the run does not carry is a real state (`null` or a union member),
  * never an absent field. The subagent token is not among them: it is a pure
@@ -283,6 +300,11 @@ export interface SubagentLaunchInputs {
    * into the pane.
    */
   readonly envFile: string | null;
+  /**
+   * The session this launch continues, or `null` for an ordinary launch. A
+   * harness that cannot resume one ignores it and starts from the task alone.
+   */
+  readonly continuation: HarnessContinuation | null;
 }
 
 /** pi CLI specifics; no other harness family reads these. */
@@ -555,24 +577,18 @@ export interface HarnessRunStaging {
 }
 
 /**
- * What a harness is asked for when one run is handed over. The address is the
- * run's own, not the spawn's: a handover's earlier run sits in a pane the next
- * run never occupies. Every field is a fact the extension still holds once the
- * run's process is gone, so a reader never depends on what its own instance
- * happened to remember at launch.
+ * One run's address: everything a harness is handed to read that run's own
+ * state back. The address is the run's, not the spawn's: a handover's earlier
+ * run sits in a pane the next run never occupies. Every field is a fact the
+ * extension still holds once the run's process is gone, so a reader never
+ * depends on what its own instance happened to remember at launch.
  */
-export interface HarnessExportRequest {
+export interface HarnessRunAddress {
   readonly pi: ExtensionAPI;
   readonly subagentId: string;
   readonly paneId: string;
   /** The tree the run ran in; a harness that keys sessions by directory reads it. */
   readonly cwd: string;
-  /**
-   * When the run was started, stamped before any launch work. A store that
-   * names sessions by creation time uses it as a lower bound; it is never an
-   * identity on its own.
-   */
-  readonly startedAt: number;
   /**
    * Where the run was staged, readable after the run ends. A reader that keyed
    * its records on this run — the task file its opening message names — finds
@@ -580,6 +596,34 @@ export interface HarnessExportRequest {
    */
   readonly staged: HarnessRunStaging;
 }
+
+/** One run's read, at the address above plus what only an export needs. */
+export interface HarnessExportRequest extends HarnessRunAddress {
+  /**
+   * When the run was started, stamped before any launch work. A store that
+   * names sessions by creation time uses it as a lower bound; it is never an
+   * identity on its own.
+   */
+  readonly startedAt: number;
+}
+
+/**
+ * The environment one run's process resolved for itself, read back by the
+ * harness that launched it: the names by which that process keeps its own state
+ * — a store directory, a home — and nothing else. The extension cannot answer
+ * for these itself, since a harness's launcher stages values the extension
+ * never holds; a reader that located the session this way can hand the same
+ * proof to the run that continues it.
+ *
+ * The member is optional — a harness whose store the extension already names
+ * declares none, and a continuation from it carries no environment. Where it is
+ * declared, the read happens while the run can still answer, and a throw refuses
+ * the handover before anything is stopped: a continuation built on a guessed
+ * store would resume the wrong session.
+ */
+export type HarnessReadEnv = (
+  address: HarnessRunAddress,
+) => Promise<Readonly<Record<string, string>>>;
 
 /**
  * One complete native session record after a harness has read its store. A
@@ -964,6 +1008,12 @@ export interface Harness<
    * `canReadHandoverRecords`. The address is the run's own.
    */
   readHandoverRecords?: ReadHandoverRecords;
+  /**
+   * Read one run's own environment back: the values its process resolved for the
+   * names that locate its state, as `readEnv` above describes. Read from a live
+   * run's address, before a handover stops it.
+   */
+  readEnv?: HarnessReadEnv;
   /**
    * Deliver one steering message into a live run's pane. Required, and the only
    * steer path: the session calls this and nothing else, so each harness names

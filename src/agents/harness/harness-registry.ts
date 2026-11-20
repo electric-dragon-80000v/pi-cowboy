@@ -192,6 +192,9 @@ function wrapBuiltin(id: HarnessId): RegisteredHarness {
     ...(harness.defaultEnv === undefined
       ? {}
       : { defaultEnv: harness.defaultEnv.bind(harness) }),
+    ...(harness.readEnv === undefined
+      ? {}
+      : { readEnv: harness.readEnv.bind(harness) }),
     prepare: (request) =>
       withBuiltin(id, request.launch, (typed, launch) =>
         typed.prepare({

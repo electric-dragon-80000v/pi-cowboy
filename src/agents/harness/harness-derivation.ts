@@ -77,6 +77,9 @@ export function deriveHarness(
     get readHandoverRecords() {
       return decorated.readHandoverRecords;
     },
+    get readEnv() {
+      return decorated.readEnv;
+    },
     defaultEnv: decorated.defaultEnv,
     reservedEnvVars: decorated.reservedEnvVars,
     inheritedEnv: decorated.inheritedEnv,

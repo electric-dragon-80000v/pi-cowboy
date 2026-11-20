@@ -238,6 +238,7 @@ async function spawnAndSettle(options: HarnessOptions = {}): Promise<Harness> {
       modelKey: null,
       toolSelection: { kind: "default" },
       envFile: null,
+      continuation: null,
       thinkingLevel: null,
       forkSessionFile: null,
       skills: { kind: "default" },

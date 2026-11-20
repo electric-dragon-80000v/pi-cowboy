@@ -435,6 +435,7 @@ describe.skipIf(opencodeMissing)(
           toolSelection: { kind: "default" },
           thinking: VARIANT,
           envFile: null,
+          continuation: null,
         }),
         // The launcher appends the pinned id after `"$@"`, because `--session`
         // is `mini`'s flag rather than the binary's.
