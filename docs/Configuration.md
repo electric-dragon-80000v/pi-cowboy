@@ -197,10 +197,21 @@ The parent session's level is the final fallback before asking for no level, mat
 
 Sets the terminal multiplexer used to host subagent panes, specified by ID. This is a machine-level setting and cannot be configured in project files.
 
-- `herdr` (default): The built-in multiplexer running over the multiplexer CLI.
+- `herdr` (default): The built-in multiplexer running over the `herdr` CLI. Detected by `HERDR_ENV=1`.
+- `herdr-core`: The built-in multiplexer for Herdr Desktop, running over the `hc` (herdr-core) CLI. Detected by a non-empty `HC_TERMINAL_ID` outside a herdr pane. See [herdr-core](#herdr-core).
 - Any other ID: A custom multiplexer registered by a Pi package through the `pi-cowboy/plugin` contract (see [Plugins](Plugins.md)).
 
-`pi-cowboy` requires a registered multiplexer that detects the current environment. If the configured `multiplexer` is unregistered or fails to detect the environment, `pi-cowboy` falls back to the first registered multiplexer whose environment check succeeds (`herdr` first, followed by plugin multiplexers in package-name order). If no registered multiplexer detects the environment, the extension loads its plugins but remains inactive, reporting that it cannot launch panes. Registering a plugin multiplexer allows `pi-cowboy` to operate inside terminal multiplexers other than herdr.
+`pi-cowboy` requires a registered multiplexer that detects the current environment. If the configured `multiplexer` is unregistered or fails to detect the environment, `pi-cowboy` falls back to the first registered multiplexer whose environment check succeeds (`herdr`, then `herdr-core`, followed by plugin multiplexers in package-name order). If no registered multiplexer detects the environment, the extension loads its plugins but remains inactive, reporting that it cannot launch panes. Registering a plugin multiplexer allows `pi-cowboy` to operate inside terminal multiplexers other than these.
+
+### herdr-core
+
+Inside a Herdr Desktop terminal, each agent runs in a terminal of its own, started with `hc run` and filed under the terminal of the pi session that spawned it (the session's own `HC_TERMINAL_ID`, passed explicitly as `--parent`). Herdr Desktop shows such a terminal beneath its parent as a sub-agent, so two chats in one repository each keep their own children. Parentage is never inferred from the repository, branch, names, or the selected tab. Each child is started with `--no-notify`, because `pi-cowboy` reports a child's end itself.
+
+- **Launch**: a child terminal runs `bash --noprofile --norc -i` in its worktree, and the harness launcher is typed into it as it would be into a herdr pane. The terminal carries the labels `cowboy=1` and `cowboy.agent=<branch>`, plus `cowboy.checkout` and `cowboy.repo` when it works in a worktree.
+- **Status**: read from the agent's own OSC 7501 reports through `hc get`. Pi 1.6.0 reports them; older releases may not (pi 1.0.0 reports none). A harness that reports none reads as `unknown`.
+- **Steering**: a message is typed only when the agent reports `idle`, `working`, `done`, or `error`. It is refused while the terminal's shell is in front, while the agent reports nothing (an approval dialog cannot be ruled out), and while it reports `blocked`. For `idle` and `working`, hc re-checks the status as it types (`hc send --if`). Steering therefore needs a harness that reports status: Claude Code, Codex, and OpenCode do not report it unless configured to, so steering them is refused rather than guessed.
+- **Focus**: `herdr-app do agent.focus --terminal <id>`.
+- **Cleanup**: only the terminal a spawn started, still carrying that spawn's `cowboy.agent` label, is killed and removed. A worktree is removed only after that terminal is gone and no other live `pi-cowboy` terminal works in it. The worktree retention rules apply unchanged.
 
 ## `harness`
 

@@ -6,7 +6,7 @@
  * run inside herdr.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BUILTIN_MULTIPLEXER,
   createMultiplexerRegistry,
@@ -14,6 +14,17 @@ import {
 } from "../src/agents/multiplexer-registry.js";
 import { mergeDefaults } from "../src/config/config-io.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
+
+// Outside every built-in multiplexer unless a case says otherwise, whatever
+// terminal runs the suite.
+beforeEach(() => {
+  vi.stubEnv("HERDR_ENV", "");
+  vi.stubEnv("HC_TERMINAL_ID", "");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("the multiplexer registry", () => {
   afterEach(() => {
@@ -30,6 +41,8 @@ describe("the multiplexer registry", () => {
   }
 
   it("resolves a registered id, and falls back to the built-in for one nothing registered", () => {
+    vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     const registry = createMultiplexerRegistry();
 
     expect(registry.resolveId(BUILTIN_MULTIPLEXER)).toBe(BUILTIN_MULTIPLEXER);
@@ -39,6 +52,7 @@ describe("the multiplexer registry", () => {
 
   it("collects the hosts in registration order, the built-in first", () => {
     vi.stubEnv("HERDR_ENV", "1");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     const registry = createMultiplexerRegistry();
     registry.register(pluginMultiplexer("tmux", true));
     registry.register(pluginMultiplexer("zellij", false));
@@ -52,6 +66,7 @@ describe("the multiplexer registry", () => {
 
   it("runs a plugin multiplexer that hosts where no built-in does", () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     const registry = createMultiplexerRegistry();
     registry.register(pluginMultiplexer("tmux", true));
 
@@ -62,6 +77,7 @@ describe("the multiplexer registry", () => {
 
   it("hosts without a multiplexer whose own detection throws", () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const registry = createMultiplexerRegistry();
     registry.register({
@@ -82,8 +98,61 @@ describe("the multiplexer registry", () => {
 
   it("names the built-in as the fallback when nothing hosts this process", () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
 
     expect(defaultMultiplexer()).toBe(BUILTIN_MULTIPLEXER);
+  });
+
+  it("runs herdr-core inside a herdr-core terminal, ahead of a hosting plugin", () => {
+    vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "t7");
+    const registry = createMultiplexerRegistry();
+    registry.register(pluginMultiplexer("tmux", true));
+
+    expect(registry.hosting()).toEqual(["herdr-core", "tmux"]);
+    expect(registry.resolveId(BUILTIN_MULTIPLEXER)).toBe("herdr-core");
+    expect(registry.runtime({} as never, "herdr").multiplexer).toBe(
+      "herdr-core",
+    );
+    expect(defaultMultiplexer()).toBe("herdr-core");
+  });
+
+  it("refuses a plugin that claims herdr-core's id", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = createMultiplexerRegistry();
+
+    expect(
+      registry.register({
+        id: "herdr-core",
+        hosts: () => true,
+        create: () => {
+          throw new Error("the built-in's factory must not be replaced");
+        },
+      }),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("a built-in multiplexer owns that id"),
+    );
+    warn.mockRestore();
+  });
+
+  it("falls back to the built-in hosting this process when a plugin's factory fails", () => {
+    vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "t7");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = createMultiplexerRegistry();
+    registry.register({
+      id: "tmux",
+      hosts: () => true,
+      create: () => {
+        throw new Error("no tmux server");
+      },
+    });
+
+    expect(registry.runtime({} as never, "tmux").multiplexer).toBe(
+      "herdr-core",
+    );
+    warn.mockRestore();
   });
 
   it("refuses a plugin that claims the built-in multiplexer's id", () => {
@@ -103,7 +172,7 @@ describe("the multiplexer registry", () => {
       BUILTIN_MULTIPLEXER,
     );
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("the built-in multiplexer owns that id"),
+      expect.stringContaining("a built-in multiplexer owns that id"),
     );
     warn.mockRestore();
   });

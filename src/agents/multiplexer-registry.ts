@@ -3,7 +3,7 @@
  *
  * A multiplexer is a `(pi) => ExecutionRuntime` under an id, and config's
  * `multiplexer` key prefers one by id. `createMultiplexerRegistry()` builds the
- * map a session resolves that id from; its built-in is seeded at construction,
+ * map a session resolves that id from; its built-ins are seeded at construction,
  * exactly as a plugin's registration arrives, so there is one registry and no
  * caller can tell a built-in from a plugin by how it arrived. The map is a
  * closure of the object, so a session installs a fresh registry and the
@@ -15,15 +15,17 @@
  *
  * A multiplexer hosts a session only where it detects itself: every registration
  * answers `hosts()`, and `hosting()` collects the answers in registration order —
- * the built-in first, then plugins in package-name order. That answer decides
+ * the built-ins first, then plugins in package-name order. That answer decides
  * both whether a session runs at all (see session-runtime.ts) and which
  * multiplexer it runs, so a multiplexer nothing can detect never drives one.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createHcRuntime } from "../infrastructure/hc-host.js";
 import { createHerdrRuntime } from "../infrastructure/herdr-host.js";
 import {
   HERDR,
+  HERDR_CORE,
   getHostMultiplexer,
   multiplexerHosts,
   type HostMultiplexer,
@@ -32,11 +34,29 @@ import { errorMessage } from "../utils.js";
 import type { AgentMultiplexer, ExecutionRuntime } from "./agent-host.js";
 
 /**
- * The built-in multiplexer this package ships, under the id a process running
- * inside it carries. A plugin may never claim it; a host multiplexer this package
- * does not build (a plugin's own) is the plugin's to register.
+ * The built-in multiplexer a session falls back to when nothing else can start:
+ * herdr, the multiplexer this package was first built for.
  */
 export const BUILTIN_MULTIPLEXER: HostMultiplexer = HERDR;
+
+/**
+ * Every multiplexer this package ships, in the order they are seeded and asked
+ * whether they host this process. A plugin may never claim one of these ids; a
+ * host multiplexer this package does not build (a plugin's own) is the plugin's
+ * to register.
+ */
+const BUILTINS: ReadonlyArray<{
+  readonly id: HostMultiplexer;
+  readonly create: (pi: ExtensionAPI) => ExecutionRuntime;
+}> = [
+  { id: HERDR, create: createHerdrRuntime },
+  { id: HERDR_CORE, create: (pi) => createHcRuntime(pi) },
+];
+
+/** Whether an id belongs to a multiplexer this package ships. */
+export function isBuiltinMultiplexer(id: AgentMultiplexer): boolean {
+  return BUILTINS.some((builtin) => builtin.id === id);
+}
 
 /**
  * The id config bakes in when it names no multiplexer: the built-in hosting this
@@ -66,18 +86,18 @@ export interface MultiplexerRegistration {
   create(pi: ExtensionAPI): ExecutionRuntime;
 }
 
-/** One session's multiplexers: the built-in plus whatever that session's plugins registered. */
+/** One session's multiplexers: the built-ins plus whatever that session's plugins registered. */
 export interface MultiplexerRegistry {
   /**
    * Register a multiplexer, answering whether it was accepted. The first
-   * registration for an id is kept: a plugin that claims the built-in's id, or an
+   * registration for an id is kept: a plugin that claims a built-in's id, or an
    * id another plugin already claimed in this session, is refused with a warning
    * and answered `false`.
    */
   register(registration: MultiplexerRegistration): boolean;
   /**
    * Forget one plugin multiplexer — the undo a plugin's own load needs when its
-   * factory throws after registering. The built-in id is never removed, and
+   * factory throws after registering. A built-in id is never removed, and
    * neither is an id this registry did not register.
    */
   unregister(id: AgentMultiplexer): void;
@@ -85,13 +105,13 @@ export interface MultiplexerRegistry {
   has(id: AgentMultiplexer): boolean;
   /**
    * Every registered multiplexer that hosts this process, in registration order:
-   * the built-in first, then plugins in package-name order. Empty outside every
+   * the built-ins first, then plugins in package-name order. Empty outside every
    * registered multiplexer — a session with no host launches nothing.
    */
   hosting(): readonly AgentMultiplexer[];
   /**
    * The multiplexer id a session runs: the configured one when it hosts this
-   * process, otherwise the first host. The built-in is the last resort, and only
+   * process, otherwise the first host. A built-in is the last resort, and only
    * after `hosting()` has answered empty.
    */
   resolveId(configured: AgentMultiplexer): AgentMultiplexer;
@@ -101,9 +121,9 @@ export interface MultiplexerRegistry {
    * which multiplexer is live.
    *
    * A plugin multiplexer whose factory throws is not a session-ending condition:
-   * it costs that multiplexer, and the session degrades to the built-in — the
+   * it costs that multiplexer, and the session degrades to a built-in — the
    * same degrade-instead-of-fail rule an unregistered id follows. Only the
-   * built-in failing is fatal, because there is nothing left to fall back to.
+   * a built-in failing is fatal, because there is nothing left to fall back to.
    *
    * The built-in it degrades to need not host this process, so the answer is not
    * the session's last word: a session checks it against `hosting()` and runs
@@ -112,17 +132,19 @@ export interface MultiplexerRegistry {
   runtime(pi: ExtensionAPI, configured: AgentMultiplexer): ExecutionRuntime;
 }
 
-/** The multiplexers one session runs with, seeded with the built-in. */
+/** The multiplexers one session runs with, seeded with the built-ins. */
 export function createMultiplexerRegistry(): MultiplexerRegistry {
   const registered = new Map<string, MultiplexerRegistration>();
   /** The ids this registry's plugins own, so `unregister` cannot remove another's. */
   const owned = new Set<string>();
 
-  registered.set(BUILTIN_MULTIPLEXER, {
-    id: BUILTIN_MULTIPLEXER,
-    hosts: () => multiplexerHosts(BUILTIN_MULTIPLEXER),
-    create: createHerdrRuntime,
-  });
+  for (const builtin of BUILTINS) {
+    registered.set(builtin.id, {
+      id: builtin.id,
+      hosts: () => multiplexerHosts(builtin.id),
+      create: builtin.create,
+    });
+  }
 
   /**
    * One registration's host answer. A multiplexer whose detection throws is not a
@@ -156,12 +178,11 @@ export function createMultiplexerRegistry(): MultiplexerRegistry {
 
   const registry: MultiplexerRegistry = {
     register(registration) {
-      const refusal =
-        registration.id === BUILTIN_MULTIPLEXER
-          ? "the built-in multiplexer owns that id"
-          : registered.has(registration.id)
-            ? "another plugin already registered that id in this load"
-            : undefined;
+      const refusal = isBuiltinMultiplexer(registration.id)
+        ? "a built-in multiplexer owns that id"
+        : registered.has(registration.id)
+          ? "another plugin already registered that id in this load"
+          : undefined;
       if (refusal !== undefined) {
         console.warn(
           `[subagents] Ignoring multiplexer "${registration.id}": ${refusal}`,
@@ -194,16 +215,17 @@ export function createMultiplexerRegistry(): MultiplexerRegistry {
       const id = registry.resolveId(configured);
       const runtime = build(id, pi);
       if (runtime !== undefined) return runtime;
-      if (id === BUILTIN_MULTIPLEXER) {
+      if (isBuiltinMultiplexer(id)) {
         throw new Error(`the built-in multiplexer "${id}" produced no runtime`);
       }
+      const builtin = defaultMultiplexer();
       console.warn(
-        `[subagents] multiplexer "${id}" produced no runtime; falling back to "${BUILTIN_MULTIPLEXER}"`,
+        `[subagents] multiplexer "${id}" produced no runtime; falling back to "${builtin}"`,
       );
-      const fallback = build(BUILTIN_MULTIPLEXER, pi);
+      const fallback = build(builtin, pi);
       if (fallback === undefined) {
         throw new Error(
-          `the built-in multiplexer "${BUILTIN_MULTIPLEXER}" produced no runtime`,
+          `the built-in multiplexer "${builtin}" produced no runtime`,
         );
       }
       return fallback;

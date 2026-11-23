@@ -185,6 +185,7 @@ const UNIVERSAL_RESERVED_ENV_VAR_NAMES: readonly string[] = [
 const UNIVERSAL_RESERVED_ENV_VAR_PREFIXES: readonly string[] = [
   "DYLD_",
   "HERDR_",
+  "HC_",
   "COWBOY_",
 ];
 

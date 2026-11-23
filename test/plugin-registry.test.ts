@@ -5,7 +5,15 @@
  * session's own object, so one case's registrations cannot answer in the next.
  */
 
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import {
   canReadHandoverRecords,
@@ -66,10 +74,17 @@ let harnesses: HarnessRegistry;
 let multiplexers: MultiplexerRegistry;
 
 beforeEach(() => {
+  // Outside every built-in multiplexer, whatever terminal runs the suite.
+  vi.stubEnv("HERDR_ENV", "");
+  vi.stubEnv("HC_TERMINAL_ID", "");
   harnesses = createHarnessRegistry();
   multiplexers = createMultiplexerRegistry();
   harnesses.register(pluginHarness(PROVABLE_ID, { status: "available" }));
   harnesses.register(pluginHarness(UNPROVABLE_ID, { status: "unavailable" }));
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 afterAll(() => {
@@ -399,7 +414,7 @@ describe("the open multiplexer registry", () => {
       multiplexers.runtime({} as never, BUILTIN_MULTIPLEXER).multiplexer,
     ).toBe(BUILTIN_MULTIPLEXER);
     expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("the built-in multiplexer owns that id"),
+      expect.stringContaining("a built-in multiplexer owns that id"),
     );
     warn.mockRestore();
   });

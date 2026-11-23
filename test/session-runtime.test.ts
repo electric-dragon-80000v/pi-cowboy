@@ -124,6 +124,7 @@ beforeEach(() => {
   process.env.PATH = dir;
   // A hosted session by default: the cases about the host answer override this.
   vi.stubEnv("HERDR_ENV", "1");
+  vi.stubEnv("HC_TERMINAL_ID", "");
   shellState.runtime = undefined;
   plugin.multiplexerId = undefined;
   plugin.multiplexerHosts = true;
@@ -153,6 +154,7 @@ describe("startSessionRuntime", () => {
 
   it("reports a session nothing hosts instead of recording a runtime", async () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     shellState.store = fakeStore();
 
     const boot = await startSessionRuntime(
@@ -168,6 +170,7 @@ describe("startSessionRuntime", () => {
 
   it("runs a plugin multiplexer that detects this process where the built-in cannot host", async () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     plugin.multiplexerId = "tmux";
     shellState.store = fakeStore({ multiplexer: "tmux" });
 
@@ -184,6 +187,7 @@ describe("startSessionRuntime", () => {
 
   it("prefers a detected host over the configured id when the two disagree", async () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     plugin.multiplexerId = "tmux";
     // The config names the built-in, which does not host this process.
     shellState.store = fakeStore({ multiplexer: "herdr" });
@@ -200,6 +204,7 @@ describe("startSessionRuntime", () => {
 
   it("stays unhosted when the only registered multiplexer does not detect this process", async () => {
     vi.stubEnv("HERDR_ENV", "");
+    vi.stubEnv("HC_TERMINAL_ID", "");
     plugin.multiplexerId = "tmux";
     plugin.multiplexerHosts = false;
     shellState.store = fakeStore({ multiplexer: "tmux" });

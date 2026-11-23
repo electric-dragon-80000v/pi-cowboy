@@ -57,6 +57,7 @@ beforeEach(() => {
   deps.insideGitRepository = true;
   // No multiplexer hosts the process: activation must not depend on this.
   vi.stubEnv("HERDR_ENV", "");
+  vi.stubEnv("HC_TERMINAL_ID", "");
 });
 
 afterEach(() => {

@@ -3,7 +3,7 @@
 A plugin is a standard [pi package](https://github.com/earendil-works/pi-coding-agent) that adds a custom harness or a custom terminal multiplexer to `pi-cowboy`.
 
 - **Harness**: A CLI runner for subagents. Built-in harnesses include `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, and `claude`. The default harness is set by [`agent.harnessType`](Configuration.md#agentharnesstype).
-- **Multiplexer**: The terminal host that manages panes, tabs, and workspaces for subagents. The built-in multiplexer is `herdr`. The active multiplexer is set by [`multiplexer`](Configuration.md#multiplexer).
+- **Multiplexer**: The terminal host that manages panes, tabs, and workspaces for subagents. The built-in multiplexers are `herdr` and `herdr-core` (Herdr Desktop). The active multiplexer is set by [`multiplexer`](Configuration.md#multiplexer).
 
 Plugins install directly through Pi's package manager with no external registry or additional tooling:
 
@@ -344,12 +344,12 @@ The object returned by `create` supplies the entire terminal and process hosting
 
 ### Environment Detection and Fallback
 
-A multiplexer can only host a session if its `hosts()` hook returns `true`. Detection relies on environment variables (for example, the built-in `herdr` multiplexer inspects `process.env.HERDR_ENV`).
+A multiplexer can only host a session if its `hosts()` hook returns `true`. Detection relies on environment variables (for example, the built-in `herdr` multiplexer inspects `process.env.HERDR_ENV`, and `herdr-core` inspects `process.env.HC_TERMINAL_ID`).
 
 At session start, `pi-cowboy` selects a multiplexer using the following order:
 
 1. **Configured multiplexer**: Uses the multiplexer named by the `multiplexer` key in `config.json` if registered and its `hosts()` returns `true`.
-2. **First matching host**: Falls back to the first registered multiplexer whose `hosts()` returns `true` (evaluating `herdr` first, followed by plugin multiplexers in package-name order).
+2. **First matching host**: Falls back to the first registered multiplexer whose `hosts()` returns `true` (evaluating `herdr`, then `herdr-core`, followed by plugin multiplexers in package-name order).
 3. **No host detected**: If no registered multiplexer detects the environment, `pi-cowboy` still loads plugins, but disables pane-dependent tools and `/cowboy` menu items. A warning explains that no supported multiplexer was detected. Non-pane commands (such as `/cowboy disable`) remain accessible.
 
 ### Worktrees and Host References
@@ -375,7 +375,7 @@ At session start, `pi-cowboy` selects a multiplexer using the following order:
 
 ## Lifecycle and Rules
 
-- **Reserved IDs**: The IDs `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, and `claude` are reserved for built-in harnesses. The ID `herdr` is reserved for the built-in multiplexer. Registering a reserved ID is rejected with a warning.
+- **Reserved IDs**: The IDs `pi`, `pig`, `pi-bolt`, `opencode`, `codex`, and `claude` are reserved for built-in harnesses. The IDs `herdr` and `herdr-core` are reserved for the built-in multiplexers. Registering a reserved ID is rejected with a warning.
 - **Collision resolution**: If two plugins register the same identifier, the first registered plugin is kept. Plugins load in alphabetical order by package name.
 - **Execution order**: Plugin factories run after `config.json` has loaded and before the first agent spawns. Running `/reload` unloads existing plugins and re-executes factories.
 - **Teardown**: If a factory returns a disposer function, `pi-cowboy` runs and awaits that function when the session terminates or unloads.

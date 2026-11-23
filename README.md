@@ -12,7 +12,7 @@
 `
 `pi-cowboy` is a multi-agent orchestrator for [pi](https://pi.dev). Break a large job into focused subtasks, hand them off to background agents running in parallel, and consolidate them when they finish.
 
-Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is finished, `pi-cowboy` cleans up the leftovers for you.
+Each agent runs in its own terminal pane inside [Herdr](https://github.com/electric-dragon-80000v/herdr) (or as a sub-agent terminal in Herdr Desktop) and works in an isolated copy-on-write Git worktree. You can watch agents work in real time, jump into any pane to steer them, or mix and match harnesses like Pi, Claude Code, OpenCode, and Codex in the same session. When the work is finished, `pi-cowboy` cleans up the leftovers for you.
 
 Check out the [demo](https://electric-dragon-80000v.github.io/pi-cowboy/).
 
@@ -55,7 +55,7 @@ Who wouldn’t want their agents visualized as cow emojis? Go on… guess. That'
 ## Requirements
 
 - Linux or macOS
-- `herdr` 0.8 or later, with the `herdr` pi integration enabled
+- `herdr` 0.8 or later, with the `herdr` pi integration enabled, or Herdr Desktop with its `hc` (herdr-core) CLI on `PATH` (see [herdr-core](docs/Configuration.md#herdr-core))
 - `python3` on macOS (used for copy-on-write worktrees; macOS has not shipped `python3` since 12.3, so install the Xcode Command Line Tools with `xcode-select --install`)
 - Copy-on-write capable filesystem (APFS on macOS; BTRFS or ZFS on Linux)
   - `ext4` does not support copy-on-write. On `ext4`, `agent.worktreeMaterialization` falls back to `checkout`.

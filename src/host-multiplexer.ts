@@ -16,8 +16,14 @@
 
 import { assertNever } from "./utils.js";
 
-/** The herdr multiplexer: the built-in multiplexer this package ships, and the id its addresses carry. */
+/** The legacy herdr multiplexer (the `herdr` CLI), and the id its addresses carry. */
 export const HERDR = "herdr";
+
+/**
+ * herdr-core, the terminal core behind Herdr Desktop (the `hc` CLI), and the id
+ * its addresses carry.
+ */
+export const HERDR_CORE = "herdr-core";
 
 /**
  * Every multiplexer this process can be detected to run inside, in detection order.
@@ -26,13 +32,25 @@ export const HERDR = "herdr";
  * agents/agent-host.ts): the multiplexer a process runs inside is one the extension
  * can register a runtime for.
  */
-export const HOST_MULTIPLEXERS = [HERDR] as const;
+export const HOST_MULTIPLEXERS = [HERDR, HERDR_CORE] as const;
 
 /** One member of `HOST_MULTIPLEXERS`. */
 export type HostMultiplexer = (typeof HOST_MULTIPLEXERS)[number];
 
 /** The variable herdr sets in every process it starts. */
 const HERDR_ENV_VAR = "HERDR_ENV";
+
+/**
+ * The variable herdr-core sets in every terminal it runs: that terminal's own
+ * address, which is also the parent a child started from it is recorded under.
+ */
+export const HC_TERMINAL_ID_VAR = "HC_TERMINAL_ID";
+
+/** The address of the herdr-core terminal this process runs in, or undefined outside one. */
+export function hcTerminalId(): string | undefined {
+  const value = process.env[HC_TERMINAL_ID_VAR];
+  return value === undefined || value === "" ? undefined : value;
+}
 
 /**
  * Whether `multiplexer` announces itself in a process it started. One branch per
@@ -42,24 +60,29 @@ const HERDR_ENV_VAR = "HERDR_ENV";
  */
 function isHosting(multiplexer: HostMultiplexer): boolean {
   switch (multiplexer) {
-    // oxlint-disable-next-line typescript/no-unnecessary-condition -- one multiplexer today, so this comparison is literal-vs-literal; it stops being one as soon as a second member lands, and making that land here is the point of the switch.
     case HERDR:
       return process.env[HERDR_ENV_VAR] === "1";
+    // A legacy herdr pane is the nearer host whenever both are set: a herdr
+    // session run inside an herdr-core terminal hands its panes the terminal's
+    // address too, and a child parented on that terminal would be filed under
+    // the herdr session rather than under the chat that started it.
+    case HERDR_CORE:
+      return process.env[HERDR_ENV_VAR] !== "1" && hcTerminalId() !== undefined;
     default:
       return assertNever(multiplexer);
   }
 }
 
-/**
- * Which multiplexer hosts this process, or `undefined` when none does. herdr marks
- * the processes in its panes with `HERDR_ENV=1`; a multiplexer added later detects
- * itself the same way, in this one place.
- */
 /** Whether `multiplexer` announces itself in this process; one answer per built-in. */
 export function multiplexerHosts(multiplexer: HostMultiplexer): boolean {
   return isHosting(multiplexer);
 }
 
+/**
+ * Which multiplexer hosts this process, or `undefined` when none does. herdr marks
+ * the processes in its panes with `HERDR_ENV=1`; herdr-core gives each terminal
+ * its address in `HC_TERMINAL_ID`.
+ */
 export function getHostMultiplexer(): HostMultiplexer | undefined {
   return HOST_MULTIPLEXERS.find(multiplexerHosts);
 }
@@ -71,4 +94,4 @@ export function getHostMultiplexer(): HostMultiplexer | undefined {
  * reason.
  */
 export const NO_HOST_REASON =
-  "Warning: pi-cowboy is disabled. Run pi inside herdr (or a compatible multiplexer plugin you have installed)";
+  "Warning: pi-cowboy is disabled. Run pi inside herdr, a Herdr Desktop (herdr-core) terminal, or a compatible multiplexer plugin you have installed";
