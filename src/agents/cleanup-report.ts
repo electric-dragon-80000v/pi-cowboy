@@ -25,6 +25,8 @@ function formatBasis(basis: DiscoveryBasis): string {
       return "forced";
     case "pane-working":
       return "pane-working";
+    case "pane-unreported":
+      return "pane-unreported";
     case "pane-unreadable":
       return `pane-unreadable: ${basis.detail}`;
     case "artifacts-ambiguous":

@@ -23,7 +23,7 @@ type AgentActiveReason = {
   phase: ActivePhase;
 };
 
-/** Refusal for a recovered run: pane still `working`, or unreadable (never evidence the run is over); basis says which. */
+/** Refusal for a recovered run: pane still `working`, reporting no status, or unreadable (never evidence the run is over); basis says which. */
 type RecoveredRefusalReason = {
   kind: "recovered-refusal";
   basis: DiscoveryBasis;
@@ -65,6 +65,7 @@ export type DiscoveryBasis =
   | { kind: "pane-not-working"; state: HostObservation["state"] }
   | { kind: "forced" }
   | { kind: "pane-working" }
+  | { kind: "pane-unreported" }
   | { kind: "pane-unreadable"; detail: string }
   | { kind: "artifacts-ambiguous" };
 
@@ -291,10 +292,11 @@ export type RemovablePlan = Extract<
 /* ── Stage 4: the recovered-path settlement gate (pure) ───────────────── */
 
 /**
- * Recovered-path settlement: tear down only when the multiplexer's read cannot show
- * live work (pane gone or non-working); `working` refuses. Unreadable reads
- * never reach here — the caller refuses on a throw. (Refusing anything but
- * gone panes would be a one-line change to the second branch.)
+ * Recovered-path settlement: tear down only when the multiplexer's read shows
+ * the run is not at work (pane gone, or a reported non-working state).
+ * `working` refuses, and so does `unknown`: an agent that reports no status may
+ * still be running, so its silence is not evidence the run is over. Unreadable
+ * reads never reach here — the caller refuses on a throw.
  */
 export type RecoveryGate =
   | { kind: "allow"; basis: DiscoveryBasis }
@@ -309,10 +311,11 @@ export function recoveryGate(
   switch (observation.state) {
     case "working":
       return { kind: "refuse", basis: { kind: "pane-working" } };
+    case "unknown":
+      return { kind: "refuse", basis: { kind: "pane-unreported" } };
     case "idle":
     case "blocked":
     case "done":
-    case "unknown":
       return {
         kind: "allow",
         basis: { kind: "pane-not-working", state: observation.state },
@@ -332,6 +335,12 @@ export function recoveryRefusalReason(
       return {
         kind: "unverifiable",
         detail: `the pane state could not be read (${basis.detail})`,
+      };
+    case "pane-unreported":
+      return {
+        kind: "unverifiable",
+        detail:
+          "the pane reports no agent status, so the run may still be active",
       };
     case "pane-absent":
     case "pane-not-working":

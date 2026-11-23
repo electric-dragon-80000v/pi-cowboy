@@ -592,7 +592,7 @@ describe("recoveryGate", () => {
     });
   });
 
-  it.each(["idle", "done", "blocked", "unknown"] as const)(
+  it.each(["idle", "done", "blocked"] as const)(
     "allows a pane reporting %s",
     (state) => {
       expect(recoveryGate({ state })).toEqual({
@@ -606,6 +606,13 @@ describe("recoveryGate", () => {
     expect(recoveryGate({ state: "working" })).toEqual({
       kind: "refuse",
       basis: { kind: "pane-working" },
+    });
+  });
+
+  it("refuses a pane that reports no agent status", () => {
+    expect(recoveryGate({ state: "unknown" })).toEqual({
+      kind: "refuse",
+      basis: { kind: "pane-unreported" },
     });
   });
 });
@@ -1130,6 +1137,34 @@ describe("cleanup — a recovered run", () => {
     });
     // There is no spawn to drop, and nothing is stopped.
     expect(dropped).toEqual([]);
+  });
+
+  it("refuses, forceably, a recovered pane whose agent reports no status", async () => {
+    const assets = buildAssets("clean", {
+      locate: locateReturning(recoveredArtifacts()),
+      observed: { state: "unknown" },
+      deliverablePresent: true,
+    });
+    const { registry } = buildRegistry(new Map());
+
+    const report = await createCleanup(assets).cleanupAgent(ID, registry);
+
+    expect(report).toMatchObject({
+      source: "recovered",
+      settlement: {
+        kind: "discovered",
+        basis: { kind: "pane-unreported" },
+      },
+      outcome: {
+        kind: "refused",
+        reason: { kind: "unverifiable" },
+        forceable: true,
+      },
+      panes: [{ kind: "open", paneId: "w1:p1" }],
+      worktree: { kind: "kept", path: WT_PATH },
+    });
+    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.deleteBranch).not.toHaveBeenCalled();
   });
 
   it("refuses while herdr still reports the pane working", async () => {

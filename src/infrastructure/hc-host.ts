@@ -434,8 +434,7 @@ function createHcHost(core: HcRuntimeCore): AgentHost {
     release: async (ref, scope) => {
       try {
         if (scope === "placement") {
-          if (ref.paneCreated) await closeOwned(ref);
-          return true;
+          return ref.paneCreated ? await closeOwned(ref) : true;
         }
         const terminal = await terminals.get(ref.paneId);
         const checkout =

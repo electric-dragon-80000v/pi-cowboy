@@ -495,7 +495,7 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           kind: "refused",
           settlement: recovered(agentId, gate.basis),
           reason: recoveryRefusalReason(gate.basis),
-          // A pane still reporting `working` is exactly what force exists to override.
+          // A pane still reporting `working`, or reporting nothing, is exactly what force exists to override.
           forceable: true,
         };
   }

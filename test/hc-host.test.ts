@@ -517,13 +517,22 @@ describe("hc host.release", () => {
     const { ref, terminal } = await startedAgent();
 
     terminal.labels = { cowboy: "1", "cowboy.agent": "someone-else" };
-    await expect(runtime().host.release(ref, "placement")).resolves.toBe(true);
+    await expect(runtime().host.release(ref, "placement")).resolves.toBe(false);
     expect(hc.terminals.has(ref.paneId)).toBe(true);
     expect(hc.hcCalls("kill")).toEqual([]);
 
     terminal.labels = { cowboy: "1", "cowboy.agent": ref.name };
     await expect(runtime().host.release(ref, "placement")).resolves.toBe(true);
     expect(hc.terminals.has(ref.paneId)).toBe(false);
+  });
+
+  it("reports a placement whose terminal survives the kill as unreleased", async () => {
+    const { ref } = await startedAgent();
+    hc.unkillable.add(ref.paneId);
+
+    await expect(runtime().host.release(ref, "placement")).resolves.toBe(false);
+    expect(hc.hcCalls("kill")).toHaveLength(1);
+    expect(hc.terminals.get(ref.paneId)!.state).toBe("live");
   });
 
   it("treats an already-removed placement as released", async () => {
