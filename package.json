@@ -101,7 +101,7 @@
     "eslint-plugin-import-x": "^4.17.1",
     "husky": "^9.1.7",
     "oxlint": "1.94.0",
-    "oxlint-tsgolint": "7.0.2007",
+    "oxlint-tsgolint": "7.0.2008",
     "prettier": "^3.9.9",
     "semantic-release": "^26.0.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
