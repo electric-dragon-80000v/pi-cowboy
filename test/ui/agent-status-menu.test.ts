@@ -2,9 +2,15 @@
  * agent-status-menu.test.ts — agent-status menu rows and the calls it makes.
  * Manager/runtime are structural fakes (listAgents, abort, cleanup, view.focus).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentSpawn } from "../../src/types.js";
+import {
+  subagentResultDirFor,
+  subagentResultFileFor,
+} from "../../src/paths.js";
 import { probed } from "../../src/availability.js";
 import type { PluginHarness } from "../../src/agents/harness.js";
 import type { HandoverOutcome } from "../../src/agents/handover.js";
@@ -865,6 +871,120 @@ describe("Agent status — the export row", () => {
     session.open("◈ abcd1234-spawned-id");
 
     expect(session.walkRows().at(-1)?.label).toBe("Export");
+  });
+});
+
+describe("Agent status — open result file", () => {
+  const execs: Array<{ command: string; args: readonly string[] }> = [];
+  const staged: string[] = [];
+  let platform: ReturnType<typeof vi.spyOn>;
+
+  /** Write the run's report where the extension derives it from the id. */
+  function writeResultFile(id: string, content = "all done"): string {
+    const file = subagentResultFileFor(id);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, content);
+    staged.push(id);
+    return file;
+  }
+
+  beforeEach(() => {
+    platform = vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    execs.length = 0;
+    setPi({
+      exec: (command: string, args: readonly string[]) => {
+        execs.push({ command, args });
+        return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+      },
+    });
+  });
+
+  afterEach(() => {
+    platform.mockRestore();
+    for (const id of staged.splice(0)) {
+      rmSync(subagentResultDirFor(id), { recursive: true, force: true });
+    }
+  });
+
+  it("offers the row before Handover once the report has content", () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    writeResultFile("beef5678-completed");
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "View shell",
+      "View result",
+      "Open result file",
+      "Handover",
+      "Clean up",
+      "Export",
+    ]);
+  });
+
+  it("hides the row without a non-empty report", () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain(
+      "Open result file",
+    );
+  });
+
+  it("hides the row off macOS", () => {
+    platform.mockReturnValue("linux");
+    installManager([completedSpawn("beef5678-completed")]);
+    writeResultFile("beef5678-completed");
+    const session = openAgentStatus();
+
+    session.open("✓ beef5678-completed");
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain(
+      "Open result file",
+    );
+  });
+
+  it("hands the file to `open` and reports it", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    const file = writeResultFile("beef5678-completed");
+    const session = openAgentStatus();
+    session.open("✓ beef5678-completed");
+
+    session.open("Open result file");
+    await session.settle();
+
+    expect(execs).toEqual([{ command: "open", args: [file] }]);
+    expect(session.notifications.map((n) => n.message)).toEqual([
+      "Opening agent beef5678-completed's result file …",
+      `✓ Opened agent beef5678-completed's result file ${file}`,
+    ]);
+  });
+
+  it("reports an `open` that failed", async () => {
+    setPi({
+      exec: () =>
+        Promise.resolve({
+          code: 1,
+          stdout: "",
+          stderr: "no application knows how to open",
+        }),
+    });
+    installManager([completedSpawn("beef5678-completed")]);
+    writeResultFile("beef5678-completed");
+    const session = openAgentStatus();
+    session.open("✓ beef5678-completed");
+
+    session.open("Open result file");
+    await session.settle();
+
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✗ Failed to open agent beef5678-completed's result file: no application knows how to open",
+      kind: "error",
+    });
   });
 });
 

@@ -26,6 +26,8 @@ import {
 } from "../../types.js";
 
 import { canReadHandoverRecords } from "../../agents/harness.js";
+import { openableResultFile } from "../../agents/result-file-open.js";
+import { subagentResultFileFor } from "../../paths.js";
 import { errorMessage } from "../../utils.js";
 import {
   getDisplayName,
@@ -36,6 +38,7 @@ import {
 import {
   getHarnessRegistry,
   getManagerOrNull,
+  getPiInstance,
   getRuntime,
 } from "../../shell.js";
 import type { Theme } from "../types.js";
@@ -77,6 +80,39 @@ async function focusHerdrPane(
     action.succeeded(`Focused agent ${spawn.id}'s herdr pane`);
   } catch (err) {
     action.failed(`Failed to focus agent ${spawn.id}'s herdr pane`, err);
+  }
+}
+
+/**
+ * Hand the run's report to macOS's default application. The row is offered only
+ * for a file that exists, so a missing one here means it went away since the
+ * list was built; the failure is reported rather than retried silently.
+ */
+async function openResultFile(
+  ctx: ExtensionCommandContext,
+  spawn: AgentSpawn,
+): Promise<void> {
+  const action = actionReport(ctx.ui);
+  const file = openableResultFile(
+    subagentResultFileFor(spawn.id),
+    process.platform,
+  );
+  if (file === undefined) {
+    action.failed(
+      `Failed to open agent ${spawn.id}'s result file`,
+      "the file is missing or empty",
+    );
+    return;
+  }
+  action.pending(`Opening agent ${spawn.id}'s result file`);
+  try {
+    const result = await getPiInstance().exec("open", [file]);
+    if (result.code !== 0) {
+      throw new Error(result.stderr.trim() || `open exited ${result.code}`);
+    }
+    action.succeeded(`Opened agent ${spawn.id}'s result file ${file}`);
+  } catch (err) {
+    action.failed(`Failed to open agent ${spawn.id}'s result file`, err);
   }
 }
 
@@ -299,6 +335,18 @@ export function buildAgentActionsList(
   if (activeSpawn) {
     items.push({ value: "stop", label: "Stop" });
   }
+  // Opening the report hands it to the desktop, so it is offered only where
+  // macOS's `open` exists and the run has actually written something.
+  if (
+    openableResultFile(subagentResultFileFor(id), process.platform) !==
+    undefined
+  ) {
+    items.push({
+      value: "open-result-file",
+      label: "Open result file",
+      description: "Open the agent's result file in the default application",
+    });
+  }
   // Handover is offered for every agent: a run still in flight is stopped
   // first, after the sub-flow's confirmation.
   items.push({
@@ -340,6 +388,8 @@ export function buildAgentActionsList(
       await showTextViewer(ctx, spawn, "result", resultText);
     } else if (item.value === "view-error") {
       await showTextViewer(ctx, spawn, "error", errorText);
+    } else if (item.value === "open-result-file") {
+      await openResultFile(ctx, spawn);
     } else if (item.value === "stop") {
       actionReport(ctx.ui).pending(`Stopping agent ${id}`);
       done();
