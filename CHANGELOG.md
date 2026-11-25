@@ -1,3 +1,10 @@
+# [0.41.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.40.0...v0.41.0) (2026-11-25)
+
+
+### Features
+
+* add model store fallback for harnesses to reduce the impact radius of api drift ([4372925](https://github.com/electric-dragon-80000v/pi-cowboy/commit/4372925bf912b8d793a8b5cbf221966d56cc6a22))
+
 # [0.40.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.39.0...v0.40.0) (2026-11-25)
 
 
