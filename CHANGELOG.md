@@ -1,3 +1,15 @@
+# [0.40.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.39.0...v0.40.0) (2026-11-25)
+
+
+### Bug Fixes
+
+* **agents:** fix opencode model discovery broken on 2.4 ([2407dd7](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2407dd780e61b1b9c4a498626acd958b0bf97098))
+
+
+### Features
+
+* add "open result file" to the status menu (MacOS only) ([90bc4db](https://github.com/electric-dragon-80000v/pi-cowboy/commit/90bc4db2bba5e5c05260fa9b5bf21de1d8d26d17))
+
 # [0.39.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.38.0...v0.39.0) (2026-11-20)
 
 
