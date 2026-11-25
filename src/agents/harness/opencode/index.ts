@@ -360,7 +360,7 @@ async function readModelRoute(
   }
   return {
     kind: "unavailable",
-    notice: `Could not list the opencode models (${reason}); no models are offered until the command answers.`,
+    notice: `Could not list the opencode models (${reason}).`,
   };
 }
 

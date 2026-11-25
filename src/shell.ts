@@ -29,6 +29,7 @@ import {
 } from "./agents/harness/harness-registry.js";
 import type { HarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
 import { createHarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
+import { fileModelListCache } from "./agents/harness/model-list-cache.js";
 import {
   createMultiplexerRegistry,
   type MultiplexerRegistry,
@@ -310,6 +311,7 @@ export function getHarnessModelCatalog(): HarnessModelCatalog {
   shell.harnessModelCatalog ??= createHarnessModelCatalog({
     registry: shell.harnesses,
     availability: shell.harnessAvailability,
+    cache: fileModelListCache(),
     request: {
       pi: getPiInstance(),
       modelCatalog: piModelCatalog(getSessionCtx().modelRegistry),

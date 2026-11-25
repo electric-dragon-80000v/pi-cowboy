@@ -4,7 +4,9 @@
  * The session catalog answers when the session installed one, so a menu picker,
  * a spawn, and a handover share a single read per harness. A caller outside a
  * booted session (a tool run against a bare harness registry) reads the harness
- * directly, which is the same contract the catalog calls.
+ * directly, which is the same contract the catalog calls. The fallback to a
+ * harness's last successful list lives in the catalog alone: the stored list
+ * belongs to the session whose agent dir holds it.
  *
  * A read that cannot answer carries the line explaining why, and a spawn has
  * nowhere to put it: `harnessModelReader` hands the caller a `listModels`

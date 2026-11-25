@@ -39,6 +39,7 @@ import {
   type HarnessModelOptions,
 } from "../src/agents/harness/harness-registry.js";
 import { createHarnessModelCatalog } from "../src/agents/harness/model-list-catalog.js";
+import { NO_MODEL_LIST_CACHE } from "../src/agents/harness/model-list-cache.js";
 import {
   opencodeConfigDir,
   removeOpencodeStaging,
@@ -1650,6 +1651,7 @@ describe("the session model catalog", () => {
     const catalog = createHarnessModelCatalog({
       registry: harnesses,
       availability,
+      cache: NO_MODEL_LIST_CACHE,
       request: request as Parameters<
         typeof createHarnessModelCatalog
       >[0]["request"],
@@ -1669,6 +1671,7 @@ describe("the session model catalog", () => {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
       } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+      cache: NO_MODEL_LIST_CACHE,
     });
 
     catalog.warm();
@@ -1700,6 +1703,7 @@ describe("the session model catalog", () => {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
       } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+      cache: NO_MODEL_LIST_CACHE,
     });
 
     catalog.warm();
@@ -1740,6 +1744,7 @@ describe("the session model catalog", () => {
         pi: { exec: vi.fn() } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
       } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+      cache: NO_MODEL_LIST_CACHE,
     });
 
     await catalog.loadOptions("blocking-harness");
@@ -1761,6 +1766,7 @@ describe("the session model catalog", () => {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: CATALOG,
       } as Parameters<typeof createHarnessModelCatalog>[0]["request"],
+      cache: NO_MODEL_LIST_CACHE,
     });
 
     // Building the catalog costs nothing: no harness's CLI runs at startup.

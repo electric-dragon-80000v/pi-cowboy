@@ -23,6 +23,7 @@ import type { HarnessRegistry } from "./agents/harness/harness-registry.js";
 import type { MultiplexerRegistry } from "./agents/multiplexer-registry.js";
 import { createPluginLoader, type LoadedPlugins } from "./plugin/loader.js";
 import { createHarnessModelCatalog } from "./agents/harness/model-list-catalog.js";
+import { fileModelListCache } from "./agents/harness/model-list-cache.js";
 import { startHarnessAvailabilityProbe } from "./harness-availability-launch.js";
 import { NO_HOST_REASON } from "./host-multiplexer.js";
 import {
@@ -124,6 +125,7 @@ export async function startSessionRuntime(
   const models = createHarnessModelCatalog({
     registry: registries.harnesses,
     availability: probe.availability,
+    cache: fileModelListCache(),
     request: { pi, modelCatalog: piModelCatalog(ctx.modelRegistry) },
   });
   setHarnessModelCatalog(models);

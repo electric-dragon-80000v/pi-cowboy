@@ -131,13 +131,15 @@ export default function (api: CowboyPluginApi) {
 
 The extension calls `listModels` from one place — the session's model catalog. The catalog warms every runnable harness's list once, off the startup path and one harness at a time, and never awaits the pass: the session boots, and a screen opens, while a CLI is still answering. A picker that needs a list the warm has not reached awaits that harness alone, after the layer has been chosen; `/cowboy`, the spawn wizard, and the model settings screen open on the lists that have already settled. The catalog holds each answer for the session, so a second reader joins the first read instead of running the CLI again, and a plugin needs no caching of its own.
 
+The catalog also keeps each harness's last successful list on disk, beside `config.json` (`pi-cowboy-<harness>-models.json`), and refreshes it on every successful read. An answer carrying no entries — a CLI that exited non-zero, one that answered with an empty catalog, or one that never answered — is served from that file with a notice naming it, so a picker keeps offering what the harness could run the last time it answered. An answer carrying entries always wins, and a harness's own `fallback` entries are never written to the file: they are a constant, not an observation. With no file stored, an empty answer stands exactly as it came.
+
 `listModels` runs on the event loop, so it must start its work and return a promise. A synchronous shell-out (`execFileSync` or the like) holds the whole session — menus, keys, the indicator — until it returns. The catalog measures the synchronous part of every call and reports a harness that holds the loop instead.
 
-| `kind`        | Shape                 | Description                                                                 |
-| ------------- | --------------------- | --------------------------------------------------------------------------- |
-| `listed`      | `{ entries }`         | Standard catalog discovery succeeded.                                       |
-| `fallback`    | `{ entries, notice }` | Catalog discovery failed; built-in default entries substitute.              |
-| `unavailable` | `{ notice }`          | Catalog discovery failed with no available fallback; no models are offered. |
+| `kind`        | Shape                 | Description                                                                                                                        |
+| ------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `listed`      | `{ entries }`         | Standard catalog discovery succeeded.                                                                                              |
+| `fallback`    | `{ entries, notice }` | Catalog discovery failed; built-in default entries substitute.                                                                     |
+| `unavailable` | `{ notice }`          | Catalog discovery failed with no available fallback; no models are offered unless the catalog has this harness's last stored list. |
 
 `notice` provides a diagnostic message (e.g., `Could not list the codex models (exited 1: boom); using the built-in defaults.`). The picker that awaits the list shows this notice as a UI warning; a failed list is not retained, so the next read retries.
 

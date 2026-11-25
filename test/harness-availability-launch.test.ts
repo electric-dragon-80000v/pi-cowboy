@@ -16,6 +16,7 @@ import {
 } from "../src/harness-availability-launch.js";
 import type { PluginHarness } from "../src/agents/harness.js";
 import { createHarnessModelCatalog } from "../src/agents/harness/model-list-catalog.js";
+import { NO_MODEL_LIST_CACHE } from "../src/agents/harness/model-list-cache.js";
 import {
   getHarnessAvailability,
   getHarnessRegistry,
@@ -158,6 +159,7 @@ describe("a harness whose hooks throw", () => {
     const catalog = createHarnessModelCatalog({
       registry: getHarnessRegistry(),
       availability: getHarnessAvailability(),
+      cache: NO_MODEL_LIST_CACHE,
       request: {
         pi: { exec: async () => ({}) } as unknown as ExtensionAPI,
         modelCatalog: { getAvailable: () => [] },

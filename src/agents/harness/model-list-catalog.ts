@@ -4,11 +4,13 @@
  * A list starts at most once per harness while it is being read: the warm pass
  * and every later consumer join that one promise. Warming is scheduled off the
  * startup path and runs one harness at a time, so no harness's CLI can hold the
- * session's first screen or another harness's read behind it. Only a successful
- * answer is retained, so a failed read leaves the harness cold and the next
- * picker retries instead of pinning an empty row for the session. A reader that
- * throws is answered as its own harness's unavailable list, so a broken foreign
- * CLI never costs another's.
+ * session's first screen or another harness's read behind it. Only an answer
+ * that carries entries is retained, so a failed read leaves the harness cold and
+ * the next picker retries instead of pinning an empty row for the session. An
+ * answer with no entries is served from the harness's last successful list when
+ * one is stored (`model-list-cache.ts`), and stands as it came when none is. A
+ * reader that throws is answered as its own harness's unavailable list, so a
+ * broken foreign CLI never costs another's.
  *
  * `listModels` is asynchronous by contract, and the catalog enforces what that
  * promise means: a harness that instead holds the event loop while it answers is
@@ -17,7 +19,6 @@
 
 import { setImmediate } from "node:timers";
 import type { Availability } from "../../availability.js";
-import { errorMessage } from "../../utils.js";
 import type {
   AnyHarnessId,
   HarnessListModelsRequest,
@@ -29,6 +30,10 @@ import type {
   HarnessModelOptions,
   HarnessRegistry,
 } from "./harness-registry.js";
+import {
+  answerWithModelListFallback,
+  type ModelListCache,
+} from "./model-list-cache.js";
 
 /**
  * How long a `listModels` call may occupy the event loop before the catalog
@@ -57,6 +62,8 @@ export function createHarnessModelCatalog(options: {
   readonly registry: HarnessRegistry;
   readonly availability: Availability<AnyHarnessId>;
   readonly request: HarnessListModelsRequest;
+  /** Where a harness's last successful list is stored and read back. */
+  readonly cache: ModelListCache;
 }): HarnessModelCatalog {
   /** A read in flight, or the answer a completed read reached. */
   const states = new Map<AnyHarnessId, Promise<ModelList>>();
@@ -82,20 +89,20 @@ export function createHarnessModelCatalog(options: {
     const inFlight = states.get(harness);
     if (inFlight !== undefined) return inFlight;
 
-    const result = start(harness)
-      .catch((error): ModelList => ({
-        kind: "unavailable",
-        notice: `Could not list the ${options.registry.displayName(harness)} models (${errorMessage(error)}).`,
-      }))
-      .then((answer): ModelList => {
-        states.delete(harness);
-        const entries = modelListEntries(answer);
-        if (entries.length > 0) listed.set(harness, entries);
-        const notice = modelListNotice(answer);
-        if (notice === undefined) failures.delete(harness);
-        else failures.set(harness, notice);
-        return answer;
-      });
+    const result = answerWithModelListFallback(
+      harness,
+      options.registry.displayName(harness),
+      options.cache,
+      () => start(harness),
+    ).then((answer): ModelList => {
+      states.delete(harness);
+      const entries = modelListEntries(answer);
+      if (entries.length > 0) listed.set(harness, entries);
+      const notice = modelListNotice(answer);
+      if (notice === undefined) failures.delete(harness);
+      else failures.set(harness, notice);
+      return answer;
+    });
     states.set(harness, result);
     return result;
   };

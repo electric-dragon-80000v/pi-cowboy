@@ -11,6 +11,7 @@ import type { SubagentsConfig } from "../models/model-precedence.js";
 import { DEFAULT_HARNESS, type AnyHarnessId } from "../agents/harness.js";
 import { DEFAULT_MAX_EXCLUDED_RATIO } from "../agents/handover.js";
 import { defaultMultiplexer } from "../agents/multiplexer-registry.js";
+import { writeJsonAtomic } from "../json-file.js";
 import { defaultExtensionDir, EXTENSION_NAME } from "../paths.js";
 import { isRecord } from "../predicates.js";
 import {
@@ -196,7 +197,7 @@ export function createConfigIO(projectDir?: string): ConfigIO {
         );
         return;
       }
-      writeJsonAtomic(configPath(), config);
+      writeJsonAtomic(configPath(), config, "config");
     },
     saveProject: (config) => {
       if (
@@ -209,7 +210,7 @@ export function createConfigIO(projectDir?: string): ConfigIO {
         );
         return;
       }
-      writeJsonAtomic(projectPath, config);
+      writeJsonAtomic(projectPath, config, "config");
     },
   };
 }
@@ -361,15 +362,4 @@ function malformedSection(projectPath: string, section: string): "malformed" {
     `[subagents] Ignoring malformed project config ${projectPath}: "${section}" is not a JSON object`,
   );
   return "malformed";
-}
-
-function writeJsonAtomic(filePath: string, config: unknown): void {
-  const tmpPath = filePath + ".tmp";
-  try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), "utf-8");
-    fs.renameSync(tmpPath, filePath);
-  } catch (err) {
-    console.error(`[subagents] Failed to save config: ${errorMessage(err)}`);
-  }
 }

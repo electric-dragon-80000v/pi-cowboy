@@ -30,6 +30,7 @@ import {
   setSessionCtx,
 } from "../src/shell.js";
 import { createHarnessModelCatalog } from "../src/agents/harness/model-list-catalog.js";
+import { NO_MODEL_LIST_CACHE } from "../src/agents/harness/model-list-cache.js";
 import { NO_HOST_REASON } from "../src/host-multiplexer.js";
 import {
   recordOverlayMount,
@@ -796,6 +797,7 @@ describe("the /cowboy model listing", () => {
     return createHarnessModelCatalog({
       registry: getHarnessRegistry(),
       availability: getHarnessAvailability(),
+      cache: NO_MODEL_LIST_CACHE,
       request: {
         pi: { exec } as unknown as ExtensionAPI,
         modelCatalog: {
