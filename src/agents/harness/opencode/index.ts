@@ -27,7 +27,11 @@
  * must never fail to open when a list command misbehaves. opencode's providers
  * are per-user, so there is no built-in catalogue to fall back to: a list that
  * cannot be read offers nothing until the command answers. The integration
- * test is what keeps the verified shape true as opencode changes.
+ * test is what keeps the verified shape true as opencode changes. Since 2.4 the
+ * route answers before opencode has loaded its provider catalogue, so an answer
+ * with no models is finished off against a private server kept up until the
+ * catalogue is there — the one-shot read is killed the moment it prints, which
+ * is always too early then.
  *
  * The strict `[harness.opencode]` table carries `variant`, which is the level
  * this launch runs at. A variant has no flag of its own, so `buildArgs` joins it
@@ -64,6 +68,22 @@ import { probeOpencode } from "./version.js";
 
 /** Budget for the list command; a hung CLI must not hold a menu open. */
 const LIST_MODELS_TIMEOUT_MS = 10_000;
+
+/**
+ * The password the settling read gives its private server. The server listens on
+ * loopback for the life of one read, so the value is not a secret; it only has
+ * to be one the read itself supplies instead of one it parses off the output.
+ */
+const SETTLING_PASSWORD = "pi-cowboy-model-list";
+
+/** How long the settling read waits for its server's address, in 50 ms steps. */
+const SERVE_STARTUP_STEPS = 60;
+
+/** How many times the settling read asks for the catalogue before giving up. */
+const SETTLE_POLL_STEPS = 16;
+
+/** The gap between settling reads, in seconds. */
+const SETTLE_POLL_INTERVAL = "0.25";
 
 /**
  * Budget for the pane's definition proof. The probe boots the CLI and a private
@@ -226,6 +246,46 @@ function opencodeEntry(model: OpencodeModel): ModelEntry {
 }
 
 /**
+ * The shell body that answers the model list from one private server that is
+ * kept up until the catalogue is there.
+ *
+ * opencode loads its provider catalogue after the server starts listening, and
+ * since 2.4 the model route answers with whatever has loaded so far rather than
+ * waiting for it — so the one-shot `--standalone` read, which is killed as soon
+ * as it prints, can see an empty catalogue forever. This keeps a server alive
+ * and asks until an entry appears, then prints that answer and stops the
+ * server. A server that never reports its address, or a catalogue that never
+ * loads, prints what the last read saw, and the reader treats that like any
+ * other answer rather than a failure of its own.
+ */
+function settlingModelsBody(): string {
+  return [
+    "log=$(mktemp) || exit 1",
+    `export OPENCODE_PASSWORD=${SETTLING_PASSWORD}`,
+    'opencode serve --port 0 >"$log" 2>&1 &',
+    "server=$!",
+    "trap 'kill \"$server\" 2>/dev/null' EXIT",
+    "url=",
+    "step=0",
+    `while [ -z "$url" ] && [ "$step" -lt ${SERVE_STARTUP_STEPS} ]; do`,
+    "  url=$(sed -n 's/^server listening on //p' \"$log\" | head -n 1)",
+    '  [ -n "$url" ] || sleep 0.05',
+    "  step=$((step + 1))",
+    "done",
+    '[ -n "$url" ] || exit 1',
+    "answer=",
+    "step=0",
+    `while [ "$step" -lt ${SETTLE_POLL_STEPS} ]; do`,
+    '  answer=$(opencode api --server "$url" GET /api/model 2>/dev/null)',
+    "  case $answer in *'\"providerID\"'*) printf '%s' \"$answer\"; exit 0;; esac",
+    `  sleep ${SETTLE_POLL_INTERVAL}`,
+    "  step=$((step + 1))",
+    "done",
+    "printf '%s' \"$answer\"",
+  ].join("\n");
+}
+
+/**
  * The parsed list, or undefined when the output is a shape this parser does
  * not recognize. One `data` entry per model: `providerID` and `id` make the
  * key, and each `variants[].id` is one level a launch may name after `#`.
@@ -257,21 +317,43 @@ type ModelListAnswer =
       readonly notice: string;
     };
 
-/** Runs the CLI, then parses. A list the API cannot answer is empty. */
-async function listOpencodeModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
+/** One command that answers the model route, and the name a failure reports it by. */
+interface ModelRouteRead {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly label: string;
+}
+
+/** The one-shot read: a private server that answers once and is killed. */
+const ONE_SHOT_READ: ModelRouteRead = {
+  command: "opencode",
+  args: ["api", "--standalone", "GET", "/api/model"],
+  label: "opencode api GET /api/model",
+};
+
+/** The settling read: one private server, asked until the catalogue is up. */
+const SETTLING_READ: ModelRouteRead = {
+  command: "sh",
+  args: ["-c", settlingModelsBody()],
+  label: "opencode serve /api/model",
+};
+
+/** Runs one read, then parses. A list the API cannot answer is empty. */
+async function readModelRoute(
+  pi: ExtensionAPI,
+  read: ModelRouteRead,
+): Promise<ModelListAnswer> {
   let reason: string;
   try {
-    const result = await pi.exec(
-      "opencode",
-      ["api", "--standalone", "GET", "/api/model"],
-      { timeout: LIST_MODELS_TIMEOUT_MS },
-    );
+    const result = await pi.exec(read.command, [...read.args], {
+      timeout: LIST_MODELS_TIMEOUT_MS,
+    });
     if (result.code === 0) {
       const entries = parseOpencodeModels(result.stdout);
       if (entries !== undefined) return { kind: "listed", entries };
       reason = "unrecognized output";
     } else {
-      reason = `\`opencode api GET /api/model\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`;
+      reason = `\`${read.label}\` exited ${result.code}${result.stderr ? `: ${result.stderr.trim()}` : ""}`;
     }
   } catch (err) {
     reason = err instanceof Error ? err.message : String(err);
@@ -280,6 +362,23 @@ async function listOpencodeModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
     kind: "unavailable",
     notice: `Could not list the opencode models (${reason}); no models are offered until the command answers.`,
   };
+}
+
+/**
+ * The list, read once and, when that read carried no models, read again from a
+ * server that is kept up until the catalogue loads. The one-shot is the whole
+ * answer on an opencode whose model route waits for the catalogue; the
+ * settling read is what answers one whose route returns before it. An empty
+ * answer the second read cannot improve on is reported as the first read gave
+ * it.
+ */
+async function listOpencodeModels(pi: ExtensionAPI): Promise<ModelListAnswer> {
+  const oneShot = await readModelRoute(pi, ONE_SHOT_READ);
+  if (oneShot.kind === "listed" && oneShot.entries.length > 0) return oneShot;
+  const settled = await readModelRoute(pi, SETTLING_READ);
+  return settled.kind === "listed" && settled.entries.length > 0
+    ? settled
+    : oneShot;
 }
 
 /**

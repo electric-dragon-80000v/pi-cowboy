@@ -1353,17 +1353,81 @@ describe("listModels", () => {
     expect(noticeOf(list)).toContain("ENOENT");
   });
 
+  it("settles an empty opencode list through a private server", async () => {
+    const exec = vi.fn(async (command: string) => {
+      if (command === "sh") {
+        return {
+          code: 0,
+          stdout: opencodeModels([
+            {
+              providerID: "anthropic",
+              id: "claude-opus-4",
+              variants: ["high"],
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: JSON.stringify({ data: [] }), stderr: "" };
+    });
+
+    const list = await opencodeListModels(exec);
+
+    // The model route answers before opencode has loaded its catalogue, so an
+    // empty answer is finished off by a server that is asked until it is not.
+    expect(exec).toHaveBeenNthCalledWith(
+      1,
+      "opencode",
+      ["api", "--standalone", "GET", "/api/model"],
+      { timeout: expect.any(Number) },
+    );
+    expect(exec).toHaveBeenNthCalledWith(
+      2,
+      "sh",
+      ["-c", expect.stringContaining("opencode serve --port 0")],
+      { timeout: expect.any(Number) },
+    );
+    expect(list).toEqual({
+      kind: "listed",
+      entries: [
+        {
+          key: "anthropic/claude-opus-4",
+          label: "claude-opus-4",
+          thinkingLevels: { kind: "advisory", levels: ["high"] },
+        },
+      ],
+    });
+  });
+
+  it("keeps the one-shot answer when the settling read finds nothing either", async () => {
+    const exec = vi.fn(async () => ({
+      code: 0,
+      stdout: JSON.stringify({ data: [] }),
+      stderr: "",
+    }));
+
+    await expect(opencodeListModels(exec)).resolves.toEqual({
+      kind: "listed",
+      entries: [],
+    });
+    expect(exec).toHaveBeenCalledTimes(2);
+  });
+
   it("retries an opencode list that failed instead of pinning the empty row", async () => {
-    const exec = vi
-      .fn()
-      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "boom" })
-      .mockResolvedValueOnce({
-        code: 0,
-        stdout: opencodeModels([
-          { providerID: "anthropic", id: "claude-opus-4" },
-        ]),
-        stderr: "",
-      });
+    let reads = 0;
+    const exec = vi.fn(async (command: string) => {
+      if (command === "sh") return { code: 1, stdout: "", stderr: "settle" };
+      reads += 1;
+      return reads === 1
+        ? { code: 1, stdout: "", stderr: "boom" }
+        : {
+            code: 0,
+            stdout: opencodeModels([
+              { providerID: "anthropic", id: "claude-opus-4" },
+            ]),
+            stderr: "",
+          };
+    });
     const pi = { exec } as unknown as ExtensionAPI;
     const request = { pi, modelCatalog: CATALOG };
 
@@ -1379,7 +1443,9 @@ describe("listModels", () => {
         thinkingLevels: { kind: "advisory", levels: [] },
       },
     ]);
-    expect(exec).toHaveBeenCalledTimes(2);
+    expect(
+      exec.mock.calls.filter(([command]) => command === "opencode"),
+    ).toHaveLength(2);
   });
 
   /** One `codex debug models --bundled` answer in the CLI's own shape. */

@@ -240,15 +240,15 @@ function stage(
   return stageTree(toolSelection, configInclude).configDir;
 }
 
-/** Run the real CLI against a staged directory, collecting both streams and the exit code. */
-function runOpencode(
+/** Run one command against a staged directory, collecting both streams and the exit code. */
+function runProcess(
   configDir: string,
+  command: string,
   args: readonly string[],
   explicitConfigFile?: string,
 ): Promise<CliRun> {
-  const bin = opencodeBinary();
   return new Promise((resolve) => {
-    const child = spawn(bin, [...args], {
+    const child = spawn(command, [...args], {
       env: launchEnv(configDir, explicitConfigFile),
       cwd: path.dirname(configDir),
       // A pipe that is never written and never closed makes opencode wait for a
@@ -271,6 +271,15 @@ function runOpencode(
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+/** Run the real CLI against a staged directory. */
+function runOpencode(
+  configDir: string,
+  args: readonly string[],
+  explicitConfigFile?: string,
+): Promise<CliRun> {
+  return runProcess(configDir, opencodeBinary(), args, explicitConfigFile);
 }
 
 /** Both streams: opencode writes the usage dump and the errors to either one. */
@@ -476,17 +485,22 @@ describe.skipIf(opencodeMissing)(
     it("parses the real opencode model API answer into entries with variants", async () => {
       const configDir = stage({ kind: "default" });
       // A minimal exec-capable stub: the model list reads only stdout and the exit
-      // code, and the child runs with the same isolated HOME as every other run.
-      // The stub runs the args the harness asked for, so the list is the one the
-      // harness would really read rather than one this file retyped.
-      const runs: { args: readonly string[]; run: CliRun }[] = [];
+      // code, and the children run with the same isolated HOME as every other
+      // run. The stub runs what the harness asked for — the one-shot read, and
+      // the settling read's own shell body — so the list is the one the harness
+      // would really read rather than one this file retyped.
+      const runs: {
+        command: string;
+        args: readonly string[];
+        run: CliRun;
+      }[] = [];
       const pi = {
         exec: async (
-          _command: string,
+          command: string,
           args: readonly string[],
         ): Promise<CliRun> => {
-          const run = await runOpencode(configDir, args);
-          runs.push({ args, run });
+          const run = await runProcess(configDir, command, args);
+          runs.push({ command, args, run });
           return run;
         },
       } as unknown as ExtensionAPI;
@@ -499,11 +513,22 @@ describe.skipIf(opencodeMissing)(
       expect(list.kind).toBe("listed");
       const models = modelListEntries(list);
 
-      expect(runs).toHaveLength(1);
-      const [{ args, run }] = runs;
+      const [first, ...rest] = runs;
+      expect(first.command).toBe("opencode");
       // A shared-server read needs the user's background server and its one
       // fixed port; the private server keeps the call hermetic.
-      expect(args).toEqual(["api", "--standalone", "GET", "/api/model"]);
+      expect(first.args).toEqual(["api", "--standalone", "GET", "/api/model"]);
+      expect(first.run.code, first.run.stderr).toBe(0);
+      // Since opencode 2.4 the route answers before the catalogue has loaded, so
+      // the one-shot can come back empty and the harness finishes it off against
+      // a private server it keeps up. Either way the answer the entries were
+      // read from is the last run's.
+      expect(runs.length).toBeLessThanOrEqual(2);
+      if (runs.length === 2) {
+        expect(rest).toHaveLength(1);
+        expect(rest[0].command).toBe("sh");
+      }
+      const { run } = runs[runs.length - 1];
       expect(run.code, run.stderr).toBe(0);
       // Every entry is one enabled model, read off the API's own answer rather
       // than retyped here: the key is `provider/model`, the label its name (or
