@@ -83,7 +83,7 @@ describe("summarizeCleanupReport", () => {
         }),
       ),
     ).toBe(
-      `Cleaned up agent ${ID}: no pane, worktree none (agent ran without a worktree), branch not applicable`,
+      `Cleaned up agent ${ID}: no pane, worktree none (no extension-owned worktree)`,
     );
   });
 

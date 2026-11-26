@@ -390,8 +390,24 @@ describe("executeCleanupAgentTool — report rendering", () => {
     expect(rendered).toContain("Did not clean up agent " + ID);
     expect(rendered).toContain("has uncommitted changes");
     expect(rendered).toContain(
-      "  worktree: none (agent ran without a worktree)",
+      "  worktree: none (no extension-owned worktree)",
     );
+  });
+
+  it("omits the branch plane when there is no extension-owned worktree", async () => {
+    const manager = fakeManager({
+      spawn: { id: ID } as AgentSpawn,
+      report: trackedReport({
+        worktree: { kind: "none" },
+        branch: { kind: "not-applicable" },
+        branchName: undefined,
+      }),
+    });
+    getManagerMock.mockReturnValue(manager);
+
+    const rendered = text(await invoke({ agent_ids: [ID] }));
+    expect(rendered).toContain("worktree: none (no extension-owned worktree)");
+    expect(rendered).not.toContain("branch:");
   });
 
   it.each<[CleanupReport, string[]]>([
@@ -416,10 +432,7 @@ describe("executeCleanupAgentTool — report rendering", () => {
         branch: { kind: "not-applicable" },
         branchName: undefined,
       }),
-      [
-        "worktree: none (agent ran without a worktree)",
-        "branch: not applicable",
-      ],
+      ["worktree: none (no extension-owned worktree)"],
     ],
     [
       trackedReport({ branch: { kind: "kept", reason: "unmerged" } }),

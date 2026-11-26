@@ -117,7 +117,7 @@ function worktreeText(worktree: WorktreeOutcome): string {
     case "absent":
       return `already gone (${worktree.path})`;
     case "none":
-      return "none (agent ran without a worktree)";
+      return "none (no extension-owned worktree)";
   }
 }
 
@@ -156,8 +156,11 @@ export function renderCleanupReport(report: CleanupReport): string {
     `  agent status: ${formatSettlement(report.settlement)}`,
     `  panes: ${panesText(report.panes)}`,
     `  worktree: ${worktreeText(report.worktree)}`,
-    `  branch: ${branchText(report)}`,
   ];
+  // A branch is only ever deleted as part of removing an extension-owned tree;
+  // a run without one has no branch plane to report.
+  if (report.worktree.kind !== "none")
+    lines.push(`  branch: ${branchText(report)}`);
   if (report.source === "recovered") {
     lines.push(
       "  recovered: no spawn record survived — this verdict rests on discovery (herdr's live read plus the worktree on disk)",
@@ -179,9 +182,9 @@ export function summarizeCleanupReport(report: CleanupReport): string {
   const pane = panesSummary(report.panes);
   return report.outcome.kind === "refused"
     ? `${headline(report)} ${pane}`
-    : `${headline(report)} ${pane}, worktree ${worktreeText(
-        report.worktree,
-      )}, branch ${branchText(report)}`;
+    : `${headline(report)} ${pane}, worktree ${worktreeText(report.worktree)}${
+        report.worktree.kind === "none" ? "" : `, branch ${branchText(report)}`
+      }`;
 }
 
 /** Whether the teardown left something behind that only the operator can settle. */
