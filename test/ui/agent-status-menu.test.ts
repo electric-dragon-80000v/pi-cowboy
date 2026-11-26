@@ -34,8 +34,53 @@ import {
 
 vi.mock("../../src/shell.js", () => import("./shell-mock.js"));
 
+/** The single-branch merge the menu performs: its readiness probe and its merge call. */
+const merge = vi.hoisted(() => ({
+  /** Next readiness verdict for a branch. */
+  readiness: (_branch: string): Promise<"pending" | "nothing" | "unknown"> =>
+    Promise.resolve("pending"),
+  /** Every branch the menu asked to merge, in order. */
+  merged: [] as string[],
+  /** Next single-branch merge result. */
+  merge: (_branch: string, _ctx?: unknown): Promise<unknown> =>
+    Promise.resolve({
+      outcome: {
+        kind: "merged",
+        branch: "cow-fix-login-abcd1234",
+        target: "main",
+      },
+      text: 'Merged "cow-fix-login-abcd1234" into "main".',
+    }),
+}));
+
+vi.mock("../../src/agents/tool-merge.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/agents/tool-merge.js")>();
+  return {
+    ...actual,
+    branchMergeReadiness: async (branch: string) => {
+      const kind = await merge.readiness(branch);
+      return kind === "pending"
+        ? { kind: "pending" as const }
+        : kind === "nothing"
+          ? { kind: "nothing" as const }
+          : { kind: "unknown" as const };
+    },
+    mergeSingleBranch: (ctx: unknown, options: { branch: string }) => {
+      merge.merged.push(options.branch);
+      return merge.merge(options.branch, ctx) as never;
+    },
+  };
+});
+
 const { showAgentStatusMenu } =
   await import("../../src/ui/menu/menu-agent-status.js");
+
+/** The report a landed merge produces: the tool's own sentence. */
+const MERGED_RESULT = {
+  outcome: { kind: "merged", branch: "cow-fix-login-abcd1234", target: "main" },
+  text: 'Merged "cow-fix-login-abcd1234" into "main".',
+};
 
 /** Host address marking a live pane. */
 const HOST = {
@@ -216,6 +261,9 @@ beforeEach(() => {
   focused.length = 0;
   handedOver.length = 0;
   abortImpl = () => Promise.resolve(true);
+  merge.readiness = () => Promise.resolve("pending");
+  merge.merged.length = 0;
+  merge.merge = () => Promise.resolve(MERGED_RESULT);
   cleanupImpl = (id) => Promise.resolve(fullTeardown(id));
   handoverImpl = (_id, harness) =>
     Promise.resolve({ kind: "handed-over", from: "pi", to: harness });
@@ -394,34 +442,37 @@ describe("Agent status — group actions", () => {
 });
 
 describe("Agent status — the per-agent actions list", () => {
-  it("offers the live actions for a spawned agent", () => {
+  it("offers the live actions for a spawned agent", async () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     // A healthy run has neither result nor error, so no viewer entry.
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
-      "Stop",
       "Handover",
       "Export",
+      "Stop",
     ]);
   });
 
-  it("offers clean up instead of stop for a settled agent", () => {
+  it("offers clean up instead of stop for a settled agent", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toEqual([
       "View shell",
       "View result",
+      "Merge",
       "Handover",
-      "Clean up",
       "Export",
+      "Clean up",
     ]);
     session.focus("Clean up");
     expect(session.text()).toContain(
@@ -429,18 +480,19 @@ describe("Agent status — the per-agent actions list", () => {
     );
   });
 
-  it("offers View error only for a failed agent", () => {
+  it("offers View error only for a failed agent", async () => {
     installManager([errorSpawn("cafe9999-errored")]);
     const session = openAgentStatus();
 
     session.open(/✗ cafe9999-errored/);
+    await session.settle();
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
       "View error",
       "Handover",
-      "Clean up",
       "Export",
+      "Clean up",
     ]);
   });
 
@@ -453,6 +505,7 @@ describe("Agent status — the per-agent actions list", () => {
       });
     const session = openAgentStatus();
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     session.open("Stop");
 
@@ -478,6 +531,7 @@ describe("Agent status — the per-agent actions list", () => {
     abortImpl = () => Promise.resolve(false);
     const session = openAgentStatus();
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     session.open("Stop");
     await session.settle();
@@ -493,6 +547,7 @@ describe("Agent status — the per-agent actions list", () => {
     abortImpl = () => Promise.reject(new Error("herdr unreachable"));
     const session = openAgentStatus();
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     session.open("Stop");
     await session.settle();
@@ -507,6 +562,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Clean up");
     await session.settle();
@@ -527,6 +583,7 @@ describe("Agent status — the per-agent actions list", () => {
       Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Clean up");
     await session.settle();
@@ -567,6 +624,7 @@ describe("Agent status — the per-agent actions list", () => {
       Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Clean up");
     await session.settle();
@@ -589,6 +647,7 @@ describe("Agent status — the per-agent actions list", () => {
     cleanupImpl = () => Promise.reject(new Error("worktree is locked"));
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Clean up");
     await session.settle();
@@ -604,6 +663,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     session.open("View shell");
     await session.settle();
@@ -624,6 +684,7 @@ describe("Agent status — the per-agent actions list", () => {
     };
     const session = openAgentStatus();
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
     session.open("View shell");
     await session.settle();
@@ -642,6 +703,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/dead0000-queued/);
+    await session.settle();
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toContain("Handover");
     // A run that never launched has no session to read.
@@ -664,6 +726,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
     session.open("Handover");
 
     expect(session.text()).toContain(
@@ -694,6 +757,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -721,6 +785,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -737,6 +802,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -750,12 +816,13 @@ describe("Agent status — handover", () => {
     expect(handedOver).toEqual([]);
   });
 
-  it("lists the launchable harnesses without the source", () => {
+  it("lists the launchable harnesses without the source", async () => {
     setHarnessAvailability(probed(["pi", "claude"]));
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
     session.open("Handover");
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
@@ -763,12 +830,13 @@ describe("Agent status — handover", () => {
     ]);
   });
 
-  it("reports an agent no other harness can take over", () => {
+  it("reports an agent no other harness can take over", async () => {
     setHarnessAvailability(probed(["pi"]));
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
     session.open("Handover");
 
     expect(session.closedScreens).toHaveLength(1);
@@ -797,6 +865,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/✓ face1234-plugin/);
+    await session.settle();
     session.open("Handover");
     await session.settle();
 
@@ -814,6 +883,7 @@ describe("Agent status — handover", () => {
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
     session.open("Handover");
     session.open("Hand over to Claude");
     await session.settle();
@@ -830,7 +900,7 @@ describe("Agent status — handover", () => {
 });
 
 describe("Agent status — the export row", () => {
-  it("hides Export for a harness with no record reader", () => {
+  it("hides Export for a harness with no record reader", async () => {
     registerPluginWithoutReader("reg-no-export");
     installManager([
       baseSpawn({
@@ -848,13 +918,14 @@ describe("Agent status — the export row", () => {
     const session = openAgentStatus();
 
     session.open(/✓ face1234-plugin/);
+    await session.settle();
 
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toContain("Handover");
     expect(labels).not.toContain("Export");
   });
 
-  it("hides Export until the run has a pane to read from", () => {
+  it("hides Export until the run has a pane to read from", async () => {
     installManager([
       baseSpawn({
         id: "feed0000-queued",
@@ -864,18 +935,149 @@ describe("Agent status — the export row", () => {
     const session = openAgentStatus();
 
     session.open(/feed0000-queued/);
+    await session.settle();
 
     expect(session.walkRows().map((row) => row.label)).not.toContain("Export");
   });
 
-  it("offers Export for a run that is still working", () => {
+  it("offers Export for a run that is still working", async () => {
     setHarnessAvailability(probed(["pi", "claude"]));
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
     session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
 
-    expect(session.walkRows().at(-1)?.label).toBe("Export");
+    expect(session.walkRows().map((row) => row.label)).toEqual([
+      "View shell",
+      "Handover",
+      "Export",
+      "Stop",
+    ]);
+  });
+});
+
+describe("Agent status — the merge row", () => {
+  it("hides Merge for a run that is still working", async () => {
+    installManager([spawnedSpawn()]);
+    const session = openAgentStatus();
+
+    session.open(/◈ abcd1234-spawned-id/);
+    await session.settle();
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain("Merge");
+  });
+
+  it("hides Merge when the branch has nothing main lacks", async () => {
+    merge.readiness = () => Promise.resolve("nothing");
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain("Merge");
+  });
+
+  it("keeps Merge when the readiness probe could not answer", async () => {
+    merge.readiness = () => Promise.resolve("unknown");
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    expect(session.walkRows().map((row) => row.label)).toContain("Merge");
+  });
+
+  it("hides Merge for an agent with no worktree branch", async () => {
+    installManager([errorSpawn("cafe9999-errored")]);
+    const session = openAgentStatus();
+
+    session.open(/✗ cafe9999-errored/);
+    await session.settle();
+
+    expect(session.walkRows().map((row) => row.label)).not.toContain("Merge");
+  });
+
+  it("merges the agent's branch through the tool's own path and reports it", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Merge");
+    await session.settle();
+
+    expect(merge.merged).toEqual(["cow-fix-login-abcd1234"]);
+    expect(session.notifications.map((n) => n.message)).toEqual([
+      "Merging agent beef5678-completed's branch cow-fix-login-abcd1234 …",
+      '✓ Merged "cow-fix-login-abcd1234" into "main".',
+    ]);
+  });
+
+  it("reports an already-merged branch as a warning", async () => {
+    merge.merge = () =>
+      Promise.resolve({
+        outcome: {
+          kind: "already-merged",
+          branch: "cow-fix-login-abcd1234",
+          target: "main",
+        },
+        text: '"cow-fix-login-abcd1234" is already merged into "main" — nothing to do.',
+      });
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Merge");
+    await session.settle();
+
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        '✓ "cow-fix-login-abcd1234" is already merged into "main" — nothing to do.',
+      kind: "warning",
+    });
+  });
+
+  it("reports a merge that threw and keeps the row", async () => {
+    merge.merge = () => Promise.reject(new Error("the main checkout is dirty"));
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Merge");
+    await session.settle();
+
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✗ Failed to merge agent beef5678-completed's branch cow-fix-login-abcd1234: the main checkout is dirty",
+      kind: "error",
+    });
+    expect(session.walkRows().map((row) => row.label)).toContain("Merge");
+  });
+
+  it("retires the row once the merge lands", async () => {
+    let readiness: "pending" | "nothing" = "pending";
+    merge.readiness = () => Promise.resolve(readiness);
+    merge.merge = () => {
+      readiness = "nothing";
+      return Promise.resolve(MERGED_RESULT);
+    };
+    installManager([completedSpawn("beef5678-completed")]);
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Merge");
+    await session.settle();
+
+    expect(merge.merged).toEqual(["cow-fix-login-abcd1234"]);
+    const labels = session.walkRows().map((row) => row.label);
+    expect(labels).not.toContain("Merge");
+    expect(labels).toContain("Handover");
   });
 });
 
@@ -911,41 +1113,45 @@ describe("Agent status — open result file", () => {
     }
   });
 
-  it("offers the row before Handover once the report has content", () => {
+  it("offers the row before Merge once the report has content", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
       "View result",
       "Open result file",
+      "Merge",
       "Handover",
-      "Clean up",
       "Export",
+      "Clean up",
     ]);
   });
 
-  it("hides the row without a non-empty report", () => {
+  it("hides the row without a non-empty report", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     expect(session.walkRows().map((row) => row.label)).not.toContain(
       "Open result file",
     );
   });
 
-  it("hides the row off macOS", () => {
+  it("hides the row off macOS", async () => {
     platform.mockReturnValue("linux");
     installManager([completedSpawn("beef5678-completed")]);
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
 
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     expect(session.walkRows().map((row) => row.label)).not.toContain(
       "Open result file",
@@ -957,6 +1163,7 @@ describe("Agent status — open result file", () => {
     const file = writeResultFile("beef5678-completed");
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Open result file");
     await session.settle();
@@ -981,6 +1188,7 @@ describe("Agent status — open result file", () => {
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
 
     session.open("Open result file");
     await session.settle();
@@ -996,16 +1204,17 @@ describe("Agent status — open result file", () => {
 describe("Agent status — result viewer overlay", () => {
   const RESULT = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
 
-  function openViewer(text: string): MenuSession {
+  async function openViewer(text: string): Promise<MenuSession> {
     installManager([completedSpawn("beef5678-completed", text)]);
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
+    await session.settle();
     session.open("View result");
     return session;
   }
 
   it("opens as an overlay showing the tail of the result", async () => {
-    const session = openViewer(RESULT);
+    const session = await openViewer(RESULT);
     await session.settle();
 
     // The viewer is a second ctx.ui.custom screen on top of the menu.
@@ -1018,7 +1227,7 @@ describe("Agent status — result viewer overlay", () => {
   });
 
   it("scrolls to the top with g", async () => {
-    const session = openViewer(RESULT);
+    const session = await openViewer(RESULT);
     await session.settle();
 
     session.press("g");
@@ -1029,7 +1238,7 @@ describe("Agent status — result viewer overlay", () => {
   });
 
   it("scrolls a line at a time with the arrow keys", async () => {
-    const session = openViewer(RESULT);
+    const session = await openViewer(RESULT);
     await session.settle();
 
     session.press("g");
@@ -1044,7 +1253,7 @@ describe("Agent status — result viewer overlay", () => {
   });
 
   it("closes on q without leaving the menu", async () => {
-    const session = openViewer(RESULT);
+    const session = await openViewer(RESULT);
     await session.settle();
 
     session.press("q");
@@ -1054,7 +1263,7 @@ describe("Agent status — result viewer overlay", () => {
   });
 
   it("closes on Esc", async () => {
-    const session = openViewer(RESULT);
+    const session = await openViewer(RESULT);
     await session.settle();
 
     session.press(KEY.escape);
@@ -1064,7 +1273,7 @@ describe("Agent status — result viewer overlay", () => {
   });
 
   it("shows a short result without a scroll indicator below 100%", async () => {
-    const session = openViewer("just one line");
+    const session = await openViewer("just one line");
     await session.settle();
 
     expect(session.text()).toContain("1 lines · 100%");

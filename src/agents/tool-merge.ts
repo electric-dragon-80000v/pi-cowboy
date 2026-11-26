@@ -163,6 +163,165 @@ interface MergeScope {
 }
 
 /**
+ * The session-scope check every merge runs under: the session repo's main
+ * checkout, for the outside-repo warning, and the checkout the merge runs in.
+ * `repo` points the merge at another checkout than the session's.
+ */
+export async function resolveMergeScope(repo?: string): Promise<MergeScope> {
+  const sessionCwd = getSessionCtx().cwd;
+  if (typeof sessionCwd !== "string" || sessionCwd.trim() === "") {
+    throw new Error(
+      "merge_cowboy_branch cannot verify the session repo: the session working directory is unavailable, so the repo-scope check is impossible. " +
+        "Refusing to merge without a repo-scope check.",
+    );
+  }
+  return {
+    sessionRoot: await resolveSessionMainRoot(getPiInstance(), sessionCwd),
+    cwd: repo ?? sessionCwd,
+  };
+}
+
+/** One branch merged on its own: its outcome and the report a caller prints. */
+export type MergeOneResult = BatchItem<MergeItemOutcome>;
+
+/**
+ * One branch's merge and its report — the step `merge_cowboy_branch` and the
+ * status menu's merge row share, so the two cannot diverge. The merge proceeds
+ * on a warning, not a refusal; the banner is the durable signal because
+ * notifications can be missed or unavailable.
+ */
+async function mergeBranchItem(
+  ctx: ExtensionContext,
+  options: { branch: string; target: string; scope: MergeScope },
+): Promise<BatchItem<MergeItemOutcome>> {
+  const { branch, target, scope } = options;
+  try {
+    const result: MergeBranchResult = await mergeBranchIntoTarget(
+      getPiInstance(),
+      { cwd: scope.cwd, branch, target },
+    );
+    const warning = isSameRepoRoot(result.mainRoot, scope.sessionRoot)
+      ? undefined
+      : formatOutsideRepoWarning(result.mainRoot, scope.sessionRoot);
+    if (warning !== undefined) {
+      try {
+        ctx.ui.notify(warning, "warning");
+      } catch {
+        // A broken UI sink must never fail the merge itself.
+      }
+    }
+    const prefix = warning !== undefined ? `${warning}\n` : "";
+    if (result.alreadyMerged) {
+      return {
+        outcome: { kind: "already-merged", branch, target },
+        text: `${prefix}"${branch}" is already merged into "${result.target}" — nothing to do.`,
+      };
+    }
+    return {
+      outcome: {
+        kind: "merged",
+        branch,
+        target: result.target,
+        output: result.output,
+      },
+      text:
+        `${prefix}Merged "${branch}" into "${result.target}" in ${result.mainRoot}.` +
+        (result.output ? `\n${result.output}` : ""),
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isConflictError(message)) {
+      return {
+        outcome: {
+          kind: "conflict",
+          branch,
+          target,
+          files: parseConflictFiles(message),
+        },
+        text: `"${branch}": ${message}`,
+      };
+    }
+    if (isUnknownBranchError(message, branch)) {
+      return {
+        outcome: { kind: "unknown", branch },
+        text: `"${branch}": ${message}`,
+      };
+    }
+    return {
+      outcome: { kind: "failed", branch, error: message },
+      text: `"${branch}": ${message}`,
+    };
+  }
+}
+
+/**
+ * Merge one branch exactly as `merge_cowboy_branch` would, for a caller that
+ * merges on its own: the same guards, the same outside-repo banner, the same
+ * wording. `target` and `repo` default the way the tool defaults them.
+ */
+export async function mergeSingleBranch(
+  ctx: ExtensionContext,
+  options: { branch: string; target?: string; repo?: string },
+): Promise<MergeOneResult> {
+  const branch = options.branch.trim();
+  const target =
+    options.target !== undefined && options.target.trim() !== ""
+      ? options.target.trim()
+      : "main";
+  const repo =
+    options.repo !== undefined && options.repo.trim() !== ""
+      ? options.repo.trim()
+      : undefined;
+  assertValidBranchRef(branch, "branch");
+  assertValidBranchRef(target, "target");
+  return mergeBranchItem(ctx, {
+    branch,
+    target,
+    scope: await resolveMergeScope(repo),
+  });
+}
+
+/** Whether a branch still holds commits its target lacks. */
+export type BranchMergeReadiness =
+  { kind: "pending" } | { kind: "nothing" } | { kind: "unknown" };
+
+/**
+ * The merger's own two questions about a branch — does it exist, and is it
+ * already an ancestor of the main checkout's HEAD — answered without merging
+ * anything. `unknown` when git could not answer, so a failed probe never reads
+ * as "nothing to merge".
+ */
+export async function branchMergeReadiness(
+  branch: string,
+): Promise<BranchMergeReadiness> {
+  const ref = branch.trim();
+  if (ref === "") return { kind: "nothing" };
+  try {
+    assertValidBranchRef(ref, "branch");
+    const sessionCwd = getSessionCtx().cwd;
+    if (typeof sessionCwd !== "string" || sessionCwd.trim() === "") {
+      return { kind: "unknown" };
+    }
+    const mainRoot = await resolveSessionMainRoot(getPiInstance(), sessionCwd);
+    const runner = new GitCommandRunner(getPiInstance());
+    // Fully qualified so the ref cannot parse as a flag.
+    const exists = await runner.test(
+      ["rev-parse", "--verify", "--quiet", `refs/heads/${ref}`],
+      mainRoot,
+    );
+    if (!exists) return { kind: "nothing" };
+    const ancestor = await runner.run(
+      ["merge-base", "--is-ancestor", "--", ref, "HEAD"],
+      mainRoot,
+    );
+    if (ancestor === undefined) return { kind: "unknown" };
+    return ancestor.code === 0 ? { kind: "nothing" } : { kind: "pending" };
+  } catch {
+    return { kind: "unknown" };
+  }
+}
+
+/**
  * merge_cowboy_branch handler. Merges every branch in `branches` sequentially
  * in input order — merges share one checkout, so items never run in
  * parallel. `target` and `repo` apply to the whole call. Best effort except
@@ -194,19 +353,7 @@ export async function executeMergeBranchTool(
   // before anything is mutated, and the batch probes once, not once per branch.
   let scope: Promise<MergeScope> | undefined;
   const mergeScope = (): Promise<MergeScope> => {
-    scope ??= (async () => {
-      const sessionCwd = getSessionCtx().cwd;
-      if (typeof sessionCwd !== "string" || sessionCwd.trim() === "") {
-        throw new Error(
-          "merge_cowboy_branch cannot verify the session repo: the session working directory is unavailable, so the repo-scope check is impossible. " +
-            "Refusing to merge without a repo-scope check.",
-        );
-      }
-      return {
-        sessionRoot: await resolveSessionMainRoot(getPiInstance(), sessionCwd),
-        cwd: repo ?? sessionCwd,
-      };
-    })();
+    scope ??= resolveMergeScope(repo);
     return scope;
   };
 
@@ -236,68 +383,11 @@ export async function executeMergeBranchTool(
         };
       },
     },
-    handleItem: async (rawBranch): Promise<BatchItem<MergeItemOutcome>> => {
-      const { sessionRoot, cwd } = await mergeScope();
-      const branch = rawBranch.trim();
-      try {
-        const result: MergeBranchResult = await mergeBranchIntoTarget(
-          getPiInstance(),
-          { cwd, branch, target },
-        );
-        // The merge proceeds on a warning, not a refusal; the banner is the
-        // durable signal because notifications can be missed or unavailable.
-        const warning = isSameRepoRoot(result.mainRoot, sessionRoot)
-          ? undefined
-          : formatOutsideRepoWarning(result.mainRoot, sessionRoot);
-        if (warning !== undefined) {
-          try {
-            ctx.ui.notify(warning, "warning");
-          } catch {
-            // A broken UI sink must never fail the merge itself.
-          }
-        }
-        const prefix = warning !== undefined ? `${warning}\n` : "";
-        if (result.alreadyMerged) {
-          return {
-            outcome: { kind: "already-merged", branch, target },
-            text: `${prefix}"${branch}" is already merged into "${result.target}" — nothing to do.`,
-          };
-        }
-        return {
-          outcome: {
-            kind: "merged",
-            branch,
-            target: result.target,
-            output: result.output,
-          },
-          text:
-            `${prefix}Merged "${branch}" into "${result.target}" in ${result.mainRoot}.` +
-            (result.output ? `\n${result.output}` : ""),
-        };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        if (isConflictError(message)) {
-          return {
-            outcome: {
-              kind: "conflict",
-              branch,
-              target,
-              files: parseConflictFiles(message),
-            },
-            text: `"${branch}": ${message}`,
-          };
-        }
-        if (isUnknownBranchError(message, branch)) {
-          return {
-            outcome: { kind: "unknown", branch },
-            text: `"${branch}": ${message}`,
-          };
-        }
-        return {
-          outcome: { kind: "failed", branch, error: message },
-          text: `"${branch}": ${message}`,
-        };
-      }
-    },
+    handleItem: async (rawBranch): Promise<BatchItem<MergeItemOutcome>> =>
+      mergeBranchItem(ctx, {
+        branch: rawBranch.trim(),
+        target,
+        scope: await mergeScope(),
+      }),
   });
 }

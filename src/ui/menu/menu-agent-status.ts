@@ -27,6 +27,11 @@ import {
 
 import { canReadHandoverRecords } from "../../agents/harness.js";
 import { openableResultFile } from "../../agents/result-file-open.js";
+import {
+  branchMergeReadiness,
+  mergeSeverity,
+  mergeSingleBranch,
+} from "../../agents/tool-merge.js";
 import { subagentResultFileFor } from "../../paths.js";
 import { errorMessage } from "../../utils.js";
 import {
@@ -114,6 +119,49 @@ async function openResultFile(
   } catch (err) {
     action.failed(`Failed to open agent ${spawn.id}'s result file`, err);
   }
+}
+
+/** The branch the spawn's worktree carried, when it has one at all. */
+function worktreeBranch(spawn: AgentSpawn): string | undefined {
+  return spawn.display.worktree?.branch;
+}
+
+/**
+ * Whether the merge row has anything to offer: the run is settled and its
+ * branch still holds commits the main checkout's HEAD lacks. A probe git could
+ * not answer keeps the row, so the merge reports its own refusal instead of the
+ * action vanishing on a failed question.
+ */
+async function offerMerge(spawn: AgentSpawn, branch: string): Promise<boolean> {
+  if (isActivePhase(spawn.lifecycle.phase)) return false;
+  return (await branchMergeReadiness(branch)).kind !== "nothing";
+}
+
+/**
+ * Merge the spawn's branch through the same path `merge_cowboy_branch` takes,
+ * then rebuild the actions list: a merge that landed leaves nothing to merge.
+ */
+function mergeAgentBranch(
+  ctx: ExtensionCommandContext,
+  spawn: AgentSpawn,
+  branch: string,
+  reopen: () => void,
+): void {
+  const action = actionReport(ctx.ui);
+  action.pending(`Merging agent ${spawn.id}'s branch ${branch}`);
+  void (async () => {
+    try {
+      const merged = await mergeSingleBranch(ctx, { branch });
+      action.outcome(mergeSeverity(merged.outcome), merged.text);
+    } catch (err) {
+      action.failed(
+        `Failed to merge agent ${spawn.id}'s branch ${branch}`,
+        err,
+      );
+    } finally {
+      reopen();
+    }
+  })();
 }
 
 async function showTextViewer(
@@ -286,6 +334,8 @@ function stopAgentsOffMenu(
  * @param beginCleanup — start the two-phase cleanup flow over these ids.
  * @param beginHandover — open the handover sub-flow for this agent.
  * @param beginExport — open the export sub-flow for this agent.
+ * @param offerMerge — show the merge row: the branch still has commits to merge.
+ * @param reopen — rebuild this list from the spawn's current state.
  */
 export function buildAgentActionsList(
   ctx: ExtensionCommandContext,
@@ -296,6 +346,8 @@ export function buildAgentActionsList(
   beginCleanup: (ids: readonly string[]) => void,
   beginHandover: (spawn: AgentSpawn) => void,
   beginExport: (spawn: AgentSpawn) => void,
+  offerMerge: boolean,
+  reopen: () => void,
 ): SelectList {
   const items: SelectItem[] = [];
   // Spawn id is the full handle — printed whole, never sliced.
@@ -318,6 +370,7 @@ export function buildAgentActionsList(
       : getHarnessRegistry().get(spawn.execution.harness);
   const canExport =
     hasHerdrPane && harness !== undefined && canReadHandoverRecords(harness);
+  const branch = worktreeBranch(spawn);
 
   if (hasHerdrPane) {
     items.push({
@@ -332,9 +385,6 @@ export function buildAgentActionsList(
   if (hasError) {
     items.push({ value: "view-error", label: "View error" });
   }
-  if (activeSpawn) {
-    items.push({ value: "stop", label: "Stop" });
-  }
   // Opening the report hands it to the desktop, so it is offered only where
   // macOS's `open` exists and the run has actually written something.
   if (
@@ -347,6 +397,13 @@ export function buildAgentActionsList(
       description: "Open the agent's result file in the default application",
     });
   }
+  if (offerMerge && branch !== undefined) {
+    items.push({
+      value: "merge",
+      label: "Merge",
+      description: "Merge its branch into main (same as merge_cowboy_branch)",
+    });
+  }
   // Handover is offered for every agent: a run still in flight is stopped
   // first, after the sub-flow's confirmation.
   items.push({
@@ -354,21 +411,22 @@ export function buildAgentActionsList(
     label: "Handover",
     description: "Hand this run's session to another harness",
   });
-  if (!activeSpawn) {
-    items.push({
-      value: "cleanup",
-      label: "Clean up",
-      description: "Close its pane and remove its worktree and merged branch",
-    });
-  }
-  // Last, because it is the only action that never touches the agent: a live
-  // run is exported as it works.
+  // Export never touches the agent, so a live run is exported as it works.
   if (canExport) {
     items.push({
       value: "export",
       label: "Export",
       description:
         "Copy this run's handover text to the clipboard or write it to a file",
+    });
+  }
+  if (activeSpawn) {
+    items.push({ value: "stop", label: "Stop" });
+  } else {
+    items.push({
+      value: "cleanup",
+      label: "Clean up",
+      description: "Close its pane and remove its worktree and merged branch",
     });
   }
 
@@ -390,6 +448,10 @@ export function buildAgentActionsList(
       await showTextViewer(ctx, spawn, "error", errorText);
     } else if (item.value === "open-result-file") {
       await openResultFile(ctx, spawn);
+    } else if (item.value === "merge" && branch !== undefined) {
+      // The merge reports its own outcome, then rebuilds this list: a landed
+      // merge leaves the row nothing to merge.
+      mergeAgentBranch(ctx, spawn, branch, reopen);
     } else if (item.value === "stop") {
       actionReport(ctx.ui).pending(`Stopping agent ${id}`);
       done();
@@ -529,8 +591,10 @@ export async function showAgentStatusMenu(
       requestRender,
     });
 
-    /** The per-agent actions list, rebuilt from the spawn's current phase. */
-    const openAgentActions = (spawn: AgentSpawn): void => {
+    /** The per-agent actions list, rebuilt from the spawn's current phase and branch. */
+    const openAgentActions = async (spawn: AgentSpawn): Promise<void> => {
+      const branch = worktreeBranch(spawn);
+      const merge = branch !== undefined && (await offerMerge(spawn, branch));
       view.activate(
         buildAgentActionsList(
           ctx,
@@ -541,8 +605,13 @@ export async function showAgentStatusMenu(
           beginCleanup,
           beginHandover,
           beginExport,
+          merge,
+          () => {
+            void openAgentActions(spawn);
+          },
         ),
       );
+      requestRender();
     };
 
     const beginHandover = createStatusHandover({
@@ -583,7 +652,7 @@ export async function showAgentStatusMenu(
       }
       const spawn = agents.find((r) => r.id === item.value);
       if (spawn) {
-        openAgentActions(spawn);
+        await openAgentActions(spawn);
       }
     };
     agentList.onCancel = () => close();

@@ -99,13 +99,14 @@ function installManager(agents: AgentSpawn[]): void {
   };
 }
 
-function openExport(): MenuSession {
+async function openExport(): Promise<MenuSession> {
   installManager([liveSpawn()]);
   const session = openMenu(
     (ctx: ExtensionCommandContext) => showAgentStatusMenu(ctx),
     200,
   );
   session.open(/live1234-agent/);
+  await session.settle();
   session.open("Export");
   return session;
 }
@@ -125,8 +126,8 @@ afterEach(() => {
 });
 
 describe("Agent export — the choice list", () => {
-  it("offers the clipboard and a file, reading nothing yet", () => {
-    const session = openExport();
+  it("offers the clipboard and a file, reading nothing yet", async () => {
+    const session = await openExport();
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "Export to clipboard",
@@ -136,7 +137,7 @@ describe("Agent export — the choice list", () => {
   });
 
   it("closes without exporting on Esc", async () => {
-    const session = openExport();
+    const session = await openExport();
 
     session.press(KEY.escape);
     await session.settle();
@@ -156,7 +157,7 @@ describe("Agent export — the choice list", () => {
           detail: "no session file",
         },
       });
-    const session = openExport();
+    const session = await openExport();
 
     session.open("Export to file");
     await session.settle();
@@ -175,7 +176,7 @@ describe("Agent export — the choice list", () => {
 
 describe("Agent export — the clipboard", () => {
   it("copies the artifact, reports it, and closes", async () => {
-    const session = openExport();
+    const session = await openExport();
 
     session.open("Export to clipboard");
     await session.settle();
@@ -191,7 +192,7 @@ describe("Agent export — the clipboard", () => {
 
   it("reports a clipboard that refused the text and stays on the choices", async () => {
     clipboard.copy.mockRejectedValue(new Error("no clipboard tool"));
-    const session = openExport();
+    const session = await openExport();
 
     session.open("Export to clipboard");
     await session.settle();
@@ -207,7 +208,7 @@ describe("Agent export — the clipboard", () => {
 
 describe("Agent export — the file", () => {
   it("prefills the default path from the run's identities", async () => {
-    const session = openExport();
+    const session = await openExport();
 
     session.open("Export to file");
     await session.settle();
@@ -217,7 +218,7 @@ describe("Agent export — the file", () => {
   });
 
   it("writes the path the user typed, then reports it and closes", async () => {
-    const session = openExport();
+    const session = await openExport();
     const chosen = path.join(exportDir, "chosen.md");
     session.open("Export to file");
     await session.settle();
@@ -236,7 +237,7 @@ describe("Agent export — the file", () => {
   });
 
   it("keeps the field open on its text when the write fails", async () => {
-    const session = openExport();
+    const session = await openExport();
     const missing = path.join(exportDir, "nowhere", "chosen.md");
     session.open("Export to file");
     await session.settle();
@@ -258,7 +259,7 @@ describe("Agent export — the file", () => {
   });
 
   it("asks before overwriting, and Esc returns to the field with the file kept", async () => {
-    const session = openExport();
+    const session = await openExport();
     fs.writeFileSync(defaultPath(), "OLD");
     session.open("Export to file");
     await session.settle();
@@ -277,7 +278,7 @@ describe("Agent export — the file", () => {
   });
 
   it("replaces the file on Y, then reports it and closes", async () => {
-    const session = openExport();
+    const session = await openExport();
     fs.writeFileSync(defaultPath(), "OLD");
     session.open("Export to file");
     await session.settle();

@@ -8,7 +8,10 @@ import type {
   ExtensionContext,
   ExecOptions,
 } from "@earendil-works/pi-coding-agent";
-import { executeMergeBranchTool } from "../src/agents/tool-merge.js";
+import {
+  branchMergeReadiness,
+  executeMergeBranchTool,
+} from "../src/agents/tool-merge.js";
 import type { MergeBatchParams } from "../src/agents/schemas/merge-batch.schema.js";
 import {
   getPiInstance,
@@ -475,5 +478,76 @@ describe("executeMergeBranchTool — batch", () => {
       ).rejects.toThrow();
       expect(await gitStatus(repo)).toMatch(/base\.txt/);
     });
+  });
+});
+
+describe("branchMergeReadiness", () => {
+  async function withRepo(run: () => Promise<void>): Promise<void> {
+    const repo = await makeRepo(freshTmp());
+    const prev = shellBinding();
+    setPiInstance(gitPi());
+    setSessionCtx({ cwd: repo } as ExtensionContext);
+    try {
+      await run();
+    } finally {
+      setPiInstance(prev.pi as never);
+      setSessionCtx(prev.ctx as never);
+    }
+  }
+
+  it("reports a branch main does not have as pending", async () => {
+    const repo = await makeRepo(freshTmp());
+    await makeAgentBranch(repo, "cow-ready-11111111", "feat.txt", "new\n");
+    const prev = shellBinding();
+    setPiInstance(gitPi());
+    setSessionCtx({ cwd: repo } as ExtensionContext);
+    try {
+      expect(await branchMergeReadiness("cow-ready-11111111")).toEqual({
+        kind: "pending",
+      });
+    } finally {
+      setPiInstance(prev.pi as never);
+      setSessionCtx(prev.ctx as never);
+    }
+  });
+
+  it("reports a merged branch as nothing to merge", async () => {
+    const repo = await makeRepo(freshTmp());
+    await makeAgentBranch(repo, "cow-ready-22222222", "feat.txt", "new\n");
+    await git(["merge", "--no-edit", "--", "cow-ready-22222222"], repo);
+    const prev = shellBinding();
+    setPiInstance(gitPi());
+    setSessionCtx({ cwd: repo } as ExtensionContext);
+    try {
+      expect(await branchMergeReadiness("cow-ready-22222222")).toEqual({
+        kind: "nothing",
+      });
+    } finally {
+      setPiInstance(prev.pi as never);
+      setSessionCtx(prev.ctx as never);
+    }
+  });
+
+  it("reports a branch that no longer exists as nothing to merge", async () => {
+    await withRepo(async () => {
+      expect(await branchMergeReadiness("cow-ready-gone")).toEqual({
+        kind: "nothing",
+      });
+    });
+  });
+
+  it("reports a probe git cannot answer as unknown, never as nothing", async () => {
+    const outside = freshTmp();
+    const prev = shellBinding();
+    setPiInstance(gitPi());
+    setSessionCtx({ cwd: outside } as ExtensionContext);
+    try {
+      expect(await branchMergeReadiness("cow-ready-33333333")).toEqual({
+        kind: "unknown",
+      });
+    } finally {
+      setPiInstance(prev.pi as never);
+      setSessionCtx(prev.ctx as never);
+    }
   });
 });
