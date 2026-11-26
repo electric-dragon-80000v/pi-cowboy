@@ -1,3 +1,11 @@
+## [0.41.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.0...v0.41.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **cleanup:** close a tracked run's adopted pane ([fc72200](https://github.com/electric-dragon-80000v/pi-cowboy/commit/fc72200f12086553e10c423a14dcc1c5adf68c68))
+* **cleanup:** separate run placement from shared worktree teardown ([c15c84c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/c15c84c2dcd2edf045b595474458ff782eb8a76b))
+
 # [0.41.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.40.0...v0.41.0) (2026-11-25)
 
 
