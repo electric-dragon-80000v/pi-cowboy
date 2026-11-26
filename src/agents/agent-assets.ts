@@ -580,7 +580,10 @@ export function createMultiplexerAgentAssets(
         host.isAttached(candidate, { repoCwd: options.repoCwd }),
       ),
     closeRunPlacement: async (ref) => {
-      await host.release(ref, "placement");
+      // A settled tracked run's own placement is cleanup's to close even when it
+      // adopted the workspace's root pane. Failed-launch cleanup still uses the
+      // provenance-gated "placement" scope directly.
+      await host.release({ ...ref, paneCreated: true }, "placement");
     },
     teardownEnvironment: async ({ subagentId, runs }) => {
       // The IDs are read back from recorded runs rather than resolved here, so

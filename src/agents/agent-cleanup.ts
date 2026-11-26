@@ -180,16 +180,15 @@ async function paneOutcomesForAbsentTree(
 
 /**
  * Close the run's own located placement before its space is considered. Only a
- * tracked, self-created pane is closed here; a recovered or adopted pane is
- * handled by the space's own disposition.
+ * tracked run's recorded address proves the pane is its own; a recovered pane is
+ * adopted, never closed.
  */
 async function closeOwnPlacement(
   assets: AgentAssets,
   current: AgentHostRef | undefined,
   tracked: boolean,
 ): Promise<PaneOutcome | undefined> {
-  if (current === undefined || !tracked || !current.paneCreated)
-    return undefined;
+  if (current === undefined || !tracked) return undefined;
   await assets.closeRunPlacement(current);
   return { kind: "closed", paneId: current.paneId };
 }

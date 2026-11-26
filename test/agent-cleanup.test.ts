@@ -1849,10 +1849,10 @@ describe("cleanup — the settled-teardown matrix", () => {
       dropped: true,
     },
     {
-      name: "settled + no worktree + adopted pane: pane kept, spawn kept",
+      name: "settled + no worktree + adopted pane: pane closed, spawn dropped",
       spawn: () => {
         const r = noWorktree(completed());
-        // Adopted pane: never created by the extension → never closed.
+        // Tracked adopted placement: cleanup owns the run's own address.
         r.execution.host = { ...r.execution.host!, paneCreated: false };
         return r;
       },
@@ -1861,11 +1861,11 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        panes: [{ kind: "open", paneId: "w1:p1" }],
+        panes: [{ kind: "closed", paneId: "w1:p1" }],
         worktree: { kind: "none" },
         branch: { kind: "not-applicable" },
       },
-      dropped: false,
+      dropped: true,
     },
     {
       name: "settled + removal not confirmed: removal-failed, spawn kept",
