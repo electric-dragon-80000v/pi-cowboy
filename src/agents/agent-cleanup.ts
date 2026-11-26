@@ -4,6 +4,8 @@
  * createCleanup: settled-or-recovered run cleanup over the assets seam — all
  * runs in the environment, not only the active one.
  * WorktreeTeardown/Cleanup: the two planes. WorktreeTeardownOutcome: removal result.
+ * releaseSpace/releaseRunPlacement: the checkout and branch, and the run's own
+ * panes, composed by removeResources in that order.
  * WorktreeRemovalTarget: the tree and panes a teardown removes through.
  * AgentCleanupRegistry: spawn lookup/drop surface.
  * Report-gated (only ended runs are cleaned up; live runs are refused, never stopped);
@@ -42,11 +44,14 @@ import {
   type CleanupOptions,
   type CleanupPlan,
   type CleanupReport,
+  type CleanupResult,
   type DiscoveryBasis,
   type PaneOutcome,
+  type PaneRemovalContext,
   type RemovablePlan,
-  type RemovalOutcomes,
   type SettlementVerdict,
+  type SpaceOccupancy,
+  type SpaceTeardownResult,
   type WorktreeKeptReason,
   type WorktreeOutcome,
   type WorktreeRemovalMechanism,
@@ -94,7 +99,7 @@ async function removeOwnedTree(
 ): Promise<Extract<WorktreeOutcome, { kind: "removed" | "removal-failed" }>> {
   const viaHost = ref !== undefined && worktree.workspaceId !== undefined;
   const removed = viaHost
-    ? await deps.removeWorktree(ref)
+    ? await deps.removeSpaceAssociation(ref)
     : await deps.removeGitWorktree(worktree.worktreePath, worktree.repoCwd);
   if (!removed) {
     return {
@@ -133,7 +138,7 @@ async function paneOutcomes(
         outcomes.push({ kind: "closed", paneId: pane.paneId });
         break;
       case "close":
-        await deps.closePane(pane);
+        await deps.closeRunPlacement(pane);
         outcomes.push({ kind: "closed", paneId: pane.paneId });
         break;
       case "leave-open":
@@ -173,43 +178,101 @@ async function paneOutcomesForAbsentTree(
   return outcomes;
 }
 
-async function removeResources(
+/**
+ * Close the run's own located placement before its space is considered. Only a
+ * tracked, self-created pane is closed here; a recovered or adopted pane is
+ * handled by the space's own disposition.
+ */
+async function closeOwnPlacement(
+  assets: AgentAssets,
+  current: AgentHostRef | undefined,
+  tracked: boolean,
+): Promise<PaneOutcome | undefined> {
+  if (current === undefined || !tracked || !current.paneCreated)
+    return undefined;
+  await assets.closeRunPlacement(current);
+  return { kind: "closed", paneId: current.paneId };
+}
+
+/** Remove the checkout/workspace and, only after a confirmed removal, its branch. */
+async function releaseSpace(
   deps: CleanupDeps,
   plan: RemovablePlan,
   address: AgentHostRef | undefined,
-): Promise<RemovalOutcomes> {
+): Promise<SpaceTeardownResult> {
   if (plan.kind === "no-worktree") {
     return {
-      panes: await paneOutcomes(deps, plan.panes, {
-        kind: "removed",
-        mechanism: null,
-        workspaceId: undefined,
-      }),
       worktree: { kind: "none" },
       branch: { kind: "not-applicable" },
+      retainedForOthers: false,
     };
   }
-  const { worktree, panes } = plan;
+  const { worktree } = plan;
   const outcome = await removeOwnedTree(deps, worktree, address);
   if (outcome.kind === "removed") {
     return {
-      panes: await paneOutcomes(deps, panes, {
-        kind: "removed",
-        mechanism: removalMechanismOf(worktree),
-        workspaceId: worktree.workspaceId,
-      }),
       worktree: outcome,
       branch: await deps.deleteBranch({
         branch: worktree.branchName,
         worktreePath: worktree.worktreePath,
         repoCwd: worktree.repoCwd,
       }),
+      retainedForOthers: false,
     };
   }
   return {
-    panes: await paneOutcomes(deps, panes, { kind: "retained" }),
     worktree: outcome,
     branch: { kind: "not-applicable" },
+    retainedForOthers: false,
+  };
+}
+
+/** What a space outcome means for the panes of the run being cleaned up. */
+function paneContextFor(
+  plan: RemovablePlan,
+  space: SpaceTeardownResult,
+): PaneRemovalContext {
+  if (plan.kind === "no-worktree") {
+    return { kind: "removed", mechanism: null, workspaceId: undefined };
+  }
+  if (space.worktree.kind === "removed") {
+    return {
+      kind: "removed",
+      mechanism: removalMechanismOf(plan.worktree),
+      workspaceId: plan.worktree.workspaceId,
+    };
+  }
+  return { kind: "retained" };
+}
+
+/** Close or retain the run's own panes for the given removal context. */
+async function releaseRunPlacement(
+  deps: CleanupDeps,
+  panes: readonly AgentHostRef[],
+  context: PaneRemovalContext,
+): Promise<readonly PaneOutcome[]> {
+  return paneOutcomes(deps, panes, context);
+}
+
+async function removeResources(
+  deps: CleanupDeps,
+  plan: RemovablePlan,
+  address: AgentHostRef | undefined,
+  own: PaneOutcome | undefined,
+): Promise<CleanupResult> {
+  const space = await releaseSpace(deps, plan, address);
+  const rest =
+    own === undefined
+      ? plan.panes
+      : plan.panes.filter((pane) => pane.paneId !== address?.paneId);
+  const panes = await releaseRunPlacement(
+    deps,
+    rest,
+    paneContextFor(plan, space),
+  );
+  return {
+    run: { panes: own === undefined ? panes : [own, ...panes] },
+    space,
   };
 }
 
@@ -320,14 +383,6 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
 
 /* ── Shared spaces ────────────────────────────────────────────────────── */
 
-/** Who else lives in the space a plan would remove. */
-type SpaceTenancy =
-  /** Nothing else does: the removal takes only this run's own placement. */
-  | { readonly kind: "exclusive" }
-  | { readonly kind: "shared"; readonly tenants: readonly string[] }
-  /** The registry could not be read: never evidence the space is empty. */
-  | { readonly kind: "unreadable"; readonly detail: string };
-
 /**
  * Whether the space this plan would remove holds anything besides this run.
  *
@@ -337,11 +392,11 @@ type SpaceTenancy =
  * the registry is the only way to know, and a failed read is not an empty space:
  * that answers `unreadable`, which the caller refuses on.
  */
-async function spaceTenancy(
+async function spaceOccupancy(
   assets: AgentAssets,
   plan: CleanupPlan,
   address: AgentHostRef | undefined,
-): Promise<SpaceTenancy> {
+): Promise<SpaceOccupancy> {
   if (
     plan.kind !== "worktree" ||
     address === undefined ||
@@ -534,19 +589,16 @@ export function createCleanup(assets: AgentAssets): Cleanup {
     }
 
     // A workspace is shared: several agents live in one, each in its own tab, and
-    // removing the space takes all of them. So this run's cleanup must not be the
-    // checkout's — the last tenant out removes it. Checked before anything is
-    // touched, so a sibling is never collateral of one agent's teardown.
-    const tenancy = await spaceTenancy(assets, plan, current);
-    if (tenancy.kind !== "exclusive") {
+    // removing the space takes all of them. The checkout waits for the last
+    // tenant; this run's own self-created placement still closes. Checked before
+    // any pane is touched, so a sibling is never collateral of one agent's teardown.
+    const occupancy = await spaceOccupancy(assets, plan, current);
+    if (occupancy.kind === "unreadable") {
       return keptReport(agentId, located.source, plan, verdict.settlement, {
-        reason:
-          tenancy.kind === "shared"
-            ? { kind: "space-in-use", tenants: tenancy.tenants }
-            : {
-                kind: "unverifiable",
-                detail: `could not check the workspace for other agents (${tenancy.detail})`,
-              },
+        reason: {
+          kind: "unverifiable",
+          detail: `could not check the workspace for other agents (${occupancy.detail})`,
+        },
         // Force removes worktrees, never other agents: a sibling's run is not
         // this operator's to destroy at any price.
         forceable: false,
@@ -570,6 +622,41 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       }
     }
 
+    if (occupancy.kind === "shared") {
+      const own = await closeOwnPlacement(
+        assets,
+        current,
+        located.source === "tracked",
+      );
+      const rest = await releaseRunPlacement(
+        assets,
+        plan.panes.filter((pane) => pane.paneId !== current?.paneId),
+        { kind: "retained" },
+      );
+      const result: CleanupResult = {
+        run: { panes: own === undefined ? rest : [own, ...rest] },
+        space: {
+          worktree:
+            plan.kind === "worktree"
+              ? { kind: "kept", path: plan.worktree.worktreePath }
+              : { kind: "none" },
+          branch: { kind: "not-applicable" },
+          retainedForOthers: true,
+        },
+      };
+      const report = assembleReport(
+        agentId,
+        located.source,
+        plan,
+        verdict.settlement,
+        result,
+        opts,
+      );
+      if (shouldDropSpawn(result.run, result.space) && hint !== undefined)
+        registry.dropSpawn(hint);
+      return report;
+    }
+
     if (plan.kind === "worktree-unlocatable") {
       // An unlocatable tree whose path is absent from disk is already gone:
       // absence is established from the path alone (no repo cwd can address
@@ -579,6 +666,14 @@ export function createCleanup(assets: AgentAssets): Cleanup {
         plan.worktreePath !== null &&
         !(await assets.worktreeExists(plan.worktreePath))
       ) {
+        const result: CleanupResult = {
+          run: { panes: await paneOutcomesForAbsentTree(assets, plan.panes) },
+          space: {
+            worktree: { kind: "absent", path: plan.worktreePath },
+            branch: { kind: "not-applicable" },
+            retainedForOthers: false,
+          },
+        };
         const report: CleanupReport = {
           agentId,
           source: located.source,
@@ -587,12 +682,12 @@ export function createCleanup(assets: AgentAssets): Cleanup {
           outcome: { kind: "torn-down", ...forcedFields(opts) },
           branchName: plan.branchName,
           settlement: verdict.settlement,
-          panes: await paneOutcomesForAbsentTree(assets, plan.panes),
-          worktree: { kind: "absent", path: plan.worktreePath },
-          branch: { kind: "not-applicable" },
+          panes: result.run.panes,
+          worktree: result.space.worktree,
+          branch: result.space.branch,
         };
         // A recovered run has no record to forget; drop only tracked spawns.
-        if (shouldDropSpawn(report) && hint !== undefined)
+        if (shouldDropSpawn(result.run, result.space) && hint !== undefined)
           registry.dropSpawn(hint);
         return report;
       }
@@ -621,17 +716,23 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       }
     }
 
-    const removal = await removeResources(assets, plan, current);
+    const own = await closeOwnPlacement(
+      assets,
+      current,
+      located.source === "tracked",
+    );
+    const result = await removeResources(assets, plan, current, own);
     const report = assembleReport(
       agentId,
       located.source,
       plan,
       verdict.settlement,
-      removal,
+      result,
       opts,
     );
     // A recovered run has no record to forget; drop only tracked spawns.
-    if (shouldDropSpawn(report) && hint !== undefined) registry.dropSpawn(hint);
+    if (shouldDropSpawn(result.run, result.space) && hint !== undefined)
+      registry.dropSpawn(hint);
     return report;
   }
 

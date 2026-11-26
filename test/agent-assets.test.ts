@@ -95,10 +95,10 @@ function buildDeps(overrides: Partial<AgentAssetsDeps> = {}): AgentAssetsDeps {
       path === WT_PATH ? "/work/repo" : undefined,
     isWorktreeDirty: async () => false,
     worktreeExists: async () => true,
-    removeWorktree: async () => true,
+    removeSpaceAssociation: async () => true,
     removeGitWorktree: async () => true,
     deleteBranch: async () => ({ kind: "deleted" as const }),
-    closePane: async () => {},
+    closeRunPlacement: async () => {},
     teardownEnvironment: async () => {},
     ...overrides,
   };
@@ -459,9 +459,9 @@ describe("assets members", () => {
   });
 
   it("exposes the actuator half unchanged", async () => {
-    const removeWorktree = vi.fn(async () => true);
-    const closePane = vi.fn(async () => {});
-    const assets = assetsFor({ removeWorktree, closePane });
+    const removeSpaceAssociation = vi.fn(async () => true);
+    const closeRunPlacement = vi.fn(async () => {});
+    const assets = assetsFor({ removeSpaceAssociation, closeRunPlacement });
     const ref = {
       multiplexer: "herdr" as const,
       name: BRANCH,
@@ -472,11 +472,11 @@ describe("assets members", () => {
     };
 
     await expect(assets.worktreeExists(WT_PATH)).resolves.toBe(true);
-    await expect(assets.removeWorktree(ref)).resolves.toBe(true);
-    await assets.closePane(ref);
+    await expect(assets.removeSpaceAssociation(ref)).resolves.toBe(true);
+    await assets.closeRunPlacement(ref);
 
-    expect(removeWorktree).toHaveBeenCalledWith(ref);
-    expect(closePane).toHaveBeenCalledWith(ref);
+    expect(removeSpaceAssociation).toHaveBeenCalledWith(ref);
+    expect(closeRunPlacement).toHaveBeenCalledWith(ref);
     await expect(
       assets.deleteBranch({
         branch: BRANCH,
@@ -579,8 +579,8 @@ describe("createMultiplexerAgentAssets — bound to a session's multiplexer", ()
       paneCreated: true,
     };
 
-    await assets.removeWorktree(ref);
-    await assets.closePane(ref);
+    await assets.removeSpaceAssociation(ref);
+    await assets.closeRunPlacement(ref);
 
     expect(host.release).toHaveBeenNthCalledWith(
       1,

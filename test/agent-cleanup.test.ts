@@ -271,17 +271,17 @@ function locatedFromHint(spawn: AgentSpawn): Located {
 type TreeState = "clean" | "dirty-pre" | "unverifiable" | "force-dirty";
 
 type DirtyProbe = (path: string) => Promise<boolean | undefined>;
-type RemoveWorktree = (ref: AgentHostRef) => Promise<boolean>;
+type RemoveSpaceAssociation = (ref: AgentHostRef) => Promise<boolean>;
 type DeleteBranch = (
   options: DeleteBranchOptions,
 ) => Promise<BranchCleanupResult>;
-type ClosePane = (ref: AgentHostRef) => Promise<void>;
+type CloseRunPlacement = (ref: AgentHostRef) => Promise<void>;
 
 interface MockedDeps {
   isWorktreeDirty: Mock<DirtyProbe>;
-  removeWorktree: Mock<RemoveWorktree>;
+  removeSpaceAssociation: Mock<RemoveSpaceAssociation>;
   deleteBranch: Mock<DeleteBranch>;
-  closePane: Mock<ClosePane>;
+  closeRunPlacement: Mock<CloseRunPlacement>;
   worktreeExists: Mock<(path: string) => Promise<boolean>>;
   removeGitWorktree: Mock<(path: string, repoCwd: string) => Promise<boolean>>;
   teardownEnvironment: Mock<TeardownEnvironment>;
@@ -299,9 +299,11 @@ function buildDeps(tree: TreeState): MockedDeps {
   else isWorktreeDirty.mockResolvedValue(true);
   return {
     isWorktreeDirty,
-    removeWorktree: vi.fn<RemoveWorktree>().mockResolvedValue(true),
+    removeSpaceAssociation: vi
+      .fn<RemoveSpaceAssociation>()
+      .mockResolvedValue(true),
     deleteBranch: vi.fn<DeleteBranch>().mockResolvedValue({ kind: "deleted" }),
-    closePane: vi.fn<ClosePane>().mockResolvedValue(undefined),
+    closeRunPlacement: vi.fn<CloseRunPlacement>().mockResolvedValue(undefined),
     worktreeExists: vi.fn().mockResolvedValue(true),
     removeGitWorktree: vi.fn().mockResolvedValue(true),
     teardownEnvironment: vi
@@ -639,10 +641,10 @@ describe("removeWorktree", () => {
       via: "multiplexer",
       branch: { kind: "deleted" },
     });
-    expect(deps.removeWorktree).toHaveBeenCalledWith(REF);
+    expect(deps.removeSpaceAssociation).toHaveBeenCalledWith(REF);
     expect(deps.removeGitWorktree).not.toHaveBeenCalled();
     // The workspace takes its pane with it: no stop, no separate close.
-    expect(deps.closePane).not.toHaveBeenCalled();
+    expect(deps.closeRunPlacement).not.toHaveBeenCalled();
     expect(deps.probes).toHaveBeenCalledTimes(1);
   });
 
@@ -678,13 +680,13 @@ describe("removeWorktree", () => {
         panes: [REF],
       }),
     ).resolves.toEqual({ kind: "kept", path: WT_PATH, reason });
-    expect(deps.removeWorktree).not.toHaveBeenCalled();
+    expect(deps.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(deps.probes).toHaveBeenCalledTimes(1);
   });
 
   it("reports an unconfirmed removal instead of throwing", async () => {
     const deps = buildDeps("clean");
-    deps.removeWorktree.mockResolvedValue(false);
+    deps.removeSpaceAssociation.mockResolvedValue(false);
     const outcome = await createWorktreeTeardown(deps).removeWorktree({
       worktree: adopted(WT_PATH).worktree,
       address: REF,
@@ -745,7 +747,7 @@ describe("removeWorktree", () => {
       via: "multiplexer",
       branch: { kind: "deleted" },
     });
-    expect(deps.removeWorktree).toHaveBeenCalledWith(REF);
+    expect(deps.removeSpaceAssociation).toHaveBeenCalledWith(REF);
     expect(deps.probes).toHaveBeenCalledTimes(1);
   });
 
@@ -762,7 +764,7 @@ describe("removeWorktree", () => {
       path: WT_PATH,
       reason: { kind: "dirty" },
     });
-    expect(deps.removeWorktree).not.toHaveBeenCalled();
+    expect(deps.removeSpaceAssociation).not.toHaveBeenCalled();
   });
 
   it("removes a clean worktree while keeping its unmerged branch", async () => {
@@ -790,7 +792,7 @@ describe("removeWorktree", () => {
       address: REF,
       panes: [REF],
     });
-    expect(deps.closePane).not.toHaveBeenCalled();
+    expect(deps.closeRunPlacement).not.toHaveBeenCalled();
     expect(deps.probes).toHaveBeenCalledTimes(1);
 
     const gitOwned = buildDeps("clean");
@@ -799,7 +801,7 @@ describe("removeWorktree", () => {
       address: REF,
       panes: [REF],
     });
-    expect(gitOwned.closePane).toHaveBeenCalledTimes(1);
+    expect(gitOwned.closeRunPlacement).toHaveBeenCalledTimes(1);
     expect(gitOwned.probes).toHaveBeenCalledTimes(1);
   });
 
@@ -826,7 +828,7 @@ describe("removeWorktree", () => {
 
   it("reports an unconfirmed removal", async () => {
     const deps = buildDeps("clean");
-    deps.removeWorktree.mockResolvedValue(false);
+    deps.removeSpaceAssociation.mockResolvedValue(false);
     await expect(
       createWorktreeTeardown(deps).removeWorktree({
         worktree: TARGET,
@@ -852,8 +854,8 @@ describe("removeWorktree", () => {
       }),
     ).resolves.toEqual({ kind: "absent", path: WT_PATH });
     expect(deps.probes).not.toHaveBeenCalled();
-    expect(deps.closePane).not.toHaveBeenCalled();
-    expect(deps.removeWorktree).not.toHaveBeenCalled();
+    expect(deps.closeRunPlacement).not.toHaveBeenCalled();
+    expect(deps.removeSpaceAssociation).not.toHaveBeenCalled();
   });
 });
 
@@ -861,9 +863,9 @@ describe("removeWorktree", () => {
 
 /** A workspace hosts several agents; one agent's cleanup must not take a sibling with it. */
 describe("cleanup — a shared workspace", () => {
-  it("refuses to remove the checkout while another agent lives in it", async () => {
-    // The bug: cleaning up one agent removed the workspace and the worktree,
-    // taking the sibling's pane and checkout with them.
+  it("cleans the run's own pane while keeping the checkout for a sibling", async () => {
+    // The checkout is shared, so it stays; that is the space's fate, not this
+    // run's. The run is over, so its own placement is still cleanup's to close.
     const spawns = new Map<string, AgentSpawn>([[ID, completed()]]);
     const assets = buildAssets("clean", {
       otherTenants: async () => ["cow-fix-login-flow-fedcba98-2"],
@@ -875,27 +877,19 @@ describe("cleanup — a shared workspace", () => {
     expect(report).toEqual({
       agentId: ID,
       source: "tracked",
-      outcome: {
-        kind: "refused",
-        reason: {
-          kind: "space-in-use",
-          tenants: ["cow-fix-login-flow-fedcba98-2"],
-        },
-        forceable: false,
-      },
+      outcome: { kind: "torn-down" },
       settlement: { kind: "recorded", phase: "settled" },
       branchName: BRANCH,
-      panes: [{ kind: "open", paneId: "w1:p1" }],
+      panes: [{ kind: "closed", paneId: "w1:p1" }],
       worktree: { kind: "kept", path: WT_PATH },
       branch: { kind: "not-applicable" },
     });
-    // Nothing was touched: not the workspace, the checkout, the branch, or the pane.
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    // The shared checkout stays; this run's own placement and record do not.
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).not.toHaveBeenCalled();
     expect(assets.deleteBranch).not.toHaveBeenCalled();
-    expect(assets.closePane).not.toHaveBeenCalled();
-    // The run stays listed, so its own status and a later retry still work.
-    expect(dropped).toEqual([]);
+    expect(assets.closeRunPlacement).toHaveBeenCalledWith(REF);
+    expect(dropped).toEqual([ID]);
   });
 
   it("removes the checkout once the last agent there is cleaned up", async () => {
@@ -906,7 +900,7 @@ describe("cleanup — a shared workspace", () => {
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
     expect(report.outcome).toEqual({ kind: "torn-down" });
-    expect(assets.removeWorktree).toHaveBeenCalledTimes(1);
+    expect(assets.removeSpaceAssociation).toHaveBeenCalledTimes(1);
   });
 
   it("asks about the checkout it is about to remove, not only its workspace", async () => {
@@ -940,7 +934,7 @@ describe("cleanup — a shared workspace", () => {
       kind: "refused",
       forceable: false,
     });
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).not.toHaveBeenCalled();
   });
 
@@ -990,10 +984,10 @@ describe("cleanup — the recorded settlement gate", () => {
       branch: { kind: "not-applicable" },
     });
     expect(assets.probes).not.toHaveBeenCalled();
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).not.toHaveBeenCalled();
     expect(assets.deleteBranch).not.toHaveBeenCalled();
-    expect(assets.closePane).not.toHaveBeenCalled();
+    expect(assets.closeRunPlacement).not.toHaveBeenCalled();
     expect(assets.observe).not.toHaveBeenCalled();
     expect(dropped).toEqual([]);
     expect(spawns.get(ID)?.lifecycle.phase).toBe(phase);
@@ -1019,7 +1013,7 @@ describe("cleanup — the recorded settlement gate", () => {
       worktree: { kind: "none" },
       branch: { kind: "not-applicable" },
     });
-    expect(assets.closePane).not.toHaveBeenCalled();
+    expect(assets.closeRunPlacement).not.toHaveBeenCalled();
     expect(dropped).toEqual([]);
   });
 
@@ -1162,7 +1156,7 @@ describe("cleanup — a recovered run", () => {
     });
     // Live work is refused before any probe or removal.
     expect(assets.probes).not.toHaveBeenCalled();
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.deleteBranch).not.toHaveBeenCalled();
   });
 
@@ -1207,7 +1201,7 @@ describe("cleanup — a recovered run", () => {
       },
       worktree: { kind: "kept", path: WT_PATH },
     });
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
   });
 
   it("force overrides the live read and records the basis", async () => {
@@ -1264,7 +1258,7 @@ describe("cleanup — a recovered run", () => {
       branch: { kind: "not-applicable" },
     });
     expect(assets.probes).not.toHaveBeenCalled();
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).not.toHaveBeenCalled();
     expect(assets.deleteBranch).not.toHaveBeenCalled();
   });
@@ -1311,7 +1305,7 @@ describe("cleanup — a recovered run", () => {
       worktree: { kind: "kept", path: WT_PATH },
       branch: { kind: "not-applicable" },
     });
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
   });
 
   it("keeps a recovered dirty tree with its reason", async () => {
@@ -1336,7 +1330,7 @@ describe("cleanup — a recovered run", () => {
       locate: locateReturning(recoveredArtifacts()),
       observed: { state: "done" },
     });
-    assets.removeWorktree.mockResolvedValue(false);
+    assets.removeSpaceAssociation.mockResolvedValue(false);
     const { registry } = buildRegistry(new Map());
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
@@ -1368,7 +1362,7 @@ describe("cleanup — a recovered run", () => {
       WT_PATH,
       "/work/repo",
     );
-    expect(assets.closePane).not.toHaveBeenCalled();
+    expect(assets.closeRunPlacement).not.toHaveBeenCalled();
   });
 
   it("uses a tracked run's recorded settlement even when discovery found the plan", async () => {
@@ -1508,7 +1502,7 @@ describe("cleanup — environment teardown", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    expect(assets.closePane).toHaveBeenCalledTimes(2);
+    expect(assets.closeRunPlacement).toHaveBeenCalledTimes(2);
     expect(report.panes).toEqual([
       { kind: "closed", paneId: "w1:p1" },
       { kind: "closed", paneId: "w1:p2" },
@@ -1523,11 +1517,12 @@ describe("cleanup — environment teardown", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    // The tree goes through the current placement; the leftover pane does not
-    // die with that workspace, so it is closed on its own address.
-    expect(assets.removeWorktree).toHaveBeenCalledWith(REF);
-    expect(assets.closePane).toHaveBeenCalledTimes(1);
-    expect(assets.closePane).toHaveBeenCalledWith({
+    // The current placement closes first, then the tree goes; the leftover pane
+    // in another workspace is closed on its own address.
+    expect(assets.removeSpaceAssociation).toHaveBeenCalledWith(REF);
+    expect(assets.closeRunPlacement).toHaveBeenCalledTimes(2);
+    expect(assets.closeRunPlacement).toHaveBeenCalledWith(REF);
+    expect(assets.closeRunPlacement).toHaveBeenCalledWith({
       ...REF,
       paneId: "w2:p9",
       workspaceId: "w2",
@@ -1554,12 +1549,12 @@ describe("cleanup — environment teardown", () => {
 
     // A leftover run's workspace is never the address the tree is released
     // through; with no current placement, git removes it.
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).toHaveBeenCalledWith(
       WT_PATH,
       "/work/repo",
     );
-    expect(assets.closePane).toHaveBeenCalledWith({
+    expect(assets.closeRunPlacement).toHaveBeenCalledWith({
       ...REF,
       paneId: "w2:p9",
       workspaceId: "w2",
@@ -1661,7 +1656,42 @@ describe("shouldDropSpawn", () => {
       false,
     ],
   ])("%s", (_name, report, expected) => {
-    expect(shouldDropSpawn(report)).toBe(expected);
+    expect(
+      shouldDropSpawn(
+        { panes: report.panes },
+        {
+          worktree: report.worktree,
+          branch: report.branch,
+          retainedForOthers: false,
+        },
+      ),
+    ).toBe(expected);
+  });
+
+  it("drops a run whose own placement is gone while the checkout stays for others", () => {
+    expect(
+      shouldDropSpawn(
+        { panes: [{ kind: "closed", paneId: "w1:p1" }] },
+        {
+          worktree: { kind: "kept", path: WT_PATH },
+          branch: { kind: "not-applicable" },
+          retainedForOthers: true,
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a run whose own placement is still open while the checkout stays for others", () => {
+    expect(
+      shouldDropSpawn(
+        { panes: [{ kind: "open", paneId: "w1:p1" }] },
+        {
+          worktree: { kind: "kept", path: WT_PATH },
+          branch: { kind: "not-applicable" },
+          retainedForOthers: true,
+        },
+      ),
+    ).toBe(false);
   });
 });
 
@@ -1845,7 +1875,7 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        panes: [{ kind: "open", paneId: "w1:p1" }],
+        panes: [{ kind: "closed", paneId: "w1:p1" }],
         worktree: {
           kind: "removal-failed",
           path: WT_PATH,
@@ -1861,7 +1891,7 @@ describe("cleanup — the settled-teardown matrix", () => {
     const spawns = new Map<string, AgentSpawn>([[ID, row.spawn()]]);
     const assets = buildAssets(row.tree);
     if (row.name.includes("removal not confirmed")) {
-      assets.removeWorktree.mockResolvedValue(false);
+      assets.removeSpaceAssociation.mockResolvedValue(false);
     }
     const { registry } = buildRegistry(spawns);
     const opts = row.opts;
@@ -1935,10 +1965,10 @@ describe("cleanup — the proven-absent checkout", () => {
     expect(spawns.has(ID)).toBe(false);
     // Nothing to gate, remove, or delete: the branch stays, the record goes.
     expect(assets.probes).not.toHaveBeenCalled();
-    expect(assets.removeWorktree).not.toHaveBeenCalled();
+    expect(assets.removeSpaceAssociation).not.toHaveBeenCalled();
     expect(assets.removeGitWorktree).not.toHaveBeenCalled();
     expect(assets.deleteBranch).not.toHaveBeenCalled();
-    expect(assets.closePane).not.toHaveBeenCalled();
+    expect(assets.closeRunPlacement).not.toHaveBeenCalled();
   });
 
   it("keeps a checkout that exists but cannot be addressed", async () => {
@@ -2097,8 +2127,8 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     });
     expect(isWorktreeDirtyMock).toHaveBeenCalledTimes(1);
     expect(removeHerdrWorktreeMock).toHaveBeenCalledWith({}, "w1");
-    // No stop in the teardown plane: the pane goes with the workspace.
-    expect(closePaneMock).not.toHaveBeenCalled();
+    // The run's own pane closes before the workspace is released.
+    expect(closePaneMock).toHaveBeenCalledWith({}, "w1:p1");
     // The branch delete carries the branch by name, plus the host's attachment probe.
     expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
       {},

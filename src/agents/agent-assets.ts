@@ -65,7 +65,7 @@ export interface CleanupDeps {
   /** Filesystem probe (injected; this module never touches the filesystem). */
   worktreeExists: (worktreePath: string) => Promise<boolean>;
   /** Drop the worktree association, returning true only when confirmed gone. */
-  removeWorktree: (ref: AgentHostRef) => Promise<boolean>;
+  removeSpaceAssociation: (ref: AgentHostRef) => Promise<boolean>;
   /** Remove a checkout that was never adopted into herdr. */
   removeGitWorktree: (
     worktreePath: string,
@@ -73,8 +73,8 @@ export interface CleanupDeps {
   ) => Promise<boolean>;
   /** Delete the branch a removed worktree carried once it is merged and unattached. */
   deleteBranch: (options: DeleteBranchOptions) => Promise<BranchCleanupResult>;
-  /** Close a self-created placement. */
-  closePane: (ref: AgentHostRef) => Promise<void>;
+  /** Close a run's own placement; the host decides whether the address is safe to close. */
+  closeRunPlacement: (ref: AgentHostRef) => Promise<void>;
   /**
    * Undo the harness state left behind by each run engaged by the environment,
    * each at the address it prepared — ordered before any worktree dirty probe;
@@ -510,10 +510,10 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
     deliverable: deps.deliverable,
     isWorktreeDirty: deps.isWorktreeDirty,
     worktreeExists: deps.worktreeExists,
-    removeWorktree: deps.removeWorktree,
+    removeSpaceAssociation: deps.removeSpaceAssociation,
     removeGitWorktree: deps.removeGitWorktree,
     deleteBranch: deps.deleteBranch,
-    closePane: deps.closePane,
+    closeRunPlacement: deps.closeRunPlacement,
     teardownEnvironment: deps.teardownEnvironment,
   };
 }
@@ -570,7 +570,7 @@ export function createMultiplexerAgentAssets(
     },
     isWorktreeDirty: (worktreePath) => isWorktreeDirty(pi, worktreePath),
     worktreeExists: async (worktreePath) => fs.existsSync(worktreePath),
-    removeWorktree: (ref) => host.release(ref, "worktree-association"),
+    removeSpaceAssociation: (ref) => host.release(ref, "worktree-association"),
     removeGitWorktree: async (worktreePath, repoCwd) => {
       await removeGitWorktree(pi, repoCwd, worktreePath);
       return !fs.existsSync(worktreePath);
@@ -579,7 +579,7 @@ export function createMultiplexerAgentAssets(
       deleteWorktreeBranch(pi, options, (candidate) =>
         host.isAttached(candidate, { repoCwd: options.repoCwd }),
       ),
-    closePane: async (ref) => {
+    closeRunPlacement: async (ref) => {
       await host.release(ref, "placement");
     },
     teardownEnvironment: async ({ subagentId, runs }) => {

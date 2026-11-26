@@ -543,7 +543,7 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
   return {
     isWorktreeDirty: (worktreePath) => isWorktreeDirty(pi, worktreePath),
     worktreeExists: async (worktreePath) => fs.existsSync(worktreePath),
-    removeWorktree: (ref) => host.release(ref, "worktree-association"),
+    removeSpaceAssociation: (ref) => host.release(ref, "worktree-association"),
     removeGitWorktree: async (worktreePath, repoCwd) => {
       await removeGitWorktree(pi, repoCwd, worktreePath);
       return !fs.existsSync(worktreePath);
@@ -552,7 +552,7 @@ function cleanupDeps(pi: ExtensionAPI, host: AgentHost): CleanupDeps {
       deleteWorktreeBranch(pi, options, (candidate) =>
         host.isAttached(candidate, { repoCwd: options.repoCwd }),
       ),
-    closePane: async (ref) => {
+    closeRunPlacement: async (ref) => {
       await host.release(ref, "placement");
     },
     // No launch ever prepared a pane in a checkout that failed its create,

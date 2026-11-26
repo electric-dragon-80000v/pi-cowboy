@@ -4,7 +4,7 @@
  * Plan: CleanupPlan/planRecovered. Gate: GateOutcome/assessRemovability.
  * Settlement: SettlementVerdict/recordedSettlement/recoveryGate/recoveryRefusalReason.
  * Report: CleanupReport/keptReport/ambiguousReport/assembleReport/forcedFields/isForceableRefusal/shouldDropSpawn.
- * Removal: RemovalOutcomes/RemovablePlan/WorktreeRemovalMechanism/PaneDisposition/removalMechanismOf/paneDispositionFor.
+ * Teardown: RunTeardownResult/SpaceTeardownResult/CleanupResult/SpaceOccupancy/RemovablePlan/WorktreeRemovalMechanism/PaneDisposition/removalMechanismOf/paneDispositionFor.
  * Probes: WorktreeDirtyProbe. Options: CleanupOptions. Source: CleanupSource. Basis: DiscoveryBasis.
  */
 
@@ -276,11 +276,32 @@ export async function assessRemovability(
 
 /* ── Removal ───────────────────────────────────────────────────────────── */
 
-export type RemovalOutcomes = {
-  panes: readonly PaneOutcome[];
-  worktree: WorktreeOutcome;
-  branch: BranchCleanupResult;
-};
+/** What one run's own teardown produced: its panes, and nothing about the checkout. */
+export interface RunTeardownResult {
+  readonly panes: readonly PaneOutcome[];
+}
+
+/** What the checkout/workspace teardown produced: the tree and branch, and no run panes. */
+export interface SpaceTeardownResult {
+  readonly worktree: WorktreeOutcome;
+  readonly branch: BranchCleanupResult;
+  /** The checkout stays for live runs that share it, not because its removal failed. */
+  readonly retainedForOthers: boolean;
+}
+
+/** The two independent halves of a cleanup: the run's own placement and the shared space. */
+export interface CleanupResult {
+  readonly run: RunTeardownResult;
+  readonly space: SpaceTeardownResult;
+}
+
+/** Who else lives in the space a plan would remove. */
+export type SpaceOccupancy =
+  /** Nothing else does: the removal takes only this run's own placement. */
+  | { readonly kind: "exclusive" }
+  | { readonly kind: "shared"; readonly tenants: readonly string[] }
+  /** The registry could not be read: never evidence the space is empty. */
+  | { readonly kind: "unreadable"; readonly detail: string };
 
 /** The plan kinds that can actually be removed (unlocatable never reaches removal). */
 export type RemovablePlan = Extract<
@@ -423,7 +444,7 @@ export function assembleReport(
   source: CleanupSource,
   plan: CleanupPlan,
   settlement: SettlementVerdict,
-  removal: RemovalOutcomes,
+  result: CleanupResult,
   opts?: CleanupOptions,
 ): CleanupReport {
   return {
@@ -434,9 +455,9 @@ export function assembleReport(
     outcome: { kind: "torn-down", ...forcedFields(opts) },
     branchName: plan.kind === "worktree" ? plan.worktree.branchName : undefined,
     settlement,
-    panes: removal.panes,
-    worktree: removal.worktree,
-    branch: removal.branch,
+    panes: result.run.panes,
+    worktree: result.space.worktree,
+    branch: result.space.branch,
   };
 }
 
@@ -457,19 +478,25 @@ export function isForceableRefusal(
 }
 
 /**
- * Drop a spawn once its tracked resources are gone; a kept/failed tree
- * keeps its spawn so status still shows why. An absent tree drops too: a
+ * Whether a spawn's tracked resources are gone. A worktree run follows the
+ * space's outcome; a run without one drops only when every pane it knows is
+ * closed. A checkout kept for other tenants drops the run too: its own placement
+ * is gone even though the shared checkout stays. An absent tree drops as well: a
  * checkout that is not on disk cannot be removed and holds no work, and the
  * branch is deliberately NOT deleted on that path (its commits live in the
- * object store), so nothing recordable is lost by forgetting the record.
+ * object store), so nothing recordable is lost by forgetting the record. A tree
+ * kept because removal failed or because it is dirty keeps its spawn so status
+ * still shows why.
  */
-export function shouldDropSpawn(report: CleanupReport): boolean {
-  if (report.worktree.kind === "removed") return true;
-  if (report.worktree.kind === "absent") return true;
-  if (report.worktree.kind === "none") {
-    return report.panes.every((pane) => pane.kind === "closed");
-  }
-  return false;
+export function shouldDropSpawn(
+  run: RunTeardownResult,
+  space: SpaceTeardownResult,
+): boolean {
+  if (space.worktree.kind === "removed") return true;
+  if (space.worktree.kind === "absent") return true;
+  const runGone = run.panes.every((pane) => pane.kind === "closed");
+  if (space.worktree.kind === "none") return runGone;
+  return space.retainedForOthers && runGone;
 }
 
 export type WorktreeRemovalMechanism = "multiplexer" | "git";
@@ -492,8 +519,8 @@ export function removalMechanismOf(
  * earlier run's pane left behind by a handover) survives and is handled by
  * ownership instead. An unrecorded workspace cannot be distinguished from
  * the removed one, so it retains the disposition that removal implies. A pane
- * the extension did not create is never closed by cleanup, regardless of the
- * outcome for its workspace.
+ * the extension did not create is never closed by this decision; the run's own
+ * located placement is closed separately when cleanup owns it.
  */
 export type PaneRemovalContext =
   | { readonly kind: "retained" }
