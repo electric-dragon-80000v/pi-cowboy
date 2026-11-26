@@ -31,7 +31,7 @@ import { subagentResultFileFor } from "../../paths.js";
 import { errorMessage } from "../../utils.js";
 import {
   getDisplayName,
-  agentBulletPrefix,
+  agentFieldSeparator,
   formatMs,
   statusIcon,
 } from "../format.js";
@@ -443,23 +443,26 @@ export async function showAgentStatusMenu(
           ? spawn.lifecycle.completedAt
           : now;
         const duration = formatMs(end - lifecycleStartTime(spawn.lifecycle));
-        const ago = active ? "" : ` ${formatMs(now - end)} ago`;
         const icon = statusIcon(status, theme);
         const headline = spawn.display.description
           ? spawn.display.description
           : "";
-        const suffix = headline ? ` \u2014 ${headline}` : "";
-        const bullet = agentBulletPrefix(theme);
         // A queued spawn has not engaged a harness yet.
         const harness = spawn.execution.harness;
-        const harnessField =
-          harness === undefined ? "" : `${bullet}${harness} `;
-        const wtInfo = spawn.display.worktree
-          ? `  wt:${spawn.display.worktree.branch}`
-          : "";
+        const worktree = spawn.display.worktree;
+        const fields = [
+          `${icon} ${spawn.id}`,
+          ...(harness === undefined ? [] : [harness]),
+          spawn.display.type,
+          status,
+          duration,
+          ...(worktree === undefined ? [] : [`wt:${worktree.branch}`]),
+          ...(headline === "" ? [] : [`\u2014 ${headline}`]),
+          ...(active ? [] : [`${formatMs(now - end)} ago`]),
+        ];
         return {
           value: spawn.id,
-          label: `${icon} ${spawn.id}  ${harnessField}${bullet}${spawn.display.type}  ${status}  ${duration}${wtInfo}${suffix}${ago}`,
+          label: fields.join(agentFieldSeparator(theme)),
         };
       });
       const active = activeAgents();

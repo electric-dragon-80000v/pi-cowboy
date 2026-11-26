@@ -47,6 +47,11 @@ const HOST = {
   paneCreated: true,
 };
 
+/** A status row's head: the icon and id, before the fields' separators. */
+function rowHead(label: string): string {
+  return label.split(" • ")[0];
+}
+
 function baseSpawn(overrides: {
   id: string;
   lifecycle: AgentSpawn["lifecycle"];
@@ -257,10 +262,10 @@ describe("Agent status — the list", () => {
     expect(session.title()).toBe("Status");
     const text = session.text();
     expect(text).toMatch(
-      /◈ abcd1234-spawned-id\s+• pi • general-purpose\s+spawned\s+<1s\s+wt:cow-fix-login-abcd1234/,
+      /◈ abcd1234-spawned-id • pi • general-purpose • spawned • <1s • wt:cow-fix-login-abcd1234/,
     );
     expect(text).toMatch(
-      /✓ beef5678-completed\s+• pi • general-purpose\s+completed\s+<1s/,
+      /✓ beef5678-completed • pi • general-purpose • completed • <1s/,
     );
     expect(text).toContain("— Fix the login flow");
   });
@@ -288,7 +293,7 @@ describe("Agent status — the list", () => {
     const session = openAgentStatus();
 
     const labels = session.walkRows().map((row) => row.label);
-    expect(labels).toEqual([
+    expect(labels.map(rowHead)).toEqual([
       "◈ abcd1234-spawned-id",
       "✓ beef5678-completed",
       "✗ cafe9999-errored",
@@ -305,8 +310,8 @@ describe("Agent status — the list", () => {
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toContain("Clean up 1 settled agent(s)");
     expect(labels).not.toContain("Clean up 1 completed agent(s)");
-    expect(labels).not.toContain("✓ cafe9999-errored");
-    expect(labels).toContain("✗ cafe9999-errored");
+    expect(labels.map(rowHead)).not.toContain("✓ cafe9999-errored");
+    expect(labels.map(rowHead)).toContain("✗ cafe9999-errored");
   });
 });
 
@@ -393,7 +398,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     // A healthy run has neither result nor error, so no viewer entry.
     expect(session.walkRows().map((row) => row.label)).toEqual([
@@ -408,7 +413,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toEqual([
@@ -428,7 +433,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([errorSpawn("cafe9999-errored")]);
     const session = openAgentStatus();
 
-    session.open("✗ cafe9999-errored");
+    session.open(/✗ cafe9999-errored/);
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
@@ -447,12 +452,12 @@ describe("Agent status — the per-agent actions list", () => {
         releaseAbort = () => resolve(true);
       });
     const session = openAgentStatus();
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     session.open("Stop");
 
     // The list comes back with the stop still in flight, then the verdict lands.
-    expect(session.activeRow()?.label).toBe("◈ abcd1234-spawned-id");
+    expect(session.activeRow()?.label).toContain("◈ abcd1234-spawned-id");
     expect(session.closedScreens).toEqual([]);
     expect(session.notifications.map((n) => n.message)).toEqual([
       "Stopping agent abcd1234-spawned-id …",
@@ -472,7 +477,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([spawnedSpawn()]);
     abortImpl = () => Promise.resolve(false);
     const session = openAgentStatus();
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     session.open("Stop");
     await session.settle();
@@ -487,7 +492,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([spawnedSpawn()]);
     abortImpl = () => Promise.reject(new Error("herdr unreachable"));
     const session = openAgentStatus();
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     session.open("Stop");
     await session.settle();
@@ -501,7 +506,7 @@ describe("Agent status — the per-agent actions list", () => {
   it("cleans a settled agent up and closes the menu", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Clean up");
     await session.settle();
@@ -521,7 +526,7 @@ describe("Agent status — the per-agent actions list", () => {
     cleanupImpl = (id, force) =>
       Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Clean up");
     await session.settle();
@@ -561,7 +566,7 @@ describe("Agent status — the per-agent actions list", () => {
     cleanupImpl = (id, force) =>
       Promise.resolve(force ? forcedTeardown(id) : dirtyRefusal(id));
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Clean up");
     await session.settle();
@@ -571,7 +576,7 @@ describe("Agent status — the per-agent actions list", () => {
     // No forced pass; the refusal is reported and the menu refreshes in place.
     expect(cleanupOpts).toEqual([{ id: "beef5678-completed", force: false }]);
     expect(session.closedScreens).toEqual([]);
-    expect(session.activeRow()?.label).toBe("✓ beef5678-completed");
+    expect(session.activeRow()?.label).toContain("✓ beef5678-completed");
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",
@@ -583,7 +588,7 @@ describe("Agent status — the per-agent actions list", () => {
     installManager([completedSpawn("beef5678-completed")]);
     cleanupImpl = () => Promise.reject(new Error("worktree is locked"));
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Clean up");
     await session.settle();
@@ -598,7 +603,7 @@ describe("Agent status — the per-agent actions list", () => {
   it("focuses the agent's herdr pane, reporting every stage", async () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     session.open("View shell");
     await session.settle();
@@ -618,7 +623,7 @@ describe("Agent status — the per-agent actions list", () => {
       },
     };
     const session = openAgentStatus();
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     session.open("View shell");
     await session.settle();
@@ -658,7 +663,7 @@ describe("Agent status — handover", () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
     session.open("Handover");
 
     expect(session.text()).toContain(
@@ -688,7 +693,7 @@ describe("Agent status — handover", () => {
     };
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -715,7 +720,7 @@ describe("Agent status — handover", () => {
     abortImpl = () => Promise.reject(new Error("herdr unreachable"));
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -731,7 +736,7 @@ describe("Agent status — handover", () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
     session.open("Handover");
     session.press("y");
     await session.settle();
@@ -750,7 +755,7 @@ describe("Agent status — handover", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
     session.open("Handover");
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
@@ -763,7 +768,7 @@ describe("Agent status — handover", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
     session.open("Handover");
 
     expect(session.closedScreens).toHaveLength(1);
@@ -791,7 +796,7 @@ describe("Agent status — handover", () => {
     ]);
     const session = openAgentStatus();
 
-    session.open("✓ face1234-plugin");
+    session.open(/✓ face1234-plugin/);
     session.open("Handover");
     await session.settle();
 
@@ -808,7 +813,7 @@ describe("Agent status — handover", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
     session.open("Handover");
     session.open("Hand over to Claude");
     await session.settle();
@@ -842,7 +847,7 @@ describe("Agent status — the export row", () => {
     ]);
     const session = openAgentStatus();
 
-    session.open("✓ face1234-plugin");
+    session.open(/✓ face1234-plugin/);
 
     const labels = session.walkRows().map((row) => row.label);
     expect(labels).toContain("Handover");
@@ -868,7 +873,7 @@ describe("Agent status — the export row", () => {
     installManager([spawnedSpawn()]);
     const session = openAgentStatus();
 
-    session.open("◈ abcd1234-spawned-id");
+    session.open(/◈ abcd1234-spawned-id/);
 
     expect(session.walkRows().at(-1)?.label).toBe("Export");
   });
@@ -911,7 +916,7 @@ describe("Agent status — open result file", () => {
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     expect(session.walkRows().map((row) => row.label)).toEqual([
       "View shell",
@@ -927,7 +932,7 @@ describe("Agent status — open result file", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     expect(session.walkRows().map((row) => row.label)).not.toContain(
       "Open result file",
@@ -940,7 +945,7 @@ describe("Agent status — open result file", () => {
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
 
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     expect(session.walkRows().map((row) => row.label)).not.toContain(
       "Open result file",
@@ -951,7 +956,7 @@ describe("Agent status — open result file", () => {
     installManager([completedSpawn("beef5678-completed")]);
     const file = writeResultFile("beef5678-completed");
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Open result file");
     await session.settle();
@@ -975,7 +980,7 @@ describe("Agent status — open result file", () => {
     installManager([completedSpawn("beef5678-completed")]);
     writeResultFile("beef5678-completed");
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
 
     session.open("Open result file");
     await session.settle();
@@ -994,7 +999,7 @@ describe("Agent status — result viewer overlay", () => {
   function openViewer(text: string): MenuSession {
     installManager([completedSpawn("beef5678-completed", text)]);
     const session = openAgentStatus();
-    session.open("✓ beef5678-completed");
+    session.open(/✓ beef5678-completed/);
     session.open("View result");
     return session;
   }

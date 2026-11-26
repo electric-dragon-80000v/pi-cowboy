@@ -53,6 +53,11 @@ export function agentBulletPrefix(theme: Theme): string {
   return `${theme.fg("accent", "•")} `;
 }
 
+/** The accent-colored `•` that stands between two fields of one status row. */
+export function agentFieldSeparator(theme: Theme): string {
+  return ` ${theme.fg("accent", "•")} `;
+}
+
 /** Shorten a path to its tail, prefixed with "..." when it is longer than `maxLength`. */
 export function truncatePath(path: string, maxLength: number): string {
   if (path.length <= maxLength) return path;
