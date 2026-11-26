@@ -1,3 +1,10 @@
+## [0.41.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.1...v0.41.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ui:** separate every status row field with the bullet ([3153a50](https://github.com/electric-dragon-80000v/pi-cowboy/commit/3153a50d12e6559343d9dd66952ebe6377012771))
+
 ## [0.41.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.0...v0.41.1) (2026-11-26)
 
 
