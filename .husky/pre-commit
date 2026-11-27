@@ -149,7 +149,9 @@ if [ "${HOST_OS}" = "Darwin" ]; then
   fi
 
   echo "pre-commit: attaching new ramdisk (size: ${BLOCKS} blocks)" >&2
-  device="$(hdiutil attach -nomount "ram://${BLOCKS}" 2>&1 | head -n 1 | awk '{print $1}')"
+  # The device is the line that names one, not the first line: newer macOS
+  # prints a deprecation warning for `hdiutil attach -nomount` ahead of it.
+  device="$(hdiutil attach -nomount "ram://${BLOCKS}" 2>/dev/null | awk '/^\/dev\// {print $1; exit}')"
   if [ -z "${device}" ]; then
     echo "pre-commit: ❌ failed to attach ramdisk." >&2
     exit 1
