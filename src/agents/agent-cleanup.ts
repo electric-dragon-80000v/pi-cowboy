@@ -97,17 +97,19 @@ async function removeOwnedTree(
   worktree: WorktreeTarget,
   ref?: AgentHostRef,
 ): Promise<Extract<WorktreeOutcome, { kind: "removed" | "removal-failed" }>> {
-  const viaHost = ref !== undefined && worktree.workspaceId !== undefined;
-  const removed = viaHost
-    ? await deps.removeSpaceAssociation(ref)
-    : await deps.removeGitWorktree(worktree.worktreePath, worktree.repoCwd);
+  const viaHost = workspaceRemovalTarget(worktree, ref);
+  const removed =
+    viaHost !== undefined
+      ? await deps.removeSpaceAssociation(viaHost)
+      : await deps.removeGitWorktree(worktree.worktreePath, worktree.repoCwd);
   if (!removed) {
     return {
       kind: "removal-failed",
       path: worktree.worktreePath,
-      detail: viaHost
-        ? "herdr did not confirm the worktree removal"
-        : "git did not confirm the worktree removal",
+      detail:
+        viaHost !== undefined
+          ? "herdr did not confirm the worktree removal"
+          : "git did not confirm the worktree removal",
     };
   }
   return { kind: "removed", path: worktree.worktreePath };
@@ -181,7 +183,8 @@ async function paneOutcomesForAbsentTree(
 /**
  * Close the run's own located placement before its space is considered. Only a
  * tracked run's recorded address proves the pane is its own; a recovered pane is
- * adopted, never closed.
+ * adopted, never closed. A caller skips this when the space removal closes the
+ * pane with its workspace (see workspaceRemovalTarget).
  */
 async function closeOwnPlacement(
   assets: AgentAssets,
@@ -383,33 +386,41 @@ export function createWorktreeTeardown(deps: CleanupDeps): WorktreeTeardown {
 /* ── Shared spaces ────────────────────────────────────────────────────── */
 
 /**
+ * The address a removal goes through, or undefined when it is the git fallback.
+ * A multiplexer removal closes the workspace its address lives in, and every pane
+ * in that workspace — so a pane there is taken by the removal, and a pane
+ * elsewhere survives it. A git-plane removal touches no placement at all.
+ */
+function workspaceRemovalTarget(
+  worktree: WorktreeTarget,
+  address: AgentHostRef | undefined,
+): AgentHostRef | undefined {
+  return removalMechanismOf(worktree) === "multiplexer" ? address : undefined;
+}
+
+/**
  * Whether the space this plan would remove holds anything besides this run.
  *
- * Only a multiplexer removal of a checkout destroys a workspace — a git-plane
- * removal leaves every placement standing, and a run without a checkout has no
- * workspace of its own — so only that case can take a sibling with it. Reading
- * the registry is the only way to know, and a failed read is not an empty space:
- * that answers `unreadable`, which the caller refuses on.
+ * Only a multiplexer removal of a checkout destroys a workspace, so only that
+ * case can take a sibling with it. Reading the registry is the only way to know,
+ * and a failed read is not an empty space: that answers `unreadable`, which the
+ * caller refuses on.
  */
 async function spaceOccupancy(
   assets: AgentAssets,
   plan: CleanupPlan,
   address: AgentHostRef | undefined,
 ): Promise<SpaceOccupancy> {
-  if (
-    plan.kind !== "worktree" ||
-    address === undefined ||
-    removalMechanismOf(plan.worktree) !== "multiplexer"
-  ) {
-    return { kind: "exclusive" };
-  }
+  if (plan.kind !== "worktree") return { kind: "exclusive" };
+  const target = workspaceRemovalTarget(plan.worktree, address);
+  if (target === undefined) return { kind: "exclusive" };
   try {
     const tenants = await assets.otherTenants(
       {
-        workspaceId: address.workspaceId,
+        workspaceId: target.workspaceId,
         checkoutPath: plan.worktree.worktreePath,
       },
-      address.paneId,
+      target.paneId,
     );
     return tenants.length === 0
       ? { kind: "exclusive" }
@@ -715,11 +726,19 @@ export function createCleanup(assets: AgentAssets): Cleanup {
       }
     }
 
-    const own = await closeOwnPlacement(
-      assets,
-      current,
-      located.source === "tracked",
-    );
+    // A removal that closes the workspace closes this pane with it. Closing the
+    // pane first would destroy the workspace the removal addresses: herdr keeps a
+    // workspace only while it has a pane, and its answer to the removal would be
+    // `workspace_not_found`.
+    const own =
+      plan.kind === "worktree" &&
+      workspaceRemovalTarget(plan.worktree, current) !== undefined
+        ? undefined
+        : await closeOwnPlacement(
+            assets,
+            current,
+            located.source === "tracked",
+          );
     const result = await removeResources(assets, plan, current, own);
     const report = assembleReport(
       agentId,

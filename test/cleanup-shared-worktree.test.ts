@@ -100,8 +100,6 @@ class FakeHerdrWorld {
    * reconcile instead of trusting either plane alone.
    */
   readonly staleRecords: WorldAgent[] = [];
-  /** Herdr's `worktree remove` waits for a live agent in the workspace; the fake refuses instead of sleeping for 30 s. */
-  blockRemovalWhileAgentLive = false;
   private nextTab = 1;
   private nextPane = 1;
 
@@ -149,14 +147,6 @@ class FakeHerdrWorld {
       (entry) => entry.openWorkspaceId === workspaceId,
     );
     if (worktree === undefined) return false;
-    if (
-      this.blockRemovalWhileAgentLive &&
-      [...this.agents.values()].some(
-        (agent) => agent.workspaceId === workspaceId,
-      )
-    ) {
-      return false;
-    }
     this.removeWorkspace(workspaceId);
     worktree.openWorkspaceId = undefined;
     fs.rmSync(worktree.path, { recursive: true, force: true });
@@ -711,7 +701,7 @@ describe("cleanup of several agents in one extension-owned worktree", () => {
     expect(world().agentPaneIds()).toEqual([]);
   });
 
-  it("closes a settled run's own pane before herdr removes the worktree", async () => {
+  it("removes an exclusive checkout through its workspace, taking the pane with it", async () => {
     const branch = "cow-thin-tauri-host-06tc7e04";
     const singleCheckout = path.join(root, branch);
     fs.mkdirSync(singleCheckout, { recursive: true });
@@ -730,11 +720,6 @@ describe("cleanup of several agents in one extension-owned worktree", () => {
       agentMultiplexerKind: "pi",
     });
     world().setAgentState(ref.paneId, "idle");
-    // The session's ~30 s `NOT removed — herdr did not confirm the worktree
-    // removal`: herdr waits on the agent in the workspace and gives up at
-    // WORKTREE_REMOVE_TIMEOUT_MS. The fake refuses immediately instead of
-    // sleeping.
-    world().blockRemovalWhileAgentLive = true;
     const id = "06tc7e04";
     store().add(
       settledSpawn({
@@ -747,7 +732,8 @@ describe("cleanup of several agents in one extension-owned worktree", () => {
 
     const report = await manager.cleanup(id);
 
-    // The report already claims success even though the removal failed.
+    // The removal releases the workspace, and the workspace's only pane goes with
+    // it: the run's pane is closed by the removal, not by a close before it.
     expect(report.outcome).toEqual({ kind: "torn-down" });
     expect(report.worktree).toEqual({ kind: "removed", path: singleCheckout });
     expect(report.panes).toEqual([{ kind: "closed", paneId: ref.paneId }]);

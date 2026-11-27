@@ -1517,11 +1517,10 @@ describe("cleanup — environment teardown", () => {
 
     const report = await createCleanup(assets).cleanupAgent(ID, registry);
 
-    // The current placement closes first, then the tree goes; the leftover pane
-    // in another workspace is closed on its own address.
+    // The tree's removal takes the current placement with it; the leftover pane
+    // in another workspace survives the removal and is closed on its own address.
     expect(assets.removeSpaceAssociation).toHaveBeenCalledWith(REF);
-    expect(assets.closeRunPlacement).toHaveBeenCalledTimes(2);
-    expect(assets.closeRunPlacement).toHaveBeenCalledWith(REF);
+    expect(assets.closeRunPlacement).toHaveBeenCalledTimes(1);
     expect(assets.closeRunPlacement).toHaveBeenCalledWith({
       ...REF,
       paneId: "w2:p9",
@@ -1875,7 +1874,8 @@ describe("cleanup — the settled-teardown matrix", () => {
       expected: {
         outcome: { kind: "torn-down" },
         settlement: SETTLED_RECORDED,
-        panes: [{ kind: "closed", paneId: "w1:p1" }],
+        // The removal failed, so nothing closed the run's pane.
+        panes: [{ kind: "open", paneId: "w1:p1" }],
         worktree: {
           kind: "removal-failed",
           path: WT_PATH,
@@ -2127,8 +2127,8 @@ describe("AgentManager.cleanup — adapter wiring", () => {
     });
     expect(isWorktreeDirtyMock).toHaveBeenCalledTimes(1);
     expect(removeHerdrWorktreeMock).toHaveBeenCalledWith({}, "w1");
-    // The run's own pane closes before the workspace is released.
-    expect(closePaneMock).toHaveBeenCalledWith({}, "w1:p1");
+    // Releasing the workspace closes its panes: no separate pane close precedes it.
+    expect(closePaneMock).not.toHaveBeenCalled();
     // The branch delete carries the branch by name, plus the host's attachment probe.
     expect(deleteWorktreeBranchMock).toHaveBeenCalledWith(
       {},
