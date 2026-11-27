@@ -93,6 +93,10 @@ describe("createStatusCleanup", () => {
     const flow = buildFlow();
 
     flow.beginCleanup(["beef5678-completed"]);
+    expect(flow.notify).toHaveBeenCalledWith(
+      "Cleaning up agent beef5678-completed \u2026",
+      "info",
+    );
     await flush();
 
     // The non-force pass refused; Force/Cancel is up and the menu stays open.

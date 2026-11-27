@@ -415,6 +415,7 @@ describe("Agent status — group actions", () => {
 
     expect(cleanedUp).toEqual(["beef5678-completed"]);
     expect(session.notifications.map((n) => n.message)).toEqual([
+      "Cleaning up agent beef5678-completed \u2026",
       "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
     ]);
   });
@@ -435,6 +436,7 @@ describe("Agent status — group actions", () => {
     expect(session.closedScreens).toHaveLength(1);
     // Each teardown reports as it lands, so a slow worktree never hides the rest.
     expect(session.notifications.map((n) => n.message)).toEqual([
+      "Cleaning up 2 agent(s) \u2026",
       "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
       "✓ Cleaned up agent cafe9999-errored: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
     ]);

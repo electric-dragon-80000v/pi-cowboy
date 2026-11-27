@@ -143,14 +143,6 @@ function offerReason(reason: WorktreeKeptReason): string {
   }
 }
 
-/** A minimal in-menu status body shown while a slow cleanup pass runs. */
-function progressBody(theme: Theme, message: string): Component {
-  return {
-    invalidate() {},
-    render: () => [`  ${theme.fg("dim", message)}`],
-  };
-}
-
 /** The first force dialog: Force first, Cancel second, Esc cancels. */
 function forceOfferList(
   theme: Theme,
@@ -270,7 +262,9 @@ export function createStatusCleanup(
 
   /** Run one id set through both phases; see the module header for the shape. */
   return (ids: readonly string[]): void => {
-    show(progressBody(theme, `Cleaning up ${agentSubject(ids)}\u2026`));
+    // In-progress and terminal lines go through the shared action report, as
+    // every other menu action's do; the menu body stays on the list it came from.
+    actionReport(ctx.ui).pending(`Cleaning up ${agentSubject(ids)}`);
     void (async () => {
       const first = await runCleanupPass(ids, () => undefined);
       const refusals = first.filter(
