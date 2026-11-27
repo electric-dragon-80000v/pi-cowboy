@@ -4,3 +4,4 @@ node_modules/
 dist/
 .pi/
 .pig/
+.pi-worktrees/

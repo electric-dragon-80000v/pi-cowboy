@@ -9,6 +9,7 @@
  */
 
 import { type Harness, type PiFamilyLaunchRequest } from "../harness.js";
+import { subagentLauncherFileFor } from "../../paths.js";
 import { installPaneLauncher, launchEnvBody } from "./pane-launcher.js";
 import { buildPiLaunchArgs, piFamilyListModels } from "./pi-compatible.js";
 import { readHandoverRecordsOf } from "./pi-session.js";
@@ -42,6 +43,7 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
     // binary, and its environment is the whole answer.
     if (launch.envFile === null) return;
     await installPaneLauncher(pane, paneId, {
+      file: subagentLauncherFileFor(launch.subagentId),
       commandName: "pi",
       body: launchEnvBody(launch.envFile, 'command pi "$@"'),
       signature: PI_ENV_LAUNCHER_SIGNATURE,

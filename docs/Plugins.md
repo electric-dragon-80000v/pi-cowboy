@@ -189,7 +189,7 @@ async prepare({ launch }: HarnessPrepareRequest) {
     launch.envFile,
     `command my-cli --task ${singleQuoteShellWord(launch.taskFile)} "$@"`,
   );
-  // Type the launcher that runs `body` into the pane.
+  // Stage the launcher that runs `body` and have the pane source it.
 }
 ```
 
@@ -245,7 +245,7 @@ The built-in `herdr` multiplexer directly launches only the CLI kinds it recogni
 2. In `prepare`, create a launcher script inside the pane that forwards `pi` invocations to your target CLI.
 3. In `buildArgs`, return flags formatted for your target CLI.
 
-For reference, see `src/agents/harness/pane-launcher.ts` in the `pi-cowboy` repository for the complete install-and-verify sequence (defining the function, reading it back, and retrying until the verification marker appears).
+For reference, see `src/agents/harness/pane-launcher.ts` in the `pi-cowboy` repository for the complete install-and-verify sequence: the function definition and its read-back are staged in a file inside the spawn's staging directory (`launcher.sh`), the pane is typed only the short `. '<file>'` that sources it, and the install retries until the verification marker appears. Type as little as possible into a pane: a long line typed into an interactive shell that is still starting or redrawing its prompt (zsh with a themed prompt, for instance) can arrive truncated, and a truncated definition leaves the shell at a continuation prompt that swallows every line typed after it. A proof command is staged and sourced the same way (`launcher.sh.proof`).
 
 ### Child Session Marker
 

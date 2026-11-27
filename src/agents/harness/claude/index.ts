@@ -27,7 +27,11 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
 import { commandPath } from "../../../infrastructure/exec-path.js";
-import { expandTilde, subagentTokenFor } from "../../../paths.js";
+import {
+  expandTilde,
+  subagentLauncherFileFor,
+  subagentTokenFor,
+} from "../../../paths.js";
 import type {
   ClaudeLaunchRequest,
   Harness,
@@ -175,7 +179,7 @@ function launcherBody(
 /**
  * A value as one POSIX shell word: single quotes around it, and the `'\''` dance
  * for any single quote inside. Every path this harness passes is its own temp
- * path, but the launcher is a shell command herdr types into the pane, so the
+ * path, but the launcher is a shell command the pane's shell evaluates, so the
  * value is quoted rather than trusted.
  */
 function singleQuote(value: string): string {
@@ -197,7 +201,7 @@ function singleQuote(value: string): string {
  * one, the task file the launcher names are visible from the pane; without
  * them the TUI would park at its onboarding or trust dialog, which nothing in
  * the argv or exit status reports. The marker is broken with a `""` so only
- * the shell's evaluation of the command — not the command line's own echo,
+ * the shell's evaluation of the command — not an echo of the command's text,
  * which `wait-output` also sees — produces the contiguous token.
  */
 function stagedProof(configDir: string, taskFile: string | null): PaneProof {
@@ -306,6 +310,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
       cwd,
     });
     await installPaneLauncher(pane, paneId, {
+      file: subagentLauncherFileFor(launch.subagentId),
       commandName: CLAUDE_COMMAND,
       body: launcherBody(
         configDir,

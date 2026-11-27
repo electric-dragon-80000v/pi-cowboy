@@ -52,6 +52,7 @@ import {
   type ModelEntry,
   type OpencodeLaunchRequest,
 } from "../../harness.js";
+import { subagentLauncherFileFor } from "../../../paths.js";
 import {
   installPaneLauncher,
   launchEnvBody,
@@ -180,8 +181,8 @@ function launcherBody(
  * The probe names a model no catalogue can resolve, so a definition opencode
  * read is reported by the model's failure and one it did not read is reported by
  * the agent's, in that order, without a model request ever being made. The
- * marker rides split, because the pane echoes the command line it was typed and
- * that echo must not be able to answer the proof.
+ * marker rides split, because a pane that echoes the command's own text must
+ * not be able to answer the proof with that echo.
  */
 function definitionProof(subagentId: string): PaneProof {
   const command = [
@@ -470,6 +471,7 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
       configInclude: config.configInclude,
     });
     await installPaneLauncher(pane, paneId, {
+      file: subagentLauncherFileFor(launch.subagentId),
       commandName: OPENCODE_COMMAND,
       body: launcherBody(
         configDir,

@@ -58,6 +58,7 @@ import type {
   HarnessPrepareRequest,
   ModelEntry,
 } from "../harness.js";
+import { subagentLauncherFileFor } from "../../paths.js";
 import {
   CODEX_HOME_ENV_VAR,
   codexHomeDirectory,
@@ -374,6 +375,7 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
     launch,
   }: HarnessPrepareRequest<CodexLaunchRequest>): Promise<void> {
     await installPaneLauncher(pane, paneId, {
+      file: subagentLauncherFileFor(launch.subagentId),
       commandName: CODEX_COMMAND,
       body: launcherBody(launch.taskFile, launch.envFile),
       signature: LAUNCHER_SIGNATURE,
