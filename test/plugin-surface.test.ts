@@ -12,7 +12,11 @@ import {
   modelListNotice,
   singleQuoteShellWord,
 } from "../src/plugin/index.js";
-import type { ModelEntry, ModelList } from "../src/plugin/index.js";
+import type {
+  LiveAttempt,
+  ModelEntry,
+  ModelList,
+} from "../src/plugin/index.js";
 
 /** Compiles only while the subpath exports `ModelList` as a type. */
 const catalog: ModelList = {
@@ -21,6 +25,9 @@ const catalog: ModelList = {
     { key: "openai/gpt", thinkingLevels: { kind: "closed", levels: [] } },
   ],
 };
+
+/** Compiles only while the subpath exports `LiveAttempt`, the element a helper's `findAttempts` answer is made of. */
+const attempt: LiveAttempt = { name: "cow-fix-login-01234567" };
 
 /** Compiles only while the subpath exports the reads over an answer. */
 const reads: readonly [
@@ -40,6 +47,10 @@ describe("the plugin subpath", () => {
     const answer: ModelList = { kind: "unavailable", notice: "no catalog" };
     expect(entries(answer)).toEqual([]);
     expect(notice(answer)).toBe("no catalog");
+  });
+
+  it("names a live attempt without reaching for the method it came from", () => {
+    expect(attempt.name).toBe("cow-fix-login-01234567");
   });
 
   it("quotes a path the way the pane's launchers do", () => {

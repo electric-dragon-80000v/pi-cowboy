@@ -38,12 +38,13 @@ import {
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import {
   AGENT_MARKER,
-  DROPPING,
+  droppingMarker,
   grazedPasture,
   greenBackground,
   GRASS_RGB,
   hideExtensionIndicator,
-  INDICATOR_MARKER,
+  indicatorMarker,
+  inHolidaySeason,
   MIN_PASTURE_EDGE,
   moveHerd,
   pastureEdge,
@@ -161,7 +162,7 @@ function drawnCells(marker: PresenceMarker): PastureCell[] {
       cells.push(
         cell === AGENT_MARKER
           ? "cow"
-          : cell === DROPPING
+          : cell === droppingMarker()
             ? "dropping"
             : "empty",
       );
@@ -348,7 +349,36 @@ describe("grazedPasture", () => {
   });
 
   it("draws a dropping as wide as a cow, so a row never skews", () => {
-    expect(visibleWidth(DROPPING)).toBe(visibleWidth(AGENT_MARKER));
+    expect(visibleWidth(droppingMarker())).toBe(visibleWidth(AGENT_MARKER));
+  });
+});
+
+describe("the holiday season", () => {
+  it("runs from 23 December through 1 January, on the machine's calendar", () => {
+    const day = (month: number, date: number) =>
+      new Date(2026, month, date, 12);
+
+    expect(inHolidaySeason(day(11, 22))).toBe(false);
+    expect(inHolidaySeason(day(11, 23))).toBe(true);
+    expect(inHolidaySeason(day(11, 31))).toBe(true);
+    expect(inHolidaySeason(day(0, 1))).toBe(true);
+    expect(inHolidaySeason(day(0, 2))).toBe(false);
+    expect(inHolidaySeason(day(6, 15))).toBe(false);
+  });
+
+  it("puts Santa in the cowboy's place and a tree in each dropping's", () => {
+    const christmas = new Date(2026, 11, 24, 12);
+    const ordinary = new Date(2026, 10, 24, 12);
+
+    expect(indicatorMarker(christmas)).toBe("🎅");
+    expect(droppingMarker(christmas)).toBe("🎄");
+    expect(indicatorMarker(ordinary)).toBe("🤠");
+    expect(droppingMarker(ordinary)).toBe("💩");
+  });
+
+  it("draws each seasonal marker as wide as the cell it stands in", () => {
+    expect(visibleWidth("🎅")).toBe(visibleWidth(AGENT_MARKER));
+    expect(visibleWidth("🎄")).toBe(visibleWidth(AGENT_MARKER));
   });
 });
 
@@ -628,7 +658,7 @@ describe("PresenceMarker", () => {
 
       // The cowboy is strictly the marker, with no pasture row under him and no
       // padding around him; the pasture keeps every row the square has.
-      expect(rendered(marker.render())).toEqual([INDICATOR_MARKER]);
+      expect(rendered(marker.render())).toEqual([indicatorMarker()]);
       expect(marker.cowboyWidth).toBe(2);
       expect(rendered(marker.pastureRows())).toEqual(drawn);
       expect(marker.pastureWidth).toBe(pastureEdge(liveAgents) * 2);
@@ -639,11 +669,11 @@ describe("PresenceMarker", () => {
   it("draws droppings for settled agents, and shifts the cowboy over them", () => {
     const { marker } = markerOver(fleet(0, 5));
 
-    expect(rendered(marker.render())).toEqual([INDICATOR_MARKER]);
+    expect(rendered(marker.render())).toEqual([indicatorMarker()]);
     expect(rendered(marker.pastureRows())).toEqual(
       block(`
-        💩💩💩💩
-        💩
+        ${droppingMarker()}${droppingMarker()}${droppingMarker()}${droppingMarker()}
+        ${droppingMarker()}
 
 
       `),
@@ -732,7 +762,7 @@ describe("PresenceMarker", () => {
     expect(rendered(marker.pastureRows())).toEqual([]);
     expect(marker.pastureWidth).toBe(0);
     // The cowboy's own row is untouched by all of it.
-    expect(rendered(marker.render())).toEqual([INDICATOR_MARKER]);
+    expect(rendered(marker.render())).toEqual([indicatorMarker()]);
   });
 
   it("turns a settling agent's cow into a dropping in place, and holds it there", () => {
@@ -765,7 +795,7 @@ describe("PresenceMarker", () => {
   it("paints the grass green across every pasture row, and not the cowboy's", () => {
     const { marker } = markerOver(fleet(3), inOrder, greenBackground);
 
-    expect(rendered(marker.render())).toEqual([INDICATOR_MARKER]);
+    expect(rendered(marker.render())).toEqual([indicatorMarker()]);
     expect(marker.render()[0]).not.toContain("\x1b[48;2;");
 
     // The colour opens and closes around the whole row, so it covers every cell
@@ -874,7 +904,7 @@ describe("PresenceMarker", () => {
 
     // No pasture means no pasture rows either: the cowboy stands alone with
     // nothing under him to shift him away from the right edge.
-    expect(rendered(marker.render())).toEqual([INDICATOR_MARKER]);
+    expect(rendered(marker.render())).toEqual([indicatorMarker()]);
     expect(rendered(marker.pastureRows())).toEqual([]);
     expect(marker.pastureWidth).toBe(0);
     expect(marker.cowboyOffsetX).toBe(0);
@@ -1239,7 +1269,7 @@ describe("showExtensionIndicator", () => {
     showExtensionIndicator(ui);
 
     expect(rendered(mounts[0]!.component.render(TERMINAL_WIDTH))).toEqual([
-      INDICATOR_MARKER,
+      indicatorMarker(),
     ]);
     expect(rendered(mounts[1]!.component.render(TERMINAL_WIDTH))).toEqual(
       block(`
@@ -1297,7 +1327,7 @@ describe("showExtensionIndicator", () => {
     showExtensionIndicator(ui);
 
     expect(rendered(mounts[0]!.component.render(TERMINAL_WIDTH))).toEqual([
-      INDICATOR_MARKER,
+      indicatorMarker(),
     ]);
     expect(rendered(mounts[1]!.component.render(TERMINAL_WIDTH))).toEqual([]);
     expect(optionsOf(mounts[1]!).width).toBe(0);

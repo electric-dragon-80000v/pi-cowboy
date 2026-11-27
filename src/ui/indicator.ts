@@ -1,10 +1,12 @@
 /**
  * indicator.ts — the extension's presence marker: 🤠 in the top-right corner
  * of the screen while the extension is on, standing on his own row above a
- * green pasture, centred over its middle column. The pasture is the smallest
+ * green pasture, centred over its middle column. From 23 December to 1 January
+ * the machine's calendar dresses the marker for the holidays — 🎅 in place of
+ * the cowboy, 🎄 in place of every dropping. The pasture is the smallest
  * square of cells that can hold twice its stock — one 🐄 per live agent and one
- * 💩 per agent that has ended and waits to be cleaned up — so at least half of
- * it is always empty. It is drawn only while grazing is switched on, when its
+ * dropping per agent that has ended and waits to be cleaned up — so at least
+ * half of it is always empty. It is drawn only while grazing is switched on, when its
  * herd is dropped in at random and one cow may step to a neighbouring cell every
  * second; a dropping stays where it fell. With grazing off the cowboy stands
  * alone and the poll stops with the pasture; the fleet is counted again when it
@@ -33,14 +35,40 @@ import {
   setIndicatorMarker,
 } from "../shell.js";
 
-/** The extension's own presence: the cowboy, on his own row above the pasture. */
-export const INDICATOR_MARKER = "🤠";
+/** December and January as `Date#getMonth` counts them, from zero. */
+const DECEMBER = 11;
+const JANUARY = 0;
+
+/**
+ * Whether `at` falls in the holiday season: 23 December through 1 January
+ * inclusive, on the machine's own calendar and timezone.
+ */
+export function inHolidaySeason(at: Date): boolean {
+  const month = at.getMonth();
+  const day = at.getDate();
+  if (month === DECEMBER) return day >= 23;
+  if (month === JANUARY) return day <= 1;
+  return false;
+}
+
+/**
+ * The extension's own presence, on his own row above the pasture: the cowboy,
+ * or Santa while the holiday season is on.
+ */
+export function indicatorMarker(at: Date = new Date()): string {
+  return inHolidaySeason(at) ? "🎅" : "🤠";
+}
 
 /** One live agent's presence, and one head of pasture stock. */
 export const AGENT_MARKER = "🐄";
 
-/** One ended agent's presence: a dropping that stays where it fell. */
-export const DROPPING = "💩";
+/**
+ * One ended agent's presence: a dropping that stays where it fell, or a tree
+ * standing in its cell while the holiday season is on.
+ */
+export function droppingMarker(at: Date = new Date()): string {
+  return inHolidaySeason(at) ? "🎄" : "💩";
+}
 
 /** The smallest edge a pasture with stock in it can have. */
 export const MIN_PASTURE_EDGE = 2;
@@ -288,7 +316,9 @@ export function reconcilePasture(
  */
 const COWBOY_OVERLAY: OverlayOptions = {
   anchor: "top-right",
-  width: visibleWidth(INDICATOR_MARKER),
+  get width(): number {
+    return visibleWidth(indicatorMarker());
+  },
   get offsetX(): number {
     return getIndicatorMarker()?.cowboyOffsetX ?? 0;
   },
@@ -313,7 +343,7 @@ const PASTURE_OVERLAY: OverlayOptions = {
 /** One cell as it prints: a cow, a dropping, or the empty grass between them. */
 function cellText(cell: PastureCell): string {
   if (cell === "cow") return AGENT_MARKER;
-  if (cell === "dropping") return DROPPING;
+  if (cell === "dropping") return droppingMarker();
   return " ".repeat(CELL_WIDTH);
 }
 
@@ -410,7 +440,7 @@ export class PresenceMarker implements Component {
 
   /** The cowboy's footprint: his own two columns, which no pasture widens. */
   get cowboyWidth(): number {
-    return visibleWidth(INDICATOR_MARKER);
+    return visibleWidth(indicatorMarker());
   }
 
   /**
@@ -439,7 +469,7 @@ export class PresenceMarker implements Component {
   /** The cowboy's own row: one line, and no padding around him. */
   render(): string[] {
     this.frame();
-    return [INDICATOR_MARKER];
+    return [indicatorMarker()];
   }
 
   /**
@@ -597,8 +627,8 @@ class PastureView implements Component {
 }
 
 /**
- * Show 🤠 in the top-right corner of the screen, over a pasture of one 🐄 per
- * live agent and one 💩 per ended one, while grazing is on.
+ * Show the marker in the top-right corner of the screen, over a pasture of one
+ * 🐄 per live agent and one dropping per ended one, while grazing is on.
  */
 export function showExtensionIndicator(ui: ExtensionUIContext): void {
   hideExtensionIndicator();
