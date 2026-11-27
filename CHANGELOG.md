@@ -1,3 +1,16 @@
+# [0.42.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.2...v0.42.0) (2026-11-27)
+
+
+### Bug Fixes
+
+* **cleanup:** remove a checkout through its workspace before closing its pane ([19ee3d4](https://github.com/electric-dragon-80000v/pi-cowboy/commit/19ee3d4ff09be6184a14ecb3d3a8b4c155b92a78))
+
+
+### Features
+
+* export LiveAttempt type for the plugin API ([ec3bb8c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/ec3bb8c22db6daf825fa8eb64a70063d1efbdba6))
+* support merging from the menu ([20e7f3c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/20e7f3c3bd7f5c3463d2aef20a27fabe5c401570))
+
 ## [0.41.2](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.1...v0.41.2) (2026-11-26)
 
 
