@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneControl } from "../src/agents/agent-host.js";
 import {
   installPaneLauncher,
+  singleQuoteShellWord,
   type PaneLauncherSpec,
 } from "../src/agents/harness/pane-launcher.js";
 import { sourcedLines } from "./sourced-file.js";
@@ -76,7 +77,11 @@ describe("installPaneLauncher", () => {
 
     await installPaneLauncher(pane, "w1:p1", SPEC);
 
-    expect(run).toHaveBeenNthCalledWith(1, "w1:p1", `. '${SPEC.file}'`);
+    expect(run).toHaveBeenNthCalledWith(
+      1,
+      "w1:p1",
+      `. ${singleQuoteShellWord(SPEC.file)}`,
+    );
   });
 
   it("quotes a staged path that holds a single quote", async () => {
@@ -88,7 +93,11 @@ describe("installPaneLauncher", () => {
     expect(run).toHaveBeenNthCalledWith(
       1,
       "w1:p1",
-      `. '${file.replace("'", "'\\''")}'`,
+      `. '${file.replaceAll("'", "'\\''")}'`,
+    );
+    // The quoted path still names the staged file.
+    expect(sourcedLines(run.mock.calls[0]![1])[0]).toContain(
+      "CODEX_LAUNCHER_1a2b3c",
     );
   });
 
@@ -155,7 +164,11 @@ describe("installPaneLauncher proof", () => {
 
     await installPaneLauncher(pane, "w1:p1", { ...SPEC, proof: PROOF });
 
-    expect(run).toHaveBeenNthCalledWith(2, "w1:p1", `. '${SPEC.file}.proof'`);
+    expect(run).toHaveBeenNthCalledWith(
+      2,
+      "w1:p1",
+      `. ${singleQuoteShellWord(`${SPEC.file}.proof`)}`,
+    );
     expect(sourcedLines(run.mock.calls[1]![1])).toEqual([
       "codex agent list | grep -x 'abc (primary)'",
     ]);

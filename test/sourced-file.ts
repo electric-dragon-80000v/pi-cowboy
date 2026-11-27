@@ -8,12 +8,17 @@
 
 import { readFileSync } from "node:fs";
 
-/** The lines of the file a typed `. '<file>'` command sources. */
+/**
+ * The lines of the file a typed `. '<file>'` command sources. The path is read
+ * back out of its shell quoting, so a staging root that holds a single quote
+ * (typed as `'\''`) names the file the shell would open.
+ */
 export function sourcedLines(command: unknown): string[] {
   const match =
     typeof command === "string" ? /^\. '(.+)'$/.exec(command) : null;
   if (match === null) {
     throw new Error(`not a source command: ${String(command)}`);
   }
-  return readFileSync(match[1]!, "utf-8").trimEnd().split("\n");
+  const file = match[1]!.replaceAll("'\\''", "'");
+  return readFileSync(file, "utf-8").trimEnd().split("\n");
 }
