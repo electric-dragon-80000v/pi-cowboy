@@ -99,6 +99,7 @@ export type {
   DeliverOutcome,
   ExecutionRuntime,
   HostObservation,
+  LiveAttempt,
   PaneControl,
   PlacementCatalog,
   PlacementRecord,

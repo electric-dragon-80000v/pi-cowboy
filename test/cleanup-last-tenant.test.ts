@@ -78,6 +78,16 @@ interface WorldWorktree {
   openWorkspaceId?: string;
 }
 
+/**
+ * The value following `flag` on a command line, or undefined when the flag is
+ * absent or the last word — which a plain index read hides behind a `string`.
+ */
+function flagValue(args: readonly string[], flag: string): string | undefined {
+  const at = args.indexOf(flag);
+  if (at === -1 || at + 1 >= args.length) return undefined;
+  return args[at + 1];
+}
+
 class FakeHerdrWorld {
   readonly worktrees: WorldWorktree[] = [];
   readonly workspaces = new Map<string, WorldWorkspace>();
@@ -244,7 +254,7 @@ class FakeHerdrWorld {
       };
     }
     if (args[0] === "worktree" && args[1] === "remove") {
-      const workspaceId = args[args.indexOf("--workspace") + 1];
+      const workspaceId = flagValue(args, "--workspace");
       if (workspaceId === undefined || !this.removeHerdrWorktree(workspaceId)) {
         throw new Error("worktree remove failed");
       }
