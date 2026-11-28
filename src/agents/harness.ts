@@ -179,12 +179,12 @@ const UNIVERSAL_RESERVED_ENV_VAR_NAMES: readonly string[] = [
 
 /**
  * Env namespaces no spawn may override, matched by prefix: a platform's dynamic
- * loader family and this extension's own namespace grow members this list does
- * not track, and every member of each is off limits. A multiplexer's vocabulary
- * is not here: it owns the pane it sets its own names in.
+ * loader family and the multiplexer's own vocabulary grow members this list
+ * does not track, and every member of each is off limits.
  */
 const UNIVERSAL_RESERVED_ENV_VAR_PREFIXES: readonly string[] = [
   "DYLD_",
+  "HERDR_",
   "COWBOY_",
 ];
 
