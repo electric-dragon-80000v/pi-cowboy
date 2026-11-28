@@ -97,18 +97,6 @@ export interface PaneControl {
     agentKind: AgentMultiplexerKind,
   ): Readonly<Record<string, string>>;
   /**
-   * Exact names this multiplexer's own vocabulary owns beyond the ones
-   * `launchEnvironment` returns for a kind. A launch may not override them, and
-   * they are dropped with a warning the way a harness-reserved name is.
-   */
-  reservedEnvVars?(): readonly string[];
-  /**
-   * Prefixes of this multiplexer's environment vocabulary — a namespace whose
-   * members grow without this contract tracking them (herdr: `HERDR_`). A
-   * launch may not override any name under one.
-   */
-  reservedEnvPrefixes?(): readonly string[];
-  /**
    * Type one command into the pane. Fire-and-forget by contract: a multiplexer
    * returns before the shell has evaluated the line, so a caller proves what it
    * typed rather than trusting this call (see pane-launcher.ts).

@@ -1288,7 +1288,6 @@ describe("buildLaunchPlan — env overrides", () => {
       waitForOutput: async () => {},
       launchEnvironment: (kind): Readonly<Record<string, string>> =>
         kind === "pi" ? { HERDR_AGENT: "pi" } : {},
-      reservedEnvPrefixes: () => ["HERDR_"],
     };
 
     const plan = await buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
@@ -1307,42 +1306,6 @@ describe("buildLaunchPlan — env overrides", () => {
         String(message).includes("reserved by the herdr multiplexer"),
       ),
     ).toBe(true);
-  });
-
-  it("drops a name under a prefix the active multiplexer reserves", async () => {
-    const { cwd, notify } = setup(makeAgent());
-    storeRef.current = loadedStore(
-      memoryIO({
-        harness: { pi: { env: { HERDR_PANE_ID: "p1", KEPT: "yes" } } },
-      }),
-    );
-    const pi = {
-      exec: vi.fn().mockResolvedValue({ code: 1, stdout: "" }),
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd,
-      getSystemPrompt: () => "parent prompt",
-      ui: { notify },
-    } as unknown as ExtensionContext;
-    const pane: PaneControl = {
-      kind: "herdr",
-      run: async () => {},
-      sendKeys: async () => {},
-      waitForOutput: async () => {},
-      reservedEnvPrefixes: () => ["HERDR_"],
-    };
-
-    const plan = await buildLaunchPlan(pi, ctx, "test-agent", "do the task", {
-      description: "test task",
-      agentId: "runner-multiplexer-prefix",
-      harness: "pi",
-      cwd,
-      pane,
-    });
-
-    const staged = stagedEnv(plan.launch);
-    expect(staged).toMatchObject({ KEPT: "yes" });
-    expect(staged).not.toHaveProperty("HERDR_PANE_ID");
   });
 
   it("reads the machine's env for a plugin harness too, which has no template family", async () => {

@@ -467,7 +467,6 @@ function createHerdrPane(pi: ExtensionAPI): PaneControl {
     // hint.
     launchEnvironment: (agentKind): Readonly<Record<string, string>> =>
       agentKind === "pi" ? { HERDR_AGENT: agentKind } : {},
-    reservedEnvPrefixes: () => ["HERDR_"],
     run: (paneId, command) => runInPane(pi, paneId, command),
     // The agent surface, not pane-level typing: herdr validates the target is
     // an agent and every key name before writing any bytes.

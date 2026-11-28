@@ -313,37 +313,31 @@ function buildHarnessArgs(
 }
 
 /**
- * The environment names the active multiplexer owns: the keys it supplies to a
- * custom launcher of this kind, plus the names and prefixes it declares for its
- * own vocabulary.
+ * The environment names the active multiplexer supplies to a custom launcher of
+ * this kind. The multiplexer sets them itself, so a configured entry for one
+ * cannot be carried: it would overwrite the identity the multiplexer needs to
+ * recognize the process.
  */
 interface MultiplexerReservations {
-  readonly name: string | undefined;
+  readonly name: string;
   readonly names: readonly string[];
-  readonly prefixes: readonly string[];
 }
 
-const NO_MULTIPLEXER_RESERVATIONS: MultiplexerReservations = {
-  name: undefined,
-  names: [],
-  prefixes: [],
-};
-
 /**
- * The multiplexer's reservations for a launch of this kind. A plan built with no
- * pane has none: no multiplexer is active to own a name.
+ * The multiplexer's reservations for a launch of this kind, or undefined when no
+ * multiplexer hosts it — a plan built outside a live session reserves nothing.
  */
 function multiplexerReservations(
   pane: PaneControl | undefined,
   agentKind: AgentMultiplexerKind | undefined,
-): MultiplexerReservations {
-  if (pane === undefined) return NO_MULTIPLEXER_RESERVATIONS;
-  const launched =
-    agentKind === undefined ? {} : (pane.launchEnvironment?.(agentKind) ?? {});
+): MultiplexerReservations | undefined {
+  if (pane === undefined) return undefined;
   return {
     name: pane.kind,
-    names: [...Object.keys(launched), ...(pane.reservedEnvVars?.() ?? [])],
-    prefixes: pane.reservedEnvPrefixes?.() ?? [],
+    names:
+      agentKind === undefined
+        ? []
+        : Object.keys(pane.launchEnvironment?.(agentKind) ?? {}),
   };
 }
 
@@ -367,7 +361,7 @@ function resolveLaunchEnv(
   overrides: EnvOverrides | undefined,
   inherited: Readonly<Record<string, string>> | undefined,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations,
+  multiplexer: MultiplexerReservations | undefined,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): EnvOverrides | undefined {
@@ -394,7 +388,7 @@ function resolveLaunchEnv(
 function dropReserved(
   merged: EnvOverrides,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations,
+  multiplexer: MultiplexerReservations | undefined,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): Record<string, string> {
@@ -406,10 +400,7 @@ function dropReserved(
       );
       continue;
     }
-    if (
-      multiplexer.names.includes(name) ||
-      multiplexer.prefixes.some((prefix) => name.startsWith(prefix))
-    ) {
+    if (multiplexer?.names.includes(name)) {
       warn(
         `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.name} multiplexer and cannot be overridden`,
       );
