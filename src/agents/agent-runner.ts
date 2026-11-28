@@ -44,6 +44,7 @@ import {
   type SubagentLaunchInputs,
   type ToolSelection,
 } from "./harness.js";
+import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
 import { stageLaunchEnv } from "./harness/launch-env.js";
 import {
   mergeEnv,
@@ -256,6 +257,11 @@ interface LaunchExtras {
   agentGuidance?: string;
   /** The session a handover's launch continues; absent for every other launch. */
   continuation?: HarnessContinuation;
+  /**
+   * The session's pane surface, so the launch reserves the environment the
+   * active multiplexer owns. Absent when a plan is built outside a live session.
+   */
+  pane?: PaneControl;
 }
 
 /**
@@ -307,11 +313,46 @@ function buildHarnessArgs(
 }
 
 /**
+ * The environment names the active multiplexer owns: the keys it supplies to a
+ * custom launcher of this kind, plus the names and prefixes it declares for its
+ * own vocabulary.
+ */
+interface MultiplexerReservations {
+  readonly name: string | undefined;
+  readonly names: readonly string[];
+  readonly prefixes: readonly string[];
+}
+
+const NO_MULTIPLEXER_RESERVATIONS: MultiplexerReservations = {
+  name: undefined,
+  names: [],
+  prefixes: [],
+};
+
+/**
+ * The multiplexer's reservations for a launch of this kind. A plan built with no
+ * pane has none: no multiplexer is active to own a name.
+ */
+function multiplexerReservations(
+  pane: PaneControl | undefined,
+  agentKind: AgentMultiplexerKind | undefined,
+): MultiplexerReservations {
+  if (pane === undefined) return NO_MULTIPLEXER_RESERVATIONS;
+  const launched =
+    agentKind === undefined ? {} : (pane.launchEnvironment?.(agentKind) ?? {});
+  return {
+    name: pane.kind,
+    names: [...Object.keys(launched), ...(pane.reservedEnvVars?.() ?? [])],
+    prefixes: pane.reservedEnvPrefixes?.() ?? [],
+  };
+}
+
+/**
  * The variables one launch carries, lowest to highest: the harness's own
  * defaults, the machine's table for this harness, the agent's own family table
  * over it, and the variables the harness's launch inherits from this process —
- * with the names the resolved family or the harness reserves dropped from the
- * two configured tables.
+ * with the names the resolved family, the harness, or the active multiplexer
+ * reserves dropped from the two configured tables.
  *
  * The harness's own declarations are read from the harness and never inferred
  * from a family, and the reserved set is not consulted for them: a name is
@@ -326,6 +367,7 @@ function resolveLaunchEnv(
   overrides: EnvOverrides | undefined,
   inherited: Readonly<Record<string, string>> | undefined,
   reserved: readonly string[],
+  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): EnvOverrides | undefined {
@@ -333,7 +375,7 @@ function resolveLaunchEnv(
   const carried =
     merged === undefined
       ? undefined
-      : trustedEnv(dropReserved(merged, reserved, warn, harness));
+      : trustedEnv(dropReserved(merged, reserved, multiplexer, warn, harness));
   const own = ownEnvOverrides(inherited, "inherited", warn, harness);
   // Defaults are the harness's statement about its own process, so they sit
   // below configuration and are never filtered by a reservation: a configured
@@ -344,22 +386,36 @@ function resolveLaunchEnv(
   );
 }
 
-/** One configured env table without the names this launch reserves, warning per drop. */
+/**
+ * One configured env table without the names this launch reserves, warning per
+ * drop. The warning names the owner: a harness and a multiplexer are different
+ * systems, and only one of them explains the refusal.
+ */
 function dropReserved(
   merged: EnvOverrides,
   reserved: readonly string[],
+  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): Record<string, string> {
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(merged)) {
-    if (!reserved.includes(name)) {
-      kept[name] = value;
+    if (reserved.includes(name)) {
+      warn(
+        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
+      );
       continue;
     }
-    warn(
-      `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
-    );
+    if (
+      multiplexer.names.includes(name) ||
+      multiplexer.prefixes.some((prefix) => name.startsWith(prefix))
+    ) {
+      warn(
+        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.name} multiplexer and cannot be overridden`,
+      );
+      continue;
+    }
+    kept[name] = value;
   }
   return kept;
 }
@@ -500,6 +556,7 @@ export async function buildLaunchPlan(
     family === undefined ? undefined : agentConfig?.envByFamily?.[family],
     registered?.inheritedEnv?.(),
     familyReservations(family, registered),
+    multiplexerReservations(options.pane, registered?.agentMultiplexerKind),
     bufferNotify,
     harnessType,
   );

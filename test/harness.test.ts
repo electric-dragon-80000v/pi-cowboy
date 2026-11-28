@@ -386,7 +386,7 @@ describe("prepare", () => {
     await harnessFor("pig").prepare(prepareRequest("pig", "w1:p9"));
     expect(sourced(0).paneId).toBe("w1:p9");
     expect(sourced(0).lines[0]).toBe(
-      'pi() { : "PIG_LAUNCHER_8f9a2b"; export HERDR_AGENT=pi; pig "$@"; }',
+      'pi() { : "PIG_LAUNCHER_8f9a2b"; pig "$@"; }',
     );
     expect(sourced(0).lines[1]).toBe(
       'typeset -f pi 2>/dev/null | grep -q "PIG_LAUNCHER_8f9a2b" && echo PIG_""VERIFIED',
@@ -403,7 +403,7 @@ describe("prepare", () => {
     await harnessFor("pi-bolt").prepare(prepareRequest("pi-bolt", "w1:p9"));
     expect(sourced(0).paneId).toBe("w1:p9");
     expect(sourced(0).lines[0]).toBe(
-      'pi() { : "PI_BOLT_LAUNCHER_5e1c7a"; export HERDR_AGENT=pi; pi-bolt "$@"; }',
+      'pi() { : "PI_BOLT_LAUNCHER_5e1c7a"; pi-bolt "$@"; }',
     );
     expect(sourced(0).lines[1]).toBe(
       'typeset -f pi 2>/dev/null | grep -q "PI_BOLT_LAUNCHER_5e1c7a" && echo PI_""BOLT_VERIFIED',
@@ -413,6 +413,23 @@ describe("prepare", () => {
       "w1:p9",
       "PI_BOLT_VERIFIED",
       expect.any(Number),
+    );
+  });
+
+  it("exports the multiplexer's launch environment for a forwarded binary", async () => {
+    const herdrPane: PaneControl = {
+      ...PANE,
+      launchEnvironment: (kind): Readonly<Record<string, string>> =>
+        kind === "pi" ? { HERDR_AGENT: "pi" } : {},
+    };
+
+    await harnessFor("pig").prepare({
+      ...prepareRequest("pig", "w1:p9"),
+      pane: herdrPane,
+    });
+
+    expect(sourced(0).lines[0]).toBe(
+      `pi() { : "PIG_LAUNCHER_8f9a2b"; ( export HERDR_AGENT='pi' && { pig "$@"; } ); }`,
     );
   });
 
@@ -784,7 +801,24 @@ describe("env overrides", () => {
     // A subshell: the variables reach the binary and not the pane's shell.
     expect(sourced(0).paneId).toBe("w1:p9");
     expect(sourced(0).lines[0]).toBe(
-      `pi() { : "PIG_LAUNCHER_8f9a2b"; export HERDR_AGENT=pi; ( . '${ENV_FILE}' && { pig "$@"; } ); }`,
+      `pi() { : "PIG_LAUNCHER_8f9a2b"; ( . '${ENV_FILE}' && { pig "$@"; } ); }`,
+    );
+  });
+
+  it("applies the multiplexer's launch environment to pi's own env launcher", async () => {
+    const herdrPane: PaneControl = {
+      ...PANE,
+      launchEnvironment: () => ({ HERDR_AGENT: "pi" }),
+    };
+
+    await harnessFor("pi").prepare({
+      ...prepareRequest("pi", "w1:p9"),
+      pane: herdrPane,
+      launch: { ...PI_FAMILY_LAUNCH, envFile: ENV_FILE },
+    });
+
+    expect(sourced(0).lines[0]).toBe(
+      `pi() { : "PI_ENV_LAUNCHER_4c7d19"; ( export HERDR_AGENT='pi' && { ( . '${ENV_FILE}' && { command pi "$@"; } ); } ); }`,
     );
   });
 

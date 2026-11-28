@@ -472,7 +472,7 @@ export const opencodeHarness: Harness<OpencodeLaunchRequest, OpencodeConfig> = {
     });
     await installPaneLauncher(pane, paneId, {
       file: subagentLauncherFileFor(launch.subagentId),
-      commandName: OPENCODE_COMMAND,
+      agentMultiplexerKind: OPENCODE_COMMAND,
       body: launcherBody(
         configDir,
         sessionId,

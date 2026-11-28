@@ -461,7 +461,13 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
 function createHerdrPane(pi: ExtensionAPI): PaneControl {
   return {
     kind: HERDR,
-    launchEnvironment: (agentKind) => ({ HERDR_AGENT: agentKind }),
+    // Herdr's pi screen manifest keys on this variable, so a custom launcher
+    // that forwards `pi` to another binary must carry it. The foreign CLIs are
+    // detected by their own manifests, so a launcher for those kinds needs no
+    // hint.
+    launchEnvironment: (agentKind): Readonly<Record<string, string>> =>
+      agentKind === "pi" ? { HERDR_AGENT: agentKind } : {},
+    reservedEnvPrefixes: () => ["HERDR_"],
     run: (paneId, command) => runInPane(pi, paneId, command),
     // The agent surface, not pane-level typing: herdr validates the target is
     // an agent and every key name before writing any bytes.

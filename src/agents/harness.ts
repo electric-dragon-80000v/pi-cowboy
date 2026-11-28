@@ -179,12 +179,13 @@ const UNIVERSAL_RESERVED_ENV_VAR_NAMES: readonly string[] = [
 
 /**
  * Env namespaces no spawn may override, matched by prefix: a platform's dynamic
- * loader family and the multiplexer's own vocabulary grow members this list
- * does not track, and every member of each is off limits.
+ * loader family and this extension's own namespace grow members this list does
+ * not track, and every member of each is off limits. A multiplexer's vocabulary
+ * is the multiplexer's to declare (`PaneControl.reservedEnvPrefixes`), so it is
+ * reserved only while that multiplexer is the one hosting the launch.
  */
 const UNIVERSAL_RESERVED_ENV_VAR_PREFIXES: readonly string[] = [
   "DYLD_",
-  "HERDR_",
   "COWBOY_",
 ];
 
@@ -355,7 +356,7 @@ export const RESERVED_ENV_VARS_BY_FAMILY: Record<
   HarnessFamily,
   readonly string[]
 > = {
-  pi: ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "HERDR_AGENT"],
+  pi: ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"],
   opencode: [
     "OPENCODE_CONFIG_DIR",
     "OPENCODE_CONFIG",

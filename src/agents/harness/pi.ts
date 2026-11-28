@@ -5,7 +5,9 @@
  * forwarded: its argv and model list are the family's own, which pi-compatible.ts
  * assembles for every pi-compatible binary, and its store is pi-store.ts's. The
  * launcher is installed only when the spawn carries env overrides — the one
- * thing a real binary cannot be handed any other way.
+ * thing a real binary cannot be handed any other way. No custom launcher means
+ * no launch environment to apply: `launchEnvironment` describes what a launcher
+ * needs, and the multiplexer recognizes the stock binary itself.
  */
 
 import { type Harness, type PiFamilyLaunchRequest } from "../harness.js";
@@ -44,7 +46,7 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
     if (launch.envFile === null) return;
     await installPaneLauncher(pane, paneId, {
       file: subagentLauncherFileFor(launch.subagentId),
-      commandName: "pi",
+      agentMultiplexerKind: "pi",
       body: launchEnvBody(launch.envFile, 'command pi "$@"'),
       signature: PI_ENV_LAUNCHER_SIGNATURE,
       readyMarker: PI_ENV_READY_MARKER,

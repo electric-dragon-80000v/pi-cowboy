@@ -196,7 +196,7 @@ async prepare({ pane, paneId, launch }: HarnessPrepareRequest) {
   );
   await installPaneLauncher(pane, paneId, {
     file: subagentLauncherFileFor(launch.subagentId),
-    commandName: "my-cli",
+    agentMultiplexerKind: "pi",
     body,
     signature: "MY_CLI_LAUNCHER_1a2b3c",
     readyMarker: "MY_CLI_VERIFIED",
@@ -206,7 +206,7 @@ async prepare({ pane, paneId, launch }: HarnessPrepareRequest) {
 
 `launchEnvBody` returns the body unchanged when the launch carries no variables, and otherwise wraps it in a subshell that sources the file: the variables reach the launched process, and the pane's shell keeps its own environment after the agent exits. A launcher that ignores `envFile` silently drops every entry configured for its harness.
 
-`installPaneLauncher` writes the launcher into the spawn's staging directory (`subagentLauncherFileFor`), types only `. '<file>'` into the pane, and retries until the read-back proves the shell's function carries this launcher's `signature`: a `run` that arrives before the shell is at its prompt is retried, and one that never lands fails the launch in `commandName`'s own name. `commandName` is the harness's `agentMultiplexerKind`, so the multiplexer's command resolves to the staged function rather than a PATH binary. When the pane state is more than the function, pass `proof` — a command to run and the output it must print — and it is staged and sourced the same way once the launcher is up.
+`installPaneLauncher` writes the launcher into the spawn's staging directory (`subagentLauncherFileFor`), types only `. '<file>'` into the pane, and retries until the read-back proves the shell's function carries this launcher's `signature`: a `run` that arrives before the shell is at its prompt is retried, and one that never lands fails the launch in the kind's own name. `agentMultiplexerKind` is the kind the multiplexer types into the pane, so the command resolves to the staged function rather than a PATH binary; the install also asks the multiplexer for `launchEnvironment(kind)` and exports that table inside the launcher's subshell, so no harness names a multiplexer's variables. When the pane state is more than the function, pass `proof` — a command to run and the output it must print — and it is staged and sourced the same way once the launcher is up.
 
 A harness can also reserve names its own launcher maintains, so a configured entry for one is refused instead of overwriting what the launcher set:
 
@@ -246,7 +246,7 @@ The `prepare` hook receives a request whose `pane` member is a `PaneControl` han
 
 - `pane.run(paneId: string, command: string)`: Sends a command string to the pane.
 - `pane.waitForOutput(paneId: string, text: string, timeoutMs: number)`: Waits for literal terminal output.
-- `pane.launchEnvironment?.(kind)`: Returns environment variables the multiplexer needs to detect a custom launcher.
+- `pane.launchEnvironment?.(kind)`: Returns environment variables the multiplexer needs to detect a custom launcher. `installPaneLauncher` applies the table for the kind in the spec inside the launcher's subshell; a harness that installs its launcher by hand reads this itself. A proof runs in the pane shell, so it inherits these only when it invokes the installed function.
 - `pane.waitForVisibleOutput?.(paneId, text, timeoutMs)`: Waits for literal text in the visible viewport.
 - `pane.submit?.(paneId, text, pid, signal)`: The pane surface's one write. Types the text, then presses Enter, only after checking the expected foreground process; an escape byte may lead the text so a TUI that ignores input until its terminal has focus can be woken first. Other control characters are refused. The check is best-effort, not atomic with terminal input.
 

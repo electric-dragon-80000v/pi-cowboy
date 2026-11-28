@@ -95,7 +95,7 @@ describe("the plugin subpath's pane launcher", () => {
     };
     const spec: PaneLauncherSpec = {
       file: join(root, "launcher.sh"),
-      commandName: "my-cli",
+      agentMultiplexerKind: "pi",
       body: launchEnvBody("/spawn/a/env.sh", 'command my-cli "$@"'),
       signature: "MY_CLI_LAUNCHER_1a2b3c",
       readyMarker: "MY_CLI_VERIFIED",
@@ -105,7 +105,7 @@ describe("the plugin subpath's pane launcher", () => {
 
     expect(typed).toEqual([`. '${spec.file}'`]);
     const staged = readFileSync(spec.file, "utf8");
-    expect(staged).toContain('my-cli() { : "MY_CLI_LAUNCHER_1a2b3c";');
+    expect(staged).toContain('pi() { : "MY_CLI_LAUNCHER_1a2b3c";');
     expect(staged).toContain('command my-cli "$@"');
   });
 

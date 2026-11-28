@@ -20,15 +20,18 @@
  * quote, a continuation prompt, and a shell that swallows every line typed
  * after it.
  *
- * Nothing here knows which harness is installing: the command name, the
- * launcher body, the tokens and the proof belong to the caller. The pane is
- * reached through the multiplexer's `PaneControl` — never a multiplexer's own client —
+ * Nothing here knows which harness is installing: the agent kind, the launcher
+ * body, the tokens and the proof belong to the caller. The pane is reached
+ * through the multiplexer's `PaneControl` — never a multiplexer's own client —
  * so the same install runs under any multiplexer that offers the surface and no
- * harness holds the control-plane API.
+ * harness holds the control-plane API. The environment a custom launcher of the
+ * kind needs in order to be recognized is the multiplexer's to declare, and the
+ * install applies it without any harness naming a multiplexer.
  */
 
 import path from "node:path";
-import type { PaneControl } from "../agent-host.js";
+import type { AgentMultiplexerKind, PaneControl } from "../agent-host.js";
+import { hasControlCharacter, isEnvVarName } from "../harness.js";
 import {
   ensureResultDir,
   writeResultFile,
@@ -62,6 +65,49 @@ export function launchEnvBody(envFile: string | null, body: string): string {
   return `( . ${singleQuoteShellWord(envFile)} && { ${body}; } )`;
 }
 
+/**
+ * The environment the active multiplexer needs a custom launcher of `agentKind`
+ * to export, as one `export` statement, or the empty string when it needs none.
+ *
+ * The table is the multiplexer's, so it is validated before it becomes shell
+ * text: a plugin multiplexer returning a name that is not a POSIX identifier or
+ * a value carrying a control character would otherwise put shell syntax into the
+ * staged launcher.
+ */
+function multiplexerExport(
+  pane: PaneControl,
+  agentKind: AgentMultiplexerKind,
+): string {
+  const entries = pane.launchEnvironment?.(agentKind) ?? {};
+  const assignments: string[] = [];
+  for (const [name, value] of Object.entries(entries)) {
+    if (!isEnvVarName(name)) {
+      throw new Error(
+        `the ${pane.kind} multiplexer returned an invalid launch environment name ${JSON.stringify(name)} for agent kind "${agentKind}"`,
+      );
+    }
+    if (hasControlCharacter(value)) {
+      throw new Error(
+        `the ${pane.kind} multiplexer returned a launch environment value for ${name} carrying a control character`,
+      );
+    }
+    assignments.push(`${name}=${singleQuoteShellWord(value)}`);
+  }
+  return assignments.length === 0 ? "" : `export ${assignments.join(" ")}`;
+}
+
+/**
+ * The launcher body under the multiplexer's launch environment. The export runs
+ * in a subshell for the same reason `launchEnvBody` sources its file in one: the
+ * pane's interactive shell must not keep a variable the multiplexer set for a
+ * process that has exited. `&&` keeps a launch from starting without the
+ * identity the multiplexer needs to recognize it.
+ */
+function launchEnvironmentBody(exportStatement: string, body: string): string {
+  if (exportStatement === "") return body;
+  return `( ${exportStatement} && { ${body}; } )`;
+}
+
 /** Bounded install attempts: a `run` before the shell is at its prompt is silently lost. */
 const INSTALL_MAX_ATTEMPTS = 5;
 const INSTALL_OUTPUT_TIMEOUT_MS = 2_000;
@@ -75,11 +121,12 @@ export interface PaneLauncherSpec {
    */
   readonly file: string;
   /**
-   * The command the multiplexer types into the pane — the harness's `agentMultiplexerKind`.
-   * The install defines a shell function under this name, so the command the
-   * multiplexer runs resolves to this launcher instead of to a PATH binary.
+   * The agent kind the multiplexer types into the pane; the install defines the
+   * shell function under this name, so the command the multiplexer runs resolves
+   * to this launcher instead of to a PATH binary. The same kind is what the
+   * multiplexer is asked for the environment a custom launcher needs.
    */
-  readonly commandName: string;
+  readonly agentMultiplexerKind: AgentMultiplexerKind;
   /**
    * The shell body after the function name — how the launcher runs its
    * process. The install terminates it, so it carries no trailing `;` of its
@@ -152,8 +199,8 @@ export function sourceCommand(file: string): string {
  */
 export function launcherScript(spec: PaneLauncherSpec): string {
   return [
-    `${spec.commandName}() { : "${spec.signature}"; ${spec.body}; }`,
-    `typeset -f ${spec.commandName} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`,
+    `${spec.agentMultiplexerKind}() { : "${spec.signature}"; ${spec.body}; }`,
+    `typeset -f ${spec.agentMultiplexerKind} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`,
     "",
   ].join("\n");
 }
@@ -172,8 +219,13 @@ export async function installPaneLauncher(
   paneId: string,
   spec: PaneLauncherSpec,
 ): Promise<void> {
+  // Validated before anything is staged, so a buggy multiplexer leaves no file.
+  const body = launchEnvironmentBody(
+    multiplexerExport(pane, spec.agentMultiplexerKind),
+    spec.body,
+  );
   ensureResultDir(path.dirname(spec.file));
-  writeResultFile(spec.file, launcherScript(spec));
+  writeResultFile(spec.file, launcherScript({ ...spec, body }));
   const install = sourceCommand(spec.file);
 
   for (let attempt = 1; attempt <= INSTALL_MAX_ATTEMPTS; attempt++) {
@@ -199,7 +251,7 @@ export async function installPaneLauncher(
     if (attempt < INSTALL_MAX_ATTEMPTS) await sleep(INSTALL_RETRY_DELAY_MS);
   }
   throw new Error(
-    `failed to prepare pane ${paneId}: the ${spec.commandName} launcher never landed`,
+    `failed to prepare pane ${paneId}: the ${spec.agentMultiplexerKind} launcher never landed`,
   );
 }
 

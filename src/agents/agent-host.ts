@@ -85,10 +85,29 @@ export interface AgentView {
 export interface PaneControl {
   /** How the pane is addressed; the multiplexer's own vocabulary (herdr for the built-in multiplexer). */
   readonly kind: string;
-  /** Environment needed by a custom launcher for the requested agent kind. */
+  /**
+   * Environment a custom launcher for the requested agent kind must export for
+   * the multiplexer to recognize the process. Read while the launcher is
+   * installed and again while the launch's environment is reserved, so an
+   * implementation is pure and both reads answer the same table. Absent or empty
+   * means a custom launcher needs no hint — the multiplexer recognizes the stock
+   * binary itself.
+   */
   launchEnvironment?(
     agentKind: AgentMultiplexerKind,
   ): Readonly<Record<string, string>>;
+  /**
+   * Exact names this multiplexer's own vocabulary owns beyond the ones
+   * `launchEnvironment` returns for a kind. A launch may not override them, and
+   * they are dropped with a warning the way a harness-reserved name is.
+   */
+  reservedEnvVars?(): readonly string[];
+  /**
+   * Prefixes of this multiplexer's environment vocabulary — a namespace whose
+   * members grow without this contract tracking them (herdr: `HERDR_`). A
+   * launch may not override any name under one.
+   */
+  reservedEnvPrefixes?(): readonly string[];
   /**
    * Type one command into the pane. Fire-and-forget by contract: a multiplexer
    * returns before the shell has evaluated the line, so a caller proves what it
