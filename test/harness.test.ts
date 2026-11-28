@@ -47,6 +47,7 @@ import {
 } from "../src/agents/harness/opencode/staging.js";
 import { probed, unprobed } from "../src/availability.js";
 import type { PaneControl } from "../src/agents/agent-host.js";
+import { sourcedLines } from "./sourced-file.js";
 
 /** The vocabulary one session builds; read here through the names the registry module used to export. */
 const harnesses = createHarnessRegistry();
@@ -81,6 +82,12 @@ const PANE: PaneControl = {
   waitForOutput: (paneId, output, timeoutMs) =>
     waitForPaneOutputMock(PI, paneId, output, timeoutMs),
 };
+
+/** The pane and the staged lines behind the nth command typed into it. */
+function sourced(call: number): { paneId: unknown; lines: string[] } {
+  const [, paneId, command] = runInPaneMock.mock.calls[call]!;
+  return { paneId, lines: sourcedLines(command) };
+}
 
 /**
  * The real TMPDIR, put back after every test. Staging resolves its directory
@@ -377,16 +384,11 @@ describe("prepare", () => {
 
   it("plants the pi launcher in the pane for pig and confirms its body landed", async () => {
     await harnessFor("pig").prepare(prepareRequest("pig", "w1:p9"));
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       'pi() { : "PIG_LAUNCHER_8f9a2b"; export HERDR_AGENT=pi; pig "$@"; }',
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f pi 2>/dev/null | grep -q "PIG_LAUNCHER_8f9a2b" && echo PIG_""VERIFIED',
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
@@ -399,16 +401,11 @@ describe("prepare", () => {
 
   it("plants its own pi launcher in the pane for pi-bolt and confirms its body landed", async () => {
     await harnessFor("pi-bolt").prepare(prepareRequest("pi-bolt", "w1:p9"));
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       'pi() { : "PI_BOLT_LAUNCHER_5e1c7a"; export HERDR_AGENT=pi; pi-bolt "$@"; }',
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f pi 2>/dev/null | grep -q "PI_BOLT_LAUNCHER_5e1c7a" && echo PI_""BOLT_VERIFIED',
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
@@ -421,11 +418,11 @@ describe("prepare", () => {
 
   it("verifies each pi-compatible harness against its own signature", async () => {
     await harnessFor("pig").prepare(prepareRequest("pig", "w1:p1"));
-    const pigVerify = runInPaneMock.mock.calls[1][2];
+    const pigVerify = sourced(0).lines[1];
     runInPaneMock.mockClear();
 
     await harnessFor("pi-bolt").prepare(prepareRequest("pi-bolt", "w1:p2"));
-    const boltVerify = runInPaneMock.mock.calls[1][2];
+    const boltVerify = sourced(0).lines[1];
 
     expect(pigVerify).toContain("PIG_LAUNCHER_8f9a2b");
     expect(boltVerify).toContain("PI_BOLT_LAUNCHER_5e1c7a");
@@ -445,8 +442,8 @@ describe("prepare", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     await assertion;
 
-    // One define + one verify per attempt.
-    expect(runInPaneMock.mock.calls.length).toBe(10);
+    // One sourced launcher per attempt.
+    expect(runInPaneMock.mock.calls.length).toBe(5);
   });
 });
 
@@ -497,16 +494,11 @@ describe("prepare: opencode", () => {
     const { sessionId } = JSON.parse(
       readFileSync(join(configDir, "session.json"), "utf-8"),
     ) as { sessionId: string };
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" --session '${sessionId}' < '${taskFile}'; }`,
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f opencode 2>/dev/null | grep -q "OPENCODE_LAUNCHER_7d3e91" && echo OPENCODE_""VERIFIED',
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
@@ -539,10 +531,8 @@ describe("prepare: opencode", () => {
     const { sessionId } = JSON.parse(
       readFileSync(join(configDir, "session.json"), "utf-8"),
     ) as { sessionId: string };
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `opencode() { : "OPENCODE_LAUNCHER_7d3e91"; unset OPENCODE_CONFIG; unset OPENCODE_CONFIG_CONTENT; export OPENCODE_CONFIG_DIR='${configDir}'; export OPENCODE_DISABLE_PROJECT_CONFIG=1; export OPENCODE_DISABLE_AUTOUPDATE=1; command opencode "$@" --session '${sessionId}'; }`,
     );
   });
@@ -563,11 +553,11 @@ describe("prepare: opencode", () => {
         "utf-8",
       ),
     ) as { sessionId: string };
-    // The values stay in the file; only its path is typed into the pane.
-    expect(runInPaneMock.mock.calls[0]![2]).toContain(
+    // The values stay in the env file; the launcher names only its path.
+    expect(sourced(0).lines[0]).toContain(
       `( . '${ENV_FILE}' && { command opencode "$@" --session '${sessionId}' < '${taskFile}'; } )`,
     );
-    expect(runInPaneMock.mock.calls[0]![2]).not.toContain("REVIEW_MODE");
+    expect(sourced(0).lines[0]).not.toContain("REVIEW_MODE");
   });
 
   it("points the launcher at the staged copy of an explicit config file", async () => {
@@ -581,7 +571,7 @@ describe("prepare: opencode", () => {
     await prepareOpencode();
 
     const configDir = opencodeConfigDir("esp02hpw");
-    expect(runInPaneMock.mock.calls[0][2]).toContain(
+    expect(sourced(0).lines[0]).toContain(
       `export OPENCODE_CONFIG='${join(configDir, "explicit-config.json")}'`,
     );
     expect(
@@ -632,14 +622,14 @@ describe("prepare: opencode", () => {
   it("reads the definition back through a private server and requires the staged agent", async () => {
     await prepareOpencode();
 
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      3,
-      PI,
-      "w1:p9",
-      "opencode run --standalone --agent 'esp02hpw' --model 'pi-cowboy/opencode-definition-proof' 'definition probe' 2>&1 | grep -q 'Model unavailable' && echo OPENCODE_\"\"DEFINITION_VERIFIED",
-    );
-    // The marker is waited for unbroken: the pane echoes the command line it is
-    // typed, so the command carries it split.
+    expect(sourced(1)).toEqual({
+      paneId: "w1:p9",
+      lines: [
+        "opencode run --standalone --agent 'esp02hpw' --model 'pi-cowboy/opencode-definition-proof' 'definition probe' 2>&1 | grep -q 'Model unavailable' && echo OPENCODE_\"\"DEFINITION_VERIFIED",
+      ],
+    });
+    // The marker is waited for unbroken, and the staged command carries it
+    // split so an echo of the command's text cannot answer.
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
       PI,
       "w1:p9",
@@ -669,7 +659,7 @@ describe("prepare: opencode", () => {
       existsSync(join(opencodeConfigDir("esp02hpw"), "agent", "esp02hpw.md")),
     ).toBe(true);
     // Two installs, each verified: no state accumulates behind the second.
-    expect(runInPaneMock).toHaveBeenCalledTimes(6);
+    expect(runInPaneMock).toHaveBeenCalledTimes(4);
   });
 
   it("fails before touching the pane when the system prompt cannot be read", async () => {
@@ -729,16 +719,11 @@ describe("prepare: codex", () => {
   it("plants the launcher that appends the task as the positional prompt", async () => {
     await prepareCodex();
 
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `codex() { : "CODEX_LAUNCHER_3f8a1c"; command codex "$@" "$(cat '${taskFile}')"; }`,
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f codex 2>/dev/null | grep -q "CODEX_LAUNCHER_3f8a1c" && echo CODEX_""VERIFIED',
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
@@ -759,10 +744,8 @@ describe("prepare: codex", () => {
       config: undefined,
     });
 
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `codex() { : "CODEX_LAUNCHER_3f8a1c"; ( . '${ENV_FILE}' && { command codex "$@" "$(cat '${taskFile}')"; } ); }`,
     );
   });
@@ -771,7 +754,7 @@ describe("prepare: codex", () => {
     await prepareCodex();
 
     // One define plus one verify; codex stages nothing to read back.
-    expect(runInPaneMock).toHaveBeenCalledTimes(2);
+    expect(runInPaneMock).toHaveBeenCalledTimes(1);
   });
 
   it("passes no positional prompt when the launch carries no task", async () => {
@@ -784,10 +767,8 @@ describe("prepare: codex", () => {
       config: undefined,
     });
 
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       'codex() { : "CODEX_LAUNCHER_3f8a1c"; command codex "$@"; }',
     );
   });
@@ -801,10 +782,8 @@ describe("env overrides", () => {
     });
 
     // A subshell: the variables reach the binary and not the pane's shell.
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `pi() { : "PIG_LAUNCHER_8f9a2b"; export HERDR_AGENT=pi; ( . '${ENV_FILE}' && { pig "$@"; } ); }`,
     );
   });
@@ -815,16 +794,11 @@ describe("env overrides", () => {
       launch: { ...PI_FAMILY_LAUNCH, envFile: ENV_FILE },
     });
 
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `pi() { : "PI_ENV_LAUNCHER_4c7d19"; ( . '${ENV_FILE}' && { command pi "$@"; } ); }`,
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f pi 2>/dev/null | grep -q "PI_ENV_LAUNCHER_4c7d19" && echo PI_""ENV_VERIFIED',
     );
   });

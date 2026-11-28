@@ -107,6 +107,18 @@ export function subagentEnvFileFor(agentId: string): string {
   return path.join(subagentResultDirFor(agentId), SUBAGENT_ENV_FILE_NAME);
 }
 
+/**
+ * The pane-side launcher of a launch, staged for the pane's shell to source.
+ * A file rather than a typed definition: only its short path crosses the
+ * pane's line editor (see pane-launcher.ts).
+ */
+const SUBAGENT_LAUNCHER_FILE_NAME = "launcher.sh";
+
+/** Canonical launcher file for a subagent ID. */
+export function subagentLauncherFileFor(agentId: string): string {
+  return path.join(subagentResultDirFor(agentId), SUBAGENT_LAUNCHER_FILE_NAME);
+}
+
 /** Canonical task file for a subagent ID — the `@<file>` initial message. */
 export function subagentTaskFileFor(agentId: string): string {
   return path.join(subagentResultDirFor(agentId), SUBAGENT_TASK_FILE_NAME);

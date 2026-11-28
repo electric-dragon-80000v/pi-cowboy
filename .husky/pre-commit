@@ -15,7 +15,7 @@
 #   4. run the check chain in the copy;
 #   5. a trap unmounts/detaches and removes the temp dir — on success AND failure.
 #
-# macOS only: the ramdisk is built with hdiutil/newfs_hfs/`mount -t hfs`. On any
+# macOS only: the ramdisk is built with diskutil/newfs_hfs/`mount -t hfs`. On any
 # other host the hook FAILS LOUDLY instead of skipping the checks — silently
 # passing is worse than having no hook at all.
 #
@@ -107,8 +107,8 @@ cleanup() {
   if [ -n "${ATTACHED_DEVICE}" ]; then
     echo "pre-commit: unmounting and detaching ramdisk ${ATTACHED_DEVICE}" >&2
     umount "${disk_path}" 2>/dev/null || true
-    if ! hdiutil detach "${ATTACHED_DEVICE}" >/dev/null 2>&1; then
-      echo "pre-commit: ⚠️  could not detach ${ATTACHED_DEVICE}; run: hdiutil detach ${ATTACHED_DEVICE}" >&2
+    if ! diskutil eject "${ATTACHED_DEVICE}" >/dev/null 2>&1; then
+      echo "pre-commit: ⚠️  could not detach ${ATTACHED_DEVICE}; run: diskutil eject ${ATTACHED_DEVICE}" >&2
     fi
 
     # Drop our mount point if its underlying directory is now empty.
@@ -128,7 +128,7 @@ trap cleanup EXIT INT TERM
 
 # ─── Provision the scratch area ──────────────────────────────────────────────
 if [ "${HOST_OS}" = "Darwin" ]; then
-  # macOS: a ramdisk, structurally as in the source hook (hdiutil/newfs_hfs/mount -t hfs).
+  # macOS: a ramdisk, structurally as in the source hook (diskutil/newfs_hfs/mount -t hfs).
   mkdir -p "${disk_path}"
 
   # Detect a ramdisk already mounted at our mount point from the mount table.
@@ -141,17 +141,32 @@ if [ "${HOST_OS}" = "Darwin" ]; then
   if [ -n "${stale_device}" ]; then
     echo "pre-commit: ⚠️  stale ramdisk still mounted at ${disk_path} (device: ${stale_device}) — recovering it." >&2
     umount "${disk_path}" 2>/dev/null || true
-    hdiutil detach "${stale_device}" >/dev/null 2>&1 || true
+    diskutil eject "${stale_device}" >/dev/null 2>&1 || true
     if mount | grep -qF " on ${disk_path} "; then
       echo "pre-commit: ❌ could not unmount stale ramdisk at ${disk_path}; unmount it manually and retry." >&2
       exit 1
     fi
   fi
 
-  echo "pre-commit: attaching new ramdisk (size: ${BLOCKS} blocks)" >&2
-  device="$(hdiutil attach -nomount "ram://${BLOCKS}" 2>&1 | head -n 1 | awk '{print $1}')"
+  # `diskutil image` supersedes `hdiutil attach`, deprecated in macOS 27. Probe the
+  # subcommand rather than the OS version, so a host that predates it keeps hdiutil.
+  if diskutil image attach --help >/dev/null 2>&1; then
+    ramdisk_attach() { diskutil image attach "ram://${BLOCKS}"; }
+    ramdisk_tool="diskutil image attach"
+  else
+    ramdisk_attach() { hdiutil attach -nomount "ram://${BLOCKS}"; }
+    ramdisk_tool="hdiutil attach"
+  fi
+
+  echo "pre-commit: attaching new ramdisk (size: ${BLOCKS} blocks, via ${ramdisk_tool})" >&2
+  # Merge stderr into the captured output rather than discarding it: the device is
+  # picked out by an anchored match, so a warning line cannot win, and a failure
+  # keeps the diagnostic that explains it.
+  ramdisk_output="$(ramdisk_attach 2>&1)" || true
+  device="$(printf '%s\n' "${ramdisk_output}" | grep -Eo '^/dev/disk[0-9]+' | head -n 1)"
   if [ -z "${device}" ]; then
-    echo "pre-commit: ❌ failed to attach ramdisk." >&2
+    echo "pre-commit: ❌ failed to attach ramdisk (${ramdisk_tool}). Its output was:" >&2
+    printf '%s\n' "${ramdisk_output}" | sed 's/^/pre-commit:    /' >&2
     exit 1
   fi
   ATTACHED_DEVICE="${device}"
@@ -177,7 +192,7 @@ else
   # hdiutil/newfs_hfs/`mount -t hfs` are Darwin-only. Fail loudly rather than
   # quietly running the chain somewhere else (or not at all): a hook that reports
   # success without checking is worse than no hook.
-  echo "pre-commit: ❌ this hook requires macOS (host: ${HOST_OS}): the staged snapshot is exported onto a ramdisk via hdiutil/newfs_hfs." >&2
+  echo "pre-commit: ❌ this hook requires macOS (host: ${HOST_OS}): the staged snapshot is exported onto a ramdisk via diskutil/newfs_hfs." >&2
   echo "pre-commit: ❌ no checks were run — the commit is blocked. Use --no-verify to bypass, knowingly." >&2
   exit 1
 fi

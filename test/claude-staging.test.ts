@@ -43,6 +43,7 @@ import {
   removeClaudeStaging,
   writeClaudeStaging,
 } from "../src/agents/harness/claude/staging.js";
+import { sourcedLines } from "./sourced-file.js";
 
 const { runInPaneMock, waitForPaneOutputMock } = vi.hoisted(() => ({
   runInPaneMock: vi.fn(),
@@ -92,6 +93,12 @@ const PANE: PaneControl = {
   waitForOutput: (paneId, output, timeoutMs) =>
     waitForPaneOutputMock(PI, paneId, output, timeoutMs),
 };
+
+/** The pane and the staged lines behind the nth command typed into it. */
+function sourced(call: number): { paneId: unknown; lines: string[] } {
+  const [, paneId, command] = runInPaneMock.mock.calls[call]!;
+  return { paneId, lines: sourcedLines(command) };
+}
 
 /** The subagent these tests stage; the shape a spawn id has. */
 const SUBAGENT_ID = "esp02hpw";
@@ -534,11 +541,11 @@ describe("prepare", () => {
       config: undefined,
     });
 
-    const body = runInPaneMock.mock.calls[0]![2] as string;
+    const body = sourced(0).lines[0];
     expect(body).toContain(
       `( . '${envFile}' && { command claude --session-id '${stagedSessionId()}' "$@" -- "$(cat '${taskFile}')"; } )`,
     );
-    // The value stays in the file: the typed command names only the path.
+    // The value stays in the env file: the launcher names only its path.
     expect(body).not.toContain("fast");
   });
 
@@ -546,16 +553,11 @@ describe("prepare", () => {
     await prepareClaude();
 
     const configDir = claudeConfigDir(SUBAGENT_ID);
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      1,
-      PI,
-      "w1:p9",
+    expect(sourced(0).paneId).toBe("w1:p9");
+    expect(sourced(0).lines[0]).toBe(
       `claude() { : "CLAUDE_LAUNCHER_3f7a1d"; if [ -n "\${ANTHROPIC_API_KEY:-}" ]; then export COWBOY_API_KEY="$ANTHROPIC_API_KEY"; unset ANTHROPIC_API_KEY; else grep -v '"apiKeyHelper"' '${configDir}/settings.json' > '${configDir}/settings.json.tmp' && mv '${configDir}/settings.json.tmp' '${configDir}/settings.json'; fi; export CLAUDE_SECURESTORAGE_CONFIG_DIR='${PARENT_CREDENTIAL_STORE}'; export CLAUDE_CONFIG_DIR='${configDir}'; export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1; command claude --session-id '${stagedSessionId()}' "$@" -- "$(cat '${taskFile}')"; }`,
     );
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      2,
-      PI,
-      "w1:p9",
+    expect(sourced(0).lines[1]).toBe(
       'typeset -f claude 2>/dev/null | grep -q "CLAUDE_LAUNCHER_3f7a1d" && echo CLAUDE_""VERIFIED',
     );
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
@@ -588,7 +590,7 @@ describe("prepare", () => {
     // `--tools` / `--disallowedTools` take `<tools...>`: without the `--`, the
     // task appended after them would parse as another tool name and the TUI
     // would start with no initial prompt.
-    const definition = runInPaneMock.mock.calls[0]?.[2] as string;
+    const definition = sourced(0).lines[0]!;
     expect(definition).toContain(`-- "$(cat '${taskFile}')"`);
   });
 
@@ -596,12 +598,12 @@ describe("prepare", () => {
     await prepareClaude();
 
     const configDir = claudeConfigDir(SUBAGENT_ID);
-    expect(runInPaneMock).toHaveBeenNthCalledWith(
-      3,
-      PI,
-      "w1:p9",
-      `test -r '${configDir}/settings.json' && test -r '${taskFile}' && (unset -f claude; command -v claude >/dev/null) && echo CLAUDE_""STAGED`,
-    );
+    expect(sourced(1)).toEqual({
+      paneId: "w1:p9",
+      lines: [
+        `test -r '${configDir}/settings.json' && test -r '${taskFile}' && (unset -f claude; command -v claude >/dev/null) && echo CLAUDE_""STAGED`,
+      ],
+    });
     expect(waitForPaneOutputMock).toHaveBeenCalledWith(
       PI,
       "w1:p9",
@@ -632,7 +634,7 @@ describe("prepare", () => {
     ).toBe(true);
     // Two installs, each verified with its proof: no state accumulates behind
     // the second.
-    expect(runInPaneMock).toHaveBeenCalledTimes(6);
+    expect(runInPaneMock).toHaveBeenCalledTimes(4);
   });
 });
 

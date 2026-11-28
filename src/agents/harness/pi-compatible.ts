@@ -14,7 +14,7 @@
  */
 
 import { commandPath } from "../../infrastructure/exec-path.js";
-import { subagentTokenFor } from "../../paths.js";
+import { subagentLauncherFileFor, subagentTokenFor } from "../../paths.js";
 import {
   type Harness,
   type HarnessListModels,
@@ -152,6 +152,7 @@ export function createPiCompatibleHarness(
       launch,
     }: HarnessPrepareRequest<PiFamilyLaunchRequest>): Promise<void> {
       await installPaneLauncher(pane, paneId, {
+        file: subagentLauncherFileFor(launch.subagentId),
         commandName: "pi",
         body: `export HERDR_AGENT=pi; ${launchEnvBody(launch.envFile, `${spec.binary} "$@"`)}`,
         signature: spec.signature,

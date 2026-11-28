@@ -1,5 +1,5 @@
 /**
- * pane-launcher.ts — the pane-side preparation a harness performs: typing a
+ * pane-launcher.ts — the pane-side preparation a harness performs: installing a
  * shell-function launcher into a pane, proving it landed, and proving whatever
  * else the harness's launch reads.
  *
@@ -13,6 +13,13 @@
  * more than the function asks for that too, in `proof`: opencode's staged agent
  * definition is read back by the CLI, and nothing about the function proves it.
  *
+ * Only a short `. '<file>'` is ever typed. The launcher and the proof are
+ * staged as files and sourced, because a long line typed into an interactive
+ * line editor that is still starting or redrawing its prompt (zsh with a
+ * themed prompt) arrives truncated — and a truncated definition leaves an open
+ * quote, a continuation prompt, and a shell that swallows every line typed
+ * after it.
+ *
  * Nothing here knows which harness is installing: the command name, the
  * launcher body, the tokens and the proof belong to the caller. The pane is
  * reached through the multiplexer's `PaneControl` — never a multiplexer's own client —
@@ -20,7 +27,12 @@
  * harness holds the control-plane API.
  */
 
+import path from "node:path";
 import type { PaneControl } from "../agent-host.js";
+import {
+  ensureResultDir,
+  writeResultFile,
+} from "../result-file-permissions.js";
 import { sleep } from "../../utils.js";
 
 /**
@@ -57,6 +69,12 @@ const INSTALL_RETRY_DELAY_MS = 250;
 
 export interface PaneLauncherSpec {
   /**
+   * Where the launcher is staged for the pane to source — a path inside the
+   * spawn's own staging directory, visible from the pane. The proof, when the
+   * spec carries one, is staged beside it (see `proofFileFor`).
+   */
+  readonly file: string;
+  /**
    * The command the multiplexer types into the pane — the harness's `agentMultiplexerKind`.
    * The install defines a shell function under this name, so the command the
    * multiplexer runs resolves to this launcher instead of to a PATH binary.
@@ -75,7 +93,7 @@ export interface PaneLauncherSpec {
    * command.
    */
   readonly signature: string;
-  /** Token the verify command echoes once the launcher body is confirmed. */
+  /** Token the staged read-back echoes once the launcher body is confirmed. */
   readonly readyMarker: string;
   /**
    * The launch state past the launcher itself, proven once the launcher has
@@ -102,8 +120,9 @@ export interface PaneProof {
 
 /**
  * Split a marker with a `""` so that only the shell's evaluation of a command —
- * not the command line's own echo, which `wait-output` also sees — produces the
- * contiguous token.
+ * not an echo of the command's own text, which `wait-output` also sees —
+ * produces the contiguous token. A sourced file is echoed too when the pane's
+ * shell runs with `verbose` set.
  */
 export function splitMarker(marker: string): string {
   const at = marker.indexOf("_");
@@ -112,27 +131,53 @@ export function splitMarker(marker: string): string {
     : `${marker.slice(0, at + 1)}""${marker.slice(at + 1)}`;
 }
 
+/** The file a launcher's proof is staged in, beside the launcher itself. */
+export function proofFileFor(launcherFile: string): string {
+  return `${launcherFile}.proof`;
+}
+
+/** The one line typed into the pane to run a staged file in the pane's own shell. */
+export function sourceCommand(file: string): string {
+  return `. ${singleQuoteShellWord(file)}`;
+}
+
 /**
- * Install the launcher into the pane, then read it back until the marker proves
- * the body is there; then prove whatever else the caller asked for. Throws when
- * the pane never takes the launcher, or when the proof's output never appears.
+ * The staged launcher: the function definition, then its read-back. Sourcing
+ * it defines the function in the pane's shell and prints the ready marker only
+ * when the function the shell now holds carries this launcher's signature.
  *
- * Verification matches the signature rather than asking the shell what the name
- * is (`type <fn>`), because that wording varies by shell (`is a function` in
- * bash, `is a shell function` in zsh). Only the install is retried: a proof
- * that failed is a statement about the launch, not about a lost run.
+ * The read-back matches the signature rather than asking the shell what the
+ * name is (`type <fn>`), because that wording varies by shell (`is a function`
+ * in bash, `is a shell function` in zsh).
+ */
+export function launcherScript(spec: PaneLauncherSpec): string {
+  return [
+    `${spec.commandName}() { : "${spec.signature}"; ${spec.body}; }`,
+    `typeset -f ${spec.commandName} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`,
+    "",
+  ].join("\n");
+}
+
+/**
+ * Stage the launcher, source it in the pane until the marker proves the body
+ * is there, then prove whatever else the caller asked for. Throws when the
+ * pane never takes the launcher, or when the proof's output never appears.
+ *
+ * Sourcing is idempotent, so a retry that lands after an earlier attempt only
+ * redefines the same function. Only the install is retried: a proof that
+ * failed is a statement about the launch, not about a lost run.
  */
 export async function installPaneLauncher(
   pane: PaneControl,
   paneId: string,
   spec: PaneLauncherSpec,
 ): Promise<void> {
-  const definition = `${spec.commandName}() { : "${spec.signature}"; ${spec.body}; }`;
-  const verifyCommand = `typeset -f ${spec.commandName} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`;
+  ensureResultDir(path.dirname(spec.file));
+  writeResultFile(spec.file, launcherScript(spec));
+  const install = sourceCommand(spec.file);
 
   for (let attempt = 1; attempt <= INSTALL_MAX_ATTEMPTS; attempt++) {
-    await pane.run(paneId, definition);
-    await pane.run(paneId, verifyCommand);
+    await pane.run(paneId, install);
     if (
       await panePrinted(
         pane,
@@ -142,7 +187,12 @@ export async function installPaneLauncher(
       )
     ) {
       if (spec.proof !== undefined) {
-        await requirePaneProof(pane, paneId, spec.proof);
+        await requirePaneProof(
+          pane,
+          paneId,
+          proofFileFor(spec.file),
+          spec.proof,
+        );
       }
       return;
     }
@@ -170,15 +220,17 @@ async function panePrinted(
 
 /**
  * Run the caller's proof through the pane's launcher and wait for its output.
- * The command reaches the pane through the same seam as the install itself, so
- * the proof runs in the shell that holds the launcher and its environment.
+ * The command is staged and sourced, so it runs in the shell that holds the
+ * launcher and its environment without being typed at length.
  */
 async function requirePaneProof(
   pane: PaneControl,
   paneId: string,
+  file: string,
   proof: PaneProof,
 ): Promise<void> {
-  await pane.run(paneId, proof.command);
+  writeResultFile(file, `${proof.command}\n`);
+  await pane.run(paneId, sourceCommand(file));
   try {
     await pane.waitForOutput(paneId, proof.output, proof.timeoutMs);
   } catch {
