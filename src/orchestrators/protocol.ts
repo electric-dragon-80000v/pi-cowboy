@@ -324,7 +324,7 @@ export class DelegationProtocol {
         `cowboy_agent requires a short 2-3 word task name (e.g. "fix login flow") via the \`task_name\` parameter — it names the agent's branch/tab/worktree/agent so you can recognize it at a glance.`,
       );
     }
-    const taskSlug = buildTaskSlug(taskName);
+    const taskSlug = buildTaskSlug(taskName, getStore().agent.worktreePrefix);
 
     // A configured template name that no longer resolves degrades to `default` instead of failing the spawn.
     const orchestrator = resolveDefaultOrchestrator();
@@ -531,11 +531,12 @@ export class DelegationProtocol {
       () => undefined,
     );
     if (repoRoot === undefined) return undefined;
+    const prefix = getStore().agent.worktreePrefix;
     const root = resolveWorktreeRoot(getStore().agent.worktreeRoot, repoRoot);
     return {
       kind: "owned",
-      path: buildWorktreePath(root, this.intent.taskSlug, spawnId),
-      branch: buildWorktreeBranch(this.intent.taskSlug, spawnId),
+      path: buildWorktreePath(root, this.intent.taskSlug, spawnId, prefix),
+      branch: buildWorktreeBranch(this.intent.taskSlug, spawnId, prefix),
     };
   }
 }

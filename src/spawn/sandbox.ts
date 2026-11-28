@@ -55,11 +55,11 @@ import {
 
 /**
  * How a sandbox's branch — and with it the worktree directory and herdr agent
- * name — is chosen: generated from the task slug + spawn id, or an explicit
- * name supplied by a caller that already named the worktree.
+ * name — is chosen: generated from the task slug + spawn id under a prefix, or
+ * an explicit name supplied by a caller that already named the worktree.
  */
 export type SandboxNaming =
-  | { kind: "generated"; taskSlug: string; id: string }
+  | { kind: "generated"; taskSlug: string; id: string; prefix: string }
   | { kind: "explicit"; branch: string };
 
 /**
@@ -73,18 +73,21 @@ export type SpawnAgentName =
       readonly type: string;
       readonly taskSlug: string | undefined;
       readonly id: string;
+      /** The configured `agent.worktreePrefix`; may be empty. */
+      readonly prefix: string;
     };
 
 /**
  * The herdr agent name a run launches under. Parent-cwd runs have no branch, so
- * the `cow-<task>-<id>` the sandbox was allocated under is the only name they
- * have.
+ * the generated `<prefix><task>-<id>` the sandbox would have been allocated
+ * under is the only name they have.
  */
 export function spawnAgentName(name: SpawnAgentName): string {
   if (name.kind === "checkout") return name.branch;
   return buildWorktreeBranch(
     name.taskSlug ?? slugifyWorktreeType(name.type),
     name.id,
+    name.prefix,
   );
 }
 
@@ -185,6 +188,8 @@ export interface OwnedCheckoutRequest {
   readonly agentType: string;
   readonly taskSlug: string | undefined;
   readonly worktreeRoot: string | undefined;
+  /** The configured `agent.worktreePrefix` for the generated name; may be empty. */
+  readonly branchPrefix: string;
   readonly materialization: WorktreeMaterialization;
   /** UI sink for the allocation's warnings. */
   readonly notify: (message: string, kind: "warning") => void;
@@ -216,6 +221,7 @@ export async function provisionOwnedCheckout(
       kind: "generated",
       taskSlug: request.taskSlug ?? request.agentType,
       id: request.spawnId,
+      prefix: request.branchPrefix,
     },
     parentCwd: request.parentCwd,
     worktreeRoot: request.worktreeRoot,
@@ -235,7 +241,7 @@ export async function provisionOwnedCheckout(
 
 /** One delegation's execution environment. `allocate` is total; `teardown` is the only destroy path. */
 export class AgentSandbox {
-  /** Pinned `cow-<task>-<id>` branch; also names the agent. */
+  /** Pinned `<prefix><task>-<id>` branch; also names the agent. */
   readonly branch: string;
   /** Whether the subagent session may load the target project's resources. */
   readonly projectTrusted: boolean;
@@ -276,7 +282,7 @@ export class AgentSandbox {
 
     const branch =
       naming.kind === "generated"
-        ? buildWorktreeBranch(naming.taskSlug, naming.id)
+        ? buildWorktreeBranch(naming.taskSlug, naming.id, naming.prefix)
         : naming.branch.trim();
     // A generated name is valid by construction; an explicit one must at least
     // name something (git rejects an unusable branch name itself).

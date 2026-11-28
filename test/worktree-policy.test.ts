@@ -15,6 +15,7 @@ import {
   buildWorktreeBranch,
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
   DEFAULT_WORKTREE_MATERIALIZATION,
+  DEFAULT_WORKTREE_PREFIX,
   isExtensionWorktree,
   isWorktreeCheckoutType,
   isWorktreeMaterialization,
@@ -55,50 +56,89 @@ describe("slugifyWorktreeType", () => {
 
 describe("buildTaskSlug", () => {
   it("keeps an orchestrator-chosen 2-3 word name", () => {
-    expect(buildTaskSlug("fix login flow")).toBe("fix-login-flow");
-    expect(buildTaskSlug("research tooling")).toBe("research-tooling");
+    expect(buildTaskSlug("fix login flow", DEFAULT_WORKTREE_PREFIX)).toBe(
+      "fix-login-flow",
+    );
+    expect(buildTaskSlug("research tooling", DEFAULT_WORKTREE_PREFIX)).toBe(
+      "research-tooling",
+    );
   });
 
   it("throws when the name exceeds the word limit, reporting the branch name it gives", () => {
     expect(() =>
-      buildTaskSlug("write tests for the parser module today"),
+      buildTaskSlug(
+        "write tests for the parser module today",
+        DEFAULT_WORKTREE_PREFIX,
+      ),
     ).toThrow(
       /gives the branch name "write-tests-for-the-parser-module-today" with 7 words. The limit is 3 words/,
     );
   });
 
   it("throws when the slug exceeds the length limit, reporting the branch name it gives", () => {
-    expect(() => buildTaskSlug("researching existing tool")).toThrow(
+    expect(() =>
+      buildTaskSlug("researching existing tool", DEFAULT_WORKTREE_PREFIX),
+    ).toThrow(
       /gives the branch name "researching-existing-tool" with 25 characters\. The limit is 17 characters/,
     );
   });
 
+  it("budgets the slug against the configured prefix", () => {
+    // A longer prefix leaves less of the herdr name for the slug.
+    expect(() =>
+      buildTaskSlug("research tooling", "a-very-long-prefix-"),
+    ).toThrow(/The limit is 2 characters/);
+    expect(() => buildTaskSlug("research tooling", "")).not.toThrow();
+  });
+
   it("never truncates a name that is over the limit", () => {
-    expect(() => buildTaskSlug("researching existing tool")).toThrow();
+    expect(() =>
+      buildTaskSlug("researching existing tool", DEFAULT_WORKTREE_PREFIX),
+    ).toThrow();
   });
 
   it("throws on empty input", () => {
-    expect(() => buildTaskSlug("")).toThrow(/empty/);
+    expect(() => buildTaskSlug("", DEFAULT_WORKTREE_PREFIX)).toThrow(/empty/);
   });
 
   it("normalizes punctuation and casing", () => {
-    expect(buildTaskSlug("  Fix.Login! Flow  ")).toBe("fix-login-flow");
+    expect(buildTaskSlug("  Fix.Login! Flow  ", DEFAULT_WORKTREE_PREFIX)).toBe(
+      "fix-login-flow",
+    );
   });
 });
 
 describe("buildWorktreeBranch", () => {
-  it("prefixes with cow- and appends the id", () => {
-    expect(buildWorktreeBranch("fix-login-flow", "abc12345")).toBe(
-      "cow-fix-login-flow-abc12345",
+  it("prefixes with the configured prefix and appends the id", () => {
+    expect(
+      buildWorktreeBranch(
+        "fix-login-flow",
+        "abc12345",
+        DEFAULT_WORKTREE_PREFIX,
+      ),
+    ).toBe("cow-fix-login-flow-abc12345");
+  });
+
+  it("accepts a custom or empty prefix", () => {
+    expect(buildWorktreeBranch("fix-login-flow", "abc12345", "team-")).toBe(
+      "team-fix-login-flow-abc12345",
+    );
+    expect(buildWorktreeBranch("fix-login-flow", "abc12345", "")).toBe(
+      "fix-login-flow-abc12345",
     );
   });
 });
 
 describe("buildWorktreePath", () => {
   it("places worktrees under the root with the branch as basename", () => {
-    expect(buildWorktreePath("/root", "fix-login-flow", "abc12345")).toBe(
-      join("/root", "cow-fix-login-flow-abc12345"),
-    );
+    expect(
+      buildWorktreePath(
+        "/root",
+        "fix-login-flow",
+        "abc12345",
+        DEFAULT_WORKTREE_PREFIX,
+      ),
+    ).toBe(join("/root", "cow-fix-login-flow-abc12345"));
   });
 });
 
@@ -136,10 +176,17 @@ describe("isExtensionWorktree", () => {
     ).toBe(true);
   });
 
-  it("rejects a user worktree under the root (wrong prefix)", () => {
+  it("recognizes any name under the root, prefixed or not", () => {
+    // Ownership is recorded per run, so no prefix is required of a name.
     expect(
       isExtensionWorktree("/work/.herdr-subagents/repo/feature-x", root),
-    ).toBe(false);
+    ).toBe(true);
+    expect(
+      isExtensionWorktree(
+        "/work/.herdr-subagents/repo/fix-login-abc12345",
+        root,
+      ),
+    ).toBe(true);
   });
 
   it("rejects a cow- worktree outside the root", () => {

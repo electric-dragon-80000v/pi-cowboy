@@ -49,6 +49,7 @@ Settings live under the `agent`, `concurrency`, and `harness` objects, plus the 
 | `loadSkillsImplicitly`        | boolean                                                                                            | `true`              | Default skill loading when an agent template omits `skills`. See [`agent.loadSkillsImplicitly`](#agentloadskillsimplicitly).                 |
 | `loadExtensionsImplicitly`    | boolean                                                                                            | `true`              | Default extension loading when an agent template omits `extensions`. See [`agent.loadExtensionsImplicitly`](#agentloadextensionsimplicitly). |
 | `worktreeRoot`                | string                                                                                             | unset               | Directory where worktrees are created. See [`agent.worktreeRoot`](#agentworktreeroot).                                                       |
+| `worktreePrefix`              | string (may be empty)                                                                              | `"cow-"`            | Prefix on generated worktree names (branch, directory, agent name). See [`agent.worktreePrefix`](#agentworktreeprefix).                      |
 | `worktreeMaterialization`     | `"copy-on-write"` \| `"checkout"`                                                                  | `"copy-on-write"`   | How a worktree is populated from the parent working tree. See [`agent.worktreeMaterialization`](#agentworktreematerialization).              |
 | `worktreeCheckoutType`        | `"dirty"` \| `"clean"`                                                                             | `"clean"`           | Whether a new worktree starts at `HEAD` or carries uncommitted work. See [`agent.worktreeCheckoutType`](#agentworktreecheckouttype).         |
 | `disableDefaultAgents`        | boolean                                                                                            | `false`             | Skip built-in agent types and load only template files from disk. See [`agent.disableDefaultAgents`](#agentdisabledefaultagents).            |
@@ -127,6 +128,12 @@ Fallback for agent templates that omit `extensions`. When `true`, spawned Pi-fam
 ### `agent.worktreeRoot`
 
 Directory where `pi-cowboy` creates agent worktrees. When unset, worktrees live under `<agent dir>/pi-cowboy/worktrees`. Relative paths resolve against the repository root.
+
+### `agent.worktreePrefix`
+
+Prefix on every name `pi-cowboy` generates for a new worktree: its git branch, its directory under [`agent.worktreeRoot`](#agentworktreeroot), and the agent's herdr name. The default is `"cow-"`. Set it to `""` for no prefix, so a generated name starts at the task slug (`fix-login-flow-<id>`).
+
+The prefix identifies nothing: ownership is recorded per run, not read off a name, so a worktree you name yourself in the spawn wizard or in [`/cowboy worktree`](Menu.md#cowboy-worktree) needs no prefix. The prefix only applies to names `pi-cowboy` generates. It accepts letters, digits, `_` and `-`, and may be at most 20 characters — the generated name must fit herdr's 32-character agent-name cap, and a longer prefix would leave no room for a task name.
 
 ### `agent.worktreeMaterialization`
 

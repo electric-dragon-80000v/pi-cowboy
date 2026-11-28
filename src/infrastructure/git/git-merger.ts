@@ -313,25 +313,24 @@ export interface DeleteBranchOptions {
 }
 
 /**
- * Deletes the branch a worktree carried, once the worktree is gone: a `cow-`
- * branch that is merged and unattached. A branch a failed create minted is not
- * this class's to judge — `deleteCreatedBranch` removes it unconditionally.
+ * Deletes the branch a worktree carried, once the worktree is gone: a branch
+ * that is merged and unattached. A branch a failed create minted is not this
+ * class's to judge — `deleteCreatedBranch` removes it unconditionally.
  */
 export class BranchCleaner {
   constructor(private readonly runner: GitCommandRunner) {}
 
   /**
-   * Deletes the branch the caller names, and only it: a `cow-` branch that
-   * exists, is merged into HEAD, and whose checkout is not attached. An unmerged
-   * branch is kept — deleting it would orphan its commits. Omit `isAttached`
-   * only for a checkout the host never saw.
+   * Deletes the branch the caller names, and only it: a branch that exists, is
+   * merged into HEAD, and whose checkout is not attached. An unmerged branch is
+   * kept — deleting it would orphan its commits. Omit `isAttached` only for a
+   * checkout the host never saw.
    */
   async delete(
     options: DeleteBranchOptions,
     isAttached?: AttachmentProbe,
   ): Promise<BranchCleanupResult> {
     const { branch, worktreePath, repoCwd } = options;
-    if (!branch.startsWith("cow-")) return { kind: "not-applicable" };
     try {
       if (!(await refExists(this.runner, branch, repoCwd))) {
         return { kind: "not-applicable" };

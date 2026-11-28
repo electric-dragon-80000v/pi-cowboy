@@ -14,7 +14,7 @@
 import { Type, type Static } from "typebox";
 
 const BRANCHES_DESCRIPTION =
-  "REQUIRED. One or more settled agent branches to merge (the `cow-<task>-<id>` branches from the cowboy_agent result notes). Every branch merges sequentially in input order into the same `target`: merged, reported as already merged, or reported per item on failure — a non-conflict failure never blocks the rest. A repeated branch is rejected before anything merges — pass each branch once. A conflict halts the batch: the conflicted merge is left in progress (never auto-resolved) and the remaining branches are reported as not attempted.";
+  "REQUIRED. One or more settled agent branches to merge (the agent branches from the cowboy_agent result notes). Every branch merges sequentially in input order into the same `target`: merged, reported as already merged, or reported per item on failure — a non-conflict failure never blocks the rest. A repeated branch is rejected before anything merges — pass each branch once. A conflict halts the batch: the conflicted merge is left in progress (never auto-resolved) and the remaining branches are reported as not attempted.";
 
 const TARGET_DESCRIPTION =
   "Merge target branch (default: main). Applies to every branch in `branches`: the repo's main checkout must be on the target before anything merges.";

@@ -73,7 +73,7 @@ const {
   registry,
 } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(() => ({})),
-  getStoreMock: vi.fn(() => ({ agent: {} })),
+  getStoreMock: vi.fn(() => ({ agent: { worktreePrefix: "cow-" } })),
   buildLaunchPlanMock: vi.fn(),
   resolveMainCheckoutMock: vi.fn(),
   harnessForMock: vi.fn(),
@@ -400,7 +400,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   resultDir = fs.mkdtempSync(path.join(os.tmpdir(), "cowboy-session-"));
   getPiInstanceMock.mockReset().mockReturnValue({});
-  getStoreMock.mockReset().mockReturnValue({ agent: {} });
+  getStoreMock
+    .mockReset()
+    .mockReturnValue({ agent: { worktreePrefix: "cow-" } });
   resolveMainCheckoutMock.mockReset();
   steerCalls.length = 0;
   stubPlan = {

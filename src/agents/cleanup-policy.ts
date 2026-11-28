@@ -174,7 +174,7 @@ export interface LocatedPane {
 /** Locator answer for one agent id. Provenance is memory-only; addresses are live probes, which may correct a stale record. */
 export interface LocatedArtifacts {
   id: string;
-  /** The run's branch (`cow-<slug>-<id>`), from memory or the discovered checkout. */
+  /** The run's branch (`<prefix><slug>-<id>`), from memory or the discovered checkout. */
   branch: string;
   /** Provenance: the extension created this tree (memory, or the extension-worktree rule). */
   worktreeManaged: boolean;

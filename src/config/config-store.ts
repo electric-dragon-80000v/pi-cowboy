@@ -40,6 +40,7 @@ import type {
 import {
   DEFAULT_WORKTREE_CHECKOUT_TYPE,
   DEFAULT_WORKTREE_MATERIALIZATION,
+  DEFAULT_WORKTREE_PREFIX,
   type WorktreeCheckoutType,
   type WorktreeMaterialization,
 } from "../spawn/worktree-policy.js";
@@ -210,6 +211,8 @@ interface ResolvedAgentSettings {
   readonly grazingEnabled: boolean;
   /** Undefined = the default worktree root. */
   readonly worktreeRoot: string | undefined;
+  /** May be empty: generated names then start at the task slug. */
+  readonly worktreePrefix: string;
   readonly worktreeMaterialization: WorktreeMaterialization;
   readonly worktreeCheckoutType: WorktreeCheckoutType;
   /** The share of complete native handover records that may be unreadable before handover is refused (0 to 1). */
@@ -268,6 +271,7 @@ export class ConfigStore {
       showActiveIndicator: a.showActiveIndicator ?? true,
       grazingEnabled: a.grazingEnabled === true,
       worktreeRoot: a.worktreeRoot,
+      worktreePrefix: a.worktreePrefix ?? DEFAULT_WORKTREE_PREFIX,
       worktreeMaterialization:
         a.worktreeMaterialization ?? DEFAULT_WORKTREE_MATERIALIZATION,
       worktreeCheckoutType:
@@ -683,6 +687,9 @@ export class ConfigStore {
       /** Undefined clears back to the default. */
       setWorktreeRoot: (root: string | undefined) =>
         this.setAgentLayerEntry("worktreeRoot", root, "global"),
+      /** `""` is a real value: generated names carry no prefix. Undefined clears back to the default. */
+      setWorktreePrefix: (prefix: string | undefined) =>
+        this.setAgentLayerEntry("worktreePrefix", prefix, "global"),
       setWorktreeMaterialization: (materialization: WorktreeMaterialization) =>
         this.setAgentLayerEntry(
           "worktreeMaterialization",

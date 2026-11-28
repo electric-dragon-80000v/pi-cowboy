@@ -44,6 +44,7 @@ export const CONFIG_AGENT_NON_MODEL_KEYS = [
   "showActiveIndicator",
   "grazingEnabled",
   "worktreeRoot",
+  "worktreePrefix",
   "worktreeMaterialization",
   "worktreeCheckoutType",
   "handoverMaxExcludedRatio",

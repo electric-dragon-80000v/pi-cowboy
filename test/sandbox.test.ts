@@ -120,7 +120,12 @@ function host() {
 /** Shared allocation request; cases override naming/root/host. */
 function request(overrides: Partial<SandboxRequest> = {}): SandboxRequest {
   return {
-    naming: { kind: "generated", taskSlug: "fix-login", id: "abc12345" },
+    naming: {
+      kind: "generated",
+      taskSlug: "fix-login",
+      id: "abc12345",
+      prefix: "cow-",
+    },
     parentCwd: "/work/repo/src",
     worktreeRoot: tempRoot(),
     materialization: "copy-on-write",
@@ -167,7 +172,7 @@ describe("AgentSandbox.allocate", () => {
     const sandbox = await AgentSandbox.allocate(
       pi,
       request({
-        naming: { kind: "generated", taskSlug: "wire-up", id },
+        naming: { kind: "generated", taskSlug: "wire-up", id, prefix: "cow-" },
         parentCwd: "/work/repo/src",
         worktreeRoot: root,
       }),
@@ -204,7 +209,12 @@ describe("AgentSandbox.allocate", () => {
       AgentSandbox.allocate(
         pi,
         request({
-          naming: { kind: "generated", taskSlug: "one", id: "aaaaaaaa" },
+          naming: {
+            kind: "generated",
+            taskSlug: "one",
+            id: "aaaaaaaa",
+            prefix: "cow-",
+          },
           parentCwd: "/work/repo/src",
           worktreeRoot: root,
         }),
@@ -212,7 +222,12 @@ describe("AgentSandbox.allocate", () => {
       AgentSandbox.allocate(
         pi,
         request({
-          naming: { kind: "generated", taskSlug: "two", id: "bbbbbbbb" },
+          naming: {
+            kind: "generated",
+            taskSlug: "two",
+            id: "bbbbbbbb",
+            prefix: "cow-",
+          },
           parentCwd: "/work/repo/src",
           worktreeRoot: root,
         }),
@@ -255,7 +270,12 @@ describe("AgentSandbox.allocate", () => {
       AgentSandbox.allocate(
         pi,
         request({
-          naming: { kind: "generated", taskSlug: "two", id: "bbbbbbbb" },
+          naming: {
+            kind: "generated",
+            taskSlug: "two",
+            id: "bbbbbbbb",
+            prefix: "cow-",
+          },
           parentCwd: "/work/repo-b/src",
           worktreeRoot: root,
         }),

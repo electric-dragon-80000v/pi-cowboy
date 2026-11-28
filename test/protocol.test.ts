@@ -25,9 +25,10 @@ const { configuredAgent, getManagerMock, getPiInstanceMock } = vi.hoisted(
     // `harnessType` is part of the real store's resolved settings — a spawn
     // resolves its harness from it when neither the call nor the template names
     // one.
-    configuredAgent: { harnessType: "pi" } as {
+    configuredAgent: { harnessType: "pi", worktreePrefix: "cow-" } as {
       defaultOrchestrator?: string;
       harnessType: "pi";
+      worktreePrefix: string;
     },
     // Any item that reaches `run` needs the manager; these suites assert that
     // validation refuses before then, so reaching it is the failure.

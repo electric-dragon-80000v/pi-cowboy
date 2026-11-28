@@ -10,7 +10,10 @@ import {
   mergeDefaults,
 } from "../src/config/config-io.js";
 import { validateRawLayer } from "../src/config/config-validation.js";
-import { DEFAULT_WORKTREE_CHECKOUT_TYPE } from "../src/spawn/worktree-policy.js";
+import {
+  DEFAULT_WORKTREE_CHECKOUT_TYPE,
+  DEFAULT_WORKTREE_PREFIX,
+} from "../src/spawn/worktree-policy.js";
 import type {
   ConfigIO,
   LoadedConfig,
@@ -148,5 +151,58 @@ describe("worktreeCheckoutType — store setter", () => {
 
   it("stays out of the project config allowlist", () => {
     expect(isProjectAllowedAgentKey("worktreeCheckoutType")).toBe(false);
+  });
+});
+
+describe("worktreePrefix — validation, default, and setter", () => {
+  it.each(["cow-", "", "team-", "wt_"])(
+    "keeps the valid prefix %o",
+    (value) => {
+      const cleaned = validateRawLayer(
+        { agent: { worktreePrefix: value } },
+        "config.json",
+      );
+
+      expect(cleaned.agent?.worktreePrefix).toBe(value);
+    },
+  );
+
+  it.each(["has space-", "-leading", ".dot", "a".repeat(21)])(
+    "drops an unusable prefix %o with a warning",
+    (value) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const cleaned = validateRawLayer(
+        { agent: { worktreePrefix: value } },
+        "config.json",
+      );
+
+      expect(cleaned.agent?.worktreePrefix).toBeUndefined();
+      expect(warn.mock.calls[0][0]).toContain('"agent.worktreePrefix"');
+    },
+  );
+
+  it("resolves the built-in default when the key is absent", () => {
+    const store = loadedStore(memoryIO({}).io);
+
+    expect(store.agent.worktreePrefix).toBe(DEFAULT_WORKTREE_PREFIX);
+  });
+
+  it("keeps an explicit empty prefix: no prefix is a real value", () => {
+    const store = loadedStore(memoryIO({ agent: { worktreePrefix: "" } }).io);
+
+    expect(store.agent.worktreePrefix).toBe("");
+  });
+
+  it("persists at the global layer and survives clearing model overrides", () => {
+    const memory = memoryIO({});
+    const store = loadedStore(memory.io);
+
+    store.mutate.agent.setWorktreePrefix("");
+    store.mutate.agent.clearAllModelOverrides("global");
+
+    expect(memory.savedGlobal.at(-1)?.agent?.worktreePrefix).toBe("");
+    expect(store.agent.worktreePrefix).toBe("");
+    expect(isProjectAllowedAgentKey("worktreePrefix")).toBe(false);
   });
 });

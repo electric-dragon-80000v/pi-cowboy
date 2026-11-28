@@ -27,7 +27,7 @@ import { TEST_PANE, TEST_PLACEMENTS } from "./helpers/pane-control.js";
 const { getPiInstanceMock, getStoreMock, getAgentSpawnsMock } = vi.hoisted(
   () => ({
     getPiInstanceMock: vi.fn(() => ({}) as never),
-    getStoreMock: vi.fn(() => ({ agent: {} })),
+    getStoreMock: vi.fn(() => ({ agent: { worktreePrefix: "cow-" } })),
     getAgentSpawnsMock: vi.fn(),
   }),
 );
@@ -137,7 +137,9 @@ function attachDeps(host: AgentHost, pools = new ConcurrencyPools()) {
 
 beforeEach(() => {
   getPiInstanceMock.mockReset().mockReturnValue({} as never);
-  getStoreMock.mockReset().mockReturnValue({ agent: {} });
+  getStoreMock
+    .mockReset()
+    .mockReturnValue({ agent: { worktreePrefix: "cow-" } });
   for (const spawn of store.list()) store.drop(spawn.id);
 });
 

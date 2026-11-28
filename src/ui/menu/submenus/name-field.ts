@@ -4,8 +4,8 @@
  * What the flows share lives here: one line of input, a rejected submit that
  * notifies and keeps the text, an accepted one that reports the trimmed name,
  * and Escape leaving without a name. Each caller brings its own prefill, rule
- * and wording — the spawn wizard's names are `cow-`-prefixed, the
- * `/cowboy worktree` command's are free-form.
+ * and wording — the spawn wizard opens on the configured prefix, the
+ * `/cowboy worktree` command on the inline name or nothing.
  */
 
 import { Input } from "@earendil-works/pi-tui";

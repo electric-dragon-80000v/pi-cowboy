@@ -20,10 +20,13 @@ import {
   type Availability,
 } from "../../availability.js";
 import {
+  DEFAULT_WORKTREE_PREFIX,
+  isWorktreePrefix,
   parseWorktreeCheckoutType,
   parseWorktreeMaterialization,
   VALID_WORKTREE_CHECKOUT_TYPES,
   VALID_WORKTREE_MATERIALIZATIONS,
+  WORKTREE_PREFIX_MAX_LENGTH,
 } from "../../spawn/worktree-policy.js";
 import {
   getCowAvailability,
@@ -113,6 +116,36 @@ export async function showSpawnOptionsMenu(
         description: `Where worktrees are created. Blank = ${defaultWorktreeRoot()}.`,
       },
       {
+        id: "worktreePrefix",
+        label: "Worktree prefix",
+        currentValue: store.agent.worktreePrefix || "(none)",
+        submenu: (initialValue: string, done: (value?: string) => void) => {
+          const input = new Input();
+          input.setValue(initialValue === "(none)" ? "" : initialValue);
+          input.onSubmit = (value: string) => {
+            const prefix = value.trim();
+            if (!isWorktreePrefix(prefix)) {
+              ctx.ui.notify(
+                `Invalid prefix: up to ${WORKTREE_PREFIX_MAX_LENGTH} letters, digits, "_" or "-", not starting with "-".`,
+                "error",
+              );
+              return;
+            }
+            store.mutate.agent.setWorktreePrefix(prefix);
+            ctx.ui.notify(
+              prefix === ""
+                ? "Worktree prefix cleared (generated names carry none)"
+                : `Worktree prefix set to "${prefix}"`,
+              "info",
+            );
+            done(prefix || "(none)");
+          };
+          input.onEscape = () => done();
+          return input;
+        },
+        description: `Prefix on a generated worktree's branch, directory, and agent name. Blank = no prefix. Default: ${DEFAULT_WORKTREE_PREFIX}`,
+      },
+      {
         id: "worktreeMaterialization",
         label: "Worktree materialization",
         currentValue: getWorktreeMaterialization(),
@@ -147,6 +180,7 @@ export async function showSpawnOptionsMenu(
   const onChange = (id: string, newValue: string) => {
     switch (id) {
       case "worktreeRoot":
+      case "worktreePrefix":
         break;
       case "worktreeMaterialization": {
         const materialization = parseWorktreeMaterialization(newValue);

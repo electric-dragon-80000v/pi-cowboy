@@ -230,9 +230,9 @@ export class HerdrAgents {
   /**
    * Live herdr agents for a task slug — the idempotent-spawn probe. A hit means an
    * attempt already exists. Herdr 0.8.x drops the custom `agent start` name, so a
-   * record without one is matched by its worktree directory: extension worktrees
-   * are `cow-<taskSlug>-<id>`, and the cwd outlives the name. A failed probe
-   * returns [] so the spawn still proceeds.
+   * record without one is matched by its worktree directory: generated worktrees
+   * are named `<prefix><taskSlug>-<id>`, and the cwd outlives the name. A failed
+   * probe returns [] so the spawn still proceeds.
    */
   async findTaskAttempts(taskSlug: string): Promise<LiveAttempt[]> {
     let records: HerdrAgentInfo[];
@@ -250,7 +250,7 @@ export class HerdrAgents {
         continue;
       }
       // Nameless (or cosmetically renamed) record: the worktree directory
-      // carries the same `cow-<slug>-<id>` identity and becomes the name.
+      // carries the same `<prefix><slug>-<id>` identity and becomes the name.
       if (info.cwd === undefined) continue;
       const base = path.basename(info.cwd);
       if (isTaskAgentName(base, taskSlug)) attempts.push({ name: base });

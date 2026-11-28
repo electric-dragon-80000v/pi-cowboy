@@ -133,17 +133,19 @@ export function buildWorktreeRow(
 }
 
 /**
- * The Worktree Name screen: one screen, resolved with the accepted name or
- * undefined when the user left without one.
+ * The Worktree Name screen: one screen, opened with `prefill` and resolved with
+ * the accepted name, or undefined when the user left without one.
  */
 export async function showWorktreeNameStep(
   host: ScreenHost,
   notify: Notify,
+  prefill: string,
 ): Promise<string | undefined> {
   return await host.open<string>(
     ({ theme, close }) =>
       new SettingsListWrapper(
         createWorktreeNameInput({
+          prefill,
           notify,
           onDone: (name) => close(name),
           onCancel: () => close(),

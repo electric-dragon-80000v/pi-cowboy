@@ -81,6 +81,7 @@ describe("Agent settings — structure", () => {
       // Opens on the first selectable row; the leading header is never visited.
       "Default harness",
       "Worktree root",
+      "Worktree prefix",
       "Worktree materialization",
       "Worktree checkout",
       "Disable default agents",
@@ -91,6 +92,7 @@ describe("Agent settings — structure", () => {
   const rowTable = [
     ["Default harness", "pi"],
     ["Worktree root", "(default)"],
+    ["Worktree prefix", "cow-"],
     ["Worktree materialization", "copy-on-write"],
     ["Worktree checkout", "clean"],
     ["Disable default agents", "OFF"],
@@ -320,6 +322,47 @@ describe("Agent settings — toggles", () => {
     await session.settle();
     expect(session.activeRow()?.value).toBe("pi");
     expect(memory.store.agent.harnessType).toBe("pi");
+  });
+});
+
+describe("Agent settings — worktree prefix", () => {
+  it("clears the generated-name prefix to none, and refuses an unusable one", async () => {
+    const session = openAgentSettings();
+    await walk(
+      session,
+      [
+        { open: "Worktree prefix" },
+        { fill: "" },
+        { enter: true },
+        {
+          expect: {
+            rows: [["Worktree prefix", "(none)"]],
+            notified: ["Worktree prefix cleared (generated names carry none)"],
+            store: (store) => expect(store.agent.worktreePrefix).toBe(""),
+          },
+        },
+        // A prefix that cannot start a branch name is refused, not persisted:
+        // the field stays open on its text.
+        { open: "Worktree prefix" },
+        { fill: "bad prefix" },
+        { enter: true },
+        {
+          expect: {
+            noActiveRow: true,
+            notified: [
+              'Invalid prefix: up to 20 letters, digits, "_" or "-", not starting with "-".',
+            ],
+            store: (store) => expect(store.agent.worktreePrefix).toBe(""),
+          },
+        },
+        { escape: true },
+        { expect: { rows: [["Worktree prefix", "(none)"]] } },
+      ],
+      memory.store,
+      "worktree prefix cleared then refused",
+    );
+
+    expect(memory.lastLayer()).toBe("global");
   });
 });
 

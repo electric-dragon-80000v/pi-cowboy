@@ -104,6 +104,11 @@ export interface SubagentsConfig {
     grazingEnabled?: boolean;
     /** Relative values resolve against the repo root. */
     worktreeRoot?: string;
+    /**
+     * Prefix on a generated worktree's branch, directory, and agent name.
+     * Default: "cow-". May be empty: the generated name then starts at the task slug.
+     */
+    worktreePrefix?: string;
     /** "copy-on-write" (default) shares ignored state; "checkout" leaves git's classic checkout in place. */
     worktreeMaterialization?: WorktreeMaterialization;
     /** "clean" (default) keeps only a dirty parent's ignored state; "dirty" starts the worktree with its WIP. */

@@ -187,6 +187,8 @@ export interface AgentAssetsDeps extends CleanupDeps {
   readPane(paneId: string): Promise<HostObservation | undefined>;
   /** The worktree root extension worktrees live under; undefined = unresolvable. */
   worktreeRoot(): Promise<string | undefined>;
+  /** The configured prefix on generated names; may be empty. */
+  worktreePrefix(): string;
   /** Entry names directly under `root` (the filesystem fallback). */
   listRootEntries(root: string): Promise<readonly string[]>;
   /** Main-checkout cwd derived from a checkout; undefined = it could not be resolved. */
@@ -396,13 +398,14 @@ export function createAgentAssets(deps: AgentAssetsDeps): AgentAssets {
       kind: "located",
       source,
       id,
-      // The run's branch: its worktree's when it has one, else the pinned
-      // `cow-<task>-<id>` name parent-cwd runs launch under.
+      // The run's branch: its worktree's when it has one, else the generated
+      // `<prefix><task>-<id>` name parent-cwd runs launch under.
       branch:
         worktreeCoords?.branch ??
         buildWorktreeBranch(
           hint.display.taskSlug ?? slugifyWorktreeType(hint.display.type),
           hint.id,
+          deps.worktreePrefix(),
         ),
       worktreeManaged: managed || worktree !== null,
       paneCreated: recorded?.paneCreated === true,
@@ -552,6 +555,7 @@ export function createMultiplexerAgentAssets(
         ? undefined
         : resolveWorktreeRoot(getStore().agent.worktreeRoot, repoRoot);
     },
+    worktreePrefix: () => getStore().agent.worktreePrefix,
     listRootEntries: async (worktreeRoot) => {
       try {
         return await fs.promises.readdir(worktreeRoot);

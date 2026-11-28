@@ -437,20 +437,26 @@ describe("deleteWorktreeBranch", () => {
   const attached: AttachmentProbe = async (worktreePath) =>
     worktreePath === checkoutHeldByBackend;
 
-  it("reports not-applicable for a branch that is not an extension branch", async () => {
+  it("deletes a merged branch whatever it is called", async () => {
     const repo = await makeRepo(freshTmp());
     await execFileAsync(resolvedBin("git"), ["branch", "feature"], {
       cwd: repo,
     });
 
+    // No name marks a branch as the extension's: the run's own branch is
+    // deleted once merged and unattached, whatever prefix it carries.
     expect(
-      await deleteWorktreeBranch(realPi(), {
-        branch: "feature",
-        worktreePath: join(repo, "..", "feature"),
-        repoCwd: repo,
-      }),
-    ).toEqual({ kind: "not-applicable" });
-    expect(await git(["branch", "--list", "feature"], repo)).toBe("feature");
+      await deleteWorktreeBranch(
+        realPi(),
+        {
+          branch: "feature",
+          worktreePath: join(repo, "..", "feature"),
+          repoCwd: repo,
+        },
+        attached,
+      ),
+    ).toEqual({ kind: "deleted" });
+    expect(await git(["branch", "--list", "feature"], repo)).toBe("");
   });
 
   it("deletes a merged cow- branch once the worktree is gone", async () => {

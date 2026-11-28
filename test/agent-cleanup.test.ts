@@ -65,6 +65,7 @@ import {
 } from "../src/types.js";
 import {
   buildWorktreeBranch,
+  DEFAULT_WORKTREE_PREFIX,
   slugifyWorktreeType,
 } from "../src/spawn/worktree-policy.js";
 import { TEST_ORCHESTRATION } from "./helpers/orchestration.js";
@@ -135,7 +136,7 @@ vi.mock("../src/shell.js", async () => {
   return {
     getHarnessRegistry: () => harnesses,
     getPiInstance: () => ({}),
-    getStore: () => ({ agent: {} }),
+    getStore: () => ({ agent: { worktreePrefix: "cow-" } }),
     getSessionCtx: () => ({ cwd: "/work/repo" }),
     // Sessions register at creation, as in production; the manager's spawn surface reads this store.
     getAgentSpawns: () => shared.store,
@@ -251,6 +252,7 @@ function locatedFromHint(spawn: AgentSpawn): Located {
       buildWorktreeBranch(
         spawn.display.taskSlug ?? slugifyWorktreeType(spawn.display.type),
         spawn.id,
+        DEFAULT_WORKTREE_PREFIX,
       ),
     worktreeManaged: managed,
     paneCreated: ref?.paneCreated === true,

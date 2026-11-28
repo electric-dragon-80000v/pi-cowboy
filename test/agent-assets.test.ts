@@ -90,6 +90,7 @@ function buildDeps(overrides: Partial<AgentAssetsDeps> = {}): AgentAssetsDeps {
     listPlacements: async () => [],
     readPane: async () => undefined,
     worktreeRoot: async () => ROOT,
+    worktreePrefix: () => "cow-",
     listRootEntries: async () => [],
     resolveRepoCwd: async (path) =>
       path === WT_PATH ? "/work/repo" : undefined,
@@ -400,7 +401,6 @@ describe("locate — a run with no record", () => {
 describe("locate — exact id matching", () => {
   it.each([
     [`cow-fix-login-${OTHER_ID}`, "another spawn's id"],
-    [`not-an-extension-name-${ID}`, "no cow- prefix"],
     [`cow-fix-login-${ID}-extra`, "the id is not the suffix"],
   ])("ignores %s (%s)", async (name) => {
     const assets = assetsFor({

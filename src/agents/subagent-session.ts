@@ -1048,6 +1048,7 @@ export class SubagentSession {
             agentType: type,
             taskSlug: options.taskSlug,
             worktreeRoot: getStore().agent.worktreeRoot,
+            branchPrefix: getStore().agent.worktreePrefix,
             materialization: getWorktreeMaterialization(),
             notify: (message, kind) => ctx.ui.notify(message, kind),
           });
@@ -1074,6 +1075,7 @@ export class SubagentSession {
               type,
               taskSlug: options.taskSlug,
               id: this.id,
+              prefix: getStore().agent.worktreePrefix,
             }
           : { kind: "checkout", branch: options.worktree.branch },
       );

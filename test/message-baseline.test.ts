@@ -178,6 +178,7 @@ beforeEach(() => {
   getStoreMock.mockReturnValue({
     agent: {
       worktreeRoot,
+      worktreePrefix: "cow-",
       worktreeMaterialization: "copy-on-write",
       defaultThinking: undefined,
     },

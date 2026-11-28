@@ -1,7 +1,7 @@
 /**
  * worktree-name.test.ts — the naming rule behind the wizard's worktree name field.
- * Covers the four rejection kinds and the herdr length cap; the field's re-prompt
- * behavior is exercised in spawn-wizard.test.ts.
+ * Covers the rejection kinds and the herdr length cap; no prefix is required of
+ * a name. The field's re-prompt behavior is exercised in spawn-wizard.test.ts.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -11,10 +11,11 @@ import {
 } from "../../src/ui/menu/submenus/worktree-name.js";
 
 describe("validateWorktreeBranchName", () => {
-  it("accepts a cow- name of lowercase letters, numbers, hyphens, and underscores", () => {
+  it("accepts a lowercase name of letters, numbers, hyphens, and underscores", () => {
     expect(validateWorktreeBranchName("cow-fix-login")).toBeNull();
-    expect(validateWorktreeBranchName("cow-a")).toBeNull();
-    expect(validateWorktreeBranchName("cow-fix_login_2")).toBeNull();
+    expect(validateWorktreeBranchName("fix_login_2")).toBeNull();
+    // No prefix is required: the name stands on its own.
+    expect(validateWorktreeBranchName("plain-name")).toBeNull();
   });
 
   it("accepts a name at the herdr length cap and rejects one past it", () => {
@@ -27,10 +28,17 @@ describe("validateWorktreeBranchName", () => {
   });
 
   it("names each rejection", () => {
-    expect(validateWorktreeBranchName("fix-login")).toEqual({
-      kind: "missing-prefix",
+    expect(validateWorktreeBranchName("")).toEqual({ kind: "empty-name" });
+    // A bare prefix names nothing of its own.
+    expect(validateWorktreeBranchName("cow-")).toEqual({
+      kind: "invalid-characters",
     });
-    expect(validateWorktreeBranchName("cow-")).toEqual({ kind: "empty-name" });
+    expect(validateWorktreeBranchName("-leading")).toEqual({
+      kind: "invalid-characters",
+    });
+    expect(validateWorktreeBranchName("trailing-")).toEqual({
+      kind: "invalid-characters",
+    });
     expect(validateWorktreeBranchName("cow-Fix")).toEqual({
       kind: "invalid-characters",
     });
@@ -48,11 +56,8 @@ describe("validateWorktreeBranchName", () => {
 
 describe("describeWorktreeNameProblem", () => {
   it("renders each problem as a message", () => {
-    expect(describeWorktreeNameProblem({ kind: "missing-prefix" })).toContain(
-      'must start with "cow-"',
-    );
     expect(describeWorktreeNameProblem({ kind: "empty-name" })).toContain(
-      'Enter a name after "cow-"',
+      "Enter a name",
     );
     expect(
       describeWorktreeNameProblem({ kind: "invalid-characters" }),

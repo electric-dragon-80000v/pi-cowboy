@@ -2,9 +2,9 @@
  * worktree-command-name.ts — the `/cowboy worktree` command's name field.
  *
  * The name is the git branch and the directory under the worktree root at once,
- * so it follows git's own branch-name rules instead of the spawn wizard's
- * `cow-`-prefixed grammar, and a name that happens to start with `cow-` is
- * nothing special. It is capped at herdr's agent-name length because the pane
+ * so it follows git's own branch-name rules rather than the spawn wizard's
+ * narrower grammar, and no prefix is expected. It is capped at herdr's
+ * agent-name length because the pane
  * adoption names the worktree with it. Submit re-prompts with a notification
  * instead of completing on a rejected name.
  */

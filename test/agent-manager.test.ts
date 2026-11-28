@@ -53,7 +53,10 @@ const OPS_TEMPLATE: OrchestratorConfig = {
 
 const { getStoreMock, getAgentInfoMock, buildLaunchPlanMock } = vi.hoisted(
   () => ({
-    getStoreMock: vi.fn(() => ({ agent: {} })),
+    // Partial resolved settings: each suite installs the keys it exercises.
+    getStoreMock: vi.fn<() => { agent: Record<string, unknown> }>(() => ({
+      agent: { worktreePrefix: "cow-" },
+    })),
     getAgentInfoMock: vi.fn(),
     buildLaunchPlanMock: vi.fn(),
   }),
@@ -127,7 +130,7 @@ describe("AgentManager supervisor launch→watch seam", () => {
       interactiveReady: true,
     });
     getStoreMock.mockReset().mockReturnValue({
-      agent: { harnessType: "pi" },
+      agent: { harnessType: "pi", worktreePrefix: "cow-" },
     });
   });
 
@@ -575,7 +578,7 @@ describe("AgentManager fleet routing", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     getStoreMock.mockReset().mockReturnValue({
-      agent: { harnessType: "pi" },
+      agent: { harnessType: "pi", worktreePrefix: "cow-" },
     });
     buildLaunchPlanMock.mockReset().mockResolvedValue(stubLaunchPlan());
   });

@@ -56,7 +56,7 @@ export interface CheckoutBinding {
   path: string;
   /** Main checkout — herdr requires this for `worktree open`. */
   repoCwd: string;
-  /** Branch the checkout is on (`cow-<task>-<id>`). */
+  /** Branch the checkout is on (`<prefix><task>-<id>`). */
   branch: string;
 }
 

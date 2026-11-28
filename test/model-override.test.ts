@@ -212,6 +212,7 @@ beforeEach(() => {
   getStoreMock.mockReturnValue({
     agent: {
       worktreeRoot,
+      worktreePrefix: "cow-",
       worktreeMaterialization: "copy-on-write",
       defaultThinking: undefined,
       // The resolved harness a spawn reads when neither the call nor the

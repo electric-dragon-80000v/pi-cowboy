@@ -157,8 +157,10 @@ export async function showSpawnAgentMenu(
   // to the run, so the config screen never holds a half-answered target.
   let worktree: WorktreeTarget;
   if (configuration.worktreeChoice.kind === "new") {
-    const branch = await showWorktreeNameStep(host, (message, kind) =>
-      ctx.ui.notify(message, kind),
+    const branch = await showWorktreeNameStep(
+      host,
+      (message, kind) => ctx.ui.notify(message, kind),
+      store.agent.worktreePrefix,
     );
     if (branch === undefined) return;
     worktree = { kind: "new", branch };

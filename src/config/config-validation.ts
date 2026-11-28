@@ -17,6 +17,10 @@ import type { SubagentsConfig } from "../models/model-precedence.js";
 import { isRecord } from "../predicates.js";
 import { parsePoolKey } from "../concurrency-pools.js";
 import {
+  isWorktreePrefix,
+  WORKTREE_PREFIX_MAX_LENGTH,
+} from "../spawn/worktree-policy.js";
+import {
   DEFAULT_MODEL_BY_HARNESS_KEY,
   DEFAULT_THINKING_BY_HARNESS_KEY,
   THINKING_BY_TYPE_KEY,
@@ -70,6 +74,15 @@ const WORKTREE_CHECKOUT_TYPE: KeySpec = {
   schema: z.enum(["dirty", "clean"]),
   expected: '"dirty" | "clean"',
 };
+/**
+ * A generated-name prefix. Empty is a real value (the name starts at the task
+ * slug); otherwise it must stay inside what a git branch and a herdr agent name
+ * accept, and short enough that the prefix plus a minimal name fits.
+ */
+const WORKTREE_PREFIX: KeySpec = {
+  schema: z.string().refine(isWorktreePrefix),
+  expected: `a string of up to ${WORKTREE_PREFIX_MAX_LENGTH} letters, digits, "_" or "-", not starting with "-"; empty for no prefix`,
+};
 /** A non-empty string with a non-space character; ids and paths are read exactly as written. */
 const NON_BLANK_STRING = z
   .string()
@@ -119,6 +132,7 @@ const AGENT_KEY_SPECS: Record<string, KeySpec> = {
   showActiveIndicator: BOOL,
   grazingEnabled: BOOL,
   worktreeRoot: NON_BLANK,
+  worktreePrefix: WORKTREE_PREFIX,
   worktreeMaterialization: WORKTREE_MATERIALIZATION,
   worktreeCheckoutType: WORKTREE_CHECKOUT_TYPE,
   handoverMaxExcludedRatio: RATIO,

@@ -423,7 +423,7 @@ vi.mock("../src/shell.js", async (importOriginal) => {
     getAgentSpawns: () => store(),
     getPiInstance: () => ({}),
     getSessionCtx: () => ({ cwd: "/repo" }),
-    getStore: () => ({ agent: {} }),
+    getStore: () => ({ agent: { worktreePrefix: "cow-" } }),
     getCoordinatorOrNull: () => null,
     getHarnessRegistry: () => harnesses,
   };

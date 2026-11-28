@@ -177,6 +177,7 @@ beforeEach(() => {
   getStoreMock.mockReturnValue({
     agent: {
       worktreeRoot,
+      worktreePrefix: "cow-",
       worktreeMaterialization: "copy-on-write",
       defaultThinking: undefined,
     },
@@ -213,6 +214,7 @@ function useDefaultOrchestrator(name: string): void {
   getStoreMock.mockReturnValue({
     agent: {
       worktreeRoot,
+      worktreePrefix: "cow-",
       worktreeMaterialization: "copy-on-write",
       defaultThinking: undefined,
       defaultOrchestrator: name,

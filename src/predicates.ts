@@ -78,14 +78,18 @@ export function parseAgentName(name: string): ParsedAgentName {
 }
 
 /**
- * Agent names are `cow-<slug>-<id>`, optionally followed by `-<index>`. The
- * slug boundary is explicit — `fix` must not match `fix-login-flow-<id>` — hence
- * the full anchored shape instead of a prefix test. A name with no suffix is the
- * index-1 spelling every placement carried before indices existed.
+ * Agent names are `<prefix><slug>-<id>`, optionally followed by `-<index>`. The
+ * prefix (`agent.worktreePrefix`) is configurable and may be empty, so the
+ * matcher pins the slug-and-id suffix and must not assume any prefix. The slug
+ * boundary is explicit — `fix` must not match `fix-login-flow-<id>` — hence the
+ * full anchored shape. A name with no suffix is the index-1 spelling every
+ * placement carried before indices existed.
  */
 export function isTaskAgentName(name: string, taskSlug: string): boolean {
   // taskSlug comes from buildTaskSlug: only [a-z0-9_-], no regex metacharacters.
-  return new RegExp(`^cow-${taskSlug}-${SPAWN_ID_PATTERN}(-\\d+)?$`).test(name);
+  return new RegExp(`^(?:.*-)?${taskSlug}-${SPAWN_ID_PATTERN}(-\\d+)?$`).test(
+    name,
+  );
 }
 
 /**

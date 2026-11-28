@@ -53,7 +53,7 @@ const {
   listAgentRecordsMock,
 } = vi.hoisted(() => ({
   getPiInstanceMock: vi.fn(),
-  getStoreMock: vi.fn(() => ({ agent: {} })),
+  getStoreMock: vi.fn(() => ({ agent: { worktreePrefix: "cow-" } })),
   waitForAgentGoneMock: vi.fn(),
   getAgentInfoMock: vi.fn(),
   closePaneMock: vi.fn(),
@@ -524,7 +524,9 @@ describe("spawn retention through the manager", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     getPiInstanceMock.mockReset().mockReturnValue({});
-    getStoreMock.mockReset().mockReturnValue({ agent: {} });
+    getStoreMock
+      .mockReset()
+      .mockReturnValue({ agent: { worktreePrefix: "cow-" } });
     waitForAgentGoneMock.mockReset().mockResolvedValue(true);
     getAgentInfoMock.mockReset().mockResolvedValue({
       state: "working",

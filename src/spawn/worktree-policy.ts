@@ -1,7 +1,7 @@
 /**
- * worktree-policy.ts — pure worktree placement, `cow-<task>-<id>` naming, and ownership recognition.
+ * worktree-policy.ts — pure worktree placement, `<prefix><task>-<id>` naming, and ownership recognition.
  * The task slug comes from the cowboy_agent tool's required `task_name` parameter (no derivation fallback).
- * Extension-owned = path under the worktree root AND basename with the `cow-` prefix.
+ * Extension-owned = path under the worktree root.
  */
 
 import * as path from "node:path";
@@ -13,8 +13,35 @@ import {
 } from "../predicates.js";
 import { SPAWN_ID_LENGTH } from "./spawn-id.js";
 
-/** Branch prefix on every extension-created worktree (branch + tab label + path basename). */
-const WORKTREE_BRANCH_PREFIX = "cow-";
+/**
+ * Default prefix on a generated worktree name (branch + tab label + path
+ * basename), configurable through `agent.worktreePrefix`, which may be empty.
+ */
+export const DEFAULT_WORKTREE_PREFIX = "cow-";
+
+/**
+ * Longest configurable prefix: the prefix, a one-character slug, the dash, the
+ * spawn id, and the `-<index>` suffix must fit inside herdr's agent-name cap.
+ * A longer prefix could not name any worktree.
+ */
+export const WORKTREE_PREFIX_MAX_LENGTH =
+  HERDR_AGENT_NAME_MAX_LENGTH -
+  1 -
+  1 -
+  SPAWN_ID_LENGTH -
+  AGENT_NAME_SUFFIX_MAX_LENGTH;
+
+/**
+ * Whether `value` can prefix a generated name: empty, or letters, digits, `_`
+ * and `-` within the name budget, not starting with `-` (git would read the
+ * branch as an option).
+ */
+export function isWorktreePrefix(value: string): boolean {
+  return (
+    value.length <= WORKTREE_PREFIX_MAX_LENGTH &&
+    /^(?:[A-Za-z0-9_][A-Za-z0-9_-]*)?$/.test(value)
+  );
+}
 
 /**
  * How a new worktree's working tree is populated.
@@ -101,7 +128,8 @@ export function isWorktreeCheckoutType(
 
 /**
  * A caller's worktree target before its facts are resolved.
- *  - "new": a fresh `cow-<task>-<id>` worktree, provisioned when the run launches.
+ *  - "new": a fresh worktree named from the task slug and spawn id, provisioned
+ *    when the run launches.
  *  - "inherit": the parent session cwd; the run has no worktree of its own.
  *  - "picked": an existing checkout named by path; the run works inside it but
  *    never owns it.
@@ -157,16 +185,19 @@ export function parseWorktreeRequest(value: unknown): WorktreeRequest {
 const TASK_SLUG_MAX_WORDS = 3;
 
 /**
- * Max slug length: a generated name spends `cow-`, `-`, the spawn id, and the
- * `-<index>` an agent name carries so a second agent can share the checkout, so
- * the slug gets the rest.
+ * Max slug length for a given prefix: a generated name spends the prefix, `-`,
+ * the spawn id, and the `-<index>` an agent name carries so a second agent can
+ * share the checkout, so the slug gets the rest.
  */
-const TASK_SLUG_MAX_LENGTH =
-  HERDR_AGENT_NAME_MAX_LENGTH -
-  WORKTREE_BRANCH_PREFIX.length -
-  1 -
-  SPAWN_ID_LENGTH -
-  AGENT_NAME_SUFFIX_MAX_LENGTH;
+function maxTaskSlugLength(prefix: string): number {
+  return (
+    HERDR_AGENT_NAME_MAX_LENGTH -
+    prefix.length -
+    1 -
+    SPAWN_ID_LENGTH -
+    AGENT_NAME_SUFFIX_MAX_LENGTH
+  );
+}
 
 /** Lowercase a branch-name part into a filesystem/branch-safe slug; empty input gives "agent". */
 export function slugifyWorktreeType(typeName: string): string {
@@ -187,8 +218,11 @@ function taskNameWords(input: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-/** Turn an orchestrator-assigned name into a slug. Over-limit names throw (never truncate); empty throws too. */
-export function buildTaskSlug(input: string): string {
+/**
+ * Turn an orchestrator-assigned name into a slug the configured prefix leaves
+ * room for. Over-limit names throw (never truncate); empty throws too.
+ */
+export function buildTaskSlug(input: string, prefix: string): string {
   const words = taskNameWords(input);
   if (words.length === 0) {
     throw new Error("Task name is empty — provide a short 2-3 word name.");
@@ -199,17 +233,22 @@ export function buildTaskSlug(input: string): string {
     );
   }
   const slug = words.join("-");
-  if (slug.length > TASK_SLUG_MAX_LENGTH) {
+  const limit = maxTaskSlugLength(prefix);
+  if (slug.length > limit) {
     throw new Error(
-      `Task name "${input}" gives the branch name "${slug}" with ${slug.length} characters. The limit is ${TASK_SLUG_MAX_LENGTH} characters, because herdr limits agent names to 32 characters.`,
+      `Task name "${input}" gives the branch name "${slug}" with ${slug.length} characters. The limit is ${limit} characters, because herdr limits agent names to ${HERDR_AGENT_NAME_MAX_LENGTH} characters.`,
     );
   }
   return slug;
 }
 
-/** Build the worktree branch/basename: `cow-<task>-<id>`. */
-export function buildWorktreeBranch(taskSlug: string, id: string): string {
-  return `${WORKTREE_BRANCH_PREFIX}${slugifyWorktreeType(taskSlug)}-${id}`;
+/** Build the worktree branch/basename: `<prefix><task>-<id>`. */
+export function buildWorktreeBranch(
+  taskSlug: string,
+  id: string,
+  prefix: string,
+): string {
+  return `${prefix}${slugifyWorktreeType(taskSlug)}-${id}`;
 }
 
 /** Absolute path of a worktree under the given root. */
@@ -217,8 +256,9 @@ export function buildWorktreePath(
   root: string,
   taskSlug: string,
   id: string,
+  prefix: string,
 ): string {
-  return path.join(root, buildWorktreeBranch(taskSlug, id));
+  return path.join(root, buildWorktreeBranch(taskSlug, id, prefix));
 }
 
 /** Resolve the worktree root: configured value as-is (relative against the repo root), else the extension working dir's `worktrees` subdir. */
@@ -241,26 +281,20 @@ function normalizeRoot(value: string): string {
 }
 
 /**
- * True when a name answers to a spawn id: `cow-` prefixed with that exact id suffix.
- * Exact on purpose — the `cow-` prefix keeps a user's own same-suffixed branch out.
+ * True when a name answers to a spawn id: that exact `-<id>` suffix. The name
+ * before it is the generated `<prefix><task>-` part, whose prefix is free-form,
+ * so nothing about the name's start is tested.
  */
 export function isSpawnArtifactName(name: string, id: string): boolean {
-  return (
-    id !== "" &&
-    name.startsWith(WORKTREE_BRANCH_PREFIX) &&
-    name.length > id.length &&
-    name.endsWith(`-${id}`)
-  );
+  return id !== "" && name.length > id.length && name.endsWith(`-${id}`);
 }
 
-/** True when a worktree is extension-owned: path inside the root AND `cow-` basename. */
+/** True when a worktree is extension-owned: its path is inside the worktree root. */
 export function isExtensionWorktree(
   worktreePath: string,
   root: string,
 ): boolean {
   const p = normalizeRoot(worktreePath);
   const r = normalizeRoot(root);
-  if (p !== r && !p.startsWith(`${r}/`)) return false;
-  const base = p.split("/").filter(Boolean).pop() ?? "";
-  return base.startsWith(WORKTREE_BRANCH_PREFIX);
+  return p !== r && p.startsWith(`${r}/`);
 }

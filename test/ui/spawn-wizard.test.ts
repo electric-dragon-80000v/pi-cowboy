@@ -1357,7 +1357,7 @@ describe("Spawn wizard — new worktree", () => {
     expect(session.text()).toContain("cow-my-thing");
   });
 
-  it("keeps the field open and re-prompts on a rejected name", async () => {
+  it("keeps the field open on a rejected name and accepts one with no prefix", async () => {
     setup({ gitRepo: true });
     const session = openWizard();
     await toSpawnOptions(session);
@@ -1370,7 +1370,7 @@ describe("Spawn wizard — new worktree", () => {
     session.press(KEY.enter);
     await session.settle();
     expect(session.notifications.map((n) => n.message)).toContain(
-      'Enter a name after "cow-" (for example cow-fix-login).',
+      "Invalid name: only lowercase letters, numbers, hyphens, and underscores allowed, and it must start and end with a letter or number.",
     );
     expect(session.title()).toBe("Worktree Name");
 
@@ -1378,23 +1378,34 @@ describe("Spawn wizard — new worktree", () => {
     session.press(KEY.enter);
     await session.settle();
     expect(session.notifications.map((n) => n.message)).toContain(
-      "Invalid name: only lowercase letters, numbers, hyphens, and underscores allowed.",
+      "Invalid name: only lowercase letters, numbers, hyphens, and underscores allowed, and it must start and end with a letter or number.",
     );
 
+    // The prefix is a convenience, never a requirement.
     session.fillField("plain-name");
-    session.press(KEY.enter);
-    await session.settle();
-    expect(session.notifications.map((n) => n.message)).toContain(
-      'Worktree name must start with "cow-" — it is prefilled; add your name after it.',
-    );
-
-    session.fillField("cow-my-thing");
     session.press(KEY.enter);
     await session.settle();
 
     expect(session.title()).toBe("Agent Prompt (optional)");
     expect(spawnCalls).toHaveLength(0);
     expect(allocateMock).not.toHaveBeenCalled();
+  });
+
+  it("opens the name field on the configured prefix, empty when none is set", async () => {
+    setup({ gitRepo: true, global: { agent: { worktreePrefix: "" } } });
+    const session = openWizard();
+    await toSpawnOptions(session);
+
+    session.focus("Spawn");
+    session.press(KEY.enter);
+    await session.settle();
+
+    expect(session.title()).toBe("Worktree Name");
+    expect(session.text()).not.toContain("cow-");
+
+    session.typeText("my-thing");
+    await session.settle();
+    expect(session.text()).toContain("my-thing");
   });
 
   it("allocates an owned worktree for the typed name and spawns into it", async () => {
