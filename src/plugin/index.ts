@@ -2,8 +2,10 @@
  * plugin/index.ts — the `pi-cowboy/plugin` subpath: the whole of what a plugin
  * package imports.
  *
- * It exports the contract's types and the two reads over a model-list answer,
- * and nothing else. A plugin never imports a pi-cowboy internal path, so this
+ * It exports the contract's types and the helpers a plugin's own harness code
+ * is written against — the model-list reads, the pane launcher's staging
+ * install, and the reserved-name rules — and nothing else. A plugin never
+ * imports a pi-cowboy internal path, so this
  * subpath is the stable surface a plugin is written against and the only thing
  * that must stay compatible across versions.
  *
@@ -72,13 +74,22 @@ export { modelListEntries, modelListNotice } from "../agents/harness.js";
 // `other` arm names the native type the same way.
 export { otherRecord } from "../agents/harness.js";
 
-// The pane-side launcher's env: a plugin's body sources the staged file the
+// The pane-side launcher: its env, and the install that stages the launcher
+// file and sources it in the pane. A plugin's body sources the staged file the
 // launch carries rather than interpolating values into the typed command, and
-// any other path it types is quoted the same way.
+// any other path it types is quoted the same way. The file's path comes from
+// the staging directory helper beside it, so a plugin names a subagent, not a
+// path inside pi-cowboy's staging layout.
 export {
+  installPaneLauncher,
   launchEnvBody,
   singleQuoteShellWord,
 } from "../agents/harness/pane-launcher.js";
+export type {
+  PaneLauncherSpec,
+  PaneProof,
+} from "../agents/harness/pane-launcher.js";
+export { subagentLauncherFileFor } from "../paths.js";
 
 // Reserved environment variable rules enforced for launchers and agent templates.
 export {

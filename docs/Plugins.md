@@ -179,21 +179,34 @@ The `buildArgs` function receives a `SubagentLaunchInputs` object containing:
 
 `harness.<id>.env` in the global `config.json` and a template's `[harness.<family>.env]` table give a spawn variables beyond the pane's own environment. `pi-cowboy` merges them, drops reserved names and values containing control characters with a warning, and stages what remains in an owner-only file at `launch.envFile`. The values stay in that file: they never appear on the command line typed into the pane, so credentials are not exposed in the pane's scrollback or the shell's history file.
 
-A harness that launches through a shell function in the pane therefore sources the file rather than rebuilding the variables itself. `pi-cowboy/plugin` exports `launchEnvBody` to source the file, and `singleQuoteShellWord` to quote command arguments safely:
+A harness that launches through a shell function in the pane therefore sources the file rather than rebuilding the variables itself. `pi-cowboy/plugin` exports `launchEnvBody` to source the file, `singleQuoteShellWord` to quote command arguments safely, and `installPaneLauncher` to stage the launcher and install it in the pane:
 
 ```ts
-import { launchEnvBody, singleQuoteShellWord } from "pi-cowboy/plugin";
+import {
+  installPaneLauncher,
+  launchEnvBody,
+  singleQuoteShellWord,
+  subagentLauncherFileFor,
+} from "pi-cowboy/plugin";
 
-async prepare({ launch }: HarnessPrepareRequest) {
+async prepare({ pane, paneId, launch }: HarnessPrepareRequest) {
   const body = launchEnvBody(
     launch.envFile,
     `command my-cli --task ${singleQuoteShellWord(launch.taskFile)} "$@"`,
   );
-  // Stage the launcher that runs `body` and have the pane source it.
+  await installPaneLauncher(pane, paneId, {
+    file: subagentLauncherFileFor(launch.subagentId),
+    commandName: "my-cli",
+    body,
+    signature: "MY_CLI_LAUNCHER_1a2b3c",
+    readyMarker: "MY_CLI_VERIFIED",
+  });
 }
 ```
 
 `launchEnvBody` returns the body unchanged when the launch carries no variables, and otherwise wraps it in a subshell that sources the file: the variables reach the launched process, and the pane's shell keeps its own environment after the agent exits. A launcher that ignores `envFile` silently drops every entry configured for its harness.
+
+`installPaneLauncher` writes the launcher into the spawn's staging directory (`subagentLauncherFileFor`), types only `. '<file>'` into the pane, and retries until the read-back proves the shell's function carries this launcher's `signature`: a `run` that arrives before the shell is at its prompt is retried, and one that never lands fails the launch in `commandName`'s own name. `commandName` is the harness's `agentMultiplexerKind`, so the multiplexer's command resolves to the staged function rather than a PATH binary. When the pane state is more than the function, pass `proof` — a command to run and the output it must print — and it is staged and sourced the same way once the launcher is up.
 
 A harness can also reserve names its own launcher maintains, so a configured entry for one is refused instead of overwriting what the launcher set:
 

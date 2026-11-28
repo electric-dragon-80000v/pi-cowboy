@@ -5,17 +5,24 @@
  * rather than reach for `ReturnType<…>`.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  installPaneLauncher,
   launchEnvBody,
   modelListEntries,
   modelListNotice,
   singleQuoteShellWord,
+  subagentLauncherFileFor,
 } from "../src/plugin/index.js";
 import type {
   LiveAttempt,
   ModelEntry,
   ModelList,
+  PaneControl,
+  PaneLauncherSpec,
 } from "../src/plugin/index.js";
 
 /** Compiles only while the subpath exports `ModelList` as a type. */
@@ -62,5 +69,49 @@ describe("the plugin subpath", () => {
       `( . '/spawn/a/env.sh' && { command x "$@"; } )`,
     );
     expect(launchEnvBody(null, 'command x "$@"')).toBe('command x "$@"');
+  });
+});
+
+describe("the plugin subpath's pane launcher", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "cowboy-plugin-launcher-"));
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("stages the launcher and types only the line that sources it", async () => {
+    const typed: string[] = [];
+    const pane: PaneControl = {
+      kind: "test",
+      run: async (_paneId, command) => {
+        typed.push(command);
+      },
+      sendKeys: async () => {},
+      waitForOutput: async () => {},
+    };
+    const spec: PaneLauncherSpec = {
+      file: join(root, "launcher.sh"),
+      commandName: "my-cli",
+      body: launchEnvBody("/spawn/a/env.sh", 'command my-cli "$@"'),
+      signature: "MY_CLI_LAUNCHER_1a2b3c",
+      readyMarker: "MY_CLI_VERIFIED",
+    };
+
+    await installPaneLauncher(pane, "w1:p1", spec);
+
+    expect(typed).toEqual([`. '${spec.file}'`]);
+    const staged = readFileSync(spec.file, "utf8");
+    expect(staged).toContain('my-cli() { : "MY_CLI_LAUNCHER_1a2b3c";');
+    expect(staged).toContain('command my-cli "$@"');
+  });
+
+  it("names the launcher's file inside the spawn's staging directory", () => {
+    expect(subagentLauncherFileFor("abc12345")).toMatch(
+      /abc12345\/launcher\.sh$/,
+    );
   });
 });
