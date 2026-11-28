@@ -416,7 +416,8 @@ describe("Agents menu — the rows that hand off to a full-screen flow", () => {
     session.open("Settings");
     await session.settle();
 
-    expect(session.screenCount).toBe(2);
+    // One screen: the Settings level is on the same stack as the list it came from.
+    expect(session.screenCount).toBe(1);
     expect(session.title()).toBe("Settings");
   });
 
@@ -425,7 +426,7 @@ describe("Agents menu — the rows that hand off to a full-screen flow", () => {
     session.open("Spawn agent");
     await session.settle();
 
-    expect(session.screenCount).toBe(2);
+    expect(session.screenCount).toBe(1);
     expect(session.title()).toBe("Spawn Options");
   });
 
@@ -438,7 +439,8 @@ describe("Agents menu — the rows that hand off to a full-screen flow", () => {
     await session.settle();
 
     expect(session.title()).toBe("Agents");
-    expect(session.activeRow()?.label).toBe("Model overrides");
+    // The level below is shown as it was left, cursor included.
+    expect(session.activeRow()?.label).toBe("Settings");
   });
 
   it("closes the menu when the list itself is cancelled", async () => {
@@ -587,8 +589,8 @@ describe("Settings menu — the active indicator switch", () => {
       label: "Show cowboy 🤠",
       value: "OFF",
     });
-    // Toggling repaints the row in place; no screen was reopened.
-    expect(session.screenCount).toBe(2);
+    // Toggling repaints the row in place; the menu never left its screen.
+    expect(session.screenCount).toBe(1);
   });
 
   it("mounts the marker again when switched back on", async () => {
@@ -646,8 +648,8 @@ describe("Settings menu — the grazing switch", () => {
     // The setting gates the pasture, not the marker: the marker stays mounted.
     expect(marker.hidden()).toBe(false);
     expect(session.activeRow()).toEqual({ label: "Grazing 🐄", value: "OFF" });
-    // Toggling repaints the row in place; no screen was reopened.
-    expect(session.screenCount).toBe(2);
+    // Toggling repaints the row in place; the menu never left its screen.
+    expect(session.screenCount).toBe(1);
   });
 
   it("opens OFF when the pasture is not drawn, and draws it again", async () => {

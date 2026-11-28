@@ -266,7 +266,11 @@ export class MenuSession {
 
   async whenScreens(count: number): Promise<void> {
     for (let i = 0; i < 200; i += 1) {
-      if (this.screens.length >= count) return;
+      if (this.screens.length >= count) {
+        // The menu mounts its root level a microtask after the screen opens.
+        await this.settle();
+        return;
+      }
       await this.settle();
     }
     throw new Error(

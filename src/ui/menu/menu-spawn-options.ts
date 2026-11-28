@@ -8,7 +8,11 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
+import {
+  SettingsList,
+  type Component,
+  type SettingItem,
+} from "@earendil-works/pi-tui";
 import type { ModelChoice } from "../../types.js";
 import type { Theme } from "../types.js";
 import { selectable } from "../../availability.js";
@@ -36,7 +40,9 @@ import {
   extractConfiguredModels,
   mergedModelsForHarness,
 } from "./helpers.js";
-import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
+import { CLOSED_SUBMENU } from "./submenu-contract.js";
+import { menuSettingsList } from "./menu-session.js";
+import type { MenuNavigation } from "./menu-levels.js";
 import {
   createModelSelectSubmenu,
   deferredModelList,
@@ -65,15 +71,27 @@ export interface SpawnConfiguration {
   runInBackground: boolean;
 }
 
-/** Opens the options screen; resolves undefined when the user cancelled. */
-export async function askSpawnConfiguration(
+/**
+ * The options body: the list a spawn is configured on. `onSpawn` hands the
+ * configuration to the flow's next step, which the caller pushes; `onCancel`
+ * leaves this level.
+ */
+export async function buildSpawnOptions(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
-): Promise<SpawnConfiguration | undefined> {
+  screen: {
+    tui: { requestRender(): void };
+    theme: Theme;
+    nav: MenuNavigation;
+    onSpawn: (configuration: SpawnConfiguration) => void;
+    onCancel: () => void;
+  },
+): Promise<Component> {
+  const { tui: screenTui, theme, nav, onSpawn, onCancel } = screen;
   const types = getAvailableTypes();
   if (types.length === 0) {
     ctx.ui.notify("No agent types available", "error");
-    return undefined;
+    onCancel();
   }
 
   // The configured default leads; a value that no longer resolves falls to the first type.
@@ -181,7 +199,7 @@ export async function askSpawnConfiguration(
             return CLOSED_SUBMENU;
           }
 
-          closeConfig({
+          onSpawn({
             type: selectedType,
             harness: selectedHarness,
             modelChoice:
@@ -330,65 +348,56 @@ export async function askSpawnConfiguration(
     ];
   };
 
-  let theme: Theme;
-  let screenTui: { requestRender(): void };
-  let closeConfig: (result?: SpawnConfiguration) => void;
   let rebuild: ((items: SettingItem[]) => void) | undefined;
 
-  return await new ScreenHost(ctx).open<SpawnConfiguration>(
-    ({ theme: screenTheme, tui, close }) => {
-      theme = screenTheme;
-      screenTui = tui;
-      closeConfig = close;
-
-      const onChange = (id: string, newValue: string) => {
-        switch (id) {
-          case "type":
-            applyType(newValue);
-            break;
-          case "harness": {
-            // The row offers only harnesses this session registered and this
-            // machine can launch, so a picked value is launchable as offered.
-            const harness = harnessChoices.find((id) => id === newValue);
-            if (harness !== undefined) applyHarness(harness);
-            break;
-          }
-          case THINKING_LEVEL_ROW_ID:
-            // None is not an override: it re-seeds the level the spawn would
-            // send anyway, so the row keeps showing what the launch carries.
-            currentThinking =
-              newValue === NO_LEVEL_ID
-                ? seedThinking(selectedType, selectedHarness)
-                : newValue;
-            break;
-          case "background":
-            currentBackground = newValue === "ON";
-            break;
-          case "fork":
-            forkState = newValue === "Yes";
-            break;
-          case "description":
-            currentDescription = newValue;
-            break;
-        }
-        // Rebuild so displayed values stay in sync after any change.
-        rebuild?.(buildItems());
-      };
-      const settingsList = new SettingsList(
-        buildItems(),
-        15,
-        buildSettingsListTheme(theme),
-        onChange,
-        close,
-      );
-      return new SettingsListWrapper(settingsList, {
-        title: "Spawn Options",
-        theme,
-        onCancel: close,
-        onRebuild: (r) => {
-          rebuild = r;
-        },
-      });
-    },
+  const onChange = (id: string, newValue: string) => {
+    switch (id) {
+      case "type":
+        applyType(newValue);
+        break;
+      case "harness": {
+        // The row offers only harnesses this session registered and this
+        // machine can launch, so a picked value is launchable as offered.
+        const harness = harnessChoices.find((id) => id === newValue);
+        if (harness !== undefined) applyHarness(harness);
+        break;
+      }
+      case THINKING_LEVEL_ROW_ID:
+        // None is not an override: it re-seeds the level the spawn would
+        // send anyway, so the row keeps showing what the launch carries.
+        currentThinking =
+          newValue === NO_LEVEL_ID
+            ? seedThinking(selectedType, selectedHarness)
+            : newValue;
+        break;
+      case "background":
+        currentBackground = newValue === "ON";
+        break;
+      case "fork":
+        forkState = newValue === "Yes";
+        break;
+      case "description":
+        currentDescription = newValue;
+        break;
+    }
+    // Rebuild so displayed values stay in sync after any change.
+    rebuild?.(buildItems());
+  };
+  const settingsList = menuSettingsList(
+    buildItems(),
+    15,
+    buildSettingsListTheme(theme),
+    onChange,
+    onCancel,
+    nav,
+    "Spawn Options",
   );
+  return new SettingsListWrapper(settingsList, {
+    title: "Spawn Options",
+    theme,
+    onCancel,
+    onRebuild: (r) => {
+      rebuild = r;
+    },
+  });
 }

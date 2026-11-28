@@ -6,7 +6,7 @@
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SettingsList, Input, type SettingItem } from "@earendil-works/pi-tui";
+import { Input, type SettingItem } from "@earendil-works/pi-tui";
 import type { Theme } from "../types.js";
 import { defaultWorktreeRoot } from "../../paths.js";
 import {
@@ -39,7 +39,8 @@ import {
 } from "../../shell.js";
 import { refreshCowSupportProbe } from "../../cow-support-launch.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { ScreenHost } from "./screen-host.js";
+import { menuSettingsList, MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { SEPARATOR_ID, buildSettingsListTheme, headerItem } from "./helpers.js";
 
 /**
@@ -70,9 +71,7 @@ function offerableHarnesses(): AnyHarnessId[] {
   return [...selectable(getHarnessRegistry().ids(), getHarnessAvailability())];
 }
 
-export async function showSpawnOptionsMenu(
-  ctx: ExtensionCommandContext,
-): Promise<void> {
+export function spawnOptionsLevel(ctx: ExtensionCommandContext): MenuLevel {
   const store = getStore();
 
   const buildItems = (theme: Theme): SettingItem[] => {
@@ -218,12 +217,11 @@ export async function showSpawnOptionsMenu(
     }
   };
 
-  let rebuild: ((items: SettingItem[]) => void) | undefined;
-
-  await new ScreenHost(ctx).open<void>(({ theme, close }) => {
+  return ({ theme, nav }) => {
+    let rebuild: ((items: SettingItem[]) => void) | undefined;
     const items = buildItems(theme);
     const triggerRebuild = () => rebuild?.(buildItems(theme));
-    const settingsList = new SettingsList(
+    const settingsList = menuSettingsList(
       items,
       10,
       buildSettingsListTheme(theme),
@@ -232,15 +230,23 @@ export async function showSpawnOptionsMenu(
         // Submenu rows rebuild to refresh value + tag; toggle rows update in place (a rebuild would reset the cursor).
         if (items.some((i) => i.id === id && i.submenu)) triggerRebuild();
       },
-      close,
+      () => nav.pop(),
+      nav,
+      "Agent settings",
     );
     return new SettingsListWrapper(settingsList, {
       title: "Agent settings",
       theme,
-      onCancel: close,
+      onCancel: () => nav.pop(),
       onRebuild: (r) => {
         rebuild = r;
       },
     });
-  });
+  };
+}
+
+export async function showSpawnOptionsMenu(
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  await new MenuSession(ctx).run(spawnOptionsLevel(ctx));
 }

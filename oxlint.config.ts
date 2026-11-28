@@ -158,6 +158,22 @@ export default defineConfig({
         "import/no-default-export": "off",
       },
     },
+    // Two screens wire more rows than a menu usually does: the agent list
+    // composes the list, its actions and three out-of-list flows, and the spawn
+    // options compose every wizard row. Their import count is a fact about
+    // those screens, not an accidental lump.
+    {
+      files: [
+        "src/ui/menu/menu-agent-status.ts",
+        "src/ui/menu/menu-spawn-options.ts",
+      ],
+      rules: {
+        "import/max-dependencies": [
+          "error",
+          { max: 18, ignoreTypeImports: true },
+        ],
+      },
+    },
     {
       files: ["**/*.{ts,tsx}"],
       rules: {

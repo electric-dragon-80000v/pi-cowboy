@@ -7,7 +7,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../types.js";
-import { asSubmenuComponent } from "../screen-host.js";
+import { asSubmenuComponent } from "../submenu-contract.js";
 import { buildSelectListTheme, withVimKeys } from "../helpers.js";
 
 interface ConfirmSubmenuOptions {

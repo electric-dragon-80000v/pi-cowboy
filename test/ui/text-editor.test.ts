@@ -33,7 +33,7 @@ async function toPromptStep(session: MenuSession) {
   await session.settle();
   session.focus("Spawn");
   session.press(KEY.enter);
-  await session.whenScreens(2);
+  // The prompt is a level on the wizard's one screen, not a screen of its own.
   await session.settle();
 }
 
@@ -97,6 +97,7 @@ describe("Prompt step — multi-line body", () => {
     expect(session.notifications.map((n) => n.message)).not.toContain(
       "Cannot be empty",
     );
-    expect(session.closedScreens).toContain(1);
+    // The prompt level closed and the flow ran to its end on the one screen.
+    expect(session.closedScreens).toContain(0);
   });
 });

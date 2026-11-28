@@ -287,7 +287,7 @@ describe("Agent status — empty states", () => {
     expect(session.notifications.map((n) => n.message)).toContain(
       "No agents have been spawned this session",
     );
-    expect(session.screenCount).toBe(0);
+    expect(session.closedScreens).toEqual([0]);
   });
 
   it("notifies when the manager lists no agents", async () => {
@@ -298,7 +298,7 @@ describe("Agent status — empty states", () => {
     expect(session.notifications.map((n) => n.message)).toContain(
       "No agents have been spawned this session",
     );
-    expect(session.screenCount).toBe(0);
+    expect(session.closedScreens).toEqual([0]);
   });
 });
 
@@ -433,7 +433,7 @@ describe("Agent status — group actions", () => {
 
     // The group row never touches the spawned agent.
     expect(cleanedUp).toEqual(["beef5678-completed", "cafe9999-errored"]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     // Each teardown reports as it lands, so a slow worktree never hides the rest.
     expect(session.notifications.map((n) => n.message)).toEqual([
       "Cleaning up 2 agent(s) \u2026",
@@ -560,7 +560,7 @@ describe("Agent status — the per-agent actions list", () => {
     });
   });
 
-  it("cleans a settled agent up and closes the menu", async () => {
+  it("cleans a settled agent up and steps back to its actions", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     const session = openAgentStatus();
     session.open(/✓ beef5678-completed/);
@@ -571,7 +571,13 @@ describe("Agent status — the per-agent actions list", () => {
 
     expect(cleanedUp).toEqual(["beef5678-completed"]);
     expect(cleanupOpts).toEqual([{ id: "beef5678-completed", force: false }]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
+    // One step back: the flow leaves onto the actions it was asked from, the
+    // cursor still on the row that started it.
+    expect(session.activeRow()?.label).toBe("Clean up");
+    expect(session.text()).toContain(
+      "Close its pane and remove its worktree and merged branch",
+    );
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
@@ -612,7 +618,7 @@ describe("Agent status — the per-agent actions list", () => {
       { id: "beef5678-completed", force: false },
       { id: "beef5678-completed", force: true },
     ]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Cleaned up agent beef5678-completed forced — has uncommitted changes: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
@@ -633,7 +639,8 @@ describe("Agent status — the per-agent actions list", () => {
     session.press(KEY.escape);
     await session.settle();
 
-    // No forced pass; the refusal is reported and the menu refreshes in place.
+    // No forced pass; the refusal is reported and the flow shows the list, so
+    // the agent's row carries the reason it was kept.
     expect(cleanupOpts).toEqual([{ id: "beef5678-completed", force: false }]);
     expect(session.closedScreens).toEqual([]);
     expect(session.activeRow()?.label).toContain("✓ beef5678-completed");
@@ -715,7 +722,7 @@ describe("Agent status — handover", () => {
     await session.settle();
 
     expect(aborted).toEqual([]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Agent dead0000-queued was not exported: it never started, so there is no session to export.",
@@ -792,7 +799,7 @@ describe("Agent status — handover", () => {
     session.press("y");
     await session.settle();
 
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message: "✗ Failed to stop agent abcd1234-spawned-id: herdr unreachable",
       kind: "error",
@@ -809,7 +816,7 @@ describe("Agent status — handover", () => {
     session.press("y");
     await session.settle();
 
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✗ Failed to stop agent abcd1234-spawned-id: the run is still active, so there is no finished session to hand over yet",
@@ -841,7 +848,7 @@ describe("Agent status — handover", () => {
     await session.settle();
     session.open("Handover");
 
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message:
         "✓ Agent beef5678-completed was not handed over: no other harness can take it over.",
@@ -871,7 +878,7 @@ describe("Agent status — handover", () => {
     session.open("Handover");
     await session.settle();
 
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message:
         '✓ Agent face1234-plugin was not exported: harness "reg-no-export" cannot export its own session, so there is nothing to write.',
@@ -893,7 +900,7 @@ describe("Agent status — handover", () => {
     expect(handedOver).toEqual([
       { id: "beef5678-completed", harness: "claude" },
     ]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.map((n) => n.message)).toEqual([
       "Handing agent beef5678-completed over to claude …",
       '✓ Agent beef5678-completed handed over from "pi" to "claude". The ended run is archived; the next one runs in the same checkout and reports when it settles.',
@@ -1220,7 +1227,7 @@ describe("Agent status — result viewer overlay", () => {
     await session.settle();
 
     // The viewer is a second ctx.ui.custom screen on top of the menu.
-    expect(session.screenCount).toBe(2);
+    expect(session.screenCount).toBe(1);
     expect(session.text()).toContain("Agent · beef5678-completed");
     expect(session.text()).toContain("20 lines · 100%");
     expect(session.text()).toContain("q/Esc close");
@@ -1261,7 +1268,7 @@ describe("Agent status — result viewer overlay", () => {
     session.press("q");
     await session.settle();
 
-    expect(session.closedScreens).toEqual([1]);
+    expect(session.closedScreens).toEqual([]);
   });
 
   it("closes on Esc", async () => {
@@ -1271,7 +1278,7 @@ describe("Agent status — result viewer overlay", () => {
     session.press(KEY.escape);
     await session.settle();
 
-    expect(session.closedScreens).toEqual([1]);
+    expect(session.closedScreens).toEqual([]);
   });
 
   it("shows a short result without a scroll indicator below 100%", async () => {

@@ -36,6 +36,7 @@ import {
 } from "./agents/multiplexer-registry.js";
 import { unprobed, type Availability } from "./availability.js";
 import type { PresenceMarker } from "./ui/indicator.js";
+import type { MenuSession } from "./ui/menu/menu-session.js";
 import { AgentSpawnStore } from "./agents/agent-spawn-store.js";
 import { ConfigStore } from "./config/config-store.js";
 import { SUBAGENT_TOKEN_PREFIX } from "./paths.js";
@@ -99,6 +100,8 @@ interface Shell {
   /** The newest ui flow; each command context carries the claim it began under. */
   uiFlowClaim: number;
   uiFlows: WeakMap<object, number>;
+  /** The menu each command context is showing, while its stack is open. */
+  menus: WeakMap<object, MenuSession>;
 }
 
 const shell: Shell = {
@@ -121,6 +124,7 @@ const shell: Shell = {
   harnessModelCatalog: null,
   uiFlowClaim: 0,
   uiFlows: new WeakMap(),
+  menus: new WeakMap(),
 };
 
 export function getPiInstance(): ExtensionAPI {
@@ -158,6 +162,20 @@ export function getManagerOrNull(): AgentManager | null {
 
 export function getStore(): ConfigStore {
   return shell.store;
+}
+
+/**
+ * The menu a command context is showing, while its level stack is open. One
+ * menu per invocation: every screen it reaches is a level on that stack.
+ */
+export function getMenuSession(ctx: object): MenuSession | null {
+  return shell.menus.get(ctx) ?? null;
+}
+
+/** Bind, or unbind, the menu a command context is showing. */
+export function setMenuSession(ctx: object, session: MenuSession | null): void {
+  if (session === null) shell.menus.delete(ctx);
+  else shell.menus.set(ctx, session);
 }
 
 /**

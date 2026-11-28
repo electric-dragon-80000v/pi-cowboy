@@ -13,7 +13,9 @@ import {
   SelectList,
   truncateToWidth,
   visibleWidth,
+  type Component,
   type SelectItem,
+  type TUI,
 } from "@earendil-works/pi-tui";
 import type { AgentSpawn } from "../../types.js";
 import {
@@ -47,10 +49,14 @@ import {
   getRuntime,
 } from "../../shell.js";
 import type { Theme } from "../types.js";
-import { ScreenHost, SwappableView, asListFields } from "./screen-host.js";
+import { asListFields } from "./list-fields.js";
+import { ScreenHost } from "./screen-host.js";
+import { SwappableView } from "./swappable-view.js";
 import { createStatusCleanup } from "./menu-agent-status-cleanup.js";
 import { createStatusExport } from "./menu-agent-export.js";
 import { createStatusHandover } from "./menu-agent-handover.js";
+import type { MenuLevel, MenuNavigation } from "./menu-levels.js";
+import { MenuSession } from "./menu-session.js";
 import {
   SEPARATOR_ID,
   actionReport,
@@ -473,18 +479,59 @@ export function buildAgentActionsList(
   return list;
 }
 
-export async function showAgentStatusMenu(
-  ctx: ExtensionCommandContext,
-): Promise<void> {
-  // Settled spawns outlive their session, so list them here.
-  if ((getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? []).length === 0) {
-    ctx.ui.notify("No agents have been spawned this session", "info");
-    return;
-  }
+/** A body that shows nothing while a flow has not put its first dialog up. */
+const EMPTY_BODY: Component = {
+  invalidate() {},
+  render: (): string[] => [],
+  handleInput: () => {},
+};
 
-  await new ScreenHost(ctx).open<void>(({ tui, theme, close }) => {
-    // Re-read on refresh: a cleanup drops the spawns whose artifacts it removed.
-    let agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
+/** What a dialog flow needs while it runs: its body and the way out. */
+interface StatusFlow {
+  show: (body: Component) => void;
+  leave: () => void;
+}
+
+/**
+ * One dialog flow as a level: the level is pushed when its first dialog is
+ * shown, and that level's body swaps as the flow advances. Escape therefore
+ * leaves the whole flow in one step, instead of rewinding its dialogs one by
+ * one, which are the same decision's pages rather than places to go back to.
+ */
+function createFlow(nav: MenuNavigation, tui: TUI): StatusFlow {
+  const view = new SwappableView(EMPTY_BODY);
+  let opened = false;
+  return {
+    show: (body) => {
+      if (!opened) {
+        opened = true;
+        nav.push(() => view);
+      }
+      view.activate(body);
+      tui.requestRender();
+    },
+    leave: () => {
+      if (!opened) return;
+      opened = false;
+      nav.pop();
+    },
+  };
+}
+
+/** The agent list (the level's root) and one agent's actions above it. */
+export function agentStatusLevel(ctx: ExtensionCommandContext): MenuLevel {
+  return ({ tui, theme, nav }) => {
+    // Settled spawns outlive their session, so list them here.
+    const initial = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
+    if (initial.length === 0) {
+      ctx.ui.notify("No agents have been spawned this session", "info");
+      // Nothing to show: the level the row pushed is stepped out of.
+      nav.pop();
+      return EMPTY_BODY;
+    }
+
+    // Re-read on every build: a cleanup drops the spawns whose artifacts it removed.
+    const agents = initial;
     const activeAgents = (): AgentSpawn[] =>
       agents.filter((r) => isActivePhase(r.lifecycle.phase));
     const finishedAgents = (): AgentSpawn[] =>
@@ -560,82 +607,94 @@ export async function showAgentStatusMenu(
     // SelectList never lands on separators itself.
     installSeparatorSkip(asListFields<SelectItem>(agentList));
 
-    const view = new SwappableView(agentList);
+    /** Show the agent list again, rebuilt from the fleet as it is now. */
+    const rerunList = (): void => nav.refresh();
 
-    /** Repaint: pi-tui redraws on input, but a swap driven by an async pass has none. */
-    const requestRender = (): void => tui.requestRender();
+    /** Leave one agent's actions, back on the list. */
+    const backToList = (): void => nav.pop();
 
-    /** Re-read the fleet and rebuild the rows in place (removed agents drop out), keeping the cursor on `focusId` when it survives. */
-    const refresh = (focusId?: string): void => {
-      agents = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
-      const fields = asListFields<SelectItem>(agentList);
-      const items = buildAgentItems();
-      fields.items = items;
-      fields.filteredItems = items;
-      const at = focusId
-        ? items.findIndex((item) => item.value === focusId)
-        : -1;
-      agentList.setSelectedIndex(at >= 0 ? at : 0);
-      view.activate(agentList);
-      requestRender();
+    /** One agent's actions: a level above the list. */
+    const beginCleanupFromList = (ids: readonly string[]): void => {
+      const flow = createFlow(nav, tui);
+      // The flow sits directly on the list, so leaving it and showing the list
+      // are one step; the list is rebuilt because the rows it swept are gone.
+      const leaveToList = (): void => {
+        flow.leave();
+        rerunList();
+      };
+      createStatusCleanup({
+        ctx,
+        theme,
+        show: flow.show,
+        showList: leaveToList,
+        back: leaveToList,
+      })(ids);
     };
 
-    // The two-phase cleanup flow owns the force dialogs; the menu stays open
-    // through the decision and only a clean sweep (or a confirmed force) closes.
-    const beginCleanup = createStatusCleanup({
-      ctx,
-      theme,
-      view,
-      refresh,
-      close,
-      requestRender,
-    });
+    const beginCleanupFromActions = (ids: readonly string[]): void => {
+      const flow = createFlow(nav, tui);
+      createStatusCleanup({
+        ctx,
+        theme,
+        show: flow.show,
+        // A declined offer ends on the list, whose row carries the reason.
+        showList: () => {
+          flow.leave();
+          nav.pop();
+          rerunList();
+        },
+        // A sweep is settled: one step up, onto the actions it was asked from.
+        back: flow.leave,
+      })(ids);
+    };
 
-    /** The per-agent actions list, rebuilt from the spawn's current phase and branch. */
-    const openAgentActions = async (spawn: AgentSpawn): Promise<void> => {
-      const branch = worktreeBranch(spawn);
-      const merge = branch !== undefined && (await offerMerge(spawn, branch));
-      view.activate(
-        buildAgentActionsList(
+    const beginHandover = (spawn: AgentSpawn): void => {
+      const flow = createFlow(nav, tui);
+      createStatusHandover({
+        ctx,
+        theme,
+        show: flow.show,
+        leave: flow.leave,
+      })(spawn);
+    };
+
+    const beginExport = (spawn: AgentSpawn): void => {
+      const flow = createFlow(nav, tui);
+      createStatusExport({
+        ctx,
+        theme,
+        show: flow.show,
+        leave: flow.leave,
+      })(spawn);
+    };
+
+    /** One agent's actions: the second level. */
+    const actionsLevel =
+      (spawn: AgentSpawn): MenuLevel =>
+      async ({ stillHere }) => {
+        const branch = worktreeBranch(spawn);
+        const merge = branch !== undefined && (await offerMerge(spawn, branch));
+        if (!stillHere()) return EMPTY_BODY;
+        return buildAgentActionsList(
           ctx,
           spawn,
           theme,
-          () => refresh(spawn.id),
-          () => close(),
-          beginCleanup,
+          backToList,
+          () => nav.close(),
+          (ids) => beginCleanupFromActions(ids),
           beginHandover,
           beginExport,
           merge,
-          () => {
-            void openAgentActions(spawn);
-          },
-        ),
-      );
-      requestRender();
-    };
+          () => nav.refresh(),
+        );
+      };
 
-    const beginHandover = createStatusHandover({
-      ctx,
-      theme,
-      view,
-      close,
-      requestRender,
-      backToActions: openAgentActions,
-    });
-
-    const beginExport = createStatusExport({
-      ctx,
-      theme,
-      view,
-      close,
-      requestRender,
-    });
-
-    agentList.onSelect = async (item) => {
+    agentList.onSelect = (item) => {
       if (item.value === "__stop-all") {
         const active = activeAgents();
         actionReport(ctx.ui).pending(`Stopping ${active.length} agent(s)`);
-        close();
+        // The list is the level the stop was asked from: one step up is out.
+        nav.pop();
         stopAgentsOffMenu(
           ctx,
           active.map((r) => r.id),
@@ -643,24 +702,31 @@ export async function showAgentStatusMenu(
         return;
       }
       if (item.value === "__cleanup-finished") {
-        beginCleanup(finishedAgents().map((r) => r.id));
+        beginCleanupFromList(finishedAgents().map((r) => r.id));
         return;
       }
       if (item.value === "__cleanup-completed") {
-        beginCleanup(completedAgents().map((r) => r.id));
+        beginCleanupFromList(completedAgents().map((r) => r.id));
         return;
       }
       const spawn = agents.find((r) => r.id === item.value);
       if (spawn) {
-        await openAgentActions(spawn);
+        nav.push(actionsLevel(spawn));
       }
     };
-    agentList.onCancel = () => close();
+    agentList.onCancel = () => nav.pop();
 
-    return new SettingsListWrapper(view, {
+    return new SettingsListWrapper(agentList, {
       title: "Status",
       theme,
       passthroughKeys: true,
     });
-  });
+  };
+}
+
+/** The `/cowboy status` command: the agent list on a menu of its own. */
+export async function showAgentStatusMenu(
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  await new MenuSession(ctx).run(agentStatusLevel(ctx));
 }

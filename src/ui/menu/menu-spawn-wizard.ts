@@ -10,7 +10,7 @@ import {
   resolveWorktreeCheckoutType,
 } from "../../agents/spawn-defaults.js";
 import {
-  getManager,
+  getManagerOrNull,
   getPiInstance,
   getSessionCtx,
   getStore,
@@ -23,12 +23,14 @@ import { AgentSandbox, formatLaunchCleanupNote } from "../../spawn/sandbox.js";
 import type { ResolvedWorktree } from "../../spawn/worktree-policy.js";
 import { actionReport } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
+import { MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { choiceInvocation } from "./spawn-choice.js";
 import { showWorktreeNameStep } from "./menu-spawn-worktree.js";
 import { createTextEditor } from "./submenus/text-editor.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import {
-  askSpawnConfiguration,
+  buildSpawnOptions,
   type SpawnConfiguration,
 } from "./menu-spawn-options.js";
 
@@ -38,156 +40,190 @@ type WorktreeTarget = ResolvedWorktree;
 /** How much of the prompt a derived description keeps. */
 const DERIVED_DESCRIPTION_MAX_LENGTH = 50;
 
-/** Multi-step spawn wizard: options → worktree name (when new) → prompt → spawn. */
+/**
+ * The spawn wizard as one level: the options list. Spawn pushes the steps that
+ * follow — worktree name (when new), then the prompt — so each is one step up
+ * from the next and the options are still there if the user backs out.
+ */
+export function spawnWizardLevel(
+  ctx: ExtensionCommandContext,
+  harnessModelOptions: HarnessModelOptions,
+): MenuLevel {
+  return async ({ tui, theme, nav }) => {
+    const session = getSessionCtx();
+    const store = getStore();
+    const parentCwd = session.cwd;
+
+    /** Creates the named worktree for `agentType`; undefined when it could not be created (already notified). */
+    const allocateWorktree = async (
+      branch: string,
+      agentType: string,
+    ): Promise<AgentSandbox | undefined> => {
+      try {
+        return await AgentSandbox.allocate(getPiInstance(), {
+          naming: { kind: "explicit", branch },
+          parentCwd,
+          worktreeRoot: store.agent.worktreeRoot,
+          materialization: getWorktreeMaterialization(),
+          dirtyCheckout: resolveWorktreeCheckoutType(agentType),
+          notify: (message, kind) => ctx.ui.notify(message, kind),
+          host: getRuntime()!.host,
+        });
+      } catch (err) {
+        ctx.ui.notify(
+          `Worktree creation failed: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
+        return undefined;
+      }
+    };
+
+    /** Launches the configured run; a `new` worktree is created here so a cancelled wizard leaves none behind. */
+    const launch = async (
+      configuration: SpawnConfiguration,
+      worktree: WorktreeTarget,
+      prompt: string,
+    ): Promise<void> => {
+      const pi = getPiInstance();
+      const manager = getManagerOrNull();
+      if (!manager) {
+        ctx.ui.notify("Spawn failed: agent manager unavailable", "error");
+        nav.close();
+        return;
+      }
+      // Minted before the worktree so the in-progress line names the handle
+      // stop, cleanup, and steer will take.
+      const spawnId = manager.mintSpawnId();
+      actionReport(ctx.ui).pending(
+        `Spawning agent ${spawnId} (${configuration.type})`,
+      );
+      let sandbox: AgentSandbox | undefined;
+      if (worktree.kind === "new") {
+        sandbox = await allocateWorktree(worktree.branch, configuration.type);
+        if (!sandbox) return;
+      }
+
+      // The run's worktree: the one just allocated, or a picked pre-existing one
+      // (which the run works inside without owning). Absent for parent-cwd runs.
+      const created = sandbox?.worktree;
+      const runWorktree: AgentWorktree | undefined =
+        created !== undefined
+          ? { kind: "owned", path: created.path, branch: created.branch }
+          : worktree.kind === "picked"
+            ? {
+                kind: "picked",
+                path: worktree.path,
+                branch: worktree.branch,
+              }
+            : undefined;
+
+      const description =
+        configuration.description.trim() !== ""
+          ? configuration.description
+          : (prompt.split("\n", 1)[0] ?? "").slice(
+              0,
+              DERIVED_DESCRIPTION_MAX_LENGTH,
+            );
+
+      const coordinator = getCoordinator();
+      const orchestration = resolveDefaultOrchestrator();
+      try {
+        await coordinator.spawn(session, {
+          spawnId,
+          type: configuration.type,
+          requestedHarness: configuration.harness,
+          prompt,
+          description,
+          orchestration,
+          modelChoice: configuration.modelChoice,
+          worktree: runWorktree,
+          hostRef: sandbox?.hostRef,
+          projectTrusted: sandbox?.projectTrusted,
+          invocation: {
+            ...choiceInvocation(configuration.modelChoice),
+            runInBackground: configuration.runInBackground,
+            fork: configuration.fork,
+          },
+          runInBackground: configuration.runInBackground,
+          fork: configuration.fork,
+        });
+      } catch (err) {
+        const message = `Spawn failed: ${err instanceof Error ? err.message : String(err)}`;
+        if (!sandbox) {
+          ctx.ui.notify(message, "error");
+          return;
+        }
+        // The worktree the spawn would have owned is cleaned up here.
+        const outcome = await sandbox.teardown(pi);
+        ctx.ui.notify(
+          `${message}\n\n${formatLaunchCleanupNote(outcome)}`,
+          "error",
+        );
+      }
+    };
+
+    const host = new ScreenHost(ctx);
+
+    /** What follows Spawn: name (when new), then the prompt, then the launch. */
+    const continueFlow = async (
+      configuration: SpawnConfiguration,
+    ): Promise<void> => {
+      // A "New worktree" choice is only a decision; its name arrives here, on the
+      // way to the run, so the options list never holds a half-answered target.
+      let worktree: WorktreeTarget;
+      if (configuration.worktreeChoice.kind === "new") {
+        const branch = await showWorktreeNameStep(
+          host,
+          (message, kind) => ctx.ui.notify(message, kind),
+          store.agent.worktreePrefix,
+        );
+        if (branch === undefined) return;
+        worktree = { kind: "new", branch };
+      } else {
+        worktree = configuration.worktreeChoice;
+      }
+
+      // Optional: an empty prompt launches the agent with no task to start on.
+      const prompt = await host.open<string>(
+        ({ tui, theme: screenTheme, keybindings, close }) =>
+          new SettingsListWrapper(
+            createTextEditor({
+              prefill: "",
+              onDone: (text) => close(text),
+              onCancel: () => close(),
+              tui,
+              theme: screenTheme,
+              keybindings,
+            }),
+            {
+              title: "Agent Prompt (optional)",
+              theme: screenTheme,
+              passthroughKeys: true,
+            },
+          ),
+      );
+      if (prompt === undefined) return;
+
+      await launch(configuration, worktree, prompt);
+      nav.close();
+    };
+
+    return await buildSpawnOptions(ctx, harnessModelOptions, {
+      tui,
+      theme,
+      nav,
+      onSpawn: (configuration) => {
+        void continueFlow(configuration);
+      },
+      onCancel: () => nav.pop(),
+    });
+  };
+}
+
+/** The `/cowboy spawn` command: the wizard on a menu of its own. */
 export async function showSpawnAgentMenu(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
-  const session = getSessionCtx();
-  const store = getStore();
-  const parentCwd = session.cwd;
-
-  /** Creates the named worktree for `agentType`; undefined when it could not be created (already notified). */
-  const allocateWorktree = async (
-    branch: string,
-    agentType: string,
-  ): Promise<AgentSandbox | undefined> => {
-    try {
-      return await AgentSandbox.allocate(getPiInstance(), {
-        naming: { kind: "explicit", branch },
-        parentCwd,
-        worktreeRoot: store.agent.worktreeRoot,
-        materialization: getWorktreeMaterialization(),
-        dirtyCheckout: resolveWorktreeCheckoutType(agentType),
-        notify: (message, kind) => ctx.ui.notify(message, kind),
-        host: getRuntime()!.host,
-      });
-    } catch (err) {
-      ctx.ui.notify(
-        `Worktree creation failed: ${err instanceof Error ? err.message : String(err)}`,
-        "error",
-      );
-      return undefined;
-    }
-  };
-
-  /** Launches the configured run; a `new` worktree is created here so a cancelled wizard leaves none behind. */
-  const launch = async (
-    configuration: SpawnConfiguration,
-    worktree: WorktreeTarget,
-    prompt: string,
-  ): Promise<void> => {
-    const pi = getPiInstance();
-    // Minted before the worktree so the in-progress line names the handle
-    // stop, cleanup, and steer will take.
-    const spawnId = getManager().mintSpawnId();
-    actionReport(ctx.ui).pending(
-      `Spawning agent ${spawnId} (${configuration.type})`,
-    );
-    let sandbox: AgentSandbox | undefined;
-    if (worktree.kind === "new") {
-      sandbox = await allocateWorktree(worktree.branch, configuration.type);
-      if (!sandbox) return;
-    }
-
-    // The run's worktree: the one just allocated, or a picked pre-existing one
-    // (which the run works inside without owning). Absent for parent-cwd runs.
-    const created = sandbox?.worktree;
-    const runWorktree: AgentWorktree | undefined =
-      created !== undefined
-        ? { kind: "owned", path: created.path, branch: created.branch }
-        : worktree.kind === "picked"
-          ? {
-              kind: "picked",
-              path: worktree.path,
-              branch: worktree.branch,
-            }
-          : undefined;
-
-    const description =
-      configuration.description.trim() !== ""
-        ? configuration.description
-        : (prompt.split("\n", 1)[0] ?? "").slice(
-            0,
-            DERIVED_DESCRIPTION_MAX_LENGTH,
-          );
-
-    const coordinator = getCoordinator();
-    const orchestration = resolveDefaultOrchestrator();
-    try {
-      await coordinator.spawn(session, {
-        spawnId,
-        type: configuration.type,
-        requestedHarness: configuration.harness,
-        prompt,
-        description,
-        orchestration,
-        modelChoice: configuration.modelChoice,
-        worktree: runWorktree,
-        hostRef: sandbox?.hostRef,
-        projectTrusted: sandbox?.projectTrusted,
-        invocation: {
-          ...choiceInvocation(configuration.modelChoice),
-          runInBackground: configuration.runInBackground,
-          fork: configuration.fork,
-        },
-        runInBackground: configuration.runInBackground,
-        fork: configuration.fork,
-      });
-    } catch (err) {
-      const message = `Spawn failed: ${err instanceof Error ? err.message : String(err)}`;
-      if (!sandbox) {
-        ctx.ui.notify(message, "error");
-        return;
-      }
-      // The worktree the spawn would have owned is cleaned up here.
-      const outcome = await sandbox.teardown(pi);
-      ctx.ui.notify(
-        `${message}\n\n${formatLaunchCleanupNote(outcome)}`,
-        "error",
-      );
-    }
-  };
-
-  const configuration = await askSpawnConfiguration(ctx, harnessModelOptions);
-  if (configuration === undefined) return;
-
-  const host = new ScreenHost(ctx);
-  // A "New worktree" choice is only a decision; its name arrives here, on the way
-  // to the run, so the config screen never holds a half-answered target.
-  let worktree: WorktreeTarget;
-  if (configuration.worktreeChoice.kind === "new") {
-    const branch = await showWorktreeNameStep(
-      host,
-      (message, kind) => ctx.ui.notify(message, kind),
-      store.agent.worktreePrefix,
-    );
-    if (branch === undefined) return;
-    worktree = { kind: "new", branch };
-  } else {
-    worktree = configuration.worktreeChoice;
-  }
-
-  // Optional: an empty prompt launches the agent with no task to start on.
-  const prompt = await host.open<string>(
-    ({ tui, theme: screenTheme, keybindings, close }) =>
-      new SettingsListWrapper(
-        createTextEditor({
-          prefill: "",
-          onDone: (text) => close(text),
-          onCancel: () => close(),
-          tui,
-          theme: screenTheme,
-          keybindings,
-        }),
-        {
-          title: "Agent Prompt (optional)",
-          theme: screenTheme,
-          passthroughKeys: true,
-        },
-      ),
-  );
-  if (prompt === undefined) return;
-
-  await launch(configuration, worktree, prompt);
+  await new MenuSession(ctx).run(spawnWizardLevel(ctx, harnessModelOptions));
 }

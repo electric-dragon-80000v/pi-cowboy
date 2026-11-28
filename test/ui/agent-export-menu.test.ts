@@ -142,7 +142,7 @@ describe("Agent export — the choice list", () => {
     session.press(KEY.escape);
     await session.settle();
 
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(exported).toEqual([]);
     expect(session.notifications).toEqual([]);
   });
@@ -183,7 +183,7 @@ describe("Agent export — the clipboard", () => {
 
     expect(clipboard.copy).toHaveBeenCalledWith(`TASK FOR ${AGENT_ID}`);
     expect(exported).toEqual([AGENT_ID]);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message: `✓ Exported handover for agent ${AGENT_ID} to the clipboard.`,
       kind: "info",
@@ -229,7 +229,7 @@ describe("Agent export — the file", () => {
 
     expect(fs.readFileSync(chosen, "utf8")).toBe(`TASK FOR ${AGENT_ID}`);
     expect(fs.existsSync(defaultPath())).toBe(false);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message: `✓ Exported handover for agent ${AGENT_ID} to ${chosen}.`,
       kind: "info",
@@ -289,7 +289,7 @@ describe("Agent export — the file", () => {
     await session.settle();
 
     expect(fs.readFileSync(defaultPath(), "utf8")).toBe(`TASK FOR ${AGENT_ID}`);
-    expect(session.closedScreens).toHaveLength(1);
+    expect(session.closedScreens).toEqual([]);
     expect(session.notifications.at(-1)).toEqual({
       message: `✓ Exported handover for agent ${AGENT_ID} to ${defaultPath()}.`,
       kind: "info",
