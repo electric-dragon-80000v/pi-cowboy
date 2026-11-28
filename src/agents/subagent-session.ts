@@ -1090,7 +1090,6 @@ export class SubagentSession {
           modelChoice: options.modelChoice,
           fork: options.fork,
           cwd: options.worktree?.path,
-          pane,
           projectTrusted: options.projectTrusted,
           description: options.description,
           ...(continuation === undefined ? {} : { continuation }),

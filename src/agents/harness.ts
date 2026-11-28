@@ -181,7 +181,7 @@ const UNIVERSAL_RESERVED_ENV_VAR_NAMES: readonly string[] = [
  * Env namespaces no spawn may override, matched by prefix: a platform's dynamic
  * loader family and this extension's own namespace grow members this list does
  * not track, and every member of each is off limits. A multiplexer's vocabulary
- * is not here: the multiplexer supplies the names a launch must not override.
+ * is not here: it owns the pane it sets its own names in.
  */
 const UNIVERSAL_RESERVED_ENV_VAR_PREFIXES: readonly string[] = [
   "DYLD_",
@@ -355,7 +355,7 @@ export const RESERVED_ENV_VARS_BY_FAMILY: Record<
   HarnessFamily,
   readonly string[]
 > = {
-  pi: ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR"],
+  pi: ["PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR", "HERDR_AGENT"],
   opencode: [
     "OPENCODE_CONFIG_DIR",
     "OPENCODE_CONFIG",

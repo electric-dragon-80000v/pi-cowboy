@@ -11,7 +11,7 @@
  * hands the install a recording stand-in and never touches herdr.
  */
 
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -148,59 +148,6 @@ describe("installPaneLauncher", () => {
 
     // One sourced launcher per attempt.
     expect(run).toHaveBeenCalledTimes(5);
-  });
-});
-
-describe("installPaneLauncher multiplexer environment", () => {
-  it("exports the multiplexer's identity variable in a subshell", async () => {
-    const { pane, run } = makePane();
-    const herdr: PaneControl = {
-      ...pane,
-      launchEnvironment: (kind): Readonly<Record<string, string>> =>
-        kind === "codex" ? { HERDR_AGENT: "codex" } : {},
-    };
-
-    await installPaneLauncher(herdr, "w1:p1", SPEC);
-
-    expect(sourcedLines(run.mock.calls[0]![1])[0]).toBe(
-      'codex() { : "CODEX_LAUNCHER_1a2b3c"; ( export HERDR_AGENT=\'codex\' && { codex "$@"; } ); }',
-    );
-  });
-
-  it("leaves the body unchanged when the multiplexer needs nothing", async () => {
-    const { pane, run } = makePane();
-    const quiet: PaneControl = { ...pane, launchEnvironment: () => ({}) };
-
-    await installPaneLauncher(quiet, "w1:p1", SPEC);
-
-    expect(sourcedLines(run.mock.calls[0]![1])[0]).toBe(
-      'codex() { : "CODEX_LAUNCHER_1a2b3c"; codex "$@"; }',
-    );
-  });
-
-  it("refuses a name that is not an identifier and stages nothing", async () => {
-    const { pane } = makePane();
-    const broken: PaneControl = {
-      ...pane,
-      launchEnvironment: () => ({ "BAD NAME": "x" }),
-    };
-
-    await expect(installPaneLauncher(broken, "w1:p1", SPEC)).rejects.toThrow(
-      /invalid launch environment name/,
-    );
-    expect(existsSync(SPEC.file)).toBe(false);
-  });
-
-  it("refuses a value carrying a control character", async () => {
-    const { pane } = makePane();
-    const broken: PaneControl = {
-      ...pane,
-      launchEnvironment: () => ({ HERDR_AGENT: "pi\nrm -rf /" }),
-    };
-
-    await expect(installPaneLauncher(broken, "w1:p1", SPEC)).rejects.toThrow(
-      /control character/,
-    );
   });
 });
 

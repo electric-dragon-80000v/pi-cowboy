@@ -401,13 +401,21 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
     // The address is the identity authority: hostAt resolved which agent name is
     // free in this placement's checkout, and a caller's base name (the branch)
     // is shared by every agent there.
-    start: (ref, options) =>
-      startAgent(pi, {
+    start: async (ref, options) => {
+      // Herdr's pi screen manifest keys on this variable, and a launcher that
+      // forwards `pi` to another binary does not set it. Typed into the pane so
+      // the shell passes it to the process herdr starts; the pane keeps it after
+      // the agent exits, which is herdr's own pane vocabulary.
+      if (options.agentMultiplexerKind === "pi") {
+        await runInPane(pi, ref.paneId, "export HERDR_AGENT=pi");
+      }
+      await startAgent(pi, {
         name: ref.name,
         paneId: ref.paneId,
         piArgs: options.piArgs,
         agentMultiplexerKind: options.agentMultiplexerKind,
-      }),
+      });
+    },
 
     observe: async (ref) => {
       const info = await getAgentInfo(pi, ref.paneId);
@@ -461,12 +469,6 @@ export function createHerdrHost(pi: ExtensionAPI): AgentHost {
 function createHerdrPane(pi: ExtensionAPI): PaneControl {
   return {
     kind: HERDR,
-    // Herdr's pi screen manifest keys on this variable, so a custom launcher
-    // that forwards `pi` to another binary must carry it. The foreign CLIs are
-    // detected by their own manifests, so a launcher for those kinds needs no
-    // hint.
-    launchEnvironment: (agentKind): Readonly<Record<string, string>> =>
-      agentKind === "pi" ? { HERDR_AGENT: agentKind } : {},
     run: (paneId, command) => runInPane(pi, paneId, command),
     // The agent surface, not pane-level typing: herdr validates the target is
     // an agent and every key name before writing any bytes.

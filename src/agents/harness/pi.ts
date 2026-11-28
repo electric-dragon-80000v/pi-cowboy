@@ -5,9 +5,7 @@
  * forwarded: its argv and model list are the family's own, which pi-compatible.ts
  * assembles for every pi-compatible binary, and its store is pi-store.ts's. The
  * launcher is installed only when the spawn carries env overrides — the one
- * thing a real binary cannot be handed any other way. No custom launcher means
- * no launch environment to apply: `launchEnvironment` describes what a launcher
- * needs, and the multiplexer recognizes the stock binary itself.
+ * thing a real binary cannot be handed any other way.
  */
 
 import { type Harness, type PiFamilyLaunchRequest } from "../harness.js";

@@ -19,6 +19,8 @@ const {
   listAgentRecordsMock,
   getAgentInfoMock,
   closePaneMock,
+  startAgentMock,
+  runInPaneMock,
 } = vi.hoisted(() => ({
   focusTabMock: vi.fn(),
   runHerdrMock: vi.fn(),
@@ -34,6 +36,8 @@ const {
   listAgentRecordsMock: vi.fn(),
   getAgentInfoMock: vi.fn(),
   closePaneMock: vi.fn(),
+  startAgentMock: vi.fn(),
+  runInPaneMock: vi.fn(),
 }));
 
 vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
@@ -57,6 +61,8 @@ vi.mock("../src/infrastructure/herdr-client.js", async (importOriginal) => {
     listAgentRecords: listAgentRecordsMock,
     getAgentInfo: getAgentInfoMock,
     closePane: closePaneMock,
+    startAgent: startAgentMock,
+    runInPane: runInPaneMock,
   };
 });
 
@@ -76,6 +82,8 @@ beforeEach(() => {
   listAgentRecordsMock.mockReset().mockResolvedValue([]);
   getAgentInfoMock.mockReset().mockResolvedValue(undefined);
   closePaneMock.mockReset().mockResolvedValue(undefined);
+  startAgentMock.mockReset().mockResolvedValue(undefined);
+  runInPaneMock.mockReset().mockResolvedValue(undefined);
 });
 
 const REF: AgentHostRef = {
@@ -86,6 +94,46 @@ const REF: AgentHostRef = {
   workspaceId: "w1",
   paneCreated: true,
 };
+
+describe("start", () => {
+  it("sets herdr's pi identity in the pane before the agent starts", async () => {
+    const host = createHerdrRuntime({} as ExtensionAPI).host;
+
+    await host.start(REF, {
+      name: REF.name,
+      piArgs: ["--model", "m"],
+      agentMultiplexerKind: "pi",
+    });
+
+    expect(runInPaneMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "w1:p2",
+      "export HERDR_AGENT=pi",
+    );
+    expect(runInPaneMock.mock.invocationCallOrder[0]).toBeLessThan(
+      startAgentMock.mock.invocationCallOrder[0]!,
+    );
+    expect(startAgentMock).toHaveBeenCalledWith(expect.anything(), {
+      name: REF.name,
+      paneId: "w1:p2",
+      piArgs: ["--model", "m"],
+      agentMultiplexerKind: "pi",
+    });
+  });
+
+  it("leaves the pane alone for a kind herdr detects on its own", async () => {
+    const host = createHerdrRuntime({} as ExtensionAPI).host;
+
+    await host.start(REF, {
+      name: REF.name,
+      piArgs: [],
+      agentMultiplexerKind: "claude",
+    });
+
+    expect(runInPaneMock).not.toHaveBeenCalled();
+    expect(startAgentMock).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("guarded pane submission", () => {
   it("refuses to type when the expected process is not foreground", async () => {

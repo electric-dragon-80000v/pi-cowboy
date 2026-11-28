@@ -86,17 +86,6 @@ export interface PaneControl {
   /** How the pane is addressed; the multiplexer's own vocabulary (herdr for the built-in multiplexer). */
   readonly kind: string;
   /**
-   * Environment a custom launcher for the requested agent kind must export for
-   * the multiplexer to recognize the process. Read while the launcher is
-   * installed and again while the launch's environment is reserved, so an
-   * implementation is pure and both reads answer the same table. Absent or empty
-   * means a custom launcher needs no hint — the multiplexer recognizes the stock
-   * binary itself.
-   */
-  launchEnvironment?(
-    agentKind: AgentMultiplexerKind,
-  ): Readonly<Record<string, string>>;
-  /**
    * Type one command into the pane. Fire-and-forget by contract: a multiplexer
    * returns before the shell has evaluated the line, so a caller proves what it
    * typed rather than trusting this call (see pane-launcher.ts).

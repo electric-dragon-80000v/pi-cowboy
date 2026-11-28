@@ -44,7 +44,6 @@ import {
   type SubagentLaunchInputs,
   type ToolSelection,
 } from "./harness.js";
-import type { AgentMultiplexerKind, PaneControl } from "./agent-host.js";
 import { stageLaunchEnv } from "./harness/launch-env.js";
 import {
   mergeEnv,
@@ -257,11 +256,6 @@ interface LaunchExtras {
   agentGuidance?: string;
   /** The session a handover's launch continues; absent for every other launch. */
   continuation?: HarnessContinuation;
-  /**
-   * The session's pane surface. The launch refuses a configured entry for any
-   * name the active multiplexer supplies to a custom launcher of this kind.
-   */
-  pane: PaneControl;
 }
 
 /**
@@ -313,38 +307,11 @@ function buildHarnessArgs(
 }
 
 /**
- * The multiplexer hosting a launch, and the env names it supplies to a custom
- * launcher of the launch's kind. The multiplexer sets those names itself, so a
- * configured entry for one cannot be carried: it would overwrite the identity
- * the multiplexer needs to recognize the process.
- */
-interface MultiplexerReservations {
-  /** Multiplexer id, named in the warning that refuses an entry. */
-  readonly owner: string;
-  /** Names the multiplexer supplies for the launcher; configuration may not override them. */
-  readonly launchEnvNames: readonly string[];
-}
-
-/** The multiplexer hosting one launch of this kind, and the names it supplies to it. */
-function multiplexerReservations(
-  pane: PaneControl,
-  agentKind: AgentMultiplexerKind | undefined,
-): MultiplexerReservations {
-  return {
-    owner: pane.kind,
-    launchEnvNames:
-      agentKind === undefined
-        ? []
-        : Object.keys(pane.launchEnvironment?.(agentKind) ?? {}),
-  };
-}
-
-/**
  * The variables one launch carries, lowest to highest: the harness's own
  * defaults, the machine's table for this harness, the agent's own family table
  * over it, and the variables the harness's launch inherits from this process —
- * with the names the resolved family, the harness, or the active multiplexer
- * reserves dropped from the two configured tables.
+ * with the names the resolved family or the harness reserves dropped from the
+ * two configured tables.
  *
  * The harness's own declarations are read from the harness and never inferred
  * from a family, and the reserved set is not consulted for them: a name is
@@ -359,7 +326,6 @@ function resolveLaunchEnv(
   overrides: EnvOverrides | undefined,
   inherited: Readonly<Record<string, string>> | undefined,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): EnvOverrides | undefined {
@@ -367,7 +333,7 @@ function resolveLaunchEnv(
   const carried =
     merged === undefined
       ? undefined
-      : trustedEnv(dropReserved(merged, reserved, multiplexer, warn, harness));
+      : trustedEnv(dropReserved(merged, reserved, warn, harness));
   const own = ownEnvOverrides(inherited, "inherited", warn, harness);
   // Defaults are the harness's statement about its own process, so they sit
   // below configuration and are never filtered by a reservation: a configured
@@ -378,15 +344,10 @@ function resolveLaunchEnv(
   );
 }
 
-/**
- * One configured env table without the names this launch reserves, warning per
- * drop. The warning names the owner: a harness and a multiplexer are different
- * systems, and only one of them explains the refusal.
- */
+/** One configured env table without the names this launch reserves, warning per drop. */
 function dropReserved(
   merged: EnvOverrides,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): Record<string, string> {
@@ -395,12 +356,6 @@ function dropReserved(
     if (reserved.includes(name)) {
       warn(
         `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
-      );
-      continue;
-    }
-    if (multiplexer.launchEnvNames.includes(name)) {
-      warn(
-        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.owner} multiplexer and cannot be overridden`,
       );
       continue;
     }
@@ -545,7 +500,6 @@ export async function buildLaunchPlan(
     family === undefined ? undefined : agentConfig?.envByFamily?.[family],
     registered?.inheritedEnv?.(),
     familyReservations(family, registered),
-    multiplexerReservations(options.pane, registered?.agentMultiplexerKind),
     bufferNotify,
     harnessType,
   );
