@@ -258,10 +258,10 @@ interface LaunchExtras {
   /** The session a handover's launch continues; absent for every other launch. */
   continuation?: HarnessContinuation;
   /**
-   * The session's pane surface, so the launch reserves the environment the
-   * active multiplexer owns. Absent when a plan is built outside a live session.
+   * The session's pane surface. The launch refuses a configured entry for any
+   * name the active multiplexer supplies to a custom launcher of this kind.
    */
-  pane?: PaneControl;
+  pane: PaneControl;
 }
 
 /**
@@ -323,15 +323,11 @@ interface MultiplexerReservations {
   readonly names: readonly string[];
 }
 
-/**
- * The multiplexer's reservations for a launch of this kind, or undefined when no
- * multiplexer hosts it — a plan built outside a live session reserves nothing.
- */
+/** The multiplexer hosting one launch of this kind, and the names it supplies to it. */
 function multiplexerReservations(
-  pane: PaneControl | undefined,
+  pane: PaneControl,
   agentKind: AgentMultiplexerKind | undefined,
-): MultiplexerReservations | undefined {
-  if (pane === undefined) return undefined;
+): MultiplexerReservations {
   return {
     name: pane.kind,
     names:
@@ -361,7 +357,7 @@ function resolveLaunchEnv(
   overrides: EnvOverrides | undefined,
   inherited: Readonly<Record<string, string>> | undefined,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations | undefined,
+  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): EnvOverrides | undefined {
@@ -388,7 +384,7 @@ function resolveLaunchEnv(
 function dropReserved(
   merged: EnvOverrides,
   reserved: readonly string[],
-  multiplexer: MultiplexerReservations | undefined,
+  multiplexer: MultiplexerReservations,
   warn: (message: string) => void,
   harness: AnyHarnessId,
 ): Record<string, string> {
@@ -400,7 +396,7 @@ function dropReserved(
       );
       continue;
     }
-    if (multiplexer?.names.includes(name)) {
+    if (multiplexer.names.includes(name)) {
       warn(
         `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.name} multiplexer and cannot be overridden`,
       );

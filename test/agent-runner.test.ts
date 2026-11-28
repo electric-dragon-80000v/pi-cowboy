@@ -112,6 +112,14 @@ function setup(
   return { cwd, notify: vi.fn() };
 }
 
+/** A pane surface for launches whose subject is not the multiplexer. */
+const TEST_PANE: PaneControl = {
+  kind: "test",
+  run: async () => {},
+  sendKeys: async () => {},
+  waitForOutput: async () => {},
+};
+
 /** Swap in a store whose global layer carries this agent section. */
 function setGlobalAgentSettings(agent: RawConfig["agent"]): void {
   storeRef.current = loadedStore(memoryIO({ agent }));
@@ -143,6 +151,7 @@ async function launch(
     agentId: "runner-test",
     harness: resolveHarnessType(type),
     cwd,
+    pane: TEST_PANE,
     agentGuidance,
     fork,
     modelChoice:
@@ -323,6 +332,7 @@ describe("buildLaunchPlan CLI flags", () => {
       agentId: "runner-opencode",
       harness: "opencode",
       cwd,
+      pane: TEST_PANE,
     });
 
     // opencode's own CLI: the minimal interactive UI under a private server, the
@@ -956,6 +966,7 @@ describe("buildLaunchPlan system prompt split", () => {
       agentId: "runner-context",
       harness: resolveHarnessType("test-agent"),
       cwd,
+      pane: TEST_PANE,
       worktree: { kind: "owned", path: cwd, branch: "cow-fix-login-abc12345" },
     });
     const system = readSystemPrompt(plan);
@@ -1035,6 +1046,7 @@ describe("buildLaunchPlan system prompt split", () => {
           agentId,
           harness: resolveHarnessType("general-purpose"),
           cwd,
+          pane: TEST_PANE,
         },
       );
       const modeOf = (target: string): number =>
@@ -1070,6 +1082,7 @@ describe("buildLaunchPlan system prompt split", () => {
           agentId,
           harness: resolveHarnessType("general-purpose"),
           cwd,
+          pane: TEST_PANE,
         });
 
         expect(plan.launch.taskFile).toBeNull();
