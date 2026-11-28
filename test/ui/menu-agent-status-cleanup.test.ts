@@ -43,6 +43,8 @@ interface Recorded {
 
 let calls: Recorded[];
 let cleanupImpl: (id: string, opts?: CleanupOptions) => CleanupReport;
+/** Whether the level the flow was started from is still the user's screen. */
+let screenHere: boolean;
 
 /** Let the flow's async pass (and any forced pass) run to completion. */
 const flush = (): Promise<void> =>
@@ -65,8 +67,10 @@ function buildFlow() {
     ctx,
     theme,
     show: (body) => {
+      if (!screenHere) return false;
       view.activate(body);
       requestRender();
+      return true;
     },
     showList,
     back,
@@ -86,6 +90,7 @@ beforeEach(() => {
   resetShell();
   calls = [];
   cleanupImpl = (id) => fullTeardown(id);
+  screenHere = true;
 });
 
 describe("createStatusCleanup", () => {
@@ -163,6 +168,25 @@ describe("createStatusCleanup", () => {
 
     expect(calls).toHaveLength(1);
     expect(flow.showList).toHaveBeenCalledTimes(1);
+    expect(flow.back).not.toHaveBeenCalled();
+    expect(flow.notify).toHaveBeenCalledWith(
+      "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",
+      "warning",
+    );
+  });
+
+  it("reports a refusal instead of offering Force once the screen is gone", async () => {
+    cleanupImpl = (id) => dirtyRefusal(id);
+    const flow = buildFlow();
+
+    flow.beginCleanup(["beef5678-completed"]);
+    // The user left the screen the sweep was started from while it ran.
+    screenHere = false;
+    await flush();
+
+    // No dialog can be seen there, so the refusal is reported where it lands.
+    expect(flow.text()).not.toContain("Force");
+    expect(flow.showList).not.toHaveBeenCalled();
     expect(flow.back).not.toHaveBeenCalled();
     expect(flow.notify).toHaveBeenCalledWith(
       "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",

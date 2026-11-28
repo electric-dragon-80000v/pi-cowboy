@@ -1,12 +1,13 @@
 /**
  * menu-agent-status-cleanup.ts — the status menu's two-phase cleanup workflow.
  *
- * A non-force pass runs first, in-menu, so a refusal the operator can override
- * can be surfaced where the decision belongs. When (and only when) a run refuses
- * for a *forceable* reason, the workflow offers `Force`, then a destructive
- * confirmation that names the checkout and what force would discard. Everything
- * else — the successful teardowns, the refusals force cannot touch — is reported
- * as it lands, and a clean sweep steps one level back.
+ * A non-force pass runs first, in place of the screen it was started from, so a
+ * refusal the operator can override can be surfaced where the decision belongs.
+ * When (and only when) a run refuses for a *forceable* reason, the workflow
+ * offers `Force`, then a destructive confirmation that names the checkout and
+ * what force would discard. Everything else — the successful teardowns, the
+ * refusals force cannot touch — is reported as it lands, and a clean sweep puts
+ * the screen it was started from back.
  *
  * The force override lives here so it can never leak into `cleanup_cowboy_agent`:
  * the tool takes no options, and this is the only caller that passes `force`.
@@ -46,8 +47,11 @@ import {
 export interface StatusCleanupDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** Show `body` as this flow's dialog, in the level the flow opened. */
-  show: (body: Component) => void;
+  /**
+   * Show `body` as this flow's dialog, in place of the level's own body; false
+   * when the user has left that screen, so no dialog would be seen there.
+   */
+  show: (body: Component) => boolean;
   /** Leave the flow for the agent list, rebuilt: where a declined offer's reason reads. */
   showList: () => void;
   /** Leave the flow one level back, onto the level that started it. */
@@ -166,8 +170,9 @@ function forceOfferList(
 
 /**
  * Build the cleanup entry point for the status menu. The returned callback runs
- * the two-phase flow for `ids`; the menu stays open through the force decision,
- * and the flow leaves one level back once the sweep has settled.
+ * the two-phase flow for `ids`; the menu stays on the screen it was started
+ * from through the force decision, and the flow hands that screen back once the
+ * sweep has settled.
  */
 export function createStatusCleanup(
   deps: StatusCleanupDeps,
@@ -215,7 +220,7 @@ export function createStatusCleanup(
   };
 
   /** The first force step: offer Force beside Cancel; Esc backs out. */
-  const offerForce = (refusals: readonly ForceableRefusal[]): void => {
+  const offerForce = (refusals: readonly ForceableRefusal[]): boolean => {
     const reasons = new Map<string, WorktreeKeptReason>();
     for (const { id, report } of refusals) {
       const reason = refusalReason(report);
@@ -243,7 +248,7 @@ export function createStatusCleanup(
       reportCleanupOutcomes(ctx, refusals);
       showList();
     };
-    show(
+    return show(
       forceOfferList(
         theme,
         message,
@@ -271,7 +276,9 @@ export function createStatusCleanup(
         first.filter((o) => !refusalIds.has(o.id)),
       );
       if (refusals.length > 0) {
-        offerForce(refusals);
+        // The dialog asks on the screen the sweep was started from. A sweep
+        // that outlived it has only its refusals to report, where they land.
+        if (!offerForce(refusals)) reportCleanupOutcomes(ctx, refusals);
         return;
       }
       // Nothing was left to decide: a clean sweep is settled, and a refusal

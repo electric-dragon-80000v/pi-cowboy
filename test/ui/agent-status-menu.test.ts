@@ -585,6 +585,95 @@ describe("Agent status — the per-agent actions list", () => {
     });
   });
 
+  it("reports a settled sweep whose screen the user left, and nothing else", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    let release: (report: CleanupReport) => void = () => {};
+    cleanupImpl = () =>
+      new Promise<CleanupReport>((resolve) => {
+        release = resolve;
+      });
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Clean up");
+    await session.settle();
+    // The user goes back to the list while the teardown runs.
+    session.press(KEY.escape);
+    await session.settle();
+    expect(session.activeRow()?.label).toContain("✓ beef5678-completed");
+
+    release(fullTeardown("beef5678-completed"));
+    await session.settle();
+
+    // The list stays the user's screen: the sweep's outcome is all it adds.
+    expect(session.activeRow()?.label).toContain("✓ beef5678-completed");
+    expect(session.closedScreens).toEqual([]);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✓ Cleaned up agent beef5678-completed: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
+      kind: "info",
+    });
+  });
+
+  it("does not rebuild a screen the user moved on to while a sweep ran", async () => {
+    installManager([
+      completedSpawn("beef5678-completed"),
+      errorSpawn("cafe9999-errored"),
+    ]);
+    let release: (report: CleanupReport) => void = () => {};
+    cleanupImpl = () =>
+      new Promise<CleanupReport>((resolve) => {
+        release = resolve;
+      });
+    const session = openAgentStatus();
+
+    session.open("Clean up 1 completed agent(s)");
+    await session.settle();
+    // The user opens another agent's actions while the sweep runs.
+    session.open(/✗ cafe9999-errored/);
+    await session.settle();
+    session.focus("Export");
+
+    release(fullTeardown("beef5678-completed"));
+    await session.settle();
+
+    // That screen is left as the user left it, cursor and all.
+    expect(session.activeRow()?.label).toBe("Export");
+    expect(session.closedScreens).toEqual([]);
+  });
+
+  it("does not ask to force a refusal whose screen the user left", async () => {
+    installManager([completedSpawn("beef5678-completed")]);
+    let release: (report: CleanupReport) => void = () => {};
+    cleanupImpl = () =>
+      new Promise<CleanupReport>((resolve) => {
+        release = resolve;
+      });
+    const session = openAgentStatus();
+    session.open(/✓ beef5678-completed/);
+    await session.settle();
+
+    session.open("Clean up");
+    await session.settle();
+    session.press(KEY.escape);
+    await session.settle();
+
+    release(dirtyRefusal("beef5678-completed"));
+    await session.settle();
+
+    // No dialog is put up on a screen the sweep no longer belongs to; the
+    // refusal is simply reported there.
+    expect(session.text()).not.toContain("Force");
+    expect(session.activeRow()?.label).toContain("✓ beef5678-completed");
+    expect(session.closedScreens).toEqual([]);
+    expect(session.notifications.at(-1)).toEqual({
+      message:
+        "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",
+      kind: "warning",
+    });
+  });
+
   it("offers Force on a forceable refusal, then runs the forced pass on Y", async () => {
     installManager([completedSpawn("beef5678-completed")]);
     cleanupImpl = (id, force) =>

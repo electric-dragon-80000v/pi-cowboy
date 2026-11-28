@@ -43,7 +43,7 @@ import { actionReport, buildSelectListTheme, withVimKeys } from "./helpers.js";
 export interface StatusExportDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** Show `body` as this flow's dialog, in the level the flow opened. */
+  /** Show `body` as this flow's dialog, in place of the level's own body. */
   show: (body: Component) => void;
   /** Leave the flow, back on the agent's actions; only a landed export calls this. */
   leave: () => void;

@@ -55,7 +55,7 @@ import { SwappableView } from "./swappable-view.js";
 import { createStatusCleanup } from "./menu-agent-status-cleanup.js";
 import { createStatusExport } from "./menu-agent-export.js";
 import { createStatusHandover } from "./menu-agent-handover.js";
-import type { MenuLevel, MenuNavigation } from "./menu-levels.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { MenuSession } from "./menu-session.js";
 import {
   SEPARATOR_ID,
@@ -479,48 +479,55 @@ export function buildAgentActionsList(
   return list;
 }
 
-/** A body that shows nothing while a flow has not put its first dialog up. */
+/** A body that shows nothing while a level has yet to build its own. */
 const EMPTY_BODY: Component = {
   invalidate() {},
   render: (): string[] => [],
   handleInput: () => {},
 };
 
-/** What a dialog flow needs while it runs: its body and the way out. */
-interface StatusFlow {
-  show: (body: Component) => void;
-  leave: () => void;
+/**
+ * One level's body, with the dialogs a flow shows in its place.
+ *
+ * `mount` takes the level's own body, `show` puts a dialog where that body was,
+ * and `restore` puts it back — so a flow is a state of the screen it was
+ * started from, never a place of its own, and a dialog's pages are the same
+ * screen's pages rather than levels to rewind one by one. Both swaps step
+ * aside once that screen is gone: a flow the user left changes nothing, which
+ * leaves the work it started with only its outcome to report.
+ */
+interface LevelFlow {
+  /** Show `content` as the level's body, and hand back what the level mounts. */
+  mount: (content: Component) => Component;
+  /** Show `dialog` in place of that body; false when the screen is gone. */
+  show: (dialog: Component) => boolean;
+  /** Put the level's own body back; false when the screen is gone. */
+  restore: () => boolean;
 }
 
-/**
- * One dialog flow as a level: the level is pushed when its first dialog is
- * shown, and that level's body swaps as the flow advances. Escape therefore
- * leaves the whole flow in one step, instead of rewinding its dialogs one by
- * one, which are the same decision's pages rather than places to go back to.
- */
-function createFlow(nav: MenuNavigation, tui: TUI): StatusFlow {
+function createFlow(tui: TUI, stillHere: () => boolean): LevelFlow {
   const view = new SwappableView(EMPTY_BODY);
-  let opened = false;
+  let own: Component = EMPTY_BODY;
+  const swap = (body: Component): boolean => {
+    if (!stillHere()) return false;
+    view.activate(body);
+    tui.requestRender();
+    return true;
+  };
   return {
-    show: (body) => {
-      if (!opened) {
-        opened = true;
-        nav.push(() => view);
-      }
-      view.activate(body);
-      tui.requestRender();
+    mount: (content) => {
+      own = content;
+      view.activate(content);
+      return view;
     },
-    leave: () => {
-      if (!opened) return;
-      opened = false;
-      nav.pop();
-    },
+    show: swap,
+    restore: () => swap(own),
   };
 }
 
 /** The agent list (the level's root) and one agent's actions above it. */
 export function agentStatusLevel(ctx: ExtensionCommandContext): MenuLevel {
-  return ({ tui, theme, nav }) => {
+  return ({ tui, theme, nav, stillHere }) => {
     // Settled spawns outlive their session, so list them here.
     const initial = getManagerOrNull()?.listAgents(ALL_AGENT_PHASES) ?? [];
     if (initial.length === 0) {
@@ -613,13 +620,14 @@ export function agentStatusLevel(ctx: ExtensionCommandContext): MenuLevel {
     /** Leave one agent's actions, back on the list. */
     const backToList = (): void => nav.pop();
 
-    /** One agent's actions: a level above the list. */
+    const flow = createFlow(tui, stillHere);
+
     const beginCleanupFromList = (ids: readonly string[]): void => {
-      const flow = createFlow(nav, tui);
-      // The flow sits directly on the list, so leaving it and showing the list
-      // are one step; the list is rebuilt because the rows it swept are gone.
+      // The dialogs show where the list was, so leaving the flow and showing
+      // the list again are one step — rebuilt, because the rows it swept are
+      // gone — and only while that list is still the screen the user is on.
       const leaveToList = (): void => {
-        flow.leave();
+        if (!stillHere()) return;
         rerunList();
       };
       createStatusCleanup({
@@ -631,61 +639,62 @@ export function agentStatusLevel(ctx: ExtensionCommandContext): MenuLevel {
       })(ids);
     };
 
-    const beginCleanupFromActions = (ids: readonly string[]): void => {
-      const flow = createFlow(nav, tui);
-      createStatusCleanup({
-        ctx,
-        theme,
-        show: flow.show,
-        // A declined offer ends on the list, whose row carries the reason.
-        showList: () => {
-          flow.leave();
-          nav.pop();
-          rerunList();
-        },
-        // A sweep is settled: one step up, onto the actions it was asked from.
-        back: flow.leave,
-      })(ids);
-    };
-
-    const beginHandover = (spawn: AgentSpawn): void => {
-      const flow = createFlow(nav, tui);
-      createStatusHandover({
-        ctx,
-        theme,
-        show: flow.show,
-        leave: flow.leave,
-      })(spawn);
-    };
-
-    const beginExport = (spawn: AgentSpawn): void => {
-      const flow = createFlow(nav, tui);
-      createStatusExport({
-        ctx,
-        theme,
-        show: flow.show,
-        leave: flow.leave,
-      })(spawn);
-    };
-
     /** One agent's actions: the second level. */
     const actionsLevel =
       (spawn: AgentSpawn): MenuLevel =>
-      async ({ stillHere }) => {
+      async ({ stillHere: stillOnActions }) => {
         const branch = worktreeBranch(spawn);
         const merge = branch !== undefined && (await offerMerge(spawn, branch));
-        if (!stillHere()) return EMPTY_BODY;
-        return buildAgentActionsList(
-          ctx,
-          spawn,
-          theme,
-          backToList,
-          () => nav.close(),
-          (ids) => beginCleanupFromActions(ids),
-          beginHandover,
-          beginExport,
-          merge,
-          () => nav.refresh(),
+        if (!stillOnActions()) return EMPTY_BODY;
+        const flow = createFlow(tui, stillOnActions);
+
+        const beginCleanupFromActions = (ids: readonly string[]): void => {
+          createStatusCleanup({
+            ctx,
+            theme,
+            show: flow.show,
+            // A declined offer ends on the list, whose row carries the reason.
+            showList: () => {
+              if (!stillOnActions()) return;
+              nav.pop();
+              rerunList();
+            },
+            // A sweep is settled: the actions it was asked from are back.
+            back: flow.restore,
+          })(ids);
+        };
+
+        const beginHandover = (target: AgentSpawn): void => {
+          createStatusHandover({
+            ctx,
+            theme,
+            show: flow.show,
+            leave: flow.restore,
+          })(target);
+        };
+
+        const beginExport = (target: AgentSpawn): void => {
+          createStatusExport({
+            ctx,
+            theme,
+            show: flow.show,
+            leave: flow.restore,
+          })(target);
+        };
+
+        return flow.mount(
+          buildAgentActionsList(
+            ctx,
+            spawn,
+            theme,
+            backToList,
+            () => nav.close(),
+            beginCleanupFromActions,
+            beginHandover,
+            beginExport,
+            merge,
+            () => nav.refresh(),
+          ),
         );
       };
 
@@ -716,11 +725,13 @@ export function agentStatusLevel(ctx: ExtensionCommandContext): MenuLevel {
     };
     agentList.onCancel = () => nav.pop();
 
-    return new SettingsListWrapper(agentList, {
-      title: "Status",
-      theme,
-      passthroughKeys: true,
-    });
+    return flow.mount(
+      new SettingsListWrapper(agentList, {
+        title: "Status",
+        theme,
+        passthroughKeys: true,
+      }),
+    );
   };
 }
 
