@@ -313,14 +313,16 @@ function buildHarnessArgs(
 }
 
 /**
- * The environment names the active multiplexer supplies to a custom launcher of
- * this kind. The multiplexer sets them itself, so a configured entry for one
- * cannot be carried: it would overwrite the identity the multiplexer needs to
- * recognize the process.
+ * The multiplexer hosting a launch, and the env names it supplies to a custom
+ * launcher of the launch's kind. The multiplexer sets those names itself, so a
+ * configured entry for one cannot be carried: it would overwrite the identity
+ * the multiplexer needs to recognize the process.
  */
 interface MultiplexerReservations {
-  readonly name: string;
-  readonly names: readonly string[];
+  /** Multiplexer id, named in the warning that refuses an entry. */
+  readonly owner: string;
+  /** Names the multiplexer supplies for the launcher; configuration may not override them. */
+  readonly launchEnvNames: readonly string[];
 }
 
 /** The multiplexer hosting one launch of this kind, and the names it supplies to it. */
@@ -329,8 +331,8 @@ function multiplexerReservations(
   agentKind: AgentMultiplexerKind | undefined,
 ): MultiplexerReservations {
   return {
-    name: pane.kind,
-    names:
+    owner: pane.kind,
+    launchEnvNames:
       agentKind === undefined
         ? []
         : Object.keys(pane.launchEnvironment?.(agentKind) ?? {}),
@@ -396,9 +398,9 @@ function dropReserved(
       );
       continue;
     }
-    if (multiplexer.names.includes(name)) {
+    if (multiplexer.launchEnvNames.includes(name)) {
       warn(
-        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.name} multiplexer and cannot be overridden`,
+        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${multiplexer.owner} multiplexer and cannot be overridden`,
       );
       continue;
     }
