@@ -1,3 +1,21 @@
+# [0.43.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.42.0...v0.43.0) (2026-11-28)
+
+
+### Bug Fixes
+
+* add the new Pane apis to the plugin surface ([e7978e6](https://github.com/electric-dragon-80000v/pi-cowboy/commit/e7978e66cb6fe3ea471bc8c14575f7b85c235d4d))
+* **cleanup:** remove a checkout through its workspace before closing its pane ([02dcc9b](https://github.com/electric-dragon-80000v/pi-cowboy/commit/02dcc9b477206cd501a8723ac7cfefe6efe40b5a))
+* **harness:** source the pane launcher from a staged file instead of typing it ([257b3ad](https://github.com/electric-dragon-80000v/pi-cowboy/commit/257b3ade0c9da39110b90caf58263224d147248b)), closes [#56](https://github.com/electric-dragon-80000v/pi-cowboy/issues/56)
+* **hooks:** read the ramdisk device past hdiutil's deprecation warning ([2330ccd](https://github.com/electric-dragon-80000v/pi-cowboy/commit/2330ccd1b301542213e38d07b7f153a7c71b139c))
+* release [skip ci] ([e39bcdc](https://github.com/electric-dragon-80000v/pi-cowboy/commit/e39bcdc772e8c08734f995baa9466754dd642f8e))
+* remove .pi_worktrees from .gitignore ([f316785](https://github.com/electric-dragon-80000v/pi-cowboy/commit/f316785774e4440d4bd7312727c9f8ea7b3c5549))
+
+
+### Features
+
+* export LiveAttempt type for the plugin API ([bc24c4c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bc24c4cb143f7b2a3329abeaf3543504826a8dfe))
+* **worktree:** make the name prefix configurable, and stop requiring one ([33db200](https://github.com/electric-dragon-80000v/pi-cowboy/commit/33db200e6a708fadda9fbd978e753fcdff40d023))
+
 # [0.42.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.41.2...v0.42.0) (2026-11-28)
 
 
