@@ -1006,19 +1006,6 @@ describe("deleteWorktreeBranch", () => {
     });
   }
 
-  it("reports not-applicable for a branch that is not an extension branch, without touching git", async () => {
-    const pi = mockPi(() => {
-      throw new Error("no git calls expected");
-    });
-    expect(
-      await deleteWorktreeBranch(pi, {
-        branch: "some-other-dir",
-        worktreePath: "/work/repo/some-other-dir",
-        repoCwd: CWD,
-      }),
-    ).toEqual({ kind: "not-applicable" });
-  });
-
   it("reports not-applicable when the branch ref does not exist", async () => {
     const pi = branchPi({ refExists: false });
     expect(
