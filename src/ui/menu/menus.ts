@@ -1,70 +1,73 @@
 /**
- * menus.ts — /cowboy command dispatcher: main menu and settings menu.
- * Picker rows host their submenu in place; the status/spawn/settings rows
- * close this list and hand off to a full-screen flow (cf. buildAgentActionsList),
- * which showAgentsActionMenu also opens for a `/cowboy status|spawn` subcommand.
- * The Enabled switch closes the main menu, and while the extension is off it is
- * the whole of it.
+ * menus.ts — /cowboy command dispatcher: the main menu and the settings menu.
+ *
+ * Every row that leads somewhere pushes a level onto the menu's stack: the
+ * agent list, the spawn options, a settings screen. Nothing hands the screen
+ * back and waits to be reopened, so Escape on any of them is the same one step
+ * up, and the stack emptying is the menu closing.
+ *
+ * The Enabled switch repaints the list in place, and while the extension is off
+ * it is the whole of the menu.
+ *
  * Exports: showAgentsMainMenu, showAgentsActionMenu, showSettingsMenu,
  * showSpawnAgentMenu (re-export).
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
+import { type SettingItem } from "@earendil-works/pi-tui";
 import { getStore } from "../../shell.js";
 import { setExtensionEnabled } from "../../registration.js";
 import type { HarnessModelOptions } from "../../agents/harness/harness-registry.js";
 import { setShowActiveIndicator } from "../../extension-toggle.js";
 import { getPiDefaultThinkingLevel } from "../../pi-settings.js";
 import { buildSettingsListTheme, type Notify } from "./helpers.js";
-import { CLOSED_SUBMENU, ScreenHost } from "./screen-host.js";
+import { CLOSED_SUBMENU } from "./submenu-contract.js";
+import { menuSettingsList, MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 import { buildModelOverridesRow } from "./menu-model-settings.js";
-import { showConcurrencySettingsMenu } from "./menu-concurrency.js";
-import { showAgentStatusMenu } from "./menu-agent-status.js";
-import { showSpawnOptionsMenu } from "./menu-agent-settings.js";
+import { concurrencySettingsLevel } from "./menu-concurrency.js";
+import { agentStatusLevel } from "./menu-agent-status.js";
+import { spawnOptionsLevel } from "./menu-agent-settings.js";
 import {
   buildDefaultAgentTypeRow,
   buildDefaultOrchestratorRow,
 } from "./menu-spawn-defaults.js";
-import { showSystemPromptMenu } from "./menu-system-prompt.js";
+import { systemPromptLevel } from "./menu-system-prompt.js";
 
-import { showSpawnAgentMenu } from "./menu-spawn-wizard.js";
+import { showSpawnAgentMenu, spawnWizardLevel } from "./menu-spawn-wizard.js";
 export { showSpawnAgentMenu };
 
-/** Rows of the Settings screen that hand off to a full-screen flow. */
-type SettingsAction = "concurrency" | "spawnoptions" | "systemprompt";
-
 /**
- * Settings list: the screens, then the indicator switches. Resolves with the
- * flow to open, or undefined on cancel.
+ * Settings list: the screens, then the indicator switches. Each screen row
+ * pushes its level onto the menu the user is already in.
  */
-async function showSettingsList(
+export function settingsLevel(
   ctx: ExtensionCommandContext,
-): Promise<SettingsAction | undefined> {
-  return await new ScreenHost(ctx).open<SettingsAction>(({ theme, close }) => {
-    const handOff = (action: SettingsAction): void => close(action);
+  harnessModelOptions: HarnessModelOptions,
+): MenuLevel {
+  return ({ theme, nav }) => {
     const store = getStore();
     const shown = store.agent.showActiveIndicator;
     const grazing = store.agent.grazingEnabled;
     const items: SettingItem[] = [
-      handOffRow(
+      flowRow(
         "concurrency",
         "Concurrency Settings",
         "Set per-model slot limits",
-        handOff,
+        () => nav.push(concurrencySettingsLevel(ctx, harnessModelOptions)),
       ),
-      handOffRow(
+      flowRow(
         "spawnoptions",
         "Agent behavior",
         "spawn defaults, results delivery, output, tools, worktrees",
-        handOff,
+        () => nav.push(spawnOptionsLevel(ctx)),
       ),
-      handOffRow(
+      flowRow(
         "systemprompt",
         "System prompt",
         "Prompt mode, AGENTS.md, skills, extensions",
-        handOff,
+        () => nav.push(systemPromptLevel(ctx)),
       ),
       {
         id: "showActiveIndicator",
@@ -79,7 +82,7 @@ async function showSettingsList(
         values: ["ON", "OFF"],
       },
     ];
-    const settingsList = new SettingsList(
+    const settingsList = menuSettingsList(
       items,
       10,
       buildSettingsListTheme(theme),
@@ -90,183 +93,169 @@ async function showSettingsList(
           store.mutate.agent.setGrazingEnabled(value === "ON");
         }
       },
-      close,
+      () => nav.pop(),
+      nav,
+      "Settings",
     );
     return new SettingsListWrapper(settingsList, {
       title: "Settings",
       theme,
-      onCancel: close,
+      onCancel: () => nav.pop(),
     });
-  });
+  };
 }
 
 export async function showSettingsMenu(
   ctx: ExtensionCommandContext,
-  harnessModelOptions: HarnessModelOptions,
+  _harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
-  while (true) {
-    const action = await showSettingsList(ctx);
-    if (action === undefined) return;
-    switch (action) {
-      case "concurrency":
-        await showConcurrencySettingsMenu(ctx, harnessModelOptions);
-        break;
-      case "spawnoptions":
-        await showSpawnOptionsMenu(ctx);
-        break;
-      case "systemprompt":
-        await showSystemPromptMenu(ctx);
-        break;
-    }
-  }
+  await new MenuSession(ctx).run(settingsLevel(ctx, _harnessModelOptions));
 }
 
-/** Rows that hand off to a full-screen flow. */
-type AgentsMainAction = "status" | "spawn" | "settings";
+/** The flows a `/cowboy status|spawn|settings` subcommand opens directly. */
+export type AgentsMainAction = "status" | "spawn" | "settings";
 
 /**
- * Opens the flow a topmost row hands off to, and the one a `/cowboy status` or
- * `/cowboy spawn` subcommand reaches directly.
+ * Runs the level a subcommand names as the menu's root: `/cowboy status` opens
+ * the agent list on an otherwise empty stack, so Escape there is the menu
+ * closing, exactly as it is for the main list.
  */
 export async function showAgentsActionMenu(
   ctx: ExtensionCommandContext,
   action: AgentsMainAction,
   harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
+  await new MenuSession(ctx).run(actionRoot(ctx, action, harnessModelOptions));
+}
+
+function actionRoot(
+  ctx: ExtensionCommandContext,
+  action: AgentsMainAction,
+  harnessModelOptions: HarnessModelOptions,
+): MenuLevel {
   switch (action) {
     case "status":
-      await showAgentStatusMenu(ctx);
-      break;
+      return agentStatusLevel(ctx);
     case "spawn":
-      await showSpawnAgentMenu(ctx, harnessModelOptions);
-      break;
+      return spawnWizardLevel(ctx, harnessModelOptions);
     case "settings":
-      await showSettingsMenu(ctx, harnessModelOptions);
-      break;
+      return settingsLevel(ctx, harnessModelOptions);
   }
 }
 
-/** Row that resolves the list with `handOff` and renders nothing (CLOSED_SUBMENU). */
-function handOffRow<A extends string>(
-  action: A,
+/** Row that pushes `enter`'s level and renders nothing in place (CLOSED_SUBMENU). */
+function flowRow(
+  id: string,
   label: string,
   description: string,
-  handOff: (action: A) => void,
+  enter: () => void,
 ): SettingItem {
   return {
-    id: action,
+    id,
     label,
     description,
     currentValue: "",
     submenu: () => {
-      handOff(action);
+      enter();
       return CLOSED_SUBMENU;
     },
   };
 }
 
-/** Topmost menu. Resolves with the action to run, or undefined on cancel. */
-async function showAgentsMainList(
+/** Topmost menu. */
+export function mainLevel(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
-): Promise<AgentsMainAction | undefined> {
-  // Resolved once here because the model screen's submenu factory is synchronous.
-  const piDefaultThinking = await getPiDefaultThinkingLevel(ctx.cwd);
-  let rebuild: ((items: SettingItem[], focusId?: string) => void) | undefined;
-
-  return await new ScreenHost(ctx).open<AgentsMainAction>(
-    ({ tui, theme, close }) => {
-      const handOff = (action: AgentsMainAction): void => close(action);
-      const buildItems = (): SettingItem[] => {
-        const store = getStore();
-        const notify: Notify = (message, type) => ctx.ui.notify(message, type);
-        const enabled = store.agent.extensionEnabled;
-        const switchRow: SettingItem = {
-          id: "extensionEnabled",
-          label: "Enabled",
-          currentValue: enabled ? "ON" : "OFF",
-          values: ["ON", "OFF"],
-          description: enabled
-            ? "Unload the cowboy tools and stop subagent-result notifications. Persisted; active agents keep working."
-            : "cowboy tools are unloaded and the rest of this menu is hidden. Active agents keep working.",
-        };
-        // Off, the switch is the whole menu: the other rows configure an
-        // extension that is not running.
-        if (!enabled) return [switchRow];
-        return [
-          buildModelOverridesRow({
-            ctx,
-            store,
-            theme,
-            harnessModelOptions,
-            requestRender: () => tui.requestRender(),
-            piDefaultThinking,
-          }),
-          buildDefaultOrchestratorRow({ store, theme, notify }),
-          buildDefaultAgentTypeRow({ store, theme, notify }),
-          handOffRow(
-            "status",
-            "Status",
-            "List spawned, queued and settled agents",
-            handOff,
-          ),
-          handOffRow(
-            "spawn",
-            "Spawn agent",
-            "Manually spawn a new agent",
-            handOff,
-          ),
-          handOffRow(
-            "settings",
-            "Settings",
-            "Concurrency, agent behavior, and system prompt settings",
-            handOff,
-          ),
-          switchRow,
-        ];
+): MenuLevel {
+  return async ({ tui, theme, nav }) => {
+    // Read once per build: the model screen's row factory is synchronous.
+    const piDefaultThinking = await getPiDefaultThinkingLevel(ctx.cwd);
+    const buildItems = (): SettingItem[] => {
+      const store = getStore();
+      const notify: Notify = (message, type) => ctx.ui.notify(message, type);
+      const enabled = store.agent.extensionEnabled;
+      const switchRow: SettingItem = {
+        id: "extensionEnabled",
+        label: "Enabled",
+        currentValue: enabled ? "ON" : "OFF",
+        values: ["ON", "OFF"],
+        description: enabled
+          ? "Unload the cowboy tools and stop subagent-result notifications. Persisted; active agents keep working."
+          : "cowboy tools are unloaded and the rest of this menu is hidden. Active agents keep working.",
       };
+      // Off, the switch is the whole menu: the other rows configure an
+      // extension that is not running.
+      if (!enabled) return [switchRow];
+      return [
+        buildModelOverridesRow({
+          ctx,
+          store,
+          theme,
+          harnessModelOptions,
+          requestRender: () => tui.requestRender(),
+          piDefaultThinking,
+        }),
+        buildDefaultOrchestratorRow({ store, theme, notify }),
+        buildDefaultAgentTypeRow({ store, theme, notify }),
+        flowRow(
+          "status",
+          "Status",
+          "List spawned, queued and settled agents",
+          () => nav.push(agentStatusLevel(ctx)),
+        ),
+        flowRow("spawn", "Spawn agent", "Manually spawn a new agent", () =>
+          nav.push(spawnWizardLevel(ctx, harnessModelOptions)),
+        ),
+        flowRow(
+          "settings",
+          "Settings",
+          "Concurrency, agent behavior, and system prompt settings",
+          () => nav.push(settingsLevel(ctx, harnessModelOptions)),
+        ),
+        switchRow,
+      ];
+    };
 
-      const settingsList = new SettingsList(
-        buildItems(),
-        10,
-        buildSettingsListTheme(theme),
-        (id, value) => {
-          const flipped = id === "extensionEnabled";
-          if (flipped) {
-            const enabled = value === "ON";
-            setExtensionEnabled(ctx.ui, enabled);
-            ctx.ui.notify(
-              enabled ? "pi-cowboy enabled" : "pi-cowboy disabled",
-              "info",
-            );
-          }
-          // The row's handler already persisted, so the rebuild repaints the
-          // values from the store — and after a flip, the rows it governs. The
-          // switch sits at row 6 enabled and row 0 collapsed, so the flip asks
-          // the rebuild to hold the cursor on it.
-          rebuild?.(buildItems(), flipped ? "extensionEnabled" : undefined);
-        },
-        close,
-      );
-      return new SettingsListWrapper(settingsList, {
-        title: "Agents",
-        theme,
-        onCancel: close,
-        onRebuild: (r) => {
-          rebuild = r;
-        },
-      });
-    },
-  );
+    const items = buildItems();
+    let rebuild: ((items: SettingItem[], focusId?: string) => void) | undefined;
+    const settingsList = menuSettingsList(
+      items,
+      10,
+      buildSettingsListTheme(theme),
+      (id, value) => {
+        const flipped = id === "extensionEnabled";
+        if (flipped) {
+          const enabled = value === "ON";
+          setExtensionEnabled(ctx.ui, enabled);
+          ctx.ui.notify(
+            enabled ? "pi-cowboy enabled" : "pi-cowboy disabled",
+            "info",
+          );
+        }
+        // The row's handler already persisted, so the rebuild repaints the
+        // values from the store — and after a flip, the rows it governs. The
+        // switch sits at row 6 enabled and row 0 collapsed, so the flip asks
+        // the rebuild to hold the cursor on it.
+        rebuild?.(buildItems(), flipped ? "extensionEnabled" : undefined);
+      },
+      () => nav.close(),
+      nav,
+      "Agents",
+    );
+    return new SettingsListWrapper(settingsList, {
+      title: "Agents",
+      theme,
+      onCancel: () => nav.close(),
+      onRebuild: (r) => {
+        rebuild = r;
+      },
+    });
+  };
 }
 
 export async function showAgentsMainMenu(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
 ): Promise<void> {
-  while (true) {
-    const action = await showAgentsMainList(ctx, harnessModelOptions);
-    if (action === undefined) return;
-    await showAgentsActionMenu(ctx, action, harnessModelOptions);
-  }
+  await new MenuSession(ctx).run(mainLevel(ctx, harnessModelOptions));
 }

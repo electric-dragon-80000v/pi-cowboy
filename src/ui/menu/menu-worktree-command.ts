@@ -45,6 +45,8 @@ import {
 import { errorMessage } from "../../utils.js";
 import { actionReport, buildSelectListTheme, type Notify } from "./helpers.js";
 import { ScreenHost } from "./screen-host.js";
+import { MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { createWorktreeCommandNameInput } from "./submenus/worktree-command-name.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
 
@@ -132,103 +134,136 @@ async function describeCollision(
  * The `/cowboy worktree` flow. `inlineName` is the name given on the command
  * line, prefilled into the field; a bare command opens it empty.
  */
+export function worktreeCommandLevel(
+  ctx: ExtensionCommandContext,
+  inlineName: string,
+): MenuLevel {
+  return ({ theme, nav }) => {
+    const host = new ScreenHost(ctx);
+    const notify: Notify = (message, kind) => ctx.ui.notify(message, kind);
+
+    /**
+     * What an accepted name starts: the checkout question (only for a dirty
+     * parent), then creation. The name level stays below, so a failure leaves
+     * the field the user would correct up.
+     */
+    const continueFlow = async (name: string): Promise<void> => {
+      const store = getStore();
+      const pi = getPiInstance();
+      if (!(await isGitRepo(pi, ctx.cwd))) {
+        notify(
+          "Cannot create a worktree: this session is not inside a git repository.",
+          "error",
+        );
+        nav.close();
+        return;
+      }
+      let repoRoot: string;
+      try {
+        repoRoot = await resolveMainCheckout(pi, ctx.cwd);
+      } catch (err) {
+        notify(`Cannot create a worktree: ${errorMessage(err)}`, "error");
+        nav.close();
+        return;
+      }
+
+      // The policy only matters when the parent carries uncommitted work. A clean
+      // parent starts at HEAD under either value, so the question is skipped. An
+      // unreadable status is not clean: the dialog stays, so the user still chooses.
+      const parentStatus = await gitProbe(
+        pi,
+        ["status", "--porcelain"],
+        repoRoot,
+      );
+      const parentIsClean = parentStatus === "";
+      let dirtyCheckout: WorktreeCheckoutType =
+        store.agent.worktreeCheckoutType;
+      if (!parentIsClean) {
+        const picked = await host.open<WorktreeCheckoutType>(
+          ({ theme, close }) => {
+            const list = new SelectList(
+              VALID_WORKTREE_CHECKOUT_TYPES.map((value) => ({
+                value,
+                label: value,
+                description: CHECKOUT_DESCRIPTIONS[value],
+              })),
+              VALID_WORKTREE_CHECKOUT_TYPES.length,
+              buildSelectListTheme(theme),
+            );
+            // The configured policy leads; it is what a spawn would use right now.
+            list.setSelectedIndex(
+              VALID_WORKTREE_CHECKOUT_TYPES.indexOf(
+                store.agent.worktreeCheckoutType,
+              ),
+            );
+            list.onSelect = (item) =>
+              close(parseWorktreeCheckoutType(item.value));
+            list.onCancel = () => close();
+            return new SettingsListWrapper(list, {
+              title: "Worktree Checkout",
+              theme,
+              onCancel: () => close(),
+            });
+          },
+        );
+        if (picked === undefined) {
+          nav.close();
+          return;
+        }
+        dirtyCheckout = picked;
+      }
+
+      const targetPath = path.join(
+        resolveWorktreeRoot(store.agent.worktreeRoot, repoRoot),
+        name,
+      );
+      const collision = await describeCollision(pi, repoRoot, name, targetPath);
+      if (collision !== undefined) {
+        notify(collision, "error");
+        nav.close();
+        return;
+      }
+
+      const report = actionReport(ctx.ui);
+      report.pending(`Creating worktree ${name}`);
+      let created: AdoptedWorktree;
+      try {
+        created = await createAdoptedWorktree(pi, {
+          repoCwd: repoRoot,
+          path: targetPath,
+          branch: name,
+          materialization: getWorktreeMaterialization(),
+          dirtyCheckout,
+          notify,
+          host: getRuntime()!.host,
+        });
+      } catch (err) {
+        report.failed("Worktree creation failed", err);
+        nav.close();
+        return;
+      }
+      report.succeeded(describeCreatedWorktree(created, dirtyCheckout));
+      nav.close();
+    };
+
+    return new SettingsListWrapper(
+      createWorktreeCommandNameInput({
+        prefill: inlineName,
+        notify,
+        onDone: (accepted) => {
+          void continueFlow(accepted);
+        },
+        onCancel: () => nav.pop(),
+      }),
+      { title: "Worktree Name", theme, passthroughKeys: true },
+    );
+  };
+}
+
+/** The `/cowboy worktree` command: the name field as its menu's root. */
 export async function showWorktreeCommandMenu(
   ctx: ExtensionCommandContext,
   inlineName: string,
 ): Promise<void> {
-  const host = new ScreenHost(ctx);
-  const notify: Notify = (message, kind) => ctx.ui.notify(message, kind);
-
-  const name = await host.open<string>(
-    ({ theme, close }) =>
-      new SettingsListWrapper(
-        createWorktreeCommandNameInput({
-          prefill: inlineName,
-          notify,
-          onDone: (accepted) => close(accepted),
-          onCancel: () => close(),
-        }),
-        { title: "Worktree Name", theme, passthroughKeys: true },
-      ),
-  );
-  if (name === undefined) return;
-
-  const store = getStore();
-  const pi = getPiInstance();
-  if (!(await isGitRepo(pi, ctx.cwd))) {
-    notify(
-      "Cannot create a worktree: this session is not inside a git repository.",
-      "error",
-    );
-    return;
-  }
-  let repoRoot: string;
-  try {
-    repoRoot = await resolveMainCheckout(pi, ctx.cwd);
-  } catch (err) {
-    notify(`Cannot create a worktree: ${errorMessage(err)}`, "error");
-    return;
-  }
-
-  // The policy only matters when the parent carries uncommitted work. A clean
-  // parent starts at HEAD under either value, so the question is skipped. An
-  // unreadable status is not clean: the dialog stays, so the user still chooses.
-  const parentStatus = await gitProbe(pi, ["status", "--porcelain"], repoRoot);
-  const parentIsClean = parentStatus === "";
-  let dirtyCheckout: WorktreeCheckoutType = store.agent.worktreeCheckoutType;
-  if (!parentIsClean) {
-    const picked = await host.open<WorktreeCheckoutType>(({ theme, close }) => {
-      const list = new SelectList(
-        VALID_WORKTREE_CHECKOUT_TYPES.map((value) => ({
-          value,
-          label: value,
-          description: CHECKOUT_DESCRIPTIONS[value],
-        })),
-        VALID_WORKTREE_CHECKOUT_TYPES.length,
-        buildSelectListTheme(theme),
-      );
-      // The configured policy leads; it is what a spawn would use right now.
-      list.setSelectedIndex(
-        VALID_WORKTREE_CHECKOUT_TYPES.indexOf(store.agent.worktreeCheckoutType),
-      );
-      list.onSelect = (item) => close(parseWorktreeCheckoutType(item.value));
-      list.onCancel = () => close();
-      return new SettingsListWrapper(list, {
-        title: "Worktree Checkout",
-        theme,
-        onCancel: () => close(),
-      });
-    });
-    if (picked === undefined) return;
-    dirtyCheckout = picked;
-  }
-
-  const targetPath = path.join(
-    resolveWorktreeRoot(store.agent.worktreeRoot, repoRoot),
-    name,
-  );
-  const collision = await describeCollision(pi, repoRoot, name, targetPath);
-  if (collision !== undefined) {
-    notify(collision, "error");
-    return;
-  }
-
-  const report = actionReport(ctx.ui);
-  report.pending(`Creating worktree ${name}`);
-  let created: AdoptedWorktree;
-  try {
-    created = await createAdoptedWorktree(pi, {
-      repoCwd: repoRoot,
-      path: targetPath,
-      branch: name,
-      materialization: getWorktreeMaterialization(),
-      dirtyCheckout,
-      notify,
-      host: getRuntime()!.host,
-    });
-  } catch (err) {
-    report.failed("Worktree creation failed", err);
-    return;
-  }
-  report.succeeded(describeCreatedWorktree(created, dirtyCheckout));
+  await new MenuSession(ctx).run(worktreeCommandLevel(ctx, inlineName));
 }

@@ -6,7 +6,7 @@
  * for a *forceable* reason, the workflow offers `Force`, then a destructive
  * confirmation that names the checkout and what force would discard. Everything
  * else — the successful teardowns, the refusals force cannot touch — is reported
- * as it lands, and a clean sweep closes the menu.
+ * as it lands, and a clean sweep steps one level back.
  *
  * The force override lives here so it can never leak into `cleanup_cowboy_agent`:
  * the tool takes no options, and this is the only caller that passes `force`.
@@ -33,7 +33,7 @@ import {
 import { getManagerOrNull } from "../../shell.js";
 import { errorMessage } from "../../utils.js";
 import type { Theme } from "../types.js";
-import type { SwappableView } from "./screen-host.js";
+
 import { createKeyConfirm } from "./submenus/confirm.js";
 import {
   actionReport,
@@ -42,18 +42,16 @@ import {
   withVimKeys,
 } from "./helpers.js";
 
-/** What the workflow needs from the screen hosting it. */
+/** What the workflow needs from the menu hosting it. */
 export interface StatusCleanupDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** The swapping view the force dialogs are shown in. */
-  view: SwappableView;
-  /** Re-read the fleet and rebuild the agent rows in place. */
-  refresh: () => void;
-  /** Close the status menu (the forced pass then runs off-menu). */
-  close: () => void;
-  /** Repaint the screen: pi-tui redraws on input, but a body swapped from an async pass has no input to ride. */
-  requestRender: () => void;
+  /** Show `body` as this flow's dialog, in the level the flow opened. */
+  show: (body: Component) => void;
+  /** Leave the flow for the agent list, rebuilt: where a declined offer's reason reads. */
+  showList: () => void;
+  /** Leave the flow one level back, onto the level that started it. */
+  back: () => void;
 }
 
 /** One id's outcome from a cleanup pass: its report, or the throw that stopped it. */
@@ -168,19 +166,13 @@ function forceOfferList(
 
 /**
  * Build the cleanup entry point for the status menu. The returned callback runs
- * the two-phase flow for `ids`; the menu stays open through the force decision
- * and only a clean sweep (or a confirmed force) closes it.
+ * the two-phase flow for `ids`; the menu stays open through the force decision,
+ * and the flow leaves one level back once the sweep has settled.
  */
 export function createStatusCleanup(
   deps: StatusCleanupDeps,
 ): (ids: readonly string[]) => void {
-  const { ctx, theme, view, refresh, close, requestRender } = deps;
-
-  /** Swap the body and repaint (a swap with no keypress behind it gets no repaint). */
-  const show = (body: Component): void => {
-    view.activate(body);
-    requestRender();
-  };
+  const { ctx, theme, show, showList, back } = deps;
 
   /** The second force step: spell out the consequence and require a Y. */
   const askForceConfirm = (
@@ -206,7 +198,7 @@ export function createStatusCleanup(
         onNo,
         onYes: () => {
           // The decision is made: hand the teardown back to run off-menu.
-          close();
+          back();
           actionReport(ctx.ui).pending(
             `Forcing cleanup of ${agentSubject(idsToForce)}`,
           );
@@ -245,10 +237,11 @@ export function createStatusCleanup(
     const message = single
       ? `Clean up agent ${idsToForce[0]} anyway? ${only ? offerReason(only) : "kept"}.`
       : `Clean up ${idsToForce.length} agents anyway?`;
-    // Backing out reports the reasons the dialog would have shown, then refreshes.
+    // Backing out reports the reasons the dialog would have shown, then returns
+    // to the list, where the kept agents' rows carry them.
     const backOut = (): void => {
       reportCleanupOutcomes(ctx, refusals);
-      refresh();
+      showList();
     };
     show(
       forceOfferList(
@@ -281,13 +274,9 @@ export function createStatusCleanup(
         offerForce(refusals);
         return;
       }
-      const needsAttention = first.some(
-        (o) => o.kind === "error" || cleanupNeedsAttention(o.report),
-      );
-      // A refusal or failure leaves the agent listed with its reason; only a
-      // clean sweep closes the menu.
-      if (needsAttention) refresh();
-      else close();
+      // Nothing was left to decide: a clean sweep is settled, and a refusal
+      // this flow cannot override leaves the agent listed with its reason.
+      back();
     })();
   };
 }

@@ -47,7 +47,7 @@ import type {
 } from "../../models/model-precedence.js";
 import type { Availability } from "../../availability.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { asSubmenuComponent } from "./screen-host.js";
+import { asSubmenuComponent } from "./submenu-contract.js";
 import {
   createClearAllSubmenu,
   type AvailableLevels,

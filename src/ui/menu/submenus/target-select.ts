@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { Theme } from "../../types.js";
 import type { ConfigLayerPresence } from "../../../config/types.js";
-import { asSubmenuComponent, CLOSED_SUBMENU } from "../screen-host.js";
+import { asSubmenuComponent, CLOSED_SUBMENU } from "../submenu-contract.js";
 import { buildSettingsListTheme, withVimKeys } from "../helpers.js";
 import { createConfirmSubmenu } from "./confirm.js";
 

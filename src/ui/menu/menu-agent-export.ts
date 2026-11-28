@@ -34,21 +34,19 @@ import {
 import { handoverLossClause } from "../../agents/handover.js";
 import { getManagerOrNull } from "../../shell.js";
 import type { Theme } from "../types.js";
-import type { SwappableView } from "./screen-host.js";
+
 import { createKeyConfirm } from "./submenus/confirm.js";
 import { createNameField } from "./submenus/name-field.js";
 import { actionReport, buildSelectListTheme, withVimKeys } from "./helpers.js";
 
-/** What the sub-flow needs from the screen hosting it. */
+/** What the sub-flow needs from the menu hosting it. */
 export interface StatusExportDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** The swapping view every body of this flow is shown in. */
-  view: SwappableView;
-  /** Close the status menu; only a landed export calls this. */
-  close: () => void;
-  /** Repaint the screen: a body swapped from an async pass has no keypress to ride. */
-  requestRender: () => void;
+  /** Show `body` as this flow's dialog, in the level the flow opened. */
+  show: (body: Component) => void;
+  /** Leave the flow, back on the agent's actions; only a landed export calls this. */
+  leave: () => void;
 }
 
 /**
@@ -58,14 +56,8 @@ export interface StatusExportDeps {
 export function createStatusExport(
   deps: StatusExportDeps,
 ): (spawn: AgentSpawn) => void {
-  const { ctx, theme, view, close, requestRender } = deps;
+  const { ctx, theme, show, leave } = deps;
   const action = actionReport(ctx.ui);
-
-  /** Swap the body and repaint (a swap with no keypress behind it gets no repaint). */
-  const show = (body: Component): void => {
-    view.activate(body);
-    requestRender();
-  };
 
   /** The loss clause an export's report appends; empty when nothing was omitted. */
   const lossClause = (prepared: PreparedHandoverExport): string =>
@@ -88,7 +80,7 @@ export function createStatusExport(
       handoverExportSeverity(prepared),
       `Exported handover for agent ${spawn.id} to ${path}.${lossClause(prepared)}`,
     );
-    close();
+    leave();
   };
 
   /**
@@ -153,7 +145,7 @@ export function createStatusExport(
         handoverExportSeverity(prepared),
         `Exported handover for agent ${spawn.id} to the clipboard.${lossClause(prepared)}`,
       );
-      close();
+      leave();
     })();
   };
 
@@ -216,7 +208,7 @@ export function createStatusExport(
         showPathField(spawn, prepared, prepared.defaultPath),
       );
     };
-    list.onCancel = () => close();
+    list.onCancel = () => leave();
     show(list);
   };
 

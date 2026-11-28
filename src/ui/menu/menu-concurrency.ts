@@ -43,7 +43,10 @@ import {
   type TargetChoice,
 } from "./submenus/target-select.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { asListFields, asSubmenuComponent, ScreenHost } from "./screen-host.js";
+import { asListFields } from "./list-fields.js";
+import { asSubmenuComponent } from "./submenu-contract.js";
+import { menuSettingsList, MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 
 /** A concurrency level the menu reads and writes. */
 type ConcurrencySection = "default" | "harnesses" | "providers" | "models";
@@ -81,10 +84,10 @@ function sectionHarnesses(
   return ordered;
 }
 
-export async function showConcurrencySettingsMenu(
+export function concurrencySettingsLevel(
   ctx: ExtensionCommandContext,
   harnessModelOptions: HarnessModelOptions,
-): Promise<void> {
+): MenuLevel {
   // Every launchable harness is its own pool namespace, so each gets its own
   // section whether or not it lists models: a harness that selects its model
   // elsewhere still pools its agents, and its limit is set here. Its picker
@@ -570,26 +573,36 @@ export async function showConcurrencySettingsMenu(
     return items;
   };
 
-  let rebuild: ((items: SettingItem[]) => void) | undefined;
-
-  await new ScreenHost(ctx).open<void>(({ theme, close }) => {
+  return ({ theme, nav }) => {
+    let rebuild: ((items: SettingItem[]) => void) | undefined;
     const triggerRebuild = () => rebuild?.(buildItems(getStore(), theme));
     const store = getStore();
     const items = buildItems(store, theme);
-    const settingsList = new SettingsList(
+    const settingsList = menuSettingsList(
       items,
       15,
       buildSettingsListTheme(theme),
-      (_id, _v) => triggerRebuild(),
-      close,
+      () => triggerRebuild(),
+      () => nav.pop(),
+      nav,
+      "Concurrency Settings",
     );
     return new SettingsListWrapper(settingsList, {
       title: "Concurrency Settings",
       theme,
-      onCancel: close,
+      onCancel: () => nav.pop(),
       onRebuild: (r) => {
         rebuild = r;
       },
     });
-  });
+  };
+}
+
+export async function showConcurrencySettingsMenu(
+  ctx: ExtensionCommandContext,
+  _harnessModelOptions: HarnessModelOptions,
+): Promise<void> {
+  await new MenuSession(ctx).run(
+    concurrencySettingsLevel(ctx, _harnessModelOptions),
+  );
 }

@@ -57,6 +57,7 @@ export const shellState = {
   harnesses: createHarnessRegistry(),
   uiFlowClaim: 0,
   uiFlows: new WeakMap<object, number>(),
+  menus: new WeakMap<object, unknown>(),
 };
 
 export function setStore(store: ConfigStore): void {
@@ -176,6 +177,14 @@ export const getHarnessModelCatalog = (): HarnessModelCatalog => {
     },
   };
 };
+export const getMenuSession = (ctx: object): unknown =>
+  shellState.menus.get(ctx) ?? null;
+
+export const setMenuSession = (ctx: object, session: unknown): void => {
+  if (session === null) shellState.menus.delete(ctx);
+  else shellState.menus.set(ctx, session);
+};
+
 export const beginUiFlow = (ctx: object): void => {
   shellState.uiFlowClaim += 1;
   shellState.uiFlows.set(ctx, shellState.uiFlowClaim);

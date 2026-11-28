@@ -113,7 +113,8 @@ describe("Model Settings — structure on a fresh config", () => {
   it("frames the screen and hides the clear-all row", async () => {
     const session = await openModelSettings();
 
-    expect(session.title()).toBe("Agents");
+    // The model screen is a level of its own: its frame, not a child in place.
+    expect(session.title()).toBe("Model Settings");
     expect(session.text()).toContain("Model Settings");
     expect(session.text()).toContain("Pi Default Model");
     expect(session.text()).not.toContain("Agent model");

@@ -35,22 +35,18 @@ import {
   getManagerOrNull,
 } from "../../shell.js";
 import type { Theme } from "../types.js";
-import type { SwappableView } from "./screen-host.js";
+
 import { createKeyConfirm } from "./submenus/confirm.js";
 import { actionReport, buildSelectListTheme, withVimKeys } from "./helpers.js";
 
-/** What the sub-flow needs from the screen hosting it. */
+/** What the sub-flow needs from the menu hosting it. */
 export interface StatusHandoverDeps {
   ctx: ExtensionCommandContext;
   theme: Theme;
-  /** The swapping view every body of this flow is shown in. */
-  view: SwappableView;
-  /** Close the status menu; a handover then finishes off-menu. */
-  close: () => void;
-  /** Repaint the screen: a body swapped from an async pass has no keypress to ride. */
-  requestRender: () => void;
-  /** Show the agent's actions list again (the stop confirmation's decline path). */
-  backToActions: (spawn: AgentSpawn) => void;
+  /** Show `body` as this flow's dialog, in the level the flow opened. */
+  show: (body: Component) => void;
+  /** Leave the flow, back on the agent's actions. */
+  leave: () => void;
 }
 
 /**
@@ -60,25 +56,19 @@ export interface StatusHandoverDeps {
 export function createStatusHandover(
   deps: StatusHandoverDeps,
 ): (spawn: AgentSpawn) => void {
-  const { ctx, theme, view, close, requestRender, backToActions } = deps;
+  const { ctx, theme, show, leave } = deps;
   const action = actionReport(ctx.ui);
-
-  /** Swap the body and repaint (a swap with no keypress behind it gets no repaint). */
-  const show = (body: Component): void => {
-    view.activate(body);
-    requestRender();
-  };
 
   /** Report why the source run has no session to offer, and leave the menu. */
   const refuse = (spawn: AgentSpawn, reason: string): void => {
-    close();
+    leave();
     action.outcome("warning", `Agent ${spawn.id} ${reason}`);
   };
 
   /** Hand the run to another harness, off-menu, and report the tool's sentence. */
   const runHandover = (spawn: AgentSpawn, harness: AnyHarnessId): void => {
     const manager = getManagerOrNull();
-    close();
+    leave();
     if (!manager) {
       action.failed(
         `Failed to hand agent ${spawn.id} over to ${harness}`,
@@ -121,7 +111,7 @@ export function createStatusHandover(
     list.onSelect = (item) => {
       runHandover(spawn, item.value.slice("harness:".length));
     };
-    list.onCancel = () => close();
+    list.onCancel = () => leave();
     show(list);
   };
 
@@ -137,11 +127,11 @@ export function createStatusHandover(
         message: `Agent ${spawn.id} is still running.`,
         detail:
           "pi-cowboy will need to stop it before it can be handed over. Proceed?\n\nY stops the run and opens the handover targets; N or Esc leaves it running.",
-        onNo: () => backToActions(spawn),
+        onNo: () => leave(),
         onYes: () => {
           const manager = getManagerOrNull();
           if (!manager) {
-            close();
+            leave();
             action.failed(
               `Failed to stop agent ${spawn.id}`,
               "manager unavailable",
@@ -153,14 +143,14 @@ export function createStatusHandover(
             try {
               await manager.abort(spawn.id, "user");
             } catch (error) {
-              close();
+              leave();
               action.failed(`Failed to stop agent ${spawn.id}`, error);
               return;
             }
             // The stop's own verdict is not enough: what the next step needs is
             // a run that actually settled.
             if (isActivePhase(spawn.lifecycle.phase)) {
-              close();
+              leave();
               action.failed(
                 `Failed to stop agent ${spawn.id}`,
                 "the run is still active, so there is no finished session to hand over yet",

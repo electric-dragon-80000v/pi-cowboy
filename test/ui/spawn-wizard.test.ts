@@ -448,8 +448,10 @@ describe("Spawn wizard — spawn", () => {
     session.press(KEY.escape);
     await session.settle();
 
+    // One step up: the prompt is gone, the options it came from are back.
     expect(spawnCalls).toHaveLength(0);
-    expect(session.closedScreens).toContain(1);
+    expect(session.title()).toBe("Spawn Options");
+    expect(session.closedScreens).toEqual([]);
   });
 
   it("takes a multi-line prompt, Shift+Enter for each newline", async () => {
@@ -1249,7 +1251,8 @@ describe("Spawn wizard — worktree picker", () => {
 
     // A picked tree is already named: Spawn goes straight to the prompt.
     await spawnWith(session, { prompt: "Do the thing" });
-    expect(session.closedScreens).toHaveLength(2);
+    // One screen for the whole wizard; the menu closes when the spawn lands.
+    expect(session.closedScreens).toHaveLength(1);
 
     expect(allocateMock).not.toHaveBeenCalled();
     expect(spawnCalls[0]!.args.worktree).toEqual({
@@ -1454,7 +1457,8 @@ describe("Spawn wizard — new worktree", () => {
     session.press(KEY.escape);
     await session.settle();
 
-    expect(session.title()).toBe("Worktree Name");
+    // Escaping the name field steps back to the options it was asked from.
+    expect(session.title()).toBe("Spawn Options");
     expect(allocateMock).not.toHaveBeenCalled();
     expect(spawnCalls).toHaveLength(0);
   });
@@ -1514,8 +1518,8 @@ describe("Spawn wizard — new worktree", () => {
     releaseProbe?.();
     await session.settle();
 
-    expect(session.screenCount).toBe(0);
-    expect(await session.finished).toBeUndefined();
+    // The screen is already open; its level must not take it from the user.
+    expect(session.text()).not.toContain("Spawn Options");
     expect(spawnCalls).toHaveLength(0);
   });
 

@@ -8,7 +8,7 @@ import { SearchableSelectDialog } from "../../../ui/searchable-select.js";
 import type { AnyHarnessId } from "../../../agents/harness.js";
 import { modelListEntries, modelListNotice } from "../../../agents/harness.js";
 import { getHarnessModelCatalog } from "../../../shell.js";
-import { SwappableView } from "../screen-host.js";
+import { SwappableView } from "../swappable-view.js";
 import { buildModelOptions } from "../helpers.js";
 import { createThinkingValuePicker } from "./thinking-select.js";
 import {

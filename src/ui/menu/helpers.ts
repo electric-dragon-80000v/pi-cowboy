@@ -15,7 +15,8 @@ import {
 } from "../searchable-select.js";
 import { parseModelKey } from "../../utils.js";
 import { isPiFamilyHarness, type AnyHarnessId } from "../../agents/harness.js";
-import { SwappableView, type NavigableList } from "./screen-host.js";
+import type { NavigableList } from "./list-fields.js";
+import { SwappableView } from "./swappable-view.js";
 
 export { actionReport } from "../action-report.js";
 

@@ -1,172 +1,38 @@
 /**
- * screen-host.ts — how the /cowboy screens open and close, and the submenu
- * boundary a screen shares with the list that hosts it.
+ * screen-host.ts — how a screen opens.
  *
- * `ScreenHost.open` is one `ctx.ui.custom` call per screen: the builder is handed
- * the theme, the keybindings and the close callback, and the call resolves with
- * what the screen closed with (no value = the user cancelled). pi-tui's custom is
- * modal, so a flow that continues opens its next screen once the previous one
- * resolves; nothing here keeps a stack of screens inside one call.
- *
- * pi has one screen slot, not a stack: every `custom` replaces whatever is
- * mounted, and its close restores the editor. A flow that awaits between screens
- * can therefore outlive the user's interest in it, reaching `custom` after
- * another command has taken the screen — so a screen only opens, and a close only
- * lands, while the flow that started it still owns the ui (see ownsUiFlow).
- *
- * A `SettingItem.submenu` factory returns a Component pi-tui renders in place of
- * the list's rows until the factory's `done` runs, so that boundary needs three
- * shapes of its own: a marker for a factory that completes instead of hosting
- * (`CLOSED_SUBMENU`), a flag marking a hosted screen as the owner of every key
- * (`asSubmenuComponent`), and a view whose body swaps while the frame around it
- * stays put (`SwappableView`).
+ * `ScreenHost.open` asks for a screen; the menu it belongs to mounts that as a
+ * level on its own stack (see menu-session), so a screen opened from a running
+ * menu is one `pop` from the view it came from. Outside a menu — a flow that
+ * runs on its own — the screen is the whole menu, and opening it starts one.
  */
 
-import type {
-  ExtensionCommandContext,
-  Theme,
-} from "@earendil-works/pi-coding-agent";
-import {
-  isFocusable,
-  type Component,
-  type Focusable,
-  type KeybindingsManager,
-  type TUI,
-} from "@earendil-works/pi-tui";
-import { ownsUiFlow } from "../../shell.js";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getMenuSession } from "../../shell.js";
+import type { ScreenBuilder } from "./menu-levels.js";
+import { MenuSession } from "./menu-session.js";
 
-/** One screen: the ui.custom arguments, plus the callback that ends it. */
-export interface Screen<T> {
-  tui: TUI;
-  theme: Theme;
-  keybindings: KeybindingsManager;
-  /** Close this screen with a result; closing with no result is a cancel. */
-  close: (result?: T) => void;
-}
-
-/** Builds the component one screen renders until it closes. */
-export type ScreenBuilder<T> = (screen: Screen<T>) => Component;
-
-/** Opens screens through `ctx.ui.custom`, one call each. */
+/** Opens screens on the menu its command context is showing. */
 export class ScreenHost {
   /** The command context these screens belong to (its ui sink, cwd, model). */
   constructor(readonly ctx: ExtensionCommandContext) {}
 
-  /** Open a screen on its own; resolves undefined when the user cancelled. */
+  /** Push a screen and resolve with what it was closed with. */
   async open<T>(build: ScreenBuilder<T>): Promise<T | undefined> {
-    return await this.show(build, false);
+    return await this.session().open(build);
   }
 
-  /** Open a screen over the one below, for content that reads better on top. */
+  /**
+   * Push a screen that reads better on top (a viewer, a confirmation). It is a
+   * level like any other: one step up shows the menu it came from.
+   */
   async openOverlay<T>(build: ScreenBuilder<T>): Promise<T | undefined> {
-    return await this.show(build, true);
+    return await this.open(build);
   }
 
-  private async show<T>(
-    build: ScreenBuilder<T>,
-    overlay: boolean,
-  ): Promise<T | undefined> {
-    // The user has moved on: mounting now would take the screen they are on.
-    if (!ownsUiFlow(this.ctx)) return undefined;
-    return await new Promise<T | undefined>((resolve) => {
-      void this.ctx.ui
-        .custom<T | undefined>(
-          (tui, theme, keybindings, done) =>
-            build({
-              tui,
-              theme,
-              keybindings,
-              close: (result) => {
-                // Only the flow that owns the ui may hand it back; a close that
-                // arrives late still ends this flow, so its caller unwinds.
-                if (ownsUiFlow(this.ctx)) done(result);
-                resolve(result);
-              },
-            }),
-          overlay ? { overlay: true } : undefined,
-        )
-        .then(resolve);
-    });
+  private session(): MenuSession {
+    // Inside a running menu, a screen is a level on its stack; outside one, the
+    // screen is the whole menu, so its own session hosts it.
+    return getMenuSession(this.ctx) ?? new MenuSession(this.ctx);
   }
-}
-
-/**
- * Close the submenu a factory is building. pi-tui stores the factory's return
- * value as the row's open submenu and only a falsy one leaves it closed, while
- * `SettingItem.submenu` promises a Component — the cast marks that boundary.
- */
-export const CLOSED_SUBMENU = undefined as unknown as Component;
-
-/**
- * Host a screen as a submenu, where it owns every key. Our frame asks
- * `isFocusable` before it remaps j/k or the horizontal arrows, so the child has
- * to carry a `focused` field to claim them; pi-tui's own lists declare none.
- */
-export function asSubmenuComponent<T extends Component>(
-  screen: T,
-): T & Focusable {
-  return Object.assign(screen, { focused: true });
-}
-
-/**
- * One in-place view whose body swaps: the agent list → a per-agent actions list,
- * a search dialog → the field it opens. The frame around it keeps talking to the
- * same object while reads, writes, rendering and keys follow the body showing.
- */
-export class SwappableView implements Component {
-  private active: Component;
-
-  constructor(initial: Component) {
-    this.active = initial;
-  }
-
-  /** Show `body` in place of the body showing now. */
-  activate(body: Component): void {
-    this.active = body;
-  }
-
-  invalidate(): void {
-    this.active.invalidate();
-  }
-
-  render(width: number): string[] {
-    return this.active.render(width);
-  }
-
-  handleInput(data: string): void {
-    this.active.handleInput?.(data);
-  }
-
-  /** Key ownership follows the body, and is what marks this view as a leaf. */
-  get focused(): boolean {
-    return isFocusable(this.active) ? this.active.focused : false;
-  }
-
-  set focused(value: boolean) {
-    if (isFocusable(this.active)) this.active.focused = value;
-  }
-}
-
-/** The list shape the separator skip navigates: pi-tui's private rows and cursor. */
-export interface NavigableList<T = unknown> {
-  items: T[];
-  selectedIndex: number | null;
-}
-
-/**
- * pi-tui's private list fields, which the frame, a rebuild and the separator
- * skip read and write. The library keeps them on the instance but out of its
- * types, so `asListFields` is the single cast marking that boundary.
- */
-export interface ListFields<T = unknown> extends NavigableList<T> {
-  /** Rows a search-enabled SettingsList filters to; a rebuild writes it too. */
-  filteredItems: T[];
-  /** The in-place child view showing in place of the rows, or null. */
-  submenuComponent: Component | null;
-  onCancel?: () => void;
-}
-
-/** Read pi-tui's private list fields from the list instance. */
-export function asListFields<T = unknown>(list: Component): ListFields<T> {
-  return list as unknown as ListFields<T>;
 }

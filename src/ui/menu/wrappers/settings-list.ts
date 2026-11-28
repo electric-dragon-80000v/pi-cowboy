@@ -10,7 +10,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import { installSeparatorSkip, withVimKeys } from "../helpers.js";
-import { asListFields } from "../screen-host.js";
+import { asListFields } from "../list-fields.js";
 
 interface SettingsListWrapperTheme {
   bold: (text: string) => string;

@@ -6,18 +6,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { SettingsList, type SettingItem } from "@earendil-works/pi-tui";
+import type { SettingItem } from "@earendil-works/pi-tui";
 import type { SystemPromptMode } from "../../agents/types.js";
 import { getStore } from "../../shell.js";
 import { errorMessage } from "../../utils.js";
 import { customPromptPath } from "../../config/config-io.js";
 import { SettingsListWrapper } from "./wrappers/settings-list.js";
-import { ScreenHost } from "./screen-host.js";
+import { menuSettingsList, MenuSession } from "./menu-session.js";
+import type { MenuLevel } from "./menu-levels.js";
 import { buildSettingsListTheme } from "./helpers.js";
 
-export async function showSystemPromptMenu(
-  ctx: ExtensionCommandContext,
-): Promise<void> {
+export function systemPromptLevel(ctx: ExtensionCommandContext): MenuLevel {
   const store = getStore();
 
   const buildItems = (): SettingItem[] => {
@@ -76,64 +75,75 @@ export async function showSystemPromptMenu(
     return items;
   };
 
-  let items = buildItems();
-  let rebuild: ((newItems: SettingItem[]) => void) | null = null;
+  return ({ theme, nav }) => {
+    let items = buildItems();
+    let rebuild: ((newItems: SettingItem[]) => void) | null = null;
 
-  const onChange = (id: string, newValue: string) => {
-    switch (id) {
-      case "systemPromptMode":
-        store.mutate.agent.setSystemPromptMode(newValue as SystemPromptMode);
-        ctx.ui.notify(`System prompt mode set to ${newValue}`, "info");
-        items = buildItems();
-        rebuild?.(items);
-        break;
-      case "createPromptFile":
-        try {
-          const promptPath = customPromptPath();
-          fs.mkdirSync(path.dirname(promptPath), { recursive: true });
-          fs.writeFileSync(
-            promptPath,
-            "You are a Pi, an expert coding sub-agent.\nYou have been invoked to handle a specific task autonomously",
-            "utf-8",
-          );
-          ctx.ui.notify(`Created prompt file: ${promptPath}`, "info");
-        } catch (err) {
+    const onChange = (id: string, newValue: string) => {
+      switch (id) {
+        case "systemPromptMode":
+          store.mutate.agent.setSystemPromptMode(newValue as SystemPromptMode);
+          ctx.ui.notify(`System prompt mode set to ${newValue}`, "info");
+          items = buildItems();
+          rebuild?.(items);
+          break;
+        case "createPromptFile":
+          try {
+            const promptPath = customPromptPath();
+            fs.mkdirSync(path.dirname(promptPath), { recursive: true });
+            fs.writeFileSync(
+              promptPath,
+              "You are a Pi, an expert coding sub-agent.\nYou have been invoked to handle a specific task autonomously",
+              "utf-8",
+            );
+            ctx.ui.notify(`Created prompt file: ${promptPath}`, "info");
+          } catch (err) {
+            ctx.ui.notify(
+              `Failed to create prompt file: ${errorMessage(err)}`,
+              "error",
+            );
+          }
+          return;
+        case "includeContextFiles":
+          store.mutate.agent.setIncludeContextFiles(newValue === "ON");
+          ctx.ui.notify(`Include context files set to ${newValue}`, "info");
+          break;
+        case "loadSkillsImplicitly":
+          store.mutate.agent.setLoadSkillsImplicitly(newValue === "ON");
+          ctx.ui.notify(`Load skills implicitly set to ${newValue}`, "info");
+          break;
+        case "loadExtensionsImplicitly":
+          store.mutate.agent.setLoadExtensionsImplicitly(newValue === "ON");
           ctx.ui.notify(
-            `Failed to create prompt file: ${errorMessage(err)}`,
-            "error",
+            `Load extensions implicitly set to ${newValue}`,
+            "info",
           );
-        }
-        return;
-      case "includeContextFiles":
-        store.mutate.agent.setIncludeContextFiles(newValue === "ON");
-        ctx.ui.notify(`Include context files set to ${newValue}`, "info");
-        break;
-      case "loadSkillsImplicitly":
-        store.mutate.agent.setLoadSkillsImplicitly(newValue === "ON");
-        ctx.ui.notify(`Load skills implicitly set to ${newValue}`, "info");
-        break;
-      case "loadExtensionsImplicitly":
-        store.mutate.agent.setLoadExtensionsImplicitly(newValue === "ON");
-        ctx.ui.notify(`Load extensions implicitly set to ${newValue}`, "info");
-        break;
-    }
-  };
+          break;
+      }
+    };
 
-  await new ScreenHost(ctx).open<void>(({ theme, close }) => {
-    const settingsList = new SettingsList(
+    const settingsList = menuSettingsList(
       items,
       10,
       buildSettingsListTheme(theme),
       onChange,
-      close,
+      () => nav.pop(),
+      nav,
+      "System Prompt",
     );
     return new SettingsListWrapper(settingsList, {
       title: "System Prompt",
       theme,
-      onCancel: close,
+      onCancel: () => nav.pop(),
       onRebuild: (r) => {
         rebuild = r;
       },
     });
-  });
+  };
+}
+
+export async function showSystemPromptMenu(
+  ctx: ExtensionCommandContext,
+): Promise<void> {
+  await new MenuSession(ctx).run(systemPromptLevel(ctx));
 }

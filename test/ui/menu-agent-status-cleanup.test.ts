@@ -1,7 +1,7 @@
 /**
  * menu-agent-status-cleanup.test.ts — the status menu's two-phase cleanup
  * workflow (createStatusCleanup) at the module boundary: a stub view and stub
- * refresh/close, not a whole menu. The menu-level wiring (that "Clean up" enters
+ * show/showList/back, not a whole menu. The menu-level wiring (that "Clean up" enters
  * the flow, that a clean sweep closes the menu) stays in agent-status-menu.test.ts.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import type {
   CleanupOptions,
   CleanupReport,
 } from "../../src/agents/cleanup-policy.js";
-import { SwappableView } from "../../src/ui/menu/screen-host.js";
+import { SwappableView } from "../../src/ui/menu/swappable-view.js";
 import type { Theme } from "../../src/ui/types.js";
 import { KEY } from "./harness.js";
 import { resetShell, setManager } from "./shell-mock.js";
@@ -49,8 +49,8 @@ const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
 function buildFlow() {
-  const refresh = vi.fn();
-  const close = vi.fn();
+  const showList = vi.fn();
+  const back = vi.fn();
   const notify = vi.fn();
   const requestRender = vi.fn();
   const ctx = { ui: { notify, theme } } as unknown as ExtensionCommandContext;
@@ -64,15 +64,17 @@ function buildFlow() {
   const beginCleanup = createStatusCleanup({
     ctx,
     theme,
-    view,
-    refresh,
-    close,
-    requestRender,
+    show: (body) => {
+      view.activate(body);
+      requestRender();
+    },
+    showList,
+    back,
   });
   return {
     beginCleanup,
-    refresh,
-    close,
+    showList,
+    back,
     notify,
     requestRender,
     text: () => stripTerminalSequences(view.render(80).join("\n")),
@@ -87,7 +89,7 @@ beforeEach(() => {
 });
 
 describe("createStatusCleanup", () => {
-  it("runs the non-force pass first, then forces on Y and closes", async () => {
+  it("runs the non-force pass first, then forces on Y and steps back", async () => {
     cleanupImpl = (id, opts) =>
       opts?.force ? forcedTeardown(id) : dirtyRefusal(id);
     const flow = buildFlow();
@@ -101,7 +103,8 @@ describe("createStatusCleanup", () => {
 
     // The non-force pass refused; Force/Cancel is up and the menu stays open.
     expect(calls).toEqual([{ id: "beef5678-completed", opts: undefined }]);
-    expect(flow.close).not.toHaveBeenCalled();
+    expect(flow.back).not.toHaveBeenCalled();
+    expect(flow.showList).not.toHaveBeenCalled();
     expect(flow.text()).toContain("Force");
     expect(flow.text()).toContain("Cancel");
 
@@ -120,7 +123,8 @@ describe("createStatusCleanup", () => {
         opts: { force: { reason: { kind: "dirty" } } },
       },
     ]);
-    expect(flow.close).toHaveBeenCalledTimes(1);
+    expect(flow.back).toHaveBeenCalledTimes(1);
+    expect(flow.showList).not.toHaveBeenCalled();
     expect(flow.notify).toHaveBeenCalledWith(
       "✓ Cleaned up agent beef5678-completed forced — has uncommitted changes: pane closed, worktree removed (/repo/.worktrees/fix-login), branch deleted (cow-fix-login-abcd1234)",
       "info",
@@ -137,8 +141,9 @@ describe("createStatusCleanup", () => {
     flow.press(KEY.escape);
 
     expect(calls).toHaveLength(1);
-    expect(flow.refresh).toHaveBeenCalledTimes(1);
-    expect(flow.close).not.toHaveBeenCalled();
+    // The offer was declined, so the flow shows the list the reason reads on.
+    expect(flow.showList).toHaveBeenCalledTimes(1);
+    expect(flow.back).not.toHaveBeenCalled();
     // Backing out still reports the refusal the dialog would have overridden.
     expect(flow.notify).toHaveBeenCalledWith(
       "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",
@@ -157,8 +162,8 @@ describe("createStatusCleanup", () => {
     flow.press("n");
 
     expect(calls).toHaveLength(1);
-    expect(flow.refresh).toHaveBeenCalledTimes(1);
-    expect(flow.close).not.toHaveBeenCalled();
+    expect(flow.showList).toHaveBeenCalledTimes(1);
+    expect(flow.back).not.toHaveBeenCalled();
     expect(flow.notify).toHaveBeenCalledWith(
       "✓ Did not clean up agent beef5678-completed: has uncommitted changes pane closed",
       "warning",
@@ -188,8 +193,8 @@ describe("createStatusCleanup", () => {
     await flush();
 
     expect(flow.text()).not.toContain("Force");
-    expect(flow.refresh).toHaveBeenCalledTimes(1);
-    expect(flow.close).not.toHaveBeenCalled();
+    expect(flow.back).toHaveBeenCalledTimes(1);
+    expect(flow.showList).not.toHaveBeenCalled();
     expect(flow.notify).toHaveBeenCalledWith(
       "✓ Did not clean up agent beef5678-completed: state could not be verified (missing worktree path or repo cwd) pane closed",
       "warning",
@@ -220,6 +225,6 @@ describe("createStatusCleanup", () => {
       true,
       true,
     ]);
-    expect(flow.close).toHaveBeenCalledTimes(1);
+    expect(flow.back).toHaveBeenCalledTimes(1);
   });
 });

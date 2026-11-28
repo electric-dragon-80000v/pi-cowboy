@@ -9,12 +9,10 @@
 import { describe, expect, it } from "vitest";
 import type { Component, Focusable } from "@earendil-works/pi-tui";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  ScreenHost,
-  SwappableView,
-  asListFields,
-  asSubmenuComponent,
-} from "../../src/ui/menu/screen-host.js";
+import { asListFields } from "../../src/ui/menu/list-fields.js";
+import { ScreenHost } from "../../src/ui/menu/screen-host.js";
+import { asSubmenuComponent } from "../../src/ui/menu/submenu-contract.js";
+import { SwappableView } from "../../src/ui/menu/swappable-view.js";
 import { beginUiFlow } from "../../src/shell.js";
 import { KEY, openMenu } from "./harness.js";
 
@@ -108,22 +106,32 @@ describe("screen host — one screen per custom call", () => {
     expect(body.invalidated).toBe(0);
   });
 
-  it("marks an overlay screen as an overlay", async () => {
+  it("opens an overlay as a level, with no second custom call", async () => {
     const options: unknown[] = [];
+    let close: (() => void) | undefined;
     const ctx = {
       ui: {
-        custom: (_build: unknown, opts?: unknown) => {
+        custom: (build: (...args: unknown[]) => Component, opts?: unknown) => {
           options.push(opts);
-          return Promise.resolve(undefined);
+          return new Promise((resolve) => {
+            const tui = { terminal: { rows: 24 }, requestRender() {} };
+            const screen = build(tui, {}, {}, resolve);
+            expect(screen.render(10)).toEqual(["probe 10"]);
+            close = () => resolve(undefined);
+          });
         },
       },
     } as unknown as ExtensionCommandContext;
     const host = new ScreenHost(ctx);
 
-    await host.openOverlay<void>(() => probe());
-    await host.open<void>(() => probe());
+    const opened = host.openOverlay<void>(() => probe());
+    await Promise.resolve();
+    close?.();
+    await opened;
 
-    expect(options).toEqual([{ overlay: true }, undefined]);
+    // An overlay is a level like any other screen: no overlay option reaches
+    // the ui, because nothing is opened on top of the menu's one screen.
+    expect(options).toEqual([undefined]);
   });
 });
 
