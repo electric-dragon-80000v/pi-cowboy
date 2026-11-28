@@ -44,7 +44,7 @@ export const piHarness: Harness<PiFamilyLaunchRequest> = {
     if (launch.envFile === null) return;
     await installPaneLauncher(pane, paneId, {
       file: subagentLauncherFileFor(launch.subagentId),
-      agentMultiplexerKind: "pi",
+      commandName: "pi",
       body: launchEnvBody(launch.envFile, 'command pi "$@"'),
       signature: PI_ENV_LAUNCHER_SIGNATURE,
       readyMarker: PI_ENV_READY_MARKER,

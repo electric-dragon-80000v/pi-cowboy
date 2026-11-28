@@ -107,12 +107,11 @@ export interface PiCompatibleSpec {
  * The launcher runs the binary as a child of the pane's shell rather than via
  * `exec`: replacing the shell would make the pane close when the binary exits,
  * and the pane must outlive the process (only cleanup closes a pane it created).
- * A multiplexer that must recognize the forwarded binary declares the identity
- * variable its detection needs, and `installPaneLauncher` exports it for the
- * kind `pi` in a subshell; this factory names only the kind and stays free of
- * any multiplexer's vocabulary.
+ * A multiplexer that must recognize the forwarded binary sets the identity
+ * variable its detection needs before it starts the agent; this factory names
+ * only the kind and stays free of any multiplexer's vocabulary.
  *
- * The launcher is installed under the kind the multiplexer types into the pane,
+ * The launcher is installed under the name the multiplexer types into the pane,
  * `pi`, so the pane's `pi` forwards to this binary whatever it is called.
  */
 export function createPiCompatibleHarness(
@@ -155,7 +154,7 @@ export function createPiCompatibleHarness(
     }: HarnessPrepareRequest<PiFamilyLaunchRequest>): Promise<void> {
       await installPaneLauncher(pane, paneId, {
         file: subagentLauncherFileFor(launch.subagentId),
-        agentMultiplexerKind: "pi",
+        commandName: "pi",
         body: launchEnvBody(launch.envFile, `${spec.binary} "$@"`),
         signature: spec.signature,
         readyMarker: spec.readyMarker,

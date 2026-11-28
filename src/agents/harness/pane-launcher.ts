@@ -20,15 +20,15 @@
  * quote, a continuation prompt, and a shell that swallows every line typed
  * after it.
  *
- * Nothing here knows which harness is installing: the agent kind, the launcher
- * body, the tokens and the proof belong to the caller. The pane is reached
- * through the multiplexer's `PaneControl` — never a multiplexer's own client —
+ * Nothing here knows which harness is installing: the command name, the
+ * launcher body, the tokens and the proof belong to the caller. The pane is
+ * reached through the multiplexer's `PaneControl` — never a multiplexer's own client —
  * so the same install runs under any multiplexer that offers the surface and no
  * harness holds the control-plane API.
  */
 
 import path from "node:path";
-import type { AgentMultiplexerKind, PaneControl } from "../agent-host.js";
+import type { PaneControl } from "../agent-host.js";
 import {
   ensureResultDir,
   writeResultFile,
@@ -75,11 +75,11 @@ export interface PaneLauncherSpec {
    */
   readonly file: string;
   /**
-   * The agent kind the multiplexer types into the pane; the install defines the
-   * shell function under this name, so the command the multiplexer runs resolves
-   * to this launcher instead of to a PATH binary.
+   * The command the multiplexer types into the pane — the harness's `agentMultiplexerKind`.
+   * The install defines a shell function under this name, so the command the
+   * multiplexer runs resolves to this launcher instead of to a PATH binary.
    */
-  readonly agentMultiplexerKind: AgentMultiplexerKind;
+  readonly commandName: string;
   /**
    * The shell body after the function name — how the launcher runs its
    * process. The install terminates it, so it carries no trailing `;` of its
@@ -152,8 +152,8 @@ export function sourceCommand(file: string): string {
  */
 export function launcherScript(spec: PaneLauncherSpec): string {
   return [
-    `${spec.agentMultiplexerKind}() { : "${spec.signature}"; ${spec.body}; }`,
-    `typeset -f ${spec.agentMultiplexerKind} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`,
+    `${spec.commandName}() { : "${spec.signature}"; ${spec.body}; }`,
+    `typeset -f ${spec.commandName} 2>/dev/null | grep -q "${spec.signature}" && echo ${splitMarker(spec.readyMarker)}`,
     "",
   ].join("\n");
 }
@@ -199,7 +199,7 @@ export async function installPaneLauncher(
     if (attempt < INSTALL_MAX_ATTEMPTS) await sleep(INSTALL_RETRY_DELAY_MS);
   }
   throw new Error(
-    `failed to prepare pane ${paneId}: the ${spec.agentMultiplexerKind} launcher never landed`,
+    `failed to prepare pane ${paneId}: the ${spec.commandName} launcher never landed`,
   );
 }
 

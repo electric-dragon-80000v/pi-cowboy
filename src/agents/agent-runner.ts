@@ -353,13 +353,13 @@ function dropReserved(
 ): Record<string, string> {
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(merged)) {
-    if (reserved.includes(name)) {
-      warn(
-        `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
-      );
+    if (!reserved.includes(name)) {
+      kept[name] = value;
       continue;
     }
-    kept[name] = value;
+    warn(
+      `Ignoring environment variable ${name} for ${harness}: it is reserved by the ${harness} harness and cannot be overridden`,
+    );
   }
   return kept;
 }

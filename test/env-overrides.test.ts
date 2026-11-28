@@ -76,11 +76,11 @@ describe("sanitizeEnv", () => {
   });
 
   it("refuses a reserved prefix without enumerating its members", () => {
-    const { kept, reports } = sanitize({ COWBOY_PANE_ID: "p1", KEPT: "yes" });
+    const { kept, reports } = sanitize({ HERDR_PANE_ID: "p1", KEPT: "yes" });
 
     expect(kept).toEqual({ KEPT: "yes" });
     expect(reports).toEqual([
-      { name: "COWBOY_PANE_ID", problem: "reserved", value: "p1" },
+      { name: "HERDR_PANE_ID", problem: "reserved", value: "p1" },
     ]);
   });
 

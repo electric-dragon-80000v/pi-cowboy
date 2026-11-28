@@ -376,7 +376,7 @@ export const codexHarness: Harness<CodexLaunchRequest> = {
   }: HarnessPrepareRequest<CodexLaunchRequest>): Promise<void> {
     await installPaneLauncher(pane, paneId, {
       file: subagentLauncherFileFor(launch.subagentId),
-      agentMultiplexerKind: CODEX_COMMAND,
+      commandName: CODEX_COMMAND,
       body: launcherBody(launch.taskFile, launch.envFile),
       signature: LAUNCHER_SIGNATURE,
       readyMarker: LAUNCHER_READY_MARKER,

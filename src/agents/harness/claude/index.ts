@@ -311,7 +311,7 @@ export const claudeHarness: Harness<ClaudeLaunchRequest> = {
     });
     await installPaneLauncher(pane, paneId, {
       file: subagentLauncherFileFor(launch.subagentId),
-      agentMultiplexerKind: CLAUDE_COMMAND,
+      commandName: CLAUDE_COMMAND,
       body: launcherBody(
         configDir,
         sessionId,

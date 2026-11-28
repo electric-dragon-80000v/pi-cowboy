@@ -28,7 +28,7 @@ let root: string;
 let SPEC: PaneLauncherSpec;
 
 const LAUNCHER: Omit<PaneLauncherSpec, "file"> = {
-  agentMultiplexerKind: "codex",
+  commandName: "codex",
   body: 'codex "$@"',
   signature: "CODEX_LAUNCHER_1a2b3c",
   readyMarker: "CODEX_VERIFIED",

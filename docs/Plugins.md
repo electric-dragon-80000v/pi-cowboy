@@ -196,7 +196,7 @@ async prepare({ pane, paneId, launch }: HarnessPrepareRequest) {
   );
   await installPaneLauncher(pane, paneId, {
     file: subagentLauncherFileFor(launch.subagentId),
-    agentMultiplexerKind: "pi",
+    commandName: "my-cli",
     body,
     signature: "MY_CLI_LAUNCHER_1a2b3c",
     readyMarker: "MY_CLI_VERIFIED",
@@ -206,7 +206,7 @@ async prepare({ pane, paneId, launch }: HarnessPrepareRequest) {
 
 `launchEnvBody` returns the body unchanged when the launch carries no variables, and otherwise wraps it in a subshell that sources the file: the variables reach the launched process, and the pane's shell keeps its own environment after the agent exits. A launcher that ignores `envFile` silently drops every entry configured for its harness.
 
-`installPaneLauncher` writes the launcher into the spawn's staging directory (`subagentLauncherFileFor`), types only `. '<file>'` into the pane, and retries until the read-back proves the shell's function carries this launcher's `signature`: a `run` that arrives before the shell is at its prompt is retried, and one that never lands fails the launch in the kind's own name. `agentMultiplexerKind` is the kind the multiplexer types into the pane, so the command resolves to the staged function rather than a PATH binary. When the pane state is more than the function, pass `proof` — a command to run and the output it must print — and it is staged and sourced the same way once the launcher is up.
+`installPaneLauncher` writes the launcher into the spawn's staging directory (`subagentLauncherFileFor`), types only `. '<file>'` into the pane, and retries until the read-back proves the shell's function carries this launcher's `signature`: a `run` that arrives before the shell is at its prompt is retried, and one that never lands fails the launch in `commandName`'s own name. `commandName` is the harness's `agentMultiplexerKind`, so the multiplexer's command resolves to the staged function rather than a PATH binary. When the pane state is more than the function, pass `proof` — a command to run and the output it must print — and it is staged and sourced the same way once the launcher is up.
 
 A harness can also reserve names its own launcher maintains, so a configured entry for one is refused instead of overwriting what the launcher set:
 
