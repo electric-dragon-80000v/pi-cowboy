@@ -1,3 +1,11 @@
+## [0.43.1](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.43.0...v0.43.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* keep the multiplexer env namespace universally reserved ([94b7b2c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/94b7b2ceed4471de7355915fb0e0d547bb800900))
+* **ui:** keep a cleanup flow's steps on the screen it was started from ([bf1559c](https://github.com/electric-dragon-80000v/pi-cowboy/commit/bf1559cc65e765818aca98aaffbacb55c6b2ab0e))
+
 # [0.43.0](https://github.com/electric-dragon-80000v/pi-cowboy/compare/v0.42.0...v0.43.0) (2026-11-28)
 
 
